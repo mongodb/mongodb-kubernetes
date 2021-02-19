@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -63,7 +64,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 	}
 }
 
-func (r *ReconcileMongoDbShardedCluster) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)

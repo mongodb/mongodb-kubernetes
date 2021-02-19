@@ -248,7 +248,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 		return om.CurrMockedConnection // use the same connection
 	})
 
-	actual, err := userReconciler.Reconcile(requestFromObject(x509User))
+	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(x509User))
 	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
@@ -273,7 +273,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 		return om.CurrMockedConnection // use the same connection
 	})
 
-	actual, err := userReconciler.Reconcile(requestFromObject(x509User))
+	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(x509User))
 	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
@@ -530,7 +530,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ReplicaSet(
 
 	// our project controller needs to use the same connection so it shares the underlying deployment
 	projectController := newProjectReconciler(manager, connectionFunc)
-	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
+	projectResult, projectErr := projectController.Reconcile(context.TODO(), requestFromObject(cMap))
 
 	expected := reconcileAppDB.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
@@ -566,7 +566,7 @@ func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedClus
 
 	// our project controller needs to use the same connection so it shares the underlying deployment
 	projectController := newProjectReconciler(manager, connectionFunc)
-	projectResult, projectErr := projectController.Reconcile(requestFromObject(cMap))
+	projectResult, projectErr := projectController.Reconcile(context.TODO(), requestFromObject(cMap))
 
 	expected := reconcileAppDB.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")

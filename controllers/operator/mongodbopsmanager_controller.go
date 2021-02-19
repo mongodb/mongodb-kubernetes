@@ -79,7 +79,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 // Backup daemon statefulset is created/updated and configured optionally if backup is enabled.
 // Note, that the pointer to ops manager resource is used in 'Reconcile' method as resource status is mutated
 // many times during reconciliation and its important to keep updates to avoid status override
-func (r *OpsManagerReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", request.NamespacedName)
 
 	opsManager := &omv1.MongoDBOpsManager{}

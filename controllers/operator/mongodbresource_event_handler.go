@@ -25,7 +25,7 @@ type MongoDBResourceEventHandler struct {
 }
 
 func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
-	objectKey := kube.ObjectKey(e.Meta.GetNamespace(), e.Meta.GetName())
+	objectKey := kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName())
 	logger := zap.S().With("resource", objectKey)
 
 	// Reusing the lock used during update reconciliations

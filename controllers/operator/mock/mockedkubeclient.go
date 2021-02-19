@@ -220,12 +220,15 @@ type MockedClient struct {
 	*MockedSecretClient
 	*MockedServiceClient
 	*MockedStatefulSetClient
-	// backingMap contains all of the maps of all apiiruntime.Objects. Using the GetMapForObject
+
+	// backingMap contains all of the maps of all apiruntime.Objects. Using the GetMapForObject
 	// function will dynamically initialize a new map for the type in question
 	backingMap map[reflect.Type]map[client.ObjectKey]apiruntime.Object
+
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*HistoryItem
+
 	// if the StatefulSet created must be marked ready right after creation
 	markStsReady bool
 	UpdateFunc   func(ctx context.Context, obj apiruntime.Object) error
@@ -252,8 +255,16 @@ func NewClient() *MockedClient {
 	return &api
 }
 
-func (m *MockedClient) WithResource(object apiruntime.Object) *MockedClient {
-	err := m.Create(context.TODO(), object.DeepCopyObject())
+func (m *MockedClient) RESTMapper() meta.RESTMapper {
+	return nil
+}
+
+func (m *MockedClient) Scheme() *apiruntime.Scheme {
+	return nil
+}
+
+func (m *MockedClient) WithResource(object client.Object) *MockedClient {
+	err := m.Create(context.TODO(), object.(client.Object))
 	if err != nil {
 		// panicking here instead of adding to return type as this function
 		// is used to initialize the mocked client, with this we can ensure we never
@@ -304,7 +315,7 @@ func (m *MockedClient) AddDefaultMdbConfigResources() *MockedClient {
 // Get retrieves an obj for the given object key from the Kubernetes Cluster.
 // obj must be a struct pointer so that obj can be updated with the response
 // returned by the Server.
-func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj apiruntime.Object) (e error) {
+func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) (e error) {
 	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Get), obj)
 	if _, exists := resMap[key]; !exists {
@@ -333,14 +344,14 @@ func (k *MockedClient) ApproveAllCSRs() {
 // List retrieves list of objects for a given namespace and list options. On a
 // successful call, Items field in the list will be populated with the
 // result returned from the server.
-func (k *MockedClient) List(ctx context.Context, list apiruntime.Object, opts ...client.ListOption) error {
+func (k *MockedClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	// we don't need this
 	return nil
 }
 
 // Create saves the object obj in the Kubernetes cluster.
-func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts ...client.CreateOption) error {
-	obj = obj.DeepCopyObject()
+func (k *MockedClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	obj = obj.DeepCopyObject().(client.Object)
 	key := ObjectKeyFromApiObject(obj)
 	resMap := k.GetMapForObject(obj)
 
@@ -381,11 +392,11 @@ func (k *MockedClient) Create(ctx context.Context, obj apiruntime.Object, opts .
 
 // Update updates the given obj in the Kubernetes cluster. obj must be a
 // struct pointer so that obj can be updated with the content returned by the Server.
-func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts ...client.UpdateOption) error {
+func (k *MockedClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 	if err := validateDNS1123Subdomain(obj); err != nil {
 		return err
 	}
-	obj = obj.DeepCopyObject()
+	obj = obj.DeepCopyObject().(client.Object)
 	k.addToHistory(reflect.ValueOf(k.Update), obj)
 	if k.UpdateFunc != nil {
 		return k.UpdateFunc(ctx, obj)
@@ -393,7 +404,7 @@ func (k *MockedClient) Update(ctx context.Context, obj apiruntime.Object, opts .
 	return k.doUpdate(ctx, obj)
 }
 
-func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) error {
+func (k *MockedClient) doUpdate(ctx context.Context, obj client.Object) error {
 	key := ObjectKeyFromApiObject(obj)
 
 	resMap := k.GetMapForObject(obj)
@@ -407,7 +418,7 @@ func (k *MockedClient) doUpdate(ctx context.Context, obj apiruntime.Object) erro
 }
 
 // Delete deletes the given obj from Kubernetes cluster.
-func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteOption) error {
+func (k *MockedClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
 	k.addToHistory(reflect.ValueOf(k.Delete), obj)
 
 	key := ObjectKeyFromApiObject(obj)
@@ -418,11 +429,11 @@ func (k *MockedClient) Delete(ctx context.Context, obj apiruntime.Object, opts .
 	return nil
 }
 
-func (k *MockedClient) DeleteAllOf(ctx context.Context, obj apiruntime.Object, opts ...client.DeleteAllOfOption) error {
+func (k *MockedClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
 	return nil
 }
 
-func (k *MockedClient) Patch(ctx context.Context, obj apiruntime.Object, patch client.Patch, opts ...client.PatchOption) error {
+func (k *MockedClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 	// Finding the object to patch
 	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Patch), obj)
@@ -469,7 +480,7 @@ func (k *MockedClient) Status() client.StatusWriter {
 }
 
 // Not used in enterprise, these only exist in community.
-func (k *MockedClient) GetAndUpdate(nsName types.NamespacedName, obj apiruntime.Object, updateFunc func()) error {
+func (k *MockedClient) GetAndUpdate(nsName types.NamespacedName, obj client.Object, updateFunc func()) error {
 	return nil
 }
 
@@ -587,7 +598,7 @@ func NewEmptyManager() *MockedManager {
 	return &MockedManager{Client: NewClient()}
 }
 
-func NewManager(object apiruntime.Object) *MockedManager {
+func NewManager(object client.Object) *MockedManager {
 	return &MockedManager{Client: NewClient().WithResource(object)}
 }
 
@@ -615,7 +626,7 @@ func (m *MockedManager) SetFields(interface{}) error {
 
 // Start starts all registered Controllers and blocks until the Stop channel is closed.
 // Returns an error if there is an error starting any controller.
-func (m *MockedManager) Start(<-chan struct{}) error {
+func (m *MockedManager) Start(_ context.Context) error {
 	return nil
 }
 

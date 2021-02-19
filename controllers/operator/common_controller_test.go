@@ -372,7 +372,7 @@ func testConnectionSpec() mdbv1.ConnectionSpec {
 }
 
 func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
-	result, e := reconciler.Reconcile(requestFromObject(object))
+	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(object))
 	require.NoError(t, e)
 	require.Equal(t, reconcile.Result{}, result)
 
@@ -402,19 +402,19 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 }
 
 func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
-	res, err := reconciler.Reconcile(requestFromObject(om))
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(om))
 	expected := reconcile.Result{Requeue: true}
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 
-	res, err = reconciler.Reconcile(requestFromObject(om))
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(om))
 	expected = reconcile.Result{}
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 }
 
 func checkOMReconcilliationPending(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
-	res, err := reconciler.Reconcile(requestFromObject(om))
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(om))
 	assert.NoError(t, err)
 	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
 }
@@ -424,7 +424,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 	if expectedRetry {
 		failedResult.RequeueAfter = 10 * time.Second
 	}
-	result, e := reconciler.Reconcile(requestFromObject(object))
+	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(object))
 	assert.Nil(t, e, "When retrying, error should be nil")
 	assert.Equal(t, failedResult, result)
 
@@ -436,7 +436,7 @@ func checkReconcileFailed(t *testing.T, reconciler reconcile.Reconciler, object 
 
 func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client *mock.MockedClient, requeueAfter time.Duration) {
 	failedResult := reconcile.Result{RequeueAfter: requeueAfter * time.Second}
-	result, e := reconciler.Reconcile(requestFromObject(object))
+	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(object))
 	assert.Nil(t, e, "When pending, error should be nil")
 	assert.Equal(t, failedResult, result)
 

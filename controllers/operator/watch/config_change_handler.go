@@ -44,14 +44,14 @@ type ResourcesHandler struct {
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
 // and then created again.
 func (c *ResourcesHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	c.doHandle(e.Meta.GetNamespace(), e.Meta.GetName(), q)
+	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
 }
 
 func (c *ResourcesHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	if !shouldHandleUpdate(e) {
 		return
 	}
-	c.doHandle(e.MetaOld.GetNamespace(), e.MetaOld.GetName(), q)
+	c.doHandle(e.ObjectOld.GetNamespace(), e.ObjectOld.GetName(), q)
 }
 
 // shouldHandleUpdate return true if the update event must be handled. This shouldn't happen if data for watched

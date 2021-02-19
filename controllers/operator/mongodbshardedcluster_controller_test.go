@@ -338,7 +338,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 		createCSR(fmt.Sprintf("%s-1-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
 	)
 
-	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
+	actualResult, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 	expectedResult := reconcile.Result{}
 
 	assert.Equal(t, expectedResult, actualResult)
@@ -359,7 +359,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	// perform successful reconciliation to populate all the stateful sets in the mocked client
 	reconciler, client := defaultClusterReconciler(sc)
 	addKubernetesTlsResources(client, sc)
-	actualResult, err := reconciler.Reconcile(requestFromObject(sc))
+	actualResult, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 	expectedResult := reconcile.Result{}
 
 	assert.Equal(t, expectedResult, actualResult)
@@ -514,7 +514,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 
 	var deployment om.Deployment
 	performReconciliation := func(shouldRetry bool) {
-		res, err := reconciler.Reconcile(requestFromObject(sc))
+		res, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 		assert.NoError(t, err)
 		if shouldRetry {
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
@@ -595,7 +595,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 	assert.NoError(t, err)
 
 	performReconciliation := func(shouldRetry bool) {
-		res, err := reconciler.Reconcile(requestFromObject(sc))
+		res, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 		assert.NoError(t, err)
 		if shouldRetry {
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)

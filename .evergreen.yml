@@ -45,11 +45,11 @@ variables:
   - &kubernetes_environment_minikube minikube
 
   - &go_bin
-    "/opt/golang/go1.13/bin"
+    "/opt/golang/go1.15/bin"
 
   - &go_options
     GO111MODULE: "on"
-    GOROOT: "/opt/golang/go1.13"
+    GOROOT: "/opt/golang/go1.15"
 
 parameters:
 - key: om_version

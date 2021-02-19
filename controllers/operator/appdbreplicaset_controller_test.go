@@ -516,7 +516,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 
 	assert.Equal(t, 2, opsManager.Status.AppDbStatus.Members)
 
-	res, err := omReconciler.Reconcile(requestFromObject(&opsManager))
+	res, err := omReconciler.Reconcile(context.TODO(), requestFromObject(&opsManager))
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	assert.Equal(t, false, res.Requeue)

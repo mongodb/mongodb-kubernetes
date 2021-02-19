@@ -64,7 +64,7 @@ func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.Mongo
 	return mdb, nil
 }
 
-func (r *MongoDBUserReconciler) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("MongoDBUser", request.NamespacedName)
 	log.Info("-> MongoDBUser.Reconcile")
 

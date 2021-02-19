@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
@@ -101,7 +102,7 @@ type ReconcileMongoDbStandalone struct {
 	omConnectionFactory om.ConnectionFactory
 }
 
-func (r *ReconcileMongoDbStandalone) Reconcile(request reconcile.Request) (res reconcile.Result, e error) {
+func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("Standalone", request.NamespacedName)

@@ -158,7 +158,7 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResource
 		return err
 	}
 
-	patch := client.ConstantPatch(types.JSONPatchType, data)
+	patch := client.RawPatch(types.JSONPatchType, data)
 	err = c.client.Status().Patch(context.TODO(), resource, patch)
 
 	if err != nil && apiErrors.IsInvalid(err) {
@@ -206,7 +206,7 @@ func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.Cu
 		if err != nil {
 			return err
 		}
-		patch := client.ConstantPatch(types.JSONPatchType, data)
+		patch := client.RawPatch(types.JSONPatchType, data)
 		if err := c.client.Status().Patch(context.TODO(), resource, patch); err != nil && !apiErrors.IsInvalid(err) {
 			return err
 		}
@@ -236,7 +236,7 @@ func (c *ReconcileCommonController) patchStatusLegacy(resource v1.CustomResource
 		if err != nil {
 			return err
 		}
-		emptyPatch := client.ConstantPatch(types.JSONPatchType, data)
+		emptyPatch := client.RawPatch(types.JSONPatchType, data)
 		err = c.client.Patch(context.TODO(), resource, emptyPatch)
 		if err != nil {
 			return err
@@ -251,7 +251,7 @@ func (c *ReconcileCommonController) patchStatusLegacy(resource v1.CustomResource
 // getResource populates the provided runtime.Object with some additional error handling
 // Note the logic: any reconcileAppDB result different from nil should be considered as "terminal" and will stop reconciliation
 // right away (the pointer will be empty). Otherwise the pointer 'resource' will always reference the existing resource
-func (c *ReconcileCommonController) getResource(request reconcile.Request, resource runtime.Object, log *zap.SugaredLogger) (*reconcile.Result, error) {
+func (c *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {

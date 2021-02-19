@@ -46,7 +46,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{}
 
@@ -75,7 +75,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{}
 
@@ -87,7 +87,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 		user.Spec.Roles = []userv1.Role{}
 	})
 
-	actual, err = reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -108,7 +108,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{}
 
@@ -121,7 +121,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 		user.Spec.Database = "changed-db"
 	})
 
-	actual, err = reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -153,7 +153,7 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 	createUserControllerConfigMap(client)
 
 	// No password has been created
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, err, "should be no error on retry")
@@ -176,7 +176,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 	// use the wrong key to store the password
 	createPasswordSecret(client, userv1.SecretKeyRef{Name: user.Spec.PasswordSecretKeyRef.Name, Key: "non-existent-key"}, "password")
 
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, err, "should be no error on retry")
@@ -202,7 +202,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 
 	// in order for x509 to be configurable, "util.AutomationConfigX509Option" needs to be enabled on the automation config
 	// pre-configure the connection
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{}
 
@@ -217,7 +217,7 @@ func AssertAuthModeTest(t *testing.T, mode string) {
 	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{mode}).SetName("my-rs0").Build())
 	assert.NoError(t, err)
 	createUserControllerConfigMap(client)
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	// reconciles if a $external user creation is attempted with no configured backends.
 	expected := reconcile.Result{Requeue: false, RequeueAfter: 10 * time.Second}
@@ -241,7 +241,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	createUserControllerConfigMap(client)
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	expected := reconcile.Result{}
 
 	assert.NoError(t, err)
@@ -342,7 +342,7 @@ func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption s
 	assert.NoError(t, err)
 	approveAgentCSRs(client, numAgents)
 	createUserControllerConfigMap(client)
-	_, err = reconciler.Reconcile(reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	_, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	assert.NoError(t, err)
 
 	ac, err := om.CurrMockedConnection.ReadAutomationConfig()

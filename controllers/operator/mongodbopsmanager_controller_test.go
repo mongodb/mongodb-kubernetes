@@ -221,7 +221,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	err = client.Update(context.TODO(), &testOm)
 	assert.NoError(t, err)
 
-	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
 	assert.Equal(t, reconcile.Result{}, res)
 	assert.NoError(t, err)
 
@@ -363,12 +363,12 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	configureBackupResources(mockedClient, testOm)
 
 	// initially requeued as monitoring needs to be configured
-	res, err := reconciler.Reconcile(requestFromObject(&testOm))
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
 	assert.NoError(t, err)
 	assert.Equal(t, true, res.Requeue)
 
 	// monitoring is configured successfully
-	res, err = reconciler.Reconcile(requestFromObject(&testOm))
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
 
 	assert.NoError(t, err)
 	assert.Equal(t, false, res.Requeue)

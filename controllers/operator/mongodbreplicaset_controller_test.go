@@ -319,14 +319,14 @@ func TestScalingScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {
 	err := client.Update(context.TODO(), rs)
 	assert.NoError(t, err)
 
-	res, err := reconciler.Reconcile(requestFromObject(rs))
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(rs))
 
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(10000000000), res.RequeueAfter, "Scaling from 5 -> 4 should enqueue another reconciliation")
 
 	assertCorrectNumberOfMembersAndProcesses(t, 4, rs, client, "We should have updated the status with the intermediate value of 4")
 
-	res, err = reconciler.Reconcile(requestFromObject(rs))
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(rs))
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter, "Once we reach the target value, we should not scale anymore")
 
@@ -346,14 +346,14 @@ func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 	err := client.Update(context.TODO(), rs)
 	assert.NoError(t, err)
 
-	res, err := reconciler.Reconcile(requestFromObject(rs))
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(rs))
 	assert.NoError(t, err)
 
 	assert.Equal(t, time.Duration(10000000000), res.RequeueAfter, "Scaling from 1 -> 3 should enqueue another reconciliation")
 
 	assertCorrectNumberOfMembersAndProcesses(t, 2, rs, client, "We should have updated the status with the intermediate value of 2")
 
-	res, err = reconciler.Reconcile(requestFromObject(rs))
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(rs))
 	assert.NoError(t, err)
 
 	assertCorrectNumberOfMembersAndProcesses(t, 3, rs, client, "Once we reach the target value, we should not scale anymore")

@@ -4,21 +4,25 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
+	localruntime "runtime"
 	"strings"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
+
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
@@ -29,11 +33,22 @@ var (
 	// List of allowed operator environments. The first element of this list is
 	// considered the default one.
 	operatorEnvironments = [...]string{"dev", "local", "prod"}
+
+	scheme = runtime.NewScheme()
 )
 
 const (
 	mdbWebHookPortEnvName = "MDB_WEBHOOK_PORT"
 )
+
+func init() {
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	utilruntime.Must(mdbv1.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+
+	// +kubebuilder:scaffold:scheme
+}
 
 // crdsToWatch is a custom Value implementation which can be
 // used to receive command line arguments
@@ -57,7 +72,6 @@ func getCrdsToWatchStr() string {
 }
 
 func main() {
-
 	initializeEnvironment()
 
 	// get watch namespace from environment variable
@@ -80,13 +94,12 @@ func main() {
 	}
 
 	// Get a config to talk to the apiserver
-	cfg, err := config.GetConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
+	cfg := ctrl.GetConfigOrDie()
 
-	// Create a new Cmd to provide shared dependencies and start components
-	mgr, err := manager.New(cfg, manager.Options{Namespace: namespace})
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:    scheme,
+		Namespace: namespace,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -96,7 +109,7 @@ func main() {
 	setupWebhook(mgr, cfg, log)
 
 	// Setup Scheme for all resources
-	if err := mdbv1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := mdbv1.AddToScheme(scheme); err != nil {
 		log.Fatal(err)
 	}
 
@@ -166,8 +179,8 @@ func initializeEnvironment() {
 
 	log.Infof("Operator environment: %s", omOperatorEnv)
 	log.Infof("Operator version: %s", util.OperatorVersion)
-	log.Infof("Go Version: %s", runtime.Version())
-	log.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
+	log.Infof("Go Version: %s", localruntime.Version())
+	log.Infof("Go OS/Arch: %s/%s", localruntime.GOOS, localruntime.GOARCH)
 
 	printableEnvPrefixes := []string{
 		"BACKUP_WAIT_",
