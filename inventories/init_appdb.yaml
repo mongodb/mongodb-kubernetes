@@ -18,6 +18,7 @@ images:
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
       mongodb_tools_url_ubuntu: $(inputs.params.mongodb_tools_url_ubuntu)
+      readiness_probe_version: $(inputs.params.readiness_probe_version)
 
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context

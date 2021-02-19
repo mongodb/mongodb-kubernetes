@@ -612,10 +612,13 @@ def build_init_appdb(build_configuration: BuildConfiguration):
         base_url, release["mongodbToolsBundle"]["ubuntu"]
     )
 
+    readiness_probe_version = release["readinessProbeVersion"]
+
     args = dict(
         version=version,
         mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
+        readiness_probe_version=readiness_probe_version,
         is_appdb=True,
     )
 
@@ -673,10 +676,13 @@ def build_init_database(build_configuration: BuildConfiguration):
         base_url, release["mongodbToolsBundle"]["ubuntu"]
     )
 
+    readiness_probe_version = release["readinessProbeVersion"]
+
     args = dict(
         version=version,
         mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
+        readiness_probe_version=readiness_probe_version,
         is_appdb=False,
     )
 

@@ -16,5 +16,6 @@
   "initDatabaseVersion": "1.0.2",
   "initOpsManagerVersion": "1.0.3",
   "initAppDbVersion": "1.0.6",
-  "databaseImageVersion": "2.0.0"
+  "databaseImageVersion": "2.0.0",
+  "readinessProbeVersion": "1.0.0"
 }

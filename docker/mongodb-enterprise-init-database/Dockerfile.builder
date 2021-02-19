@@ -1,18 +1,13 @@
 # Build compilable stuff
 
-FROM golang:1.13-alpine as builder
-
-COPY ./probe /build/
-COPY ./probe_go_mod /build/
-WORKDIR /build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o readinessprobe .
-
+ARG readiness_probe_version
+FROM quay.io/mongodb/mongodb-kubernetes-readinessprobe:${readiness_probe_version} as builder
 
 FROM scratch
 ARG mongodb_tools_url_ubi
 ARG mongodb_tools_url_ubuntu
 
-COPY --from=builder /build/readinessprobe /data/
+COPY --from=builder /probes/readinessprobe /data/
 
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
 ADD ${mongodb_tools_url_ubuntu} /data/mongodb_tools_ubuntu.tgz
