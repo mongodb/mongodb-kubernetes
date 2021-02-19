@@ -250,7 +250,7 @@ test: generate fmt vet manifests
 
 # Build manager binary
 manager: generate fmt vet
-	go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator main.go
+	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
