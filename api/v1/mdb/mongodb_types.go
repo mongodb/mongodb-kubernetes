@@ -70,7 +70,7 @@ const (
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
 // to your Kubernetes cluster
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=mongodb,scope=Namespaced,shortName=mdb
@@ -81,8 +81,9 @@ const (
 type MongoDB struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Status            MongoDbStatus `json:"status"`
-	Spec              MongoDbSpec   `json:"spec"`
+	// +optional
+	Status MongoDbStatus `json:"status"`
+	Spec   MongoDbSpec   `json:"spec"`
 }
 
 func (mdb MongoDB) AddValidationToManager(m manager.Manager) error {
@@ -128,6 +129,7 @@ type BackupStatus struct {
 }
 
 type MongoDbSpec struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
 	ShardedClusterSpec `json:",inline"`
 
 	Version                     string  `json:"version,omitempty"`
@@ -144,9 +146,10 @@ type MongoDbSpec struct {
 	ClusterName    string `json:"clusterName,omitempty"`
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
-	Persistent     *bool        `json:"persistent,omitempty"`
-	ResourceType   ResourceType `json:"type,omitempty"`
-	Backup         *Backup      `json:"backup,omitempty"`
+	Persistent     *bool `json:"persistent,omitempty"`
+	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
+	ResourceType ResourceType `json:"type,omitempty"`
+	Backup       *Backup      `json:"backup,omitempty"`
 
 	// sharded clusters
 
@@ -167,7 +170,7 @@ type MongoDbSpec struct {
 	// replica set
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
-
+	// +optional
 	Security *Security `json:"security,omitempty"`
 
 	Connectivity *MongoDBConnectivity `json:"connectivity,omitempty"`
@@ -176,6 +179,7 @@ type MongoDbSpec struct {
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
+	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
@@ -300,6 +304,7 @@ type ConnectionSpec struct {
 	Project string `json:"project,omitempty"`
 
 	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
+	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
 	LogLevel LogLevel `json:"logLevel,omitempty"`
 }
 
@@ -366,7 +371,7 @@ func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
 func (s Security) AgentClientCertificateSecretName() corev1.SecretKeySelector {
 	secretName := util.AgentSecretName
 	if s.ShouldUseClientCertificates() {
-		secretName = s.Authentication.Agents.ClientCertificateSecretRef.Name
+		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
 	}
 
 	return corev1.SecretKeySelector{
@@ -378,7 +383,7 @@ func (s Security) AgentClientCertificateSecretName() corev1.SecretKeySelector {
 // The customer has set ClientCertificateSecretRef. This signals that client certs are required,
 // even when no x509 agent-auth has been enabled.
 func (s Security) ShouldUseClientCertificates() bool {
-	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRef.Name != ""
+	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
 }
 
 // RequiresClientTLSAuthentication checks if client TLS authentication is required, depending
@@ -424,9 +429,11 @@ type Authentication struct {
 	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
 
 	// LDAP
+	// +optional
 	Ldap *Ldap `json:"ldap"`
 
 	// Agents contains authentication configuration properties for the agents
+	// +optional
 	Agents AgentAuthentication `json:"agents"`
 
 	// Clients should present valid TLS certificates
@@ -439,7 +446,9 @@ type AuthenticationRestriction struct {
 }
 
 type Resource struct {
-	Db         string `json:"db"`
+	// +optional
+	Db string `json:"db"`
+	// +optional
 	Collection string `json:"collection"`
 	Cluster    *bool  `json:"cluster,omitempty"`
 }
@@ -458,21 +467,23 @@ type MongoDbRole struct {
 	Role                       string                      `json:"role"`
 	AuthenticationRestrictions []AuthenticationRestriction `json:"authenticationRestrictions,omitempty"`
 	Db                         string                      `json:"db"`
-	Privileges                 []Privilege                 `json:"privileges"`
-	Roles                      []InheritedRole             `json:"roles,omitempty"`
+	// +optional
+	Privileges []Privilege     `json:"privileges"`
+	Roles      []InheritedRole `json:"roles,omitempty"`
 }
 
 type AgentAuthentication struct {
 	// Mode is the desired Authentication mode that the agents will use
 	Mode string `json:"mode"`
-
+	// +optional
 	AutomationUserName string `json:"automationUserName"`
-
+	// +optional
 	AutomationPasswordSecretRef corev1.SecretKeySelector `json:"automationPasswordSecretRef"`
-
+	// +optional
 	AutomationLdapGroupDN string `json:"automationLdapGroupDN"`
-
-	ClientCertificateSecretRef corev1.SecretKeySelector `json:"clientCertificateSecretRef,omitempty"`
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	ClientCertificateSecretRefWrap ClientCertificateSecretRefWrapper `json:"clientCertificateSecretRef,omitempty"`
 }
 
 // IsX509Enabled determines if X509 is to be enabled at the project level
@@ -496,20 +507,26 @@ func (a *Authentication) GetModes() []string {
 }
 
 type Ldap struct {
+	// +optional
 	Servers []string `json:"servers"`
 
 	// +kubebuilder:validation:Enum=tls;none
-	TransportSecurity        *TransportSecurity `json:"transportSecurity"`
-	ValidateLDAPServerConfig *bool              `json:"validateLDAPServerConfig"`
+	// +optional
+	TransportSecurity *TransportSecurity `json:"transportSecurity"`
+	// +optional
+	ValidateLDAPServerConfig *bool `json:"validateLDAPServerConfig"`
 
 	// Allows to point at a ConfigMap/key with a CA file to mount on the Pod
 	CAConfigMapRef *corev1.ConfigMapKeySelector `json:"caConfigMapRef,omitempty"`
 
-	BindQueryUser      string       `json:"bindQueryUser"`
+	// +optional
+	BindQueryUser string `json:"bindQueryUser"`
+	// +optional
 	BindQuerySecretRef TLSSecretRef `json:"bindQueryPasswordSecretRef"`
-
+	// +optional
 	AuthzQueryTemplate string `json:"authzQueryTemplate"`
-	UserToDNMapping    string `json:"userToDNMapping"`
+	// +optional
+	UserToDNMapping string `json:"userToDNMapping"`
 }
 
 type TLSConfig struct {
@@ -784,11 +801,13 @@ type MongoDbPodSpec struct {
 	Memory string `json:"memory,omitempty"`
 	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
 	MemoryRequests string `json:"memoryRequests,omitempty"`
-
-	PodAffinity                *corev1.PodAffinity     `json:"podAffinity,omitempty"`
-	NodeAffinity               *corev1.NodeAffinity    `json:"nodeAffinity,omitempty"`
-	PodTemplate                *corev1.PodTemplateSpec `json:"podTemplate,omitempty"`
-	PodAntiAffinityTopologyKey string                  `json:"podAntiAffinityTopologyKey,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	PodAffinityWrapper PodAffinityWrapper `json:"podAffinity,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	NodeAffinityWrapper NodeAffinityWrapper `json:"nodeAffinity,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	PodTemplateWrapper         PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
+	PodAntiAffinityTopologyKey string                 `json:"podAntiAffinityTopologyKey,omitempty"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
 	Persistence *Persistence `json:"persistence,omitempty"`

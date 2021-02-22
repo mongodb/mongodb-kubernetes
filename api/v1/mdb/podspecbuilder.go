@@ -65,12 +65,12 @@ func (p *PodSpecWrapperBuilder) SetMemoryRequest(memory string) *PodSpecWrapperB
 }
 
 func (p *PodSpecWrapperBuilder) SetPodAffinity(affinity corev1.PodAffinity) *PodSpecWrapperBuilder {
-	p.spec.PodAffinity = &affinity
+	p.spec.PodAffinityWrapper.PodAffinity = &affinity
 	return p
 }
 
 func (p *PodSpecWrapperBuilder) SetNodeAffinity(affinity corev1.NodeAffinity) *PodSpecWrapperBuilder {
-	p.spec.NodeAffinity = &affinity
+	p.spec.NodeAffinityWrapper.NodeAffinity = &affinity
 	return p
 }
 
@@ -80,7 +80,7 @@ func (p *PodSpecWrapperBuilder) SetPodAntiAffinityTopologyKey(topologyKey string
 }
 
 func (p *PodSpecWrapperBuilder) SetPodTemplate(template *corev1.PodTemplateSpec) *PodSpecWrapperBuilder {
-	p.spec.PodTemplate = template
+	p.spec.PodTemplateWrapper.PodTemplate = template
 	return p
 }
 

@@ -1053,7 +1053,7 @@ func (b *ClusterBuilder) SetShardPodSpec(spec corev1.PodTemplateSpec) *ClusterBu
 	if b.Spec.ShardPodSpec == nil {
 		b.Spec.ShardPodSpec = &mdbv1.MongoDbPodSpec{}
 	}
-	b.Spec.ShardPodSpec.PodTemplate = &spec
+	b.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate = &spec
 	return b
 }
 
@@ -1061,7 +1061,7 @@ func (b *ClusterBuilder) SetPodConfigSvrSpecTemplate(spec corev1.PodTemplateSpec
 	if b.Spec.ConfigSrvPodSpec == nil {
 		b.Spec.ConfigSrvPodSpec = &mdbv1.MongoDbPodSpec{}
 	}
-	b.Spec.ConfigSrvPodSpec.PodTemplate = &spec
+	b.Spec.ConfigSrvPodSpec.PodTemplateWrapper.PodTemplate = &spec
 	return b
 }
 
@@ -1069,7 +1069,7 @@ func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec corev1.PodTemplateSpec) *
 	if b.Spec.MongosPodSpec == nil {
 		b.Spec.MongosPodSpec = &mdbv1.MongoDbPodSpec{}
 	}
-	b.Spec.MongosPodSpec.PodTemplate = &spec
+	b.Spec.MongosPodSpec.PodTemplateWrapper.PodTemplate = &spec
 	return b
 }
 

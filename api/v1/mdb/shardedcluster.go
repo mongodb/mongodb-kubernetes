@@ -2,9 +2,12 @@ package mdb
 
 // ShardedClusterSpec is the spec consisting of configuration specific for sharded cluster only
 type ShardedClusterSpec struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
 	ConfigSrvSpec *ShardedClusterComponentSpec `json:"configSrv,omitempty"`
-	MongosSpec    *ShardedClusterComponentSpec `json:"mongos,omitempty"`
-	ShardSpec     *ShardedClusterComponentSpec `json:"shard,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	MongosSpec *ShardedClusterComponentSpec `json:"mongos,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	ShardSpec *ShardedClusterComponentSpec `json:"shard,omitempty"`
 
 	// TODO should pod/statefulset specs for ShardedCluster be moved to "mongos,shard,configSrv" sections above?
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
@@ -13,6 +16,7 @@ type ShardedClusterSpec struct {
 }
 
 type ShardedClusterComponentSpec struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 	Agent                  AgentConfig            `json:"agent,omitempty"`
 }

@@ -259,7 +259,7 @@ func (b *StandaloneBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Sta
 	if b.Spec.PodSpec == nil {
 		b.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
 	}
-	b.Spec.PodSpec.PodTemplate = &spec
+	b.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &spec
 	return b
 }
 

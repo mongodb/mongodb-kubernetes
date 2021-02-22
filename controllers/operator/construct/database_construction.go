@@ -84,8 +84,8 @@ type databaseStatefulSetSource interface {
 func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.PodSpec.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate}
+		if mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate}
 		}
 
 		opts := DatabaseStatefulSetOptions{
@@ -112,8 +112,8 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.PodSpec.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplate}
+		if mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate}
 		}
 
 		opts := DatabaseStatefulSetOptions{
@@ -139,8 +139,8 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.ShardPodSpec.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ShardPodSpec.PodTemplate}
+		if mdb.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate}
 		}
 
 		opts := DatabaseStatefulSetOptions{
@@ -165,8 +165,8 @@ func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStateful
 func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.ConfigSrvPodSpec.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ConfigSrvPodSpec.PodTemplate}
+		if mdb.Spec.ConfigSrvPodSpec.PodTemplateWrapper.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ConfigSrvPodSpec.PodTemplateWrapper.PodTemplate}
 		}
 
 		podSpecWrapper := newDefaultPodSpecWrapper(*mdb.Spec.ConfigSrvPodSpec)
@@ -193,8 +193,8 @@ func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOpti
 func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.MongosPodSpec.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.MongosPodSpec.PodTemplate}
+		if mdb.Spec.MongosPodSpec.PodTemplateWrapper.PodTemplate != nil {
+			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.MongosPodSpec.PodTemplateWrapper.PodTemplate}
 		}
 
 		opts := DatabaseStatefulSetOptions{
@@ -299,8 +299,8 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			podtemplatespec.WithAffinity(mdb.GetName(), PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinity),
-			podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinity),
+			podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinityWrapper.NodeAffinity),
+			podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinityWrapper.PodAffinity),
 			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*opts.PodSpec, volumeMounts, configureContainerSecurityContext)),
 			volumesFunc,
 			configurePodSpecSecurityContext,
@@ -456,9 +456,9 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 	podSpec := opts.PodSpec
 
-	if podSpec != nil && podSpec.PodTemplate != nil {
-		if podSpec.PodTemplate.Spec.ServiceAccountName != "" {
-			return podSpec.PodTemplate.Spec.ServiceAccountName
+	if podSpec != nil && podSpec.PodTemplateWrapper.PodTemplate != nil {
+		if podSpec.PodTemplateWrapper.PodTemplate.Spec.ServiceAccountName != "" {
+			return podSpec.PodTemplateWrapper.PodTemplate.Spec.ServiceAccountName
 		}
 	}
 
@@ -491,8 +491,8 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 		pullSecretsConfigurationFunc,
 		configurePodSpecSecurityContext,
 		podtemplatespec.WithAffinity(opts.Name, PodAntiAffinityLabelKey, 100),
-		podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinity),
-		podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinity),
+		podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinityWrapper.NodeAffinity),
+		podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinityWrapper.PodAffinity),
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
