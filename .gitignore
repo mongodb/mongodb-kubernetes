@@ -42,3 +42,5 @@ docker/mongodb-enterprise-tests/helm_chart/
 # loadtesting binary
 production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
+
+_.yaml

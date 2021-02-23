@@ -18,16 +18,18 @@ func init() {
 // The MongoDBUser resource allows you to create, deletion and configure
 // users for your MongoDB deployments
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
+// kubebuilder:resource:shortName=mdbu
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The current state of the MongoDB User."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB User resource was created."
 type MongoDBUser struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Status            MongoDBUserStatus `json:"status"`
-	Spec              MongoDBUserSpec   `json:"spec"`
+	// +optional
+	Status MongoDBUserStatus `json:"status"`
+	Spec   MongoDBUserSpec   `json:"spec"`
 }
 
 // GetPassword returns the password of the user as stored in the referenced
@@ -70,14 +72,17 @@ type MongoDBResourceRef struct {
 }
 
 type MongoDBUserSpec struct {
-	Roles                []Role             `json:"roles,omitempty"`
-	Username             string             `json:"username"`
-	Database             string             `json:"db"`
-	MongoDBResourceRef   MongoDBResourceRef `json:"mongodbResourceRef"`
-	PasswordSecretKeyRef SecretKeyRef       `json:"passwordSecretKeyRef"`
+	Roles    []Role `json:"roles,omitempty"`
+	Username string `json:"username"`
+	Database string `json:"db"`
+	// +optional
+	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
+	// +optional
+	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 
 	// Deprecated: This has been replaced by the MongoDBResourceRef which should
 	// be used instead
+	// +optional
 	Project string `json:"project"`
 }
 
