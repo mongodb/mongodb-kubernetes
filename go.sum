@@ -396,8 +396,6 @@ github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJ
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
 github.com/modern-go/reflect2 v1.0.1 h1:9f412s+6RmYXLWZSEzVVgPGK7C2PphHj5RJrvfx9AWI=
 github.com/modern-go/reflect2 v1.0.1/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
-github.com/mongodb/mongodb-kubernetes-operator v0.5.1 h1:GP8g5e22igT2L1F8i+CQdhx4z76j4BF2TZpQ3ovLEsw=
-github.com/mongodb/mongodb-kubernetes-operator v0.5.1/go.mod h1:fVcNGRJoPbwz4CvgXiIbDJL7+uLH0S22BXcaaAwQK/4=
 github.com/mongodb/mongodb-kubernetes-operator v0.5.2-prerelease h1:sStsgrYSz4wVXvf8jivzVPdsewCYuKrhtykow+us2hM=
 github.com/mongodb/mongodb-kubernetes-operator v0.5.2-prerelease/go.mod h1:fVcNGRJoPbwz4CvgXiIbDJL7+uLH0S22BXcaaAwQK/4=
 github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe/go.mod h1:wL8QJuTMNUDYhXwkmfOly8iTdp5TEcJFWZD2D7SIkUc=
@@ -897,8 +895,6 @@ k8s.io/client-go v0.20.1/go.mod h1:/zcHdt1TeWSd5HoUe6elJmHSQ6uLLgp4bIJHVEuy+/Y=
 k8s.io/client-go v0.20.2 h1:uuf+iIAbfnCSw8IGAv/Rg0giM+2bOzHLOsbbrwrdhNQ=
 k8s.io/client-go v0.20.2/go.mod h1:kH5brqWqp7HDxUFKoEgiI4v8G1xzbe9giaCenUWJzgE=
 k8s.io/code-generator v0.19.2/go.mod h1:moqLn7w0t9cMs4+5CQyxnfA/HV8MF6aAVENF+WZZhgk=
-k8s.io/code-generator v0.19.3/go.mod h1:moqLn7w0t9cMs4+5CQyxnfA/HV8MF6aAVENF+WZZhgk=
-k8s.io/code-generator v0.19.4/go.mod h1:moqLn7w0t9cMs4+5CQyxnfA/HV8MF6aAVENF+WZZhgk=
 k8s.io/code-generator v0.20.1 h1:kre3GNich5gbO3d1FyTT8fHI4ZJezZV217yFdWlQaRQ=
 k8s.io/code-generator v0.20.1/go.mod h1:UsqdF+VX4PU2g46NC2JRs4gc+IfrctnwHb76RNbWHJg=
 k8s.io/component-base v0.19.2 h1:jW5Y9RcZTb79liEhW3XDVTW7MuvEGP0tQZnfSX6/+gs=
