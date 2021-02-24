@@ -12,6 +12,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mapping"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"k8s.io/apimachinery/pkg/types"
@@ -373,6 +375,73 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, false, res.Requeue)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+
+}
+
+func TestCustomMappingOpsManagerVersion(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetVersion("4.4.0").Build()
+	configMap := configmap.Builder().SetName("mappings").SetNamespace(OperatorNamespace).SetField("ops_manager_version_mapping", "4.4.0=foofoo\n4.5.0=bar\n").Build()
+	os.Setenv(mapping.VersionToTagConfigMap, "mappings")
+
+	reconciler, mockedClient, _, _ := defaultTestOmReconciler(t, testOm)
+	mockedClient.CreateConfigMap(configMap)
+
+	_, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	sts := appsv1.StatefulSet{}
+	err = mockedClient.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:foofoo", sts.Spec.Template.Spec.Containers[0].Image)
+
+	testOm.Spec.Version = "4.5.0"
+	err = mockedClient.Update(context.TODO(), &testOm)
+	assert.NoError(t, err)
+
+	_, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	err = mockedClient.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:bar", sts.Spec.Template.Spec.Containers[0].Image)
+
+}
+
+func TestCustomMappingOpsManagerVersionNotPresetInMapping(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetVersion("4.4.1").Build()
+	configMap := configmap.Builder().SetName("mappings").SetNamespace(OperatorNamespace).SetField("ops_manager_version_mapping", "4.4.0=foofoo\n4.5.0=bar\n").Build()
+	os.Setenv(mapping.VersionToTagConfigMap, "mappings")
+
+	reconciler, mockedClient, _, _ := defaultTestOmReconciler(t, testOm)
+	mockedClient.CreateConfigMap(configMap)
+
+	_, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	sts := appsv1.StatefulSet{}
+	err = mockedClient.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.4.1", sts.Spec.Template.Spec.Containers[0].Image)
+
+}
+
+// This will be removed in CLOUDP-83365 as custom tag will be provided only through ConfigMap
+func TestCustomTagNoMapping(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetVersion("4.4.1-custom_tag").Build()
+
+	reconciler, mockedClient, _, _ := defaultTestOmReconciler(t, testOm)
+
+	_, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	sts := appsv1.StatefulSet{}
+	err = mockedClient.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.4.1-custom_tag", sts.Spec.Template.Spec.Containers[0].Image)
 
 }
 

@@ -13,6 +13,7 @@ var semverRegex *regexp.Regexp
 // StringToSemverVersion returns semver.Version for the 'version' provided as a string.
 // Important: this method is a bit hacky as ignores everything after patch and must be used only when needed
 // (so far only for creating the semver for OM version as this was needed to support IBM)
+//TODO CLOUDP-83365: remove this and the logic around this
 func StringToSemverVersion(version string) (semver.Version, error) {
 	v, err := semver.Make(version)
 	if err != nil {

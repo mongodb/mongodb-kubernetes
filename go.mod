@@ -15,7 +15,8 @@ require (
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/imdario/mergo v0.3.10
 	github.com/mailru/easyjson v0.7.1 // indirect
-	github.com/mongodb/mongodb-kubernetes-operator v0.5.1
+	github.com/mongodb/mongodb-kubernetes-operator v0.5.2-prerelease
+	github.com/operator-framework/operator-sdk v1.4.2 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.7.1
 	github.com/prometheus/common v0.10.0
@@ -36,4 +37,4 @@ require (
 
 go 1.15
 
-// replace github.com/mongodb/mongodb-kubernetes-operator => ../../mongodb/mongodb-kubernetes-operator
+//replace github.com/mongodb/mongodb-kubernetes-operator => ../../mongodb/mongodb-kubernetes-operator

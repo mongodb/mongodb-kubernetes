@@ -21,6 +21,7 @@ import (
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mapping"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -47,7 +48,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const omVersionWithNewDriver = "4.4.0"
+const (
+	omVersionWithNewDriver           = "4.4.0"
+	opsManagerVersionToTagMappingKey = "ops_manager_version_mapping"
+)
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
@@ -89,7 +93,6 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	if reconcileResult, err := r.readOpsManagerResource(request, opsManager, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
-
 	log.Info("-> OpsManager.Reconcile")
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
@@ -278,6 +281,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 
 	sts, err := construct.OpsManagerStatefulSet(opsManager,
 		construct.WithConnectionStringHash(hashConnectionString(connectionString)),
+		construct.WithVersion(mapping.GetCustomMappingForVersion(r.client, opsManagerVersionToTagMappingKey, opsManager.Spec.Version)),
 	)
 
 	if err != nil {

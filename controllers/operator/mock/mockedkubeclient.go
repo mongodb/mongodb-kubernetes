@@ -183,6 +183,15 @@ func (c *MockedStatefulSetClient) GetStatefulSet(objectKey client.ObjectKey) (ap
 	return sts, nil
 }
 
+// GetPod provides a thin wrapper and client.Client to access corev1.Pod types
+func (c *MockedStatefulSetClient) GetPod(objectKey client.ObjectKey) (corev1.Pod, error) {
+	pod := corev1.Pod{}
+	if err := c.client.Get(context.TODO(), objectKey, &pod); err != nil {
+		return corev1.Pod{}, err
+	}
+	return pod, nil
+}
+
 // UpdateStatefulSet provides a thin wrapper and client.Client to update appsv1.StatefulSet types
 func (c *MockedStatefulSetClient) UpdateStatefulSet(sts appsv1.StatefulSet) (appsv1.StatefulSet, error) {
 	updatesSts := sts

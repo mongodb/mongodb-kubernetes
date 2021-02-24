@@ -39,7 +39,7 @@ func Remove(slice []string, s string) (result []string) {
 	return
 }
 
-// UpperCaseFirstChar ensures the message first char is uppercased
+// UpperCaseFirstChar ensures the message first char is uppercased.
 func UpperCaseFirstChar(msg string) string {
 	if msg == "" {
 		return ""
