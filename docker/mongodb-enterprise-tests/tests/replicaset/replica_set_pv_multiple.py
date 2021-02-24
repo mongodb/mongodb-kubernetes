@@ -69,7 +69,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             "data",
             "data-{}-{}".format(self.RESOURCE_NAME, idx),
             "2Gi",
-            default_sc,
+            "gp2",
         )
 
         # Note that PVC gets the default storage class for cluster even if it wasn't requested initially
