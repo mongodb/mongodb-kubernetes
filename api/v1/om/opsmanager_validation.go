@@ -180,13 +180,6 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.Val
 	return v1.ValidationSuccess()
 }
 
-func podSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.PodSpec != nil {
-		return deprecationErrorForOpsManager("podSpec", "statefulSet")
-	}
-	return v1.ValidationSuccess()
-}
-
 func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.Backup.PodSpec != nil {
 		return deprecationErrorForBackup("podSpec", "backup.statefulSet")
@@ -219,7 +212,6 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		mongosCountIsNotConfigurable,
 		configServerCountIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
-		podSpecIsNotConfigurable,
 		podSpecIsNotConfigurableBackup,
 	}
 	var validationResults []v1.ValidationResult

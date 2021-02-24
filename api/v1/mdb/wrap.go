@@ -6,6 +6,7 @@ package mdb
 import (
 	"encoding/json"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -86,5 +87,25 @@ func (m *NodeAffinityWrapper) UnmarshalJSON(data []byte) error {
 func (m *NodeAffinityWrapper) DeepCopy() *NodeAffinityWrapper {
 	return &NodeAffinityWrapper{
 		NodeAffinity: m.NodeAffinity,
+	}
+}
+
+type StatefulSetSpecWrapper struct {
+	Spec appsv1.StatefulSetSpec `json:"-"`
+}
+
+// MarshalJSON defers JSON encoding to the wrapped map
+func (s *StatefulSetSpecWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.Spec)
+}
+
+// UnmarshalJSON will decode the data into the wrapped map
+func (s *StatefulSetSpecWrapper) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &s.Spec)
+}
+
+func (s *StatefulSetSpecWrapper) DeepCopy() *StatefulSetSpecWrapper {
+	return &StatefulSetSpecWrapper{
+		Spec: s.Spec,
 	}
 }

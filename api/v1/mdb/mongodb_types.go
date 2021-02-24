@@ -18,7 +18,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/blang/semver"
@@ -131,7 +130,7 @@ type BackupStatus struct {
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ShardedClusterSpec `json:",inline"`
-
+	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	Version                     string  `json:"version,omitempty"`
 	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
 
@@ -168,6 +167,7 @@ type MongoDbSpec struct {
 	Agent AgentConfig `json:"agent,omitempty"`
 
 	// replica set
+
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 	// +optional
@@ -213,7 +213,8 @@ func (m *MongoDB) GetSpec() MongoDbSpec {
 // StatefulSetConfiguration holds the optional custom StatefulSet
 // that should be merged into the operator created one.
 type StatefulSetConfiguration struct {
-	Spec appsv1.StatefulSetSpec `json:"spec"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	SpecWrapper StatefulSetSpecWrapper `json:"spec"`
 }
 
 // GetVersion returns the version of the MongoDB. In the case of the AppDB
@@ -296,6 +297,7 @@ type ConnectionSpec struct {
 	Credentials string `json:"credentials,omitempty"`
 
 	// Dev note: don't reference these two fields directly - use the `getProject` method instead
+
 	OpsManagerConfig   *PrivateCloudConfig `json:"opsManager,omitempty"`
 	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
 
@@ -304,6 +306,7 @@ type ConnectionSpec struct {
 	Project string `json:"project,omitempty"`
 
 	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
+
 	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
 	LogLevel LogLevel `json:"logLevel,omitempty"`
 }
@@ -810,6 +813,7 @@ type MongoDbPodSpec struct {
 	PodAntiAffinityTopologyKey string                 `json:"podAntiAffinityTopologyKey,omitempty"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
+
 	Persistence *Persistence `json:"persistence,omitempty"`
 }
 

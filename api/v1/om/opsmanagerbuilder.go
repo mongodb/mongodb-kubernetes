@@ -109,7 +109,7 @@ func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsMan
 }
 
 func (b *OpsManagerBuilder) SetStatefulSetSpec(customSpec appsv1.StatefulSetSpec) *OpsManagerBuilder {
-	b.om.Spec.StatefulSetConfiguration = &mdbv1.StatefulSetConfiguration{Spec: customSpec}
+	b.om.Spec.StatefulSetConfiguration = &mdbv1.StatefulSetConfiguration{SpecWrapper: mdbv1.StatefulSetSpecWrapper{Spec: customSpec}}
 	return b
 }
 

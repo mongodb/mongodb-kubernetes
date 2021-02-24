@@ -10,6 +10,7 @@ type ShardedClusterSpec struct {
 	ShardSpec *ShardedClusterComponentSpec `json:"shard,omitempty"`
 
 	// TODO should pod/statefulset specs for ShardedCluster be moved to "mongos,shard,configSrv" sections above?
+
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
 	ShardPodSpec     *MongoDbPodSpec `json:"shardPodSpec,omitempty"`

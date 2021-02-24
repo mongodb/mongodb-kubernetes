@@ -305,11 +305,6 @@ func (in *MongoDBOpsManagerSpec) DeepCopyInto(out *MongoDBOpsManagerSpec) {
 		*out = new(MongoDBOpsManagerServiceDefinition)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.PodSpec != nil {
-		in, out := &in.PodSpec, &out.PodSpec
-		*out = new(mdb.MongoDbPodSpec)
-		(*in).DeepCopyInto(*out)
-	}
 	if in.Security != nil {
 		in, out := &in.Security, &out.Security
 		*out = new(MongoDBOpsManagerSecurity)

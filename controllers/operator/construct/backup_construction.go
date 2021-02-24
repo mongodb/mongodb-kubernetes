@@ -47,7 +47,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 
 		if opsManager.Spec.Backup != nil {
 			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {
-				opts.StatefulSetSpecOverride = &opsManager.Spec.Backup.StatefulSetConfiguration.Spec
+				opts.StatefulSetSpecOverride = &opsManager.Spec.Backup.StatefulSetConfiguration.SpecWrapper.Spec
 			}
 			if opsManager.Spec.Backup.HeadDB != nil {
 				opts.HeadDbPersistenceConfig = opsManager.Spec.Backup.HeadDB

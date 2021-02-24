@@ -13,6 +13,7 @@ import (
 // The CRD generator does not support map[string]interface{}
 // on the top level and hence we need to work around this with
 // a wrapping struct.
+
 type AdditionalMongodConfig struct {
 	Object map[string]interface{} `json:"-"`
 }

@@ -101,9 +101,6 @@ spec:
               configSrv:
                 properties:
                   additionalMongodConfig:
-                    description: The CRD generator does not support map[string]interface{}
-                      on the top level and hence we need to work around this with
-                      a wrapping struct.
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   agent:
@@ -118,8 +115,6 @@ spec:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               configSrvPodSpec:
-                description: TODO should pod/statefulset specs for ShardedCluster
-                  be moved to "mongos,shard,configSrv" sections above?
                 properties:
                   cpu:
                     description: DEPRECATED. Please set this value using `spec.podTemplate`
@@ -141,8 +136,6 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   persistence:
-                    description: Note, that this field is used by MongoDB resources
-                      only, let's keep it here for simplicity
                     properties:
                       multiple:
                         properties:
@@ -412,8 +405,6 @@ spec:
               featureCompatibilityVersion:
                 type: string
               logLevel:
-                description: 'FIXME: LogLevel is not a required field for creating
-                  an Ops Manager connection, it should not be here.'
                 enum:
                 - DEBUG
                 - INFO
@@ -422,16 +413,12 @@ spec:
                 - FATAL
                 type: string
               members:
-                description: replica set
                 type: integer
               mongodsPerShardCount:
                 type: integer
               mongos:
                 properties:
                   additionalMongodConfig:
-                    description: The CRD generator does not support map[string]interface{}
-                      on the top level and hence we need to work around this with
-                      a wrapping struct.
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   agent:
@@ -469,8 +456,6 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   persistence:
-                    description: Note, that this field is used by MongoDB resources
-                      only, let's keep it here for simplicity
                     properties:
                       multiple:
                         properties:
@@ -715,8 +700,6 @@ spec:
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
               opsManager:
-                description: 'Dev note: don''t reference these two fields directly
-                  - use the `getProject` method instead'
                 properties:
                   configMapRef:
                     properties:
@@ -748,8 +731,6 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   persistence:
-                    description: Note, that this field is used by MongoDB resources
-                      only, let's keep it here for simplicity
                     properties:
                       multiple:
                         properties:
@@ -1202,9 +1183,6 @@ spec:
               shard:
                 properties:
                   additionalMongodConfig:
-                    description: The CRD generator does not support map[string]interface{}
-                      on the top level and hence we need to work around this with
-                      a wrapping struct.
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   agent:
@@ -1242,8 +1220,6 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   persistence:
-                    description: Note, that this field is used by MongoDB resources
-                      only, let's keep it here for simplicity
                     properties:
                       multiple:
                         properties:
@@ -1494,6 +1470,7 @@ spec:
                 - ShardedCluster
                 type: string
               version:
+                pattern: ^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
                 type: string
             type: object
             x-kubernetes-preserve-unknown-fields: true

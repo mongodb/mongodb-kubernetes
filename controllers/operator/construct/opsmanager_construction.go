@@ -98,7 +98,7 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 	return func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if opsManager.Spec.StatefulSetConfiguration != nil {
-			stsSpec = &opsManager.Spec.StatefulSetConfiguration.Spec
+			stsSpec = &opsManager.Spec.StatefulSetConfiguration.SpecWrapper.Spec
 		}
 
 		_, port := opsManager.GetSchemePort()

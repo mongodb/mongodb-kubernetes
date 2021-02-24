@@ -40,9 +40,10 @@ const (
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
 
 // +k8s:deepcopy-gen=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path=opsmanagers,scope=Namespaced,shortName=om,singular=opsmanager
 // +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas",description="The number of replicas of MongoDBOpsManager."
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version",description="The version of MongoDBOpsManager."
 // +kubebuilder:printcolumn:name="State (OpsManager)",type="string",JSONPath=".status.opsManager.phase",description="The current state of the MongoDBOpsManager."
@@ -53,8 +54,9 @@ const (
 type MongoDBOpsManager struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              MongoDBOpsManagerSpec   `json:"spec"`
-	Status            MongoDBOpsManagerStatus `json:"status"`
+	Spec              MongoDBOpsManagerSpec `json:"spec"`
+	// +optional
+	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
 func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
@@ -113,10 +115,6 @@ type MongoDBOpsManagerSpec struct {
 	// +optional
 	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
 
-	// +optional
-	// Deprecated: This field has been removed, it is only here to perform validations
-	PodSpec *mdbv1.MongoDbPodSpec `json:"podSpec,omitempty"`
-
 	// Configure HTTPS.
 	// +optional
 	Security *MongoDBOpsManagerSecurity `json:"security,omitempty"`
@@ -131,6 +129,7 @@ type MongoDBOpsManagerSecurity struct {
 }
 
 type MongoDBOpsManagerTLS struct {
+	// +optional
 	SecretRef mdbv1.TLSSecretRef `json:"secretRef"`
 	CA        string             `json:"ca"`
 }

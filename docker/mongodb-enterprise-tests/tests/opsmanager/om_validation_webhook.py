@@ -40,19 +40,6 @@ def test_appdb_shardcount_invalid(namespace: str):
 
 
 @mark.e2e_om_validation_webhook
-def test_podspec_not_configurable_for_opsmanager(namespace: str):
-    om = om_validation(namespace)
-
-    om["spec"]["podSpec"] = {}
-
-    with pytest.raises(
-        ApiException,
-        match=r"podSpec field is not configurable for Ops Manager, use the statefulSet field instead",
-    ):
-        om.create()
-
-
-@mark.e2e_om_validation_webhook
 def test_podspec_not_configurable_for_opsmanager_backup(namespace: str):
     om = om_validation(namespace)
     om["spec"]["backup"]["podSpec"] = {}
