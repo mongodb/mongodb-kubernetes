@@ -99,8 +99,8 @@ type MongoDBOpsManagerSpec struct {
 
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
-	AdminSecret string `json:"adminCredentials,omitempty"`
-	AppDB       AppDB  `json:"applicationDatabase"`
+	AdminSecret string    `json:"adminCredentials,omitempty"`
+	AppDB       AppDBSpec `json:"applicationDatabase"`
 
 	// Custom JVM parameters passed to the Ops Manager JVM
 	// +optional

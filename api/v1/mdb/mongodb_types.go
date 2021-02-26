@@ -89,6 +89,17 @@ func (mdb MongoDB) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&mdb).Complete()
 }
 
+// +kubebuilder:object:generate=false
+type DbSpec interface {
+	Replicas() int
+	GetClusterDomain() string
+	GetVersion() string
+	GetSecurityAuthenticationModes() []string
+	GetResourceType() ResourceType
+	IsSecurityTLSConfigEnabled() bool
+	GetFeatureCompatibilityVersion() *string
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -946,6 +957,22 @@ func (spec MongoDbSpec) Replicas() int {
 	return replicasCount
 }
 
+func (m MongoDbSpec) GetSecurityAuthenticationModes() []string {
+	return m.GetSecurity().Authentication.GetModes()
+}
+
+func (m MongoDbSpec) GetResourceType() ResourceType {
+	return m.ResourceType
+}
+
+func (m MongoDbSpec) IsSecurityTLSConfigEnabled() bool {
+	return m.GetSecurity().TLSConfig.IsEnabled()
+}
+
+func (m MongoDbSpec) GetFeatureCompatibilityVersion() *string {
+	return m.FeatureCompatibilityVersion
+}
+
 // validModeOrDefault returns a valid mode for the Net.SSL.Mode string
 func validModeOrDefault(mode SSLMode) SSLMode {
 	if mode == "" {
@@ -993,15 +1020,15 @@ func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}}
 }
 
-func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec MongoDbSpec, connectionParams map[string]string) string {
-	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) && (userName == "" || password == "") {
+func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec DbSpec, connectionParams map[string]string) string {
+	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) && (userName == "" || password == "") {
 		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")
 	}
 	replicasCount := spec.Replicas()
 
 	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
 	uri := "mongodb://"
-	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) {
+	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) {
 		uri += fmt.Sprintf("%s:%s@", url.QueryEscape(userName), url.QueryEscape(password))
 	}
 	for i, h := range hostnames {
@@ -1011,13 +1038,13 @@ func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 
 	// default and calculated query parameters
 	params := map[string]string{"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
-	if spec.ResourceType == ReplicaSet {
+	if spec.GetResourceType() == ReplicaSet {
 		params["replicaSet"] = statefulsetName
 	}
-	if spec.Security.TLSConfig.IsEnabled() {
+	if spec.IsSecurityTLSConfigEnabled() {
 		params["ssl"] = "true"
 	}
-	if stringutil.Contains(spec.Security.Authentication.GetModes(), util.SCRAM) {
+	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) {
 		params["authSource"] = util.DefaultUserDatabase
 
 		comparison, err := util.CompareVersions(spec.GetVersion(), util.MinimumScramSha256MdbVersion)

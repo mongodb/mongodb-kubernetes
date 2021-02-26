@@ -64,69 +64,6 @@ func TestOpsManager_RunValidations_AppDWithProjectName(t *testing.T) {
 	assert.Equal(t, errors.New("project field is not configurable for application databases"), err)
 }
 
-func TestOpsManager_RunValidations_AppDWithConfigSrvPodSpec(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.ConfigSrvPodSpec = &mdbv1.MongoDbPodSpec{}
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("configSrvPodSpec field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithMongosPodSpec(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.MongosPodSpec = &mdbv1.MongoDbPodSpec{}
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("mongosPodSpec field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithShardPodSpec(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.ShardPodSpec = &mdbv1.MongoDbPodSpec{}
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("shardPodSpec field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithShardCount(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.ShardCount = 1
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("shardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithMongodsPerShardCount(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.MongodsPerShardCount = 1
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("mongodsPerShardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithMongosCount(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.MongosCount = 1
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("mongosCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithConfigServerCount(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.ConfigServerCount = 1
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("configServerCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets"), err)
-}
-
 func TestOpsManager_RunValidations_S3StoreUserResourceRef(t *testing.T) {
 	config := S3Config{Name: "test", MongoDBUserRef: &MongoDBUserRef{Name: "foo"}}
 	om := NewOpsManagerBuilderDefault().AddS3SnapshotStore(config).Build()
@@ -203,7 +140,7 @@ func TestOpsManager_RunValidations_InvalidPatch(t *testing.T) {
 func TestOpsManager_RunValidations_MultipleWarnings(t *testing.T) {
 	om := NewOpsManagerBuilderDefault().Build()
 	om.Spec.AppDB.Project = "something"
-	om.Spec.AppDB.ConfigServerCount = 1
+
 	err, part := om.ProcessValidationsOnReconcile()
 	assert.Equal(t, status.AppDb, part)
 	assert.Error(t, err)

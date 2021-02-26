@@ -25,7 +25,7 @@ func BuildFromStatefulSet(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.Replica
 
 // BuildAppDBFromStatefulSet builds replica set that will represent the AppDB
 // based on the StatefulSet and AppDB provided.
-func BuildAppDBFromStatefulSet(set appsv1.StatefulSet, mdb omv1.AppDB) om.ReplicaSetWithProcesses {
+func BuildAppDBFromStatefulSet(set appsv1.StatefulSet, mdb omv1.AppDBSpec) om.ReplicaSetWithProcesses {
 	members := process.CreateAppDBProcesses(set, om.ProcessTypeMongod, mdb)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)

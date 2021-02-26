@@ -8,8 +8,35 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
-type AppDB struct {
-	mdbv1.MongoDbSpec `json:",inline"`
+type AppDBSpec struct {
+	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
+	Version string `json:"version,omitempty"`
+	// replica set
+	// +kubebuilder:validation:Maximum=50
+	// +kubebuilder:validation:Minimum=3
+	Members                     int                   `json:"members,omitempty"`
+	PodSpec                     *mdbv1.MongoDbPodSpec `json:"podSpec,omitempty"`
+	FeatureCompatibilityVersion *string               `json:"featureCompatibilityVersion,omitempty"`
+
+	// +optional
+	Security      *mdbv1.Security `json:"security,omitempty"`
+	ClusterDomain string          `json:"clusterDomain,omitempty"`
+	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
+	ResourceType mdbv1.ResourceType `json:"type,omitempty"`
+	// Deprecated: This has been replaced by the ClusterDomain which should be
+	// used instead
+	ClusterName  string                     `json:"clusterName,omitempty"`
+	Connectivity *mdbv1.MongoDBConnectivity `json:"connectivity,omitempty"`
+	// AdditionalMongodConfig is additional configuration that can be passed to
+	// each data-bearing mongod at runtime. Uses the same structure as the mongod
+	// configuration file:
+	// https://docs.mongodb.com/manual/reference/configuration-options/
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	Agent                  mdbv1.AgentConfig            `json:"agent,omitempty"`
+	Persistent             *bool                        `json:"persistent,omitempty"`
+	mdbv1.ConnectionSpec   `json:",inline"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user
@@ -21,30 +48,91 @@ type AppDB struct {
 
 	OpsManagerName string `json:"-"`
 	Namespace      string `json:"-"`
+	// this is an optional service, it will get the name "<rsName>-service" in case not provided
+	Service string `json:"service,omitempty"`
 }
-
 type AppDbBuilder struct {
-	appDb *AppDB
+	appDb *AppDBSpec
 }
 
+// GetVersion returns the version of the MongoDB. In the case of the AppDB
+// it is possible for this to be an empty string. For a regular mongodb, the regex
+// version string validator will not allow this.
+func (a AppDBSpec) GetVersion() string {
+	if a.Version == "" {
+		return util.BundledAppDbMongoDBVersion
+	}
+	return a.Version
+}
+
+func (a AppDBSpec) GetClusterDomain() string {
+	if a.ClusterDomain != "" {
+		return a.ClusterDomain
+	}
+	if a.ClusterName != "" {
+		return a.ClusterName
+	}
+	return "cluster.local"
+}
+
+// Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for
+// constructing the mongodb URL for example.
+// 'Members' would be a more consistent function but go doesn't allow to have the same
+// For AppDB there is a validation that number of members is in the range [3, 50]
+func (a AppDBSpec) Replicas() int {
+	return a.Members
+}
+
+func (a AppDBSpec) GetSecurityAuthenticationModes() []string {
+	return a.GetSecurity().Authentication.GetModes()
+}
+
+func (a AppDBSpec) GetResourceType() mdbv1.ResourceType {
+	return a.ResourceType
+}
+
+func (a AppDBSpec) IsSecurityTLSConfigEnabled() bool {
+	return a.GetSecurity().TLSConfig.IsEnabled()
+}
+
+func (a AppDBSpec) GetFeatureCompatibilityVersion() *string {
+	return a.FeatureCompatibilityVersion
+}
+
+func (a AppDBSpec) GetSecurity() *mdbv1.Security {
+	if a.Security == nil {
+		return &mdbv1.Security{}
+	}
+	return a.Security
+}
+
+func (a AppDBSpec) GetTLSConfig() *mdbv1.TLSConfig {
+	if a.Security == nil || a.Security.TLSConfig == nil {
+		return &mdbv1.TLSConfig{}
+	}
+
+	return a.Security.TLSConfig
+}
 func DefaultAppDbBuilder() *AppDbBuilder {
-	appDb := &AppDB{
-		MongoDbSpec:          mdbv1.MongoDbSpec{Version: "", Members: 3, PodSpec: &mdbv1.MongoDbPodSpec{}},
+	appDb := &AppDBSpec{
+		Version:              "",
+		Members:              3,
+		PodSpec:              &mdbv1.MongoDbPodSpec{},
 		PasswordSecretKeyRef: &userv1.SecretKeyRef{},
 	}
 	return &AppDbBuilder{appDb: appDb}
 }
 
-func (b *AppDbBuilder) Build() *AppDB {
+func (b *AppDbBuilder) Build() *AppDBSpec {
 	return b.appDb.DeepCopy()
 }
 
-func (m AppDB) GetSecretName() string {
+func (m AppDBSpec) GetSecretName() string {
 	return m.Name() + "-password"
 }
 
-func (m *AppDB) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON *AppDB
+func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
+	type MongoDBJSON *AppDBSpec
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
@@ -66,29 +154,29 @@ func (m *AppDB) UnmarshalJSON(data []byte) error {
 }
 
 // Name returns the name of the StatefulSet for the AppDB
-func (m AppDB) Name() string {
+func (m AppDBSpec) Name() string {
 	return m.OpsManagerName + "-db"
 }
 
-func (m AppDB) ProjectIDConfigMapName() string {
+func (m AppDBSpec) ProjectIDConfigMapName() string {
 	return m.Name() + "-project-id"
 }
 
-func (m AppDB) ServiceName() string {
+func (m AppDBSpec) ServiceName() string {
 	if m.Service == "" {
 		return m.Name() + "-svc"
 	}
 	return m.Service
 }
 
-func (m AppDB) AutomationConfigSecretName() string {
+func (m AppDBSpec) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
 }
 
 // GetCAConfigMapName returns the name of the ConfigMap which contains
 // the CA which will recognize the certificates used to connect to the AppDB
 // deployment
-func (a AppDB) GetCAConfigMapName() string {
+func (a AppDBSpec) GetCAConfigMapName() string {
 	security := a.Security
 	if security != nil && security.TLSConfig != nil {
 		return security.TLSConfig.CA
@@ -98,7 +186,7 @@ func (a AppDB) GetCAConfigMapName() string {
 
 // GetTlsCertificatesSecretName returns the name of the secret
 // which holds the certificates used to connect to the AppDB
-func (a AppDB) GetTlsCertificatesSecretName() string {
+func (a AppDBSpec) GetTlsCertificatesSecretName() string {
 	security := a.Security
 	if security != nil && security.TLSConfig != nil {
 		return security.TLSConfig.SecretRef.Name
@@ -107,16 +195,34 @@ func (a AppDB) GetTlsCertificatesSecretName() string {
 }
 
 // ConnectionURL returns the connection url to the AppDB
-func (m AppDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
-	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m.MongoDbSpec, connectionParams)
+func (m AppDBSpec) ConnectionURL(userName, password string, connectionParams map[string]string) string {
+	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m, connectionParams)
 }
 
-func (m *AppDB) GetSpec() mdbv1.MongoDbSpec {
-	return m.MongoDbSpec
+// GetSpec returns "MongoDbSpec" constructed out of the AppDBSpec. We need this
+// unconventional method because in certain logic in the codebase we create some "fake"
+// MongoDB from AppDBspec, this is not ideal, but I don't want to address this in the same PR(it's already getting big).
+// "CLOUDP-83612" has been created to address this later.
+func (m *AppDBSpec) GetSpec() mdbv1.MongoDbSpec {
+	return mdbv1.MongoDbSpec{
+		Version:                     m.Version,
+		Members:                     m.Members,
+		PodSpec:                     m.PodSpec,
+		FeatureCompatibilityVersion: m.FeatureCompatibilityVersion,
+		Security:                    m.Security,
+		ClusterDomain:               m.ClusterDomain,
+		ResourceType:                m.ResourceType,
+		ClusterName:                 m.ClusterName,
+		Connectivity:                m.Connectivity,
+		AdditionalMongodConfig:      m.AdditionalMongodConfig,
+		Agent:                       m.Agent,
+		Persistent:                  m.Persistent,
+		Service:                     m.Service,
+	}
 }
-func (m *AppDB) GetName() string {
+func (m *AppDBSpec) GetName() string {
 	return m.Name()
 }
-func (m *AppDB) GetNamespace() string {
+func (m *AppDBSpec) GetNamespace() string {
 	return m.Namespace
 }

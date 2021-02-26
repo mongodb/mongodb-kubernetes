@@ -939,7 +939,7 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsM
 	if config.MongoDBResourceRef == nil {
 		// having no mongodb reference means the AppDB should be used as a metadata storage
 		// We need to build a fake MongoDB resource
-		return mdbv1.MongoDB{Spec: opsManager.Spec.AppDB.MongoDbSpec}, workflow.OK()
+		return mdbv1.MongoDB{Spec: opsManager.Spec.AppDB.GetSpec()}, workflow.OK()
 	}
 	mongodb := &mdbv1.MongoDB{}
 	mongodbObjectKey := config.MongodbResourceObjectKey(opsManager)

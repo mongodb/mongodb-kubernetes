@@ -61,7 +61,7 @@ func AppDbOptions(opts ...func(options *DatabaseStatefulSetOptions)) AppDBConfig
 			ServicePort:    appDb.AdditionalMongodConfig.GetPortOrDefault(),
 			Persistent:     appDb.Persistent,
 			OwnerReference: kube.BaseOwnerReference(&opsManager),
-			AgentConfig:    appDb.MongoDbSpec.Agent,
+			AgentConfig:    appDb.Agent,
 		}
 
 		for _, opt := range opts {

@@ -18,13 +18,13 @@ import (
 // - after this all the Operator/OpsManager methods dealing with 'mongodb.MongoDB' can be switched to this new interface
 
 // NewMongodProcess
-func NewMongodProcessAppDB(name, hostName string, appdb omv1.AppDB) Process {
+func NewMongodProcessAppDB(name, hostName string, appdb omv1.AppDBSpec) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
-		WithAdditionalMongodConfig(appdb.MongoDbSpec.AdditionalMongodConfig),
-		WithResourceSpec(appdb.MongoDbSpec),
+		WithAdditionalMongodConfig(appdb.AdditionalMongodConfig),
+		WithResourceSpec(appdb),
 	)
 
 	if appdb.GetTlsCertificatesSecretName() != "" {

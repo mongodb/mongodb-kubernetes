@@ -296,12 +296,12 @@ func createProcess(opts ...ProcessOption) Process {
 
 type ProcessOption func(process Process)
 
-func WithResourceSpec(resourceSpec mdbv1.MongoDbSpec) ProcessOption {
+func WithResourceSpec(resourceSpec mdbv1.DbSpec) ProcessOption {
 	return func(process Process) {
 		processVersion := resourceSpec.GetVersion()
 		process["version"] = processVersion
 		process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
-		featureCompatibilityVersion := resourceSpec.FeatureCompatibilityVersion
+		featureCompatibilityVersion := resourceSpec.GetFeatureCompatibilityVersion()
 		if featureCompatibilityVersion == nil {
 			computedFcv := calculateFeatureCompatibilityVersion(processVersion)
 			featureCompatibilityVersion = &computedFcv

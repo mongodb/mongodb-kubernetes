@@ -24,7 +24,7 @@ func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 				options.Replicas = i
 			},
 		)
-		omRs := BuildAppDBFromStatefulSet(appDbSts, omv1.AppDB{})
+		omRs := BuildAppDBFromStatefulSet(appDbSts, omv1.AppDBSpec{})
 		assert.Len(t, omRs.Processes, i)
 	}
 }

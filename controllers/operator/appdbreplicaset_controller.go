@@ -159,7 +159,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 
 // ensureLegacyConfigMapRemoved makes sure that the ConfigMap which stored the automation config
 // is removed. It is now stored in a Secret instead.
-func ensureLegacyConfigMapRemoved(deleter configmap.Deleter, rs omv1.AppDB) error {
+func ensureLegacyConfigMapRemoved(deleter configmap.Deleter, rs omv1.AppDBSpec) error {
 	err := deleter.DeleteConfigMap(kube.ObjectKey(rs.Namespace, rs.AutomationConfigSecretName()))
 	return client.IgnoreNotFound(err)
 }
@@ -221,7 +221,7 @@ func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.Auto
 // No optimistic concurrency control is done - there cannot be a concurrent reconciliation for the same Ops Manager
 // object and the probability that the user will edit the config map manually in the same time is extremely low
 // returns the version of AutomationConfig just published
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDB,
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDBSpec,
 	opsManager omv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (int64, error) {
 
 	automationConfigUpdateCallback := func(s *corev1.Secret) bool {
@@ -290,7 +290,7 @@ func changeAutomationConfigDataIfNecessary(existingSecret *corev1.Secret, target
 	return true
 }
 
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDB, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDBSpec, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
 	d := om.NewDeployment()
 
 	replicaSet := replicaset.BuildAppDBFromStatefulSet(set, rs)
@@ -398,7 +398,7 @@ func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.
 	}
 }
 
-func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs omv1.AppDB, log *zap.SugaredLogger) error {
+func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs omv1.AppDBSpec, log *zap.SugaredLogger) error {
 	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
 		versionManifest, err := manifest.FileProvider{FilePath: r.VersionManifestFilePath}.GetVersion()
 		if err != nil {
@@ -570,7 +570,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, rs omv1.AppDB, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, rs omv1.AppDBSpec, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
 		return workflow.Failed(err.Error())

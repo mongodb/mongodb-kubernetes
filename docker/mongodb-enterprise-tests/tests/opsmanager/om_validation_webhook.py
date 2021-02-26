@@ -27,19 +27,6 @@ def om_validation(namespace: str) -> MongoDBOpsManager:
 
 
 @mark.e2e_om_validation_webhook
-def test_appdb_shardcount_invalid(namespace: str):
-    om = om_validation(namespace)
-
-    om["spec"]["applicationDatabase"]["shardCount"] = 2
-
-    with pytest.raises(
-        ApiException,
-        match=r"shardCount field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets",
-    ):
-        om.create()
-
-
-@mark.e2e_om_validation_webhook
 def test_podspec_not_configurable_for_opsmanager_backup(namespace: str):
     om = om_validation(namespace)
     om["spec"]["backup"]["podSpec"] = {}
@@ -102,7 +89,6 @@ def ops_manager(
     )
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
-    om["spec"]["applicationDatabase"]["shardCount"] = 3
     return om.create()
 
 
@@ -110,27 +96,3 @@ def ops_manager(
 class TestOpsManagerValidationWarnings:
     def test_disable_webhook(self, default_operator: Operator):
         default_operator.disable_webhook()
-
-    def test_create_om_failed_with_message(self, ops_manager: MongoDBOpsManager):
-        """ Sending the incorrect specification will move the OM resource to Failed state """
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Failed, timeout=300)
-
-        assert APPDB_SHARD_COUNT_WARNING == ops_manager.appdb_status().get_message()
-
-        # Warnings are not created here!
-        assert "warnings" not in ops_manager.get_status()
-
-    def test_update_om_with_corrections(self, ops_manager: MongoDBOpsManager):
-        """ After the spec is corrected the OM reconciles successfully """
-        del ops_manager["spec"]["applicationDatabase"]["shardCount"]
-        # TODO add replace() method to kubeobject
-        client.CustomObjectsApi().replace_namespaced_custom_object(
-            ops_manager.group,
-            ops_manager.version,
-            ops_manager.namespace,
-            ops_manager.plural,
-            ops_manager.name,
-            ops_manager.backing_obj,
-        )
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=700)
-        assert ops_manager.appdb_status().get_message() is None

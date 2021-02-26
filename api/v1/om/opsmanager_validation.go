@@ -115,56 +115,6 @@ func projectNameIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult 
 	return v1.ValidationSuccess()
 }
 
-// sharded cluster fields
-func configSrvPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.ConfigSrvPodSpec != nil {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("configSrvPodSpec")
-	}
-	return v1.ValidationSuccess()
-}
-
-func mongosPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.MongosPodSpec != nil {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("mongosPodSpec")
-	}
-	return v1.ValidationSuccess()
-}
-
-func shardPodSpecIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.ShardPodSpec != nil {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("shardPodSpec")
-	}
-	return v1.ValidationSuccess()
-}
-
-func shardCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.ShardCount != 0 {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("shardCount")
-	}
-	return v1.ValidationSuccess()
-}
-
-func mongodsPerShardCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.MongodsPerShardCount != 0 {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("mongodsPerShardCount")
-	}
-	return v1.ValidationSuccess()
-}
-
-func mongosCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.MongosCount != 0 {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("mongosCount")
-	}
-	return v1.ValidationSuccess()
-}
-
-func configServerCountIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.ConfigServerCount != 0 {
-		return errorShardedClusterFieldsNotConfigurableForAppDB("configServerCount")
-	}
-	return v1.ValidationSuccess()
-}
-
 // s3StoreMongodbUserSpecifiedNoMongoResource checks that 'mongodbResourceRef' is provided if 'mongodbUserRef' is configured
 func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if !os.Backup.Enabled || len(os.Backup.S3Configs) == 0 {
@@ -204,13 +154,6 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		cloudManagerConfigIsNotConfigurable,
 		opsManagerConfigIsNotConfigurable,
 		credentialsIsNotConfigurable,
-		configSrvPodSpecIsNotConfigurable,
-		mongosPodSpecIsNotConfigurable,
-		shardPodSpecIsNotConfigurable,
-		shardCountIsNotConfigurable,
-		mongodsPerShardCountIsNotConfigurable,
-		mongosCountIsNotConfigurable,
-		configServerCountIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
 		podSpecIsNotConfigurableBackup,
 	}

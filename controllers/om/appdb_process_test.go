@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func defaultMongoDBAppDBVersioned(version string) omv1.AppDB {
+func defaultMongoDBAppDBVersioned(version string) omv1.AppDBSpec {
 	appdb := *omv1.DefaultAppDbBuilder().Build()
 	appdb.Version = version
 

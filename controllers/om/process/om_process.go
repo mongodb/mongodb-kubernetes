@@ -28,7 +28,7 @@ func CreateMongodProcesses(set appsv1.StatefulSet, containerName string, mdb *md
 }
 
 func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
-	mdb omv1.AppDB) []om.Process {
+	mdb omv1.AppDBSpec) []om.Process {
 
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))

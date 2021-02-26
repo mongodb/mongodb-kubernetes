@@ -45,7 +45,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 		"Key2": "Value2",
 	}
 	om := omv1.NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.MongoDbSpec.Agent.StartupParameters = agentStartupParameters
+	om.Spec.AppDB.Agent.StartupParameters = agentStartupParameters
 	sts := AppDbStatefulSet(om)
 
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
