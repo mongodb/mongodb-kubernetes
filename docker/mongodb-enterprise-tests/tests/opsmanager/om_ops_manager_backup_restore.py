@@ -63,7 +63,9 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
 @fixture(scope="module")
 def mdb_latest(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name="mdb-latest",
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name="mdb-latest",
     ).configure(ops_manager, "mdbLatestProject")
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
     resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
@@ -117,25 +119,28 @@ class TestOpsManagerCreation:
         )
 
     def test_oplog_mdb_created(
-        self, oplog_replica_set: MongoDB,
+        self,
+        oplog_replica_set: MongoDB,
     ):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["oplogStores"] = [
+        ops_manager["spec"]["backup"]["opLogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=200, ignore_errors=True,
+            Phase.Running,
+            timeout=200,
+            ignore_errors=True,
         )
 
 
 @mark.e2e_om_ops_manager_backup_restore
 class TestBackupForMongodb:
-    """ This part ensures that backup for the client works correctly and the snapshot is created.
-    Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly) """
+    """This part ensures that backup for the client works correctly and the snapshot is created.
+    Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
@@ -160,9 +165,9 @@ class TestBackupRestorePIT:
     def test_mdbs_change_data(
         self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
-        """ Changes the MDB documents to check that restore rollbacks this change later.
-         Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
-         [snapshot_created <= PIT <= changes_applied] """
+        """Changes the MDB documents to check that restore rollbacks this change later.
+        Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
+        [snapshot_created <= PIT <= changes_applied]"""
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
@@ -193,10 +198,10 @@ class TestBackupRestorePIT:
     def test_data_got_restored(
         self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
-        """ The data in the db has been restored to the initial state. Note, that this happens eventually - so
+        """The data in the db has been restored to the initial state. Note, that this happens eventually - so
         we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a
         specific snapshot (see the previous class) where the FINISHED restore job means the data has been restored.
-        For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually """
+        For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually"""
         print("\nWaiting until the db data is restored")
         retries = 120
         while retries > 0:

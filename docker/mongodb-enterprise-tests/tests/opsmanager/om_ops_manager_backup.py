@@ -349,7 +349,7 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["oplogStores"][0]["mongodbUserRef"] = {
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
             "name": oplog_user.name
         }
         ops_manager.update()
@@ -591,7 +591,7 @@ class TestBackupConfigurationAdditionDeletion:
         oplog_user: MongoDBUser,
     ):
         ops_manager.reload()
-        ops_manager["spec"]["backup"]["oplogStores"].append(
+        ops_manager["spec"]["backup"]["opLogStores"].append(
             {"name": "oplog2", "mongodbResourceRef": {"name": S3_RS_NAME}}
         )
 
@@ -627,7 +627,7 @@ class TestBackupConfigurationAdditionDeletion:
         oplog_user: MongoDBUser,
     ):
         ops_manager.reload()
-        ops_manager["spec"]["backup"]["oplogStores"].pop()
+        ops_manager["spec"]["backup"]["opLogStores"].pop()
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(Phase.Reconciling, timeout=60)

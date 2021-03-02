@@ -645,6 +645,8 @@ spec:
                             properties:
                               name:
                                 type: string
+                            required:
+                            - name
                             type: object
                           bindQueryUser:
                             type: string
@@ -756,6 +758,8 @@ spec:
                         properties:
                           name:
                             type: string
+                        required:
+                        - name
                         type: object
                     type: object
                 type: object

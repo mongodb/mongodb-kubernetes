@@ -225,6 +225,7 @@ func (m *MongoDB) GetSpec() MongoDbSpec {
 // that should be merged into the operator created one.
 type StatefulSetConfiguration struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
 	SpecWrapper StatefulSetSpecWrapper `json:"spec"`
 }
 
@@ -578,7 +579,8 @@ func (t TLSConfig) IsSelfManaged() bool {
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
 // be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {
-	Name string `json:"name,omitempty"`
+	// kubebuilder:validation:Required
+	Name string `json:"name"`
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {

@@ -89,12 +89,16 @@ type MongoDBOpsManagerSpec struct {
 	// +optional
 	Configuration map[string]string `json:"configuration,omitempty"`
 
-	Version  string `json:"version"`
-	Replicas int    `json:"replicas"`
+	Version string `json:"version"`
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Replicas int `json:"replicas"`
 	// Deprecated: This has been replaced by the ClusterDomain which should be
 	// used instead
+	// +kubebuilder:validation:Format="hostname"
 	ClusterName string `json:"clusterName,omitempty"`
 	// +optional
+	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain string `json:"clusterDomain,omitempty"`
 
 	// AdminSecret is the secret for the first admin user to create
@@ -125,13 +129,15 @@ type MongoDBOpsManagerSpec struct {
 }
 
 type MongoDBOpsManagerSecurity struct {
+	// +optional
 	TLS MongoDBOpsManagerTLS `json:"tls"`
 }
 
 type MongoDBOpsManagerTLS struct {
 	// +optional
 	SecretRef mdbv1.TLSSecretRef `json:"secretRef"`
-	CA        string             `json:"ca"`
+	// +optional
+	CA string `json:"ca"`
 }
 
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
@@ -159,7 +165,9 @@ func (m MongoDBOpsManager) AppDBStatefulSetObjectKey() client.ObjectKey {
 // is exposed, via a Service, to the outside of the Kubernetes Cluster.
 type MongoDBOpsManagerServiceDefinition struct {
 	// Type of the `Service` to be created.
-	Type corev1.ServiceType `json:"type,omitempty"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=LoadBalancer;NodePort
+	Type corev1.ServiceType `json:"type"`
 
 	// Port in which this `Service` will listen to, this applies to `NodePort`.
 	Port int32 `json:"port,omitempty"`
@@ -169,6 +177,7 @@ type MongoDBOpsManagerServiceDefinition struct {
 
 	// ExternalTrafficPolicy mechanism to preserve the client source IP.
 	// Only supported on GCE and Google Kubernetes Engine.
+	// +kubebuilder:validation:Enum=Cluster;Local
 	ExternalTrafficPolicy corev1.ServiceExternalTrafficPolicyType `json:"externalTrafficPolicy,omitempty"`
 
 	// Annotations is a list of annotations to be directly passed to the Service object.
@@ -185,7 +194,7 @@ type MongoDBOpsManagerBackup struct {
 	JVMParams []string                 `json:"jvmParameters,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
-	OplogStoreConfigs        []DataStoreConfig               `json:"oplogStores,omitempty"`
+	OplogStoreConfigs        []DataStoreConfig               `json:"opLogStores,omitempty"`
 	BlockStoreConfigs        []DataStoreConfig               `json:"blockStores,omitempty"`
 	S3Configs                []S3Config                      `json:"s3Stores,omitempty"`
 	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`

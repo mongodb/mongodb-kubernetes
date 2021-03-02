@@ -8,7 +8,7 @@ spec:
   adminCredentials: ops-manager-admin-secret
   backup:
     enabled: false # enabled during test
-    oplogStores:
+    opLogStores:
       - name: oplog1
         mongodbResourceRef:
           name: my-mongodb-oplog

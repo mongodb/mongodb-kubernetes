@@ -12,7 +12,7 @@ spec:
     enabled: true
     headDB:
       storage: 500M
-    oplogStores:
+    opLogStores:
       - name: oplog1
         mongodbResourceRef:
           name: my-mongodb-oplog

@@ -72,19 +72,22 @@ class TestOpsManagerCreation:
         )
 
     def test_oplog_mdb_created(
-        self, oplog_replica_set: MongoDB,
+        self,
+        oplog_replica_set: MongoDB,
     ):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["oplogStores"] = [
+        ops_manager["spec"]["backup"]["opLogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=200, ignore_errors=True,
+            Phase.Running,
+            timeout=200,
+            ignore_errors=True,
         )
 
     @skip_if_local
