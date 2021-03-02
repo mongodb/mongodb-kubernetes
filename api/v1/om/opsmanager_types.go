@@ -185,11 +185,9 @@ type MongoDBOpsManagerBackup struct {
 	JVMParams []string                 `json:"jvmParameters,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
-	OplogStoreConfigs []DataStoreConfig `json:"oplogStores,omitempty"`
-	BlockStoreConfigs []DataStoreConfig `json:"blockStores,omitempty"`
-	S3Configs         []S3Config        `json:"s3Stores,omitempty"`
-	// Deprecated: this field has been removed, it is only here to perform validations
-	PodSpec                  *mdbv1.MongoDbPodSpec           `json:"podSpec,omitempty"`
+	OplogStoreConfigs        []DataStoreConfig               `json:"oplogStores,omitempty"`
+	BlockStoreConfigs        []DataStoreConfig               `json:"blockStores,omitempty"`
+	S3Configs                []S3Config                      `json:"s3Stores,omitempty"`
 	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 

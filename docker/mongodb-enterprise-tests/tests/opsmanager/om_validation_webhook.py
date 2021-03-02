@@ -27,18 +27,6 @@ def om_validation(namespace: str) -> MongoDBOpsManager:
 
 
 @mark.e2e_om_validation_webhook
-def test_podspec_not_configurable_for_opsmanager_backup(namespace: str):
-    om = om_validation(namespace)
-    om["spec"]["backup"]["podSpec"] = {}
-
-    with pytest.raises(
-        ApiException,
-        match=r"podSpec field is not configurable for Ops Manager Backup, use the backup.statefulSet field instead",
-    ):
-        om.create()
-
-
-@mark.e2e_om_validation_webhook
 def test_connectivity_not_allowed_in_appdb(namespace: str):
     om = om_validation(namespace)
 

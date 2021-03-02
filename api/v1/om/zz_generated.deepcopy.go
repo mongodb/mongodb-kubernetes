@@ -214,11 +214,6 @@ func (in *MongoDBOpsManagerBackup) DeepCopyInto(out *MongoDBOpsManagerBackup) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.PodSpec != nil {
-		in, out := &in.PodSpec, &out.PodSpec
-		*out = new(mdb.MongoDbPodSpec)
-		(*in).DeepCopyInto(*out)
-	}
 	if in.StatefulSetConfiguration != nil {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
 		*out = new(mdb.StatefulSetConfiguration)

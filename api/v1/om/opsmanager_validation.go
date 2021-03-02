@@ -130,13 +130,6 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.Val
 	return v1.ValidationSuccess()
 }
 
-func podSpecIsNotConfigurableBackup(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.Backup.PodSpec != nil {
-		return deprecationErrorForBackup("podSpec", "backup.statefulSet")
-	}
-	return v1.ValidationSuccess()
-}
-
 func usesShortcutResource(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if mdbv1.UsesDeprecatedResourceFields(*os.AppDB.PodSpec) {
 		return v1.ValidationWarning(mdbv1.UseOfDeprecatedShortcutFieldsWarning)
@@ -155,7 +148,6 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		opsManagerConfigIsNotConfigurable,
 		credentialsIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
-		podSpecIsNotConfigurableBackup,
 	}
 	var validationResults []v1.ValidationResult
 
