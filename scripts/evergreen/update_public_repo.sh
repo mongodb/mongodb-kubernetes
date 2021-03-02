@@ -32,7 +32,7 @@ PUBLIC_REPO="$1"
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "${DIR}" &> /dev/null
-cd "$(../gitroot)" || exit 1
+cd "$(git rev-parse --show-toplevel)"
 
 GITHASH="$(git rev-parse HEAD)"
 

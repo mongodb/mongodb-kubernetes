@@ -1,8 +1,0 @@
-#!/bin/bash
-
-# chdir to the dir containing _this_ script, then run the git binary, to
-# ensure we're in the right git repo
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-pushd "${DIR}" &> /dev/null
-
-git rev-parse --show-toplevel
