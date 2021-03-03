@@ -36,7 +36,7 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
     export KOPS_STATE_STORE=s3://kube-om-state-store
 
     echo "Downloading kops"
-    curl -s -L https://github.com/kubernetes/kops/releases/download/v1.18.2/kops-linux-amd64 -o kops
+    curl -s -L https://github.com/kubernetes/kops/releases/download/v1.19.1/kops-linux-amd64 -o kops
     chmod +x kops
     mv kops "${bindir}"
 

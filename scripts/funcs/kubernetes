@@ -226,14 +226,14 @@ create_kops_cluster() {
     local k8s_version="${7:-}"
 
     if [[ -z "${k8s_version}" ]]; then
-        k8s_version='v1.15.10'
+        k8s_version='v1.19.0'
     fi
 
     title "Creating kops cluster $cluster_name (master: $master_size, nodes: $master_size, zones: $zones)"
 
     check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
 
-    echo "Make sure you use the latest version of kops (>= 1.14.0): 'brew upgrade kops'"
+    echo "Make sure you use the latest version of kops (>= 1.19.0): 'brew upgrade kops'"
     kops create cluster \
          --node-count "$node_count" \
          --zones "${zones}" \
