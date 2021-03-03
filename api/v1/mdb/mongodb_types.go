@@ -75,7 +75,7 @@ const (
 // +kubebuilder:resource:path=mongodb,scope=Namespaced,shortName=mdb
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="Version of MongoDB server."
-// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".status.type",description="The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 type MongoDB struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -153,7 +153,9 @@ type MongoDbSpec struct {
 
 	// Deprecated: This has been replaced by the ClusterDomain which should be
 	// used instead
-	ClusterName    string `json:"clusterName,omitempty"`
+	// +kubebuilder:validation:Format="hostname"
+	ClusterName string `json:"clusterName,omitempty"`
+	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
 	Persistent     *bool `json:"persistent,omitempty"`
@@ -200,10 +202,12 @@ type MongoDbSpec struct {
 type Backup struct {
 
 	// +kubebuilder:validation:Enum=enabled;disabled;terminated
+	// +optional
 	Mode BackupMode `json:"mode"`
 }
 
 type AgentConfig struct {
+	// +optional
 	StartupParameters StartupParameters `json:"startupOptions"`
 }
 

@@ -29,7 +29,7 @@ spec:
       type: string
     - description: The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster'
         and 'Standalone'.
-      jsonPath: .status.type
+      jsonPath: .spec.type
       name: Type
       type: string
     - description: The time since the MongoDB resource was created.
@@ -57,8 +57,6 @@ spec:
                     additionalProperties:
                       type: string
                     type: object
-                required:
-                - startupOptions
                 type: object
               backup:
                 properties:
@@ -68,8 +66,6 @@ spec:
                     - disabled
                     - terminated
                     type: string
-                required:
-                - mode
                 type: object
               cloudManager:
                 properties:
@@ -80,8 +76,10 @@ spec:
                     type: object
                 type: object
               clusterDomain:
+                format: hostname
                 type: string
               clusterName:
+                format: hostname
                 type: string
               configServerCount:
                 type: integer
@@ -96,8 +94,6 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
-                    required:
-                    - startupOptions
                     type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
@@ -287,8 +283,6 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
-                    required:
-                    - startupOptions
                     type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
@@ -776,8 +770,6 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
-                    required:
-                    - startupOptions
                     type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true

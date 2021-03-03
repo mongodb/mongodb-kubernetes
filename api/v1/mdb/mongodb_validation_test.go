@@ -75,6 +75,16 @@ func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
 	assert.Errorf(t, err, "'resourceType' cannot be changed once created")
 }
 
+func TestSpecProjectOnlyOneValue(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	rs.Spec.Project = "some-project"
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+	}
+	err := rs.ValidateCreate()
+	assert.Errorf(t, err, "must validate one and only one schema")
+}
+
 func TestMongoDB_ProcessValidations(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
 	assert.Equal(t, rs.ProcessValidationsOnReconcile(nil), nil)

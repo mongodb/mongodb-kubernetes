@@ -156,6 +156,26 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
+// is configured, doing the "oneOf" validation in the webhook.
+func specWithExactlyOneSchema(ms MongoDbSpec) v1.ValidationResult {
+	count := 0
+	if ms.Project != "" {
+		count += 1
+	}
+	if *ms.OpsManagerConfig != (PrivateCloudConfig{}) {
+		count += 1
+	}
+	if *ms.CloudManagerConfig != (PrivateCloudConfig{}) {
+		count += 1
+	}
+
+	if count != 1 {
+		return v1.ValidationError("must validate one and only one schema")
+	}
+	return v1.ValidationSuccess()
+}
+
 func UsesDeprecatedResourceFields(podSpec MongoDbPodSpec) bool {
 	return podSpec.Cpu != "" || podSpec.CpuRequests != "" ||
 		podSpec.Memory != "" || podSpec.MemoryRequests != ""
@@ -174,6 +194,7 @@ func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		usesShortcutResource,
+		specWithExactlyOneSchema,
 	}
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,

@@ -118,7 +118,7 @@ class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
+                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
@@ -139,7 +139,7 @@ class TestReplicaSetInvalidWithProjectAndOpsManager(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
+                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
@@ -160,7 +160,7 @@ class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
+                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
@@ -188,7 +188,8 @@ def test_resource_type_immutable(namespace: str):
     mdb = mdb_resource(namespace).load()
 
     with pytest.raises(
-        ApiException, match=r"'resourceType' cannot be changed once created",
+        ApiException,
+        match=r"'resourceType' cannot be changed once created",
     ):
         mdb["spec"]["type"] = "ShardedCluster"
         mdb.update()
