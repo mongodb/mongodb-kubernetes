@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    control-plane: controller-manager
+  name: system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+  labels:
+    control-plane: controller-manager
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsUser: 65532
+      containers:
+      - command:
+        - /usr/local/bin/mongodb-enterprise-operator
+        image: controller:latest
+        name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+        resources:
+          limits:
+            cpu: 100m
+            memory: 30Mi
+          requests:
+            cpu: 100m
+            memory: 20Mi
+        env:
+        - name: CURRENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['olm.targetNamespaces']
+        - name: MANAGED_SECURITY_CONTEXT
+          value: 'true'
+        - name: OPERATOR_ENV
+          value: prod
+        - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
+          value: quay.io/mongodb/mongodb-enterprise-database
+        - name: INIT_DATABASE_IMAGE_REPOSITORY
+          value: quay.io/mongodb/mongodb-enterprise-init-database
+        - name: INIT_DATABASE_VERSION
+          value: 1.0.2
+        - name: DATABASE_VERSION
+          value: 2.0.0
+        - name: IMAGE_PULL_POLICY
+          value: Always
+        - name: OPS_MANAGER_IMAGE_REPOSITORY
+          value: quay.io/mongodb/mongodb-enterprise-ops-manager
+        - name: OPS_MANAGER_IMAGE_PULL_POLICY
+          value: Always
+        - name: APPDB_IMAGE_REPOSITORY
+          value: quay.io/mongodb/mongodb-enterprise-appdb
+        - name: APPDB_AGENT_VERSION
+          value: 10.2.15.5958-1_4.2.11-ent
+        - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
+          value: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+        - name: INIT_OPS_MANAGER_VERSION
+          value: 1.0.3
+        - name: INIT_APPDB_IMAGE_REPOSITORY
+          value: quay.io/mongodb/mongodb-enterprise-init-appdb
+        - name: INIT_APPDB_VERSION
+          value: 1.0.6

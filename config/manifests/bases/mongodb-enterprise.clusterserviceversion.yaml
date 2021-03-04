@@ -1,0 +1,144 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: |
+      [
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "my-replica-set"
+          },
+          "spec": {
+            "credentials": "my-credentials",
+            "members": 3,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "type": "ReplicaSet",
+            "version": "4.4.0-ent",
+            "persistent": true
+          },
+          "status": {
+            "phase": "Running",
+            "type": "ReplicaSet"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "sample-sharded-cluster"
+          },
+          "spec": {
+            "version": "4.4.0-ent",
+            "type": "ShardedCluster",
+            "configServerCount": 3,
+            "credentials": "my-credentials",
+            "mongodsPerShardCount": 3,
+            "mongosCount": 2,
+            "persistent": true,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "shardCount": 1
+          },
+          "status": {
+            "phase": "Running",
+            "type": "ShardedCluster"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBUser",
+          "metadata": {
+            "name": "my-replica-set-x509-user"
+          },
+          "spec": {
+            "db": "$external",
+            "mongodbResourceRef": {
+              "name": "my-replica-set"
+            },
+            "roles": [
+              {
+                "db": "admin",
+                "name": "dbOwner"
+              }
+            ],
+            "username": "CN=my-replica-set-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
+          },
+          "status": {
+             "phase": "Updated"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBOpsManager",
+          "metadata": {
+            "name": "ops-manag/er"
+          },
+          "spec": {
+            "version": "4.4.1",
+            "adminCredentials": "ops-manager-admin",
+            "configuration": {
+              "mms.fromEmailAddr": "admin@thecompany.com"
+            },
+            "externalConnectivity": {
+              "type": "LoadBalancer"
+            },
+            "applicationDatabase": {
+              "members": 3,
+              "persistent": true,
+              "podSpec": {
+                "cpu": "1"
+              }
+            }
+          }
+        }
+      ]
+    capabilities: Deep Insights
+    categories: Database, Another
+    certified: "true"
+    createdAt: ""
+    description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB into Kubernetes clusters, using our management, monitoring and backup platforms, Ops Manager and Cloud Manager.
+    repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
+    support: support@mongodb.com
+  name: mongodb-enterprise.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions: {}
+  description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB into Kubernetes clusters, using our management, monitoring and backup platforms, Ops Manager and Cloud Manager.
+  displayName: MongoDB Enterprise Operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: true
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - databases
+  - nosql
+  links:
+  - name: Ops Manager Kubernetes
+    url: https://docs.mongodb.com/kubernetes-operator/master/installation/
+  maturity: production
+  provider:
+    name: MongoDB
+    url: https://www.mongodb.com
+  version: 0.0.0

@@ -1,18 +1,18 @@
 domain: mongodb.com
 layout: go.kubebuilder.io/v3
-projectName: ops-manager-kubernetes
+projectName: mongodb-enterprise
 repo: github.com/10gen/ops-manager-kubernetes
 resources:
 - crdVersion: v1
-  group: mdb
+  group: mongodb
   kind: MongoDB
   version: v1
 - crdVersion: v1
-  group: om
+  group: mongodb
   kind: MongoDBOpsManager
   version: v1
 - crdVersion: v1
-  group: mdbuser
+  group: mongodb
   kind: MongoDBUser
   version: v1
 version: 3-alpha

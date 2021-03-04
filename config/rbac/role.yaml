@@ -1,0 +1,64 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  verbs:
+  - '*'
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - mongodb.com
+  resources:
+  - mongodb
+  - mongodb/finalizers
+  - mongodb/status
+  verbs:
+  - '*'
+- apiGroups:
+  - mongodb.com
+  resources:
+  - mongodbusers
+  - mongodbusers/finalizers
+  - mongodbusers/status
+  verbs:
+  - '*'
+- apiGroups:
+  - mongodb.com
+  resources:
+  - opsmanagers
+  - opsmanagers/finalizers
+  - opsmanagers/status
+  verbs:
+  - '*'

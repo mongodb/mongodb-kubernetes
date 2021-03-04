@@ -54,6 +54,11 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 	}
 }
 
+// +kubebuilder:rbac:groups=mongodb.com,resources={mongodb,mongodb/status,mongodb/finalizers},verbs=*
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources={secrets,services,configmaps},verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=*
+
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {

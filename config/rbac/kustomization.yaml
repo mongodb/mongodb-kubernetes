@@ -1,0 +1,17 @@
+resources:
+- role.yaml
+- role_binding.yaml
+
+# The following roles won't be added to the CSV, only rbac: annotations
+# in code. They exist in the operator-sdk project that's created from
+# scratch.
+#
+# Leaving these files commented out because we might need them
+# in the future.
+#
+# - mongodb_editor_role.yaml
+# - mongodb_viewer_role.yaml
+# - mongodbopsmanager_viewer_role.yaml
+# - mongodbopsmanager_editor_role.yaml
+# - mongodbusers_editor_role.yaml
+# - mongodbusers_viewer_role.yaml

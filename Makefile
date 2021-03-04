@@ -148,8 +148,7 @@ ac:
 # in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
 # specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ . scripts/dev/set_env_context.sh; \
- 	  scripts/dev/configure_docker_auth.sh
+	@ . scripts/dev/set_env_context.sh; scripts/dev/configure_docker_auth.sh
 
 build-and-push-operator-image: aws_login
 	@ ./pipeline.py --include operator-quick
@@ -275,7 +274,8 @@ undeploy:
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./... output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
+
 
 # Run go fmt against code
 fmt:
