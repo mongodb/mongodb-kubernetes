@@ -47,7 +47,7 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
         exit 1
     fi
 
-    kops export kubecfg $CLUSTER
+    kops export kubecfg $CLUSTER --admin=87600h
     mv "${HOME}"/.kube/config "${context_config}"
 
 elif [ "${kube_environment_name}" = "kind" ]; then
