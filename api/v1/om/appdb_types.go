@@ -36,7 +36,7 @@ type AppDBSpec struct {
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 	Agent                  mdbv1.AgentConfig            `json:"agent,omitempty"`
 	Persistent             *bool                        `json:"persistent,omitempty"`
-	mdbv1.ConnectionSpec   `json:",inline"`
+	ConnectionSpec         `json:",inline"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user
@@ -50,6 +50,29 @@ type AppDBSpec struct {
 	Namespace      string `json:"-"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
+}
+
+type ConnectionSpec struct {
+	// Transient field - the name of the project. By default is equal to the name of the resource
+	// though can be overridden if the ConfigMap specifies a different name
+	ProjectName string `json:"-"` // ignore when marshalling
+
+	// Name of the Secret holding credentials information
+	Credentials string `json:"credentials,omitempty"`
+
+	// Dev note: don't reference these two fields directly - use the `getProject` method instead
+
+	OpsManagerConfig   *mdbv1.PrivateCloudConfig `json:"opsManager,omitempty"`
+	CloudManagerConfig *mdbv1.PrivateCloudConfig `json:"cloudManager,omitempty"`
+
+	// Deprecated: This has been replaced by the PrivateCloudConfig which should be
+	// used instead
+	Project string `json:"project,omitempty"`
+
+	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
+
+	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
+	LogLevel mdbv1.LogLevel `json:"logLevel,omitempty"`
 }
 type AppDbBuilder struct {
 	appDb *AppDBSpec

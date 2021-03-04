@@ -932,6 +932,10 @@ spec:
               version:
                 pattern: ^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
                 type: string
+            required:
+            - credentials
+            - type
+            - version
             type: object
             x-kubernetes-preserve-unknown-fields: true
           status:

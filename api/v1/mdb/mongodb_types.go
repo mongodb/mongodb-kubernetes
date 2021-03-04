@@ -142,7 +142,8 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ShardedClusterSpec `json:",inline"`
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
-	Version                     string  `json:"version,omitempty"`
+	// +kubebuilder:validation:Required
+	Version                     string  `json:"version"`
 	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
 
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
@@ -160,7 +161,8 @@ type MongoDbSpec struct {
 	ConnectionSpec `json:",inline"`
 	Persistent     *bool `json:"persistent,omitempty"`
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
-	ResourceType ResourceType `json:"type,omitempty"`
+	// +kubebuilder:validation:Required
+	ResourceType ResourceType `json:"type"`
 	Backup       *Backup      `json:"backup,omitempty"`
 
 	// sharded clusters
@@ -310,7 +312,8 @@ type ConnectionSpec struct {
 	ProjectName string `json:"-"` // ignore when marshalling
 
 	// Name of the Secret holding credentials information
-	Credentials string `json:"credentials,omitempty"`
+	// +kubebuilder:validation:Required
+	Credentials string `json:"credentials"`
 
 	// Dev note: don't reference these two fields directly - use the `getProject` method instead
 

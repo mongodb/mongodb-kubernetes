@@ -17,20 +17,6 @@ class TestStandaloneSchemaCredentialsMissing(KubernetesTester):
 
 
 @pytest.mark.e2e_standalone_schema_validation
-class TestStandaloneSchemaProjectMissing(KubernetesTester):
-    """
-    name: Validation for standalone (project missing)
-    create:
-      file: standalone.yaml
-      patch: '[{"op":"remove","path":"/spec/project"}]'
-      exception: 'Unprocessable Entity'
-    """
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_standalone_schema_validation
 class TestStandaloneSchemaVersionMissing(KubernetesTester):
     """
     name: Validation for standalone (version missing)
@@ -113,7 +99,7 @@ class TestStandaloneInvalidWithProjectAndOpsManager(KubernetesTester):
         "create": {
             "file": "standalone.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
+                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
@@ -134,7 +120,7 @@ class TestStandaloneInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
         "create": {
             "file": "standalone.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": {"name": "something"}},
+                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",

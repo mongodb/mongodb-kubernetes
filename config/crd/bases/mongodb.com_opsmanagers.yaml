@@ -72,8 +72,6 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
-                    required:
-                    - startupOptions
                     type: object
                   cloudManager:
                     properties:
