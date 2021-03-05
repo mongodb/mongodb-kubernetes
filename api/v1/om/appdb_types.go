@@ -3,6 +3,9 @@ package om
 import (
 	"encoding/json"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
+	"k8s.io/apimachinery/pkg/types"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -52,6 +55,115 @@ type AppDBSpec struct {
 	Service string `json:"service,omitempty"`
 }
 
+// GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret
+// which contains the Automation Agent's password.
+func (m AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: m.Namespace,
+		Name:      m.Name() + "-password",
+	}
+}
+
+// GetAgentKeyfileSecretNamespacedName returns the NamespacedName for the secret
+// which contains the keyfile.
+func (m AppDBSpec) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: m.Namespace,
+		Name:      m.Name() + "-keyfile",
+	}
+}
+
+// GetScramOptions returns a set of Options which is used to configure Scram Sha authentication
+// in the AppDB.
+func (m AppDBSpec) GetScramOptions() scram.Options {
+	return scram.Options{
+		AuthoritativeSet: false,
+		KeyFile:          util.AutomationAgentKeyFilePathInContainer,
+		AutoAuthMechanisms: []string{
+			scram.Sha256,
+			scram.Sha1,
+		},
+		AgentName:         util.AutomationAgentName,
+		AutoAuthMechanism: scram.Sha1,
+	}
+}
+
+// GetScramUsers returns a list of all scram users for this deployment.
+// in this case it is just the Ops Manager user for the AppDB.
+func (m AppDBSpec) GetScramUsers() []scram.User {
+	return []scram.User{
+		{
+
+			Username: util.OpsManagerMongoDBUserName,
+			Database: util.DefaultUserDatabase,
+
+			// required roles for the AppDB user are outlined in the documentation
+			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
+			Roles: []scram.Role{
+				{
+					Name:     "readWriteAnyDatabase",
+					Database: "admin",
+				},
+				{
+					Name:     "dbAdminAnyDatabase",
+					Database: "admin",
+				},
+				{
+					Name:     "clusterMonitor",
+					Database: "admin",
+				},
+				// Enables backup and restoration roles
+				// https://docs.mongodb.com/manual/reference/built-in-roles/#backup-and-restoration-roles
+				{
+					Name:     "backup",
+					Database: "admin",
+				},
+				{
+					Name:     "restore",
+					Database: "admin",
+				},
+				// Allows user to do db.fsyncLock required by CLOUDP-78890
+				// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+				{
+					Name:     "hostManager",
+					Database: "admin",
+				},
+			},
+			PasswordSecretKey:          m.GetOpsManagerUserPasswordSecretKey(),
+			PasswordSecretName:         m.GetOpsManagerUserPasswordSecretName(),
+			ScramCredentialsSecretName: m.OpsManagerUserScramCredentialsName(),
+		},
+	}
+}
+
+func (m AppDBSpec) NamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: m.Name(), Namespace: m.Namespace}
+}
+
+// GetOpsManagerUserPasswordSecretName returns the name of the secret
+// that will store the Ops Manager user's password.
+func (m AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
+	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
+		return m.PasswordSecretKeyRef.Name
+	}
+	return m.Name() + "-password"
+}
+
+// GetOpsManagerUserPasswordSecretKey returns the key that should be used to map to the Ops Manager user's
+// password in the secret.
+func (m AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
+	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Key != "" {
+		return m.PasswordSecretKeyRef.Key
+	}
+	return util.DefaultAppDbPasswordKey
+}
+
+// OpsManagerUserScramCredentialsName returns the name of the Secret
+// which will store the Ops Manager MongoDB user's scram credentials.
+func (m AppDBSpec) OpsManagerUserScramCredentialsName() string {
+	return m.Name() + "-scram-credentials"
+}
+
 type ConnectionSpec struct {
 	// Transient field - the name of the project. By default is equal to the name of the resource
 	// though can be overridden if the ConfigMap specifies a different name
@@ -74,6 +186,7 @@ type ConnectionSpec struct {
 	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
 	LogLevel mdbv1.LogLevel `json:"logLevel,omitempty"`
 }
+
 type AppDbBuilder struct {
 	appDb *AppDBSpec
 }

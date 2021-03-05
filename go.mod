@@ -15,12 +15,13 @@ require (
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/imdario/mergo v0.3.10
 	github.com/mailru/easyjson v0.7.1 // indirect
-	github.com/mongodb/mongodb-kubernetes-operator v0.5.2-prerelease
+	github.com/mongodb/mongodb-kubernetes-operator v0.5.2-prerelease.0.20210303132614-492c5c0183d1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.7.1
 	github.com/prometheus/common v0.10.0
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/stretchr/testify v1.6.1
 	github.com/xdg/stringprep v1.0.0
 	go.uber.org/zap v1.15.0
