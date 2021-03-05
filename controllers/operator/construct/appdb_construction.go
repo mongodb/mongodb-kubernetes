@@ -78,8 +78,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, opts ...func(options *Dat
 	appDb := &opsManager.Spec.AppDB
 
 	dbSts := appDbDatabaseStatefulSet(appDb, &stsOpts)
-	if appDb.GetSpec().PodSpec != nil && appDb.GetSpec().PodSpec.PodTemplateWrapper.PodTemplate != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, appsv1.StatefulSetSpec{Template: *appDb.GetSpec().PodSpec.PodTemplateWrapper.PodTemplate})
+	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, appsv1.StatefulSetSpec{Template: *appDb.PodSpec.PodTemplateWrapper.PodTemplate})
 	}
 	return dbSts
 }

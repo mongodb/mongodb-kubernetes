@@ -77,7 +77,7 @@ type DatabaseStatefulSetOptions struct {
 type databaseStatefulSetSource interface {
 	GetName() string
 	GetNamespace() string
-	GetSpec() mdbv1.MongoDbSpec
+	GetSecurity() *mdbv1.Security
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -351,9 +351,9 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
-	if mdb.GetSpec().Security != nil {
-		tlsConfig := mdb.GetSpec().Security.TLSConfig
-		if mdb.GetSpec().Security.TLSConfig.IsEnabled() {
+	if mdb.GetSecurity() != nil {
+		tlsConfig := mdb.GetSecurity().TLSConfig
+		if mdb.GetSecurity().TLSConfig.IsEnabled() {
 			var secretName string
 			if tlsConfig.SecretRef.Name != "" {
 				// From this location, the certificates will be used inplace
@@ -391,9 +391,9 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	if mdb.GetSpec().Security != nil {
-		if mdb.GetSpec().Security.ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSpec().Security.ShouldUseClientCertificates() {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.GetSpec().Security.AgentClientCertificateSecretName().Name)
+	if mdb.GetSecurity() != nil {
+		if mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.GetSecurity().AgentClientCertificateSecretName().Name)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: agentCertMountPath,
 				Name:      agentSecretVolume.Name,
@@ -404,7 +404,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
-	if mdb.GetSpec().Security.GetInternalClusterAuthenticationMode() == util.X509 {
+	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
 		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(databaseOpts.Name))
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.InternalClusterAuthMountPath,

@@ -85,6 +85,13 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (mdb *MongoDB) GetSecurity() *Security {
+	if mdb.Spec.Security == nil {
+		mdb.Spec.Security = &Security{}
+	}
+	return mdb.Spec.Security
+}
+
 func (mdb MongoDB) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&mdb).Complete()
 }

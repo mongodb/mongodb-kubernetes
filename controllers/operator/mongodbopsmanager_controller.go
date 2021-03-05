@@ -895,26 +895,19 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 	return s3Creds, nil
 }
 
-// buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to
-// get the mongo URI which points to either the external resource or to the AppDB
-func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
+// shouldUseAppDb accepts an S3Config and returns true if the AppDB should be used
+// for this S3 configuration. Otherwise, a MongoDB resource is configured for use.
+func shouldUseAppDb(config omv1.S3Config) bool {
+	return config.MongoDBResourceRef == nil
+}
+
+// buildAppDbOMS3Config creates a backup.S3Config which is configured to use The AppDb.
+func (r *OpsManagerReconciler) buildAppDbOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
 	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
-	mongodb, status := r.getMongoDbForS3Config(opsManager, config)
-	if !status.IsOK() {
-		return backup.S3Config{}, status
-	}
 
-	isAppDB := config.MongoDBResourceRef == nil
-
-	if !isAppDB {
-		if status = validateS3Config(opsManager, mongodb, config); !status.IsOK() {
-			return backup.S3Config{}, status
-		}
-	}
-
-	userName, password, status := r.getS3MongoDbUserNameAndPassword(mongodb, opsManager, config, log)
-	if !status.IsOK() {
-		return backup.S3Config{}, status
+	password, err := r.getAppDBPassword(opsManager, log)
+	if err != nil {
+		return backup.S3Config{}, workflow.Failed(err.Error())
 	}
 
 	s3Creds, err := r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
@@ -922,12 +915,7 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager
 		return backup.S3Config{}, workflow.Failed(err.Error())
 	}
 
-	var uri string
-	if isAppDB {
-		uri = buildMongoConnectionUrl(opsManager, password)
-	} else {
-		uri = mongodb.ConnectionURL(userName, password, map[string]string{})
-	}
+	uri := buildMongoConnectionUrl(opsManager, password)
 
 	bucket := backup.S3Bucket{
 		Endpoint: config.S3BucketEndpoint,
@@ -937,15 +925,53 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager
 	return backup.NewS3Config(opsManager, config.Name, uri, bucket, *s3Creds), workflow.OK()
 }
 
-func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (mdbv1.MongoDB, workflow.Status) {
-	if config.MongoDBResourceRef == nil {
-		// having no mongodb reference means the AppDB should be used as a metadata storage
-		// We need to build a fake MongoDB resource
-		return mdbv1.MongoDB{Spec: opsManager.Spec.AppDB.GetSpec()}, workflow.OK()
+// buildMongoDbOMS3Config creates a backup.S3Config which is configured to use a referenced
+// MongoDB resource.
+func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (backup.S3Config, workflow.Status) {
+	mongodb, status := r.getMongoDbForS3Config(opsManager, config)
+	if !status.IsOK() {
+		return backup.S3Config{}, status
 	}
-	mongodb := &mdbv1.MongoDB{}
+
+	if status := validateS3Config(opsManager, mongodb, config); !status.IsOK() {
+		return backup.S3Config{}, status
+	}
+
+	userName, password, status := r.getS3MongoDbUserNameAndPassword(mongodb, opsManager.Namespace, config)
+	if !status.IsOK() {
+		return backup.S3Config{}, status
+	}
+
+	s3Creds, err := r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
+	if err != nil {
+		return backup.S3Config{}, workflow.Failed(err.Error())
+	}
+
+	uri := mongodb.ConnectionURL(userName, password, map[string]string{})
+
+	bucket := backup.S3Bucket{
+		Endpoint: config.S3BucketEndpoint,
+		Name:     config.S3BucketName,
+	}
+
+	return backup.NewS3Config(opsManager, config.Name, uri, bucket, *s3Creds), workflow.OK()
+}
+
+// buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to
+// get the mongo URI which points to either the external resource or to the AppDB
+func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
+	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
+	if shouldUseAppDb(config) {
+		return r.buildAppDbOMS3Config(opsManager, config, log)
+	}
+	return r.buildMongoDbOMS3Config(opsManager, config)
+}
+
+// getMongoDbForS3Config returns the referenced MongoDB resource which should be used when configuring the backup config.
+func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (mdbv1.MongoDB, workflow.Status) {
+	mongodb := mdbv1.MongoDB{}
 	mongodbObjectKey := config.MongodbResourceObjectKey(opsManager)
-	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
+	err := r.client.Get(context.TODO(), mongodbObjectKey, &mongodb)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Returning pending as the user may create the mongodb resource soon
@@ -953,27 +979,18 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsM
 		}
 		return mdbv1.MongoDB{}, workflow.Failed(err.Error())
 	}
-	return *mongodb, workflow.OK()
+	return mongodb, workflow.OK()
 }
 
 // getS3MongoDbUserNameAndPassword returns userName and password if MongoDB resource has scram-sha enabled.
 // Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
-// user
-func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, opsManager omv1.MongoDBOpsManager, config omv1.S3Config, log *zap.SugaredLogger) (string, string, workflow.Status) {
+// user.
+func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, namespace string, config omv1.S3Config) (string, string, workflow.Status) {
 	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
 		return "", "", workflow.OK()
 	}
-	// If the resource is empty then we need to consider AppDB credentials
-	if config.MongoDBResourceRef == nil {
-		password, err := r.getAppDBPassword(opsManager, log)
-		if err != nil {
-			return "", "", workflow.Failed(err.Error())
-		}
-		return util.OpsManagerMongoDBUserName, password, workflow.OK()
-	}
-	// Otherwise we are fetching the MongoDBUser entity and a related password
 	mongodbUser := &user.MongoDBUser{}
-	mongodbUserObjectKey := config.MongodbUserObjectKey(opsManager.Namespace)
+	mongodbUserObjectKey := config.MongodbUserObjectKey(namespace)
 	err := r.client.Get(context.TODO(), mongodbUserObjectKey, mongodbUser)
 	if apiErrors.IsNotFound(err) {
 		return "", "", workflow.Pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)

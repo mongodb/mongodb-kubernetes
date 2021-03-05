@@ -222,27 +222,6 @@ func (m AppDBSpec) ConnectionURL(userName, password string, connectionParams map
 	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m, connectionParams)
 }
 
-// GetSpec returns "MongoDbSpec" constructed out of the AppDBSpec. We need this
-// unconventional method because in certain logic in the codebase we create some "fake"
-// MongoDB from AppDBspec, this is not ideal, but I don't want to address this in the same PR(it's already getting big).
-// "CLOUDP-83612" has been created to address this later.
-func (m *AppDBSpec) GetSpec() mdbv1.MongoDbSpec {
-	return mdbv1.MongoDbSpec{
-		Version:                     m.Version,
-		Members:                     m.Members,
-		PodSpec:                     m.PodSpec,
-		FeatureCompatibilityVersion: m.FeatureCompatibilityVersion,
-		Security:                    m.Security,
-		ClusterDomain:               m.ClusterDomain,
-		ResourceType:                m.ResourceType,
-		ClusterName:                 m.ClusterName,
-		Connectivity:                m.Connectivity,
-		AdditionalMongodConfig:      m.AdditionalMongodConfig,
-		Agent:                       m.Agent,
-		Persistent:                  m.Persistent,
-		Service:                     m.Service,
-	}
-}
 func (m *AppDBSpec) GetName() string {
 	return m.Name()
 }
