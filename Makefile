@@ -275,6 +275,8 @@ undeploy:
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
+	# copy the CRDs to the public folder
+	cp config/crd/bases/* public/helm_chart/crds/
 
 
 # Run go fmt against code

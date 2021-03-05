@@ -13,10 +13,10 @@ from typing import Dict
 def ops_manager_and_mongodb_crds():
     """ Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/mongodb.mongodb.com.yaml"
+        client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml"
     )
     create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/opsmanagers.mongodb.com.yaml"
+        client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_opsmanagers.yaml"
     )
     create_or_replace_from_yaml(
         client.api_client.ApiClient(), "helm_chart/crds/webhook-cluster-role.yaml"
@@ -33,7 +33,9 @@ def operator_only_ops_manager_and_mongodb(
     helm_args["operator.watchedResources"] = "{opsmanagers,mongodb}"
 
     return Operator(
-        namespace=namespace, helm_args=helm_args, helm_options=["--skip-crds"],
+        namespace=namespace,
+        helm_args=helm_args,
+        helm_options=["--skip-crds"],
     ).install()
 
 
@@ -41,19 +43,23 @@ def operator_only_ops_manager_and_mongodb(
 def mongodb_crds():
     """ Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/mongodb.mongodb.com.yaml"
+        client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml"
     )
 
 
 @fixture(scope="module")
 def operator_only_mongodb(
-    mongodb_crds, namespace: str, operator_installation_config: Dict[str, str],
+    mongodb_crds,
+    namespace: str,
+    operator_installation_config: Dict[str, str],
 ) -> Operator:
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchedResources"] = "{mongodb}"
 
     return Operator(
-        namespace=namespace, helm_args=helm_args, helm_options=["--skip-crds"],
+        namespace=namespace,
+        helm_args=helm_args,
+        helm_options=["--skip-crds"],
     ).install()
 
 
@@ -61,8 +67,8 @@ def operator_only_mongodb(
 def test_install_operator_ops_manager_and_mongodb_only(
     operator_only_ops_manager_and_mongodb: Operator,
 ):
-    """ Note, that currently it's not possible to install OpsManager only as it requires MongoDB resources
-    (it watches them internally) """
+    """Note, that currently it's not possible to install OpsManager only as it requires MongoDB resources
+    (it watches them internally)"""
     operator_only_ops_manager_and_mongodb.assert_is_running()
 
 
