@@ -106,7 +106,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
-	opsManagerUserPassword, err := r.getAppDBPassword(*opsManager, log)
+	opsManagerUserPassword, err := r.ensureAppDbPassword(*opsManager, log)
 
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed("Error ensuring Ops Manager user password: %s", err), log, opsManagerExtraStatusParams)
@@ -477,12 +477,14 @@ func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.S
 	return err
 }
 
-// getAppDBPassword will return the password that was specified by the user, or the auto generated password stored in
+// ensureAppDbPassword will return the password that was specified by the user, or the auto generated password stored in
 // the secret (generate it and store in secret otherwise)
-func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
+func (r OpsManagerReconciler) ensureAppDbPassword(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
 	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
 	if passwordRef != nil && passwordRef.Name != "" { // there is a secret specified for the Ops Manager user
-
+		if passwordRef.Key == "" {
+			passwordRef.Key = "password"
+		}
 		password, err := secret.ReadKey(r.client, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 		if err != nil {
 			return "", err
@@ -499,8 +501,8 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
 		// the user password is deleted
-		log.Debugf("Deleting Operator managed password secret/%s from namespace", opsManager.Spec.AppDB.GetSecretName(), opsManager.Namespace)
-		if err := r.client.DeleteSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())); err != nil && !apiErrors.IsNotFound(err) {
+		log.Debugf("Deleting Operator managed password secret/%s from namespace", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Namespace)
+		if err := r.client.DeleteSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !apiErrors.IsNotFound(err) {
 			return "", err
 		}
 
@@ -508,42 +510,52 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 	}
 
 	// otherwise we'll ensure the auto generated password exists
-	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())
+	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 	appDbPasswordSecretStringData, err := secret.ReadStringData(r.client, secretObjectKey)
 
 	if apiErrors.IsNotFound(err) {
 		// create the password
-		password, err := generate.RandomFixedLengthStringOfSize(12)
-		if err != nil {
+		if password, err := r.generatePasswordAndCreateSecret(opsManager, log); err != nil {
 			return "", err
+		} else {
+			log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
+			return password, nil
 		}
-
-		passwordData := map[string]string{
-			util.OpsManagerPasswordKey: password,
-		}
-
-		log.Infof("Creating mongodb-ops-manager password in secret/%s in namespace %s", secretObjectKey.Name, secretObjectKey.Namespace)
-
-		appDbPasswordSecret := secret.Builder().
-			SetName(secretObjectKey.Name).
-			SetNamespace(secretObjectKey.Namespace).
-			SetStringData(passwordData).
-			SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
-			Build()
-
-		if err := r.client.CreateSecret(appDbPasswordSecret); err != nil {
-			return "", err
-		}
-
-		log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetSecretName())
-		return password, nil
 	} else if err != nil {
 		// any other error
 		return "", err
 	}
 
-	log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetSecretName())
+	log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 	return appDbPasswordSecretStringData[util.OpsManagerPasswordKey], nil
+}
+
+func (r OpsManagerReconciler) generatePasswordAndCreateSecret(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
+	// create the password
+	password, err := generate.RandomFixedLengthStringOfSize(12)
+	if err != nil {
+		return "", err
+	}
+
+	passwordData := map[string]string{
+		util.OpsManagerPasswordKey: password,
+	}
+
+	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
+
+	log.Infof("Creating mongodb-ops-manager password in secret/%s in namespace %s", secretObjectKey.Name, secretObjectKey.Namespace)
+
+	appDbPasswordSecret := secret.Builder().
+		SetName(secretObjectKey.Name).
+		SetNamespace(secretObjectKey.Namespace).
+		SetStringData(passwordData).
+		SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
+		Build()
+
+	if err := r.client.CreateSecret(appDbPasswordSecret); err != nil {
+		return "", err
+	}
+	return password, nil
 }
 
 // prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
@@ -905,7 +917,7 @@ func shouldUseAppDb(config omv1.S3Config) bool {
 func (r *OpsManagerReconciler) buildAppDbOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
 	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
 
-	password, err := r.getAppDBPassword(opsManager, log)
+	password, err := r.ensureAppDbPassword(opsManager, log)
 	if err != nil {
 		return backup.S3Config{}, workflow.Failed(err.Error())
 	}

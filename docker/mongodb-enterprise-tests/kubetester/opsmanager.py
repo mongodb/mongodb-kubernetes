@@ -177,7 +177,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def read_appdb_generated_password_secret(self) -> client.V1Secret:
         return client.CoreV1Api().read_namespaced_secret(
-            self.app_db_name() + "-password", self.namespace
+            self.app_db_name() + "-om-password", self.namespace
         )
 
     def read_appdb_generated_password(self) -> str:

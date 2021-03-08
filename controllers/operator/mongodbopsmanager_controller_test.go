@@ -171,13 +171,13 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	assert.NotContains(t, client.GetMapForObject(&corev1.Secret{}), kube.ObjectKey(OperatorNamespace, APIKeySecretName))
 }
 
-func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
+func TestOpsManagerGeneratesAppDBPassword(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
 
-	password, err := reconciler.getAppDBPassword(testOm, zap.S())
+	password, err := reconciler.ensureAppDbPassword(testOm, zap.S())
 	assert.NoError(t, err)
-	assert.Len(t, password, 12, "auto generated password should have a size of 12")
+	assert.NotEmpty(t, password)
 }
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
@@ -190,7 +190,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 		},
 	}
 
-	password, err := reconciler.getAppDBPassword(testOm, zap.S())
+	password, err := reconciler.ensureAppDbPassword(testOm, zap.S())
 
 	assert.NoError(t, err)
 	assert.Equal(t, password, "my-password", "the password specified by the SecretRef should have been returned when specified")
@@ -233,20 +233,20 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 }
 
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
 	s := secret.Builder().
-		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
+		SetName(testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
 		SetNamespace(testOm.Namespace).
 		SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
 		SetByteData(map[string][]byte{
 			"password": []byte("password"),
 		}).Build()
 
-	err := reconciler.client.CreateSecret(s)
+	err := reconciler.client.UpdateSecret(s)
 	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
@@ -523,6 +523,7 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
+
 	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-om", Namespace: mock.TestNamespace}}
 	return omv1.NewOpsManagerBuilderFromResource(resource)
 }
