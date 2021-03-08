@@ -48,6 +48,8 @@ images:
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb
       tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb
+      tag: latest
 
   - name: init-appdb-template-ubi
     task_type: dockerfile_template

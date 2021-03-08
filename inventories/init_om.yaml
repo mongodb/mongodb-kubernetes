@@ -40,6 +40,8 @@ images:
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager
       tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-ops-manager
+      tag: latest
   
   - name: init-ops-manager-template-ubi
     task_type: dockerfile_template

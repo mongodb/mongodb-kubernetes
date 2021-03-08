@@ -48,6 +48,29 @@ spec:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
 
+        - name: setting-up-rhel-mongodb-4-4-ent
+          image: curlimages/curl:latest
+          command:
+            - curl
+            - -L
+            - https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel80-4.4.0.tgz
+            - -o
+            - /mongodb-ops-manager/mongodb-releases/linux/mongodb-linux-x86_64-enterprise-rhel80-4.4.0.tgz
+          volumeMounts:
+            - name: mongodb-versions
+              mountPath: /mongodb-ops-manager/mongodb-releases/linux
+        - name: setting-up-ubuntu-mongodb-4-4-ent
+          image: curlimages/curl:latest
+          command:
+            - curl
+            - -L
+            - https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.4.0.tgz
+            - -o
+            - /mongodb-ops-manager/mongodb-releases/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.4.0.tgz
+          volumeMounts:
+            - name: mongodb-versions
+              mountPath: /mongodb-ops-manager/mongodb-releases/linux
+
       restartPolicy: Always
       securityContext: {}
       terminationGracePeriodSeconds: 30

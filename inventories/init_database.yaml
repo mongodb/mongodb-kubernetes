@@ -50,6 +50,8 @@ images:
         output:
           - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database
             tag: $(inputs.params.version_id)
+          - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database
+            tag: latest
 
       - name: init-database-template-ubi
         task_type: dockerfile_template
