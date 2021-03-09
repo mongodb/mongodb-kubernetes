@@ -11,7 +11,10 @@ rules:
   resources:
   - validatingwebhookconfigurations
   verbs:
-  - '*'
+  - create
+  - delete
+  - get
+  - update
 - apiGroups:
   - apps
   resources:
@@ -21,21 +24,52 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
+  - watch
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - create
+  - get
+  - list
   - watch
 - apiGroups:
   - ""
   resources:
   - configmaps
   - secrets
-  - services
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - get
+  - list
   - update
   - watch
 - apiGroups:
