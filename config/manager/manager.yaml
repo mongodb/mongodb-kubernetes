@@ -23,6 +23,7 @@ spec:
         control-plane: controller-manager
     spec:
       terminationGracePeriodSeconds: 10
+      serviceAccountName: mongodb-enterprise-operator
       securityContext:
         runAsUser: 65532
       containers:
