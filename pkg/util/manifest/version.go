@@ -3,10 +3,10 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"io/ioutil"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/blang/semver"
@@ -18,8 +18,8 @@ import (
 const MINIMUM_ALLOWED_MDB_VERSION = "3.5.0"
 
 type Manifest struct {
-	Updated  int                                     `json:"updated"`
-	Versions []automationconfig.MongoDbVersionConfig `json:"versions"`
+	Updated  int                       `json:"updated"`
+	Versions []om.MongoDbVersionConfig `json:"versions"`
 }
 
 type Provider interface {
@@ -75,9 +75,9 @@ func readManifest(data []byte) (*Manifest, error) {
 
 // cutLegacyVersions filters out the old Mongodb versions from version manifest - otherwise the automation config
 // may get too big
-func cutLegacyVersions(configs []automationconfig.MongoDbVersionConfig, firstAllowedVersion string) []automationconfig.MongoDbVersionConfig {
+func cutLegacyVersions(configs []om.MongoDbVersionConfig, firstAllowedVersion string) []om.MongoDbVersionConfig {
 	minimumAllowedVersion, _ := semver.Make(firstAllowedVersion)
-	var versions []automationconfig.MongoDbVersionConfig
+	var versions []om.MongoDbVersionConfig
 
 	for _, version := range configs {
 		manifestVersion, err := semver.Make(version.Name)
@@ -93,17 +93,17 @@ func cutLegacyVersions(configs []automationconfig.MongoDbVersionConfig, firstAll
 // fixLinksAndBuildModules iterates over build links and prefixes them with a correct domain
 // (see mms AutomationMongoDbVersionSvc#buildRemoteUrl) and ensures that build.Modules has
 // a non-nil value as this will cause the agent to fail cluster validation
-func fixLinksAndBuildModules(configs []automationconfig.MongoDbVersionConfig) {
+func fixLinksAndBuildModules(configs []om.MongoDbVersionConfig) {
 	for _, version := range configs {
-		for i, build := range version.Builds {
+		for _, build := range version.Builds {
 			if strings.HasSuffix(version.Name, "-ent") {
-				version.Builds[i].Url = "https://downloads.mongodb.com" + build.Url
+				build.Url = "https://downloads.mongodb.com" + build.Url
 			} else {
-				version.Builds[i].Url = "https://fastdl.mongodb.org" + build.Url
+				build.Url = "https://fastdl.mongodb.org" + build.Url
 			}
 			// AA expects not nil element
 			if build.Modules == nil {
-				version.Builds[i].Modules = []string{}
+				build.Modules = []string{}
 			}
 		}
 	}

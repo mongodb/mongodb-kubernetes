@@ -1,30 +1,27 @@
 package operator
 
 import (
+	"context"
+	"crypto/sha1"
+	"crypto/sha256"
 	"fmt"
-	"path"
+	"hash"
+	"reflect"
 	"strings"
 	"time"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
-	"github.com/stretchr/objx"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/automationconfig"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/blang/semver"
+
+	"github.com/spf13/cast"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 
@@ -33,6 +30,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
@@ -45,16 +43,23 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
+	// PodAnnotationAgentVersion is the Pod Annotation key which contains the current version of the Automation Config
+	// the Agent on the Pod is on now
+	PodAnnotationAgentVersion = "agent.mongodb.com/version"
 	// This is the version of init appdb image which had a different agents reporting mechanism and didn't modify
 	// annotations
 	InitAppDBVersionBeforeBreakingChange = "1.0.4"
@@ -112,7 +117,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		PodEnvVars(&podVars),
 	)
 
-	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, appDbOpts, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.reconcileAppDB(*opsManager, opsManagerUserPassword, appDbSts, appDbOpts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -135,7 +140,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, config construct.AppDBConfiguration, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, config construct.AppDBConfiguration, log *zap.SugaredLogger) workflow.Status {
 	rs := opsManager.Spec.AppDB
 	automationConfigFirst := true
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
@@ -145,11 +150,69 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	}
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
-			return r.deployAutomationConfig(opsManager, rs, appDbSts, log)
+			return r.deployAutomationConfig(opsManager, rs, opsManagerUserPassword, appDbSts, log)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(opsManager, appDbSts, config, log)
 		})
+}
+
+// ensureLegacyConfigMapRemoved makes sure that the ConfigMap which stored the automation config
+// is removed. It is now stored in a Secret instead.
+func ensureLegacyConfigMapRemoved(deleter configmap.Deleter, rs omv1.AppDBSpec) error {
+	err := deleter.DeleteConfigMap(kube.ObjectKey(rs.Namespace, rs.AutomationConfigSecretName()))
+	return client.IgnoreNotFound(err)
+}
+
+// generateScramShaCredentials generates both ScramSha1Creds and ScramSha256Creds. The ScramSha256Creds
+// will not be used, but it makes comparisons with the deployment simpler to generate them both, and would make
+// changing to use ScramSha256 trivial once supported by the Java driver.
+func generateScramShaCredentials(password string, opsManager omv1.MongoDBOpsManager) (*om.ScramShaCreds, *om.ScramShaCreds, error) {
+	sha256Creds, err := authentication.ComputeScramShaCreds(util.OpsManagerMongoDBUserName, password, getOpsManagerUserSalt(opsManager, sha256.New), authentication.ScramSha256)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sha1Creds, err := authentication.ComputeScramShaCreds(util.OpsManagerMongoDBUserName, password, getOpsManagerUserSalt(opsManager, sha1.New), authentication.MongoDBCR)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sha1Creds, sha256Creds, nil
+}
+
+// getOpsManagerUserSalt returns a deterministic salt based on the name of the resource.
+// the required number of characters will be taken based on the requirements for the SCRAM-SHA-1/MONGODB-CR algorithm
+func getOpsManagerUserSalt(om omv1.MongoDBOpsManager, hashConstructor func() hash.Hash) []byte {
+	sha256bytes32 := sha256.Sum256([]byte(fmt.Sprintf("%s-mongodbopsmanager", om.Name)))
+	return sha256bytes32[:hashConstructor().Size()-authentication.RFC5802MandatedSaltSize]
+}
+
+// ensureConsistentAgentAuthenticationCredentials makes sure that if there are existing authentication credentials
+// specified, we use those instead of always generating new ones which would cause constant remounting of the config map
+func ensureConsistentAgentAuthenticationCredentials(newAutomationConfig *om.AutomationConfig, existingAutomationConfig *om.AutomationConfig, log *zap.SugaredLogger) error {
+	// we will keep existing automation agent password
+	if existingAutomationConfig.Auth.AutoPwd != "" {
+		log.Debug("Agent password has already been generated, using existing password")
+		newAutomationConfig.Auth.AutoPwd = existingAutomationConfig.Auth.AutoPwd
+	} else {
+		log.Debug("Generating new automation agent password")
+		if _, err := newAutomationConfig.EnsurePassword(); err != nil {
+			return err
+		}
+	}
+
+	// keep existing keyfile contents
+	if existingAutomationConfig.Auth.Key != "" {
+		log.Debug("Keyfile contents have already been generated, using existing keyfile contents")
+		newAutomationConfig.Auth.Key = existingAutomationConfig.Auth.Key
+	} else {
+		log.Debug("Generating new keyfile contents")
+		if err := newAutomationConfig.EnsureKeyFileContents(); err != nil {
+			return err
+		}
+	}
+
+	return newAutomationConfig.Apply()
 }
 
 // publishAutomationConfig publishes the automation config to the Secret if necessary. Note that it's done only
@@ -159,152 +222,189 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 // object and the probability that the user will edit the config map manually in the same time is extremely low
 // returns the version of AutomationConfig just published
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(rs omv1.AppDBSpec,
-	opsManager omv1.MongoDBOpsManager, automationConfig automationconfig.AutomationConfig) (int, error) {
-	ac, err := automationconfig.EnsureSecret(r.client, kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()), kube.BaseOwnerReference(&opsManager), automationConfig)
+	opsManager omv1.MongoDBOpsManager, automationConfig *om.AutomationConfig, log *zap.SugaredLogger) (int64, error) {
+
+	automationConfigUpdateCallback := func(s *corev1.Secret) bool {
+		return changeAutomationConfigDataIfNecessary(s, automationConfig, log)
+	}
+	// Perform computation of the automation config and possibly creation/update of the existing Secret
+	computedSecret, err := automationconfig.EnsureSecret(r.client, kube.ObjectKey(opsManager.Namespace, rs.AutomationConfigSecretName()),
+		automationConfigUpdateCallback, &opsManager)
+
 	if err != nil {
 		return -1, err
 	}
-	return ac.Version, err
+	// Return the final automation config version
+	var updatedAutomationConfig *om.AutomationConfig
+	if updatedAutomationConfig, err = om.BuildAutomationConfigFromBytes(computedSecret.Data[util.AppDBAutomationConfigKey]); err != nil {
+		return -1, err
+	}
+	return updatedAutomationConfig.Deployment.Version(), err
 }
 
-func getDomain(service, namespace, clusterName string) string {
-	if clusterName == "" {
-		clusterName = "cluster.local"
-	}
-	return fmt.Sprintf("%s.%s.svc.%s", service, namespace, clusterName)
-}
+// changeAutomationConfigDataIfNecessary is a function that optionally changes the existing Automation Config Secret in
+// case if its content is different from the desired Automation Config.
+// Returns true if the data was changed.
+func changeAutomationConfigDataIfNecessary(existingSecret *corev1.Secret, targetAutomationConfig *om.AutomationConfig, log *zap.SugaredLogger) bool {
+	if len(existingSecret.Data) == 0 {
+		log.Debugf("ConfigMap for the Automation Config doesn't exist, it will be created")
+	} else {
+		if existingAutomationConfig, err := om.BuildAutomationConfigFromBytes(existingSecret.Data[util.AppDBAutomationConfigKey]); err != nil {
+			// in case of any problems deserializing the existing AutomationConfig - just ignore the error and update
+			log.Warnf("There were problems deserializing existing automation config - it will be overwritten (%s)", err.Error())
+		} else {
+			// Otherwise there is an existing automation config and we need to compare it with the Operator version
 
-func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
-	if len(ac.Processes) == 0 {
-		return
-	}
+			// Aligning the versions to make deep comparison correct
+			targetAutomationConfig.SetVersion(existingAutomationConfig.Deployment.Version())
 
-	monitoringVersions := ac.MonitoringVersions
-	for _, p := range ac.Processes {
-		found := false
-		for _, m := range monitoringVersions {
-			if m.Hostname == p.HostName {
-				found = true
-				break
+			log.Debug("Ensuring authentication credentials")
+			if err := ensureConsistentAgentAuthenticationCredentials(targetAutomationConfig, existingAutomationConfig, log); err != nil {
+				log.Warnf("error ensuring consistent authentication credentials: %s", err)
+				return false
 			}
-		}
 
-		if !found {
-			monitoringVersion := automationconfig.MonitoringVersion{
-				Hostname: p.HostName,
-				Name:     om.MonitoringAgentDefaultVersion,
+			// If the deployments are the same - we shouldn't perform the update
+			// We cannot compare the deployments directly as the "operator" version contains some struct members
+			// So we need to turn them into maps
+			if reflect.DeepEqual(existingAutomationConfig.Deployment, targetAutomationConfig.Deployment.ToCanonicalForm()) {
+				log.Debugf("Automation Config hasn't changed - not updating ConfigMap")
+				return false
 			}
-			if tls {
-				additionalParams := map[string]string{
-					"useSslForAllConnections":      "true",
-					"sslTrustedServerCertificates": util.CAFilePathInContainer,
-				}
 
-				pemKeyFile := p.Args26.Get("net.ssl.PEMKeyFile")
-				if pemKeyFile != nil {
-					additionalParams["sslClientCertificate"] = pemKeyFile.String()
-				}
-				monitoringVersion.AdditionalParams = additionalParams
-			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName, "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
+			// Otherwise we increase the version
+			targetAutomationConfig.SetVersion(existingAutomationConfig.Deployment.Version() + 1)
+			log.Debugf("Automation Config change detected, increasing version: %d -> %d", existingAutomationConfig.Deployment.Version(), existingAutomationConfig.Deployment.Version()+1)
 		}
 	}
 
-	ac.MonitoringVersions = monitoringVersions
-}
-
-// setBaseUrlForAgents will update the baseUrl for all backup and monitoring versions to the provided url.
-func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
-	for i := range ac.MonitoringVersions {
-		ac.MonitoringVersions[i].BaseUrl = url
-	}
-
-	for i := range ac.BackupVersions {
-		ac.BackupVersions[i].BaseUrl = url
-	}
-}
-
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDBSpec, opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
-
-	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
-
-	auth := automationconfig.Auth{}
-	if err := scram.Enable(&auth, r.client, rs); err != nil {
-		return automationconfig.AutomationConfig{}, err
-	}
-
-	// the existing automation config is required as we compare it against what we build to determine
-	// if we need to increment the version.
-	existingAutomationConfig, err := automationconfig.ReadFromSecret(r.client, types.NamespacedName{Name: rs.AutomationConfigSecretName(), Namespace: opsManager.Namespace})
+	// By this time we have the AutomationConfig we want to push
+	bytes, err := targetAutomationConfig.Serialize()
 	if err != nil {
-		return automationconfig.AutomationConfig{}, err
+		// this definitely cannot happen and means the dev error
+		log.Errorf("Failed to serialize automation config! %s", err)
+		return false
 	}
+	existingSecret.Data = map[string][]byte{util.AppDBAutomationConfigKey: bytes}
 
-	ac, err := automationconfig.NewBuilder().
-		SetTopology(automationconfig.ReplicaSetTopology).
-		SetMembers(scale.ReplicasThisReconciliation(&opsManager)).
-		SetName(rs.Name()).
-		SetDomain(domain).
-		SetAuth(auth).
-		SetFCV(rs.FeatureCompatibilityVersion).
-		SetMongoDBVersion(rs.GetVersion()).
-		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
-		SetPreviousAutomationConfig(existingAutomationConfig).
-		// TODO: this should be TLS config with the new agent version
-		SetSSLConfig(
-			automationconfig.TLS{
-				CAFilePath:            util.CAFilePathInContainer,
-				ClientCertificateMode: automationconfig.ClientCertificateModeOptional,
-			}).
-		AddProcessModification(func(i int, p *automationconfig.Process) {
-			p.AuthSchemaVersion = om.CalculateAuthSchemaVersion(rs.GetVersion())
-			p.Args26 = objx.New(rs.AdditionalMongodConfig.ToMap())
-			p.SetPort(int(rs.AdditionalMongodConfig.GetPortOrDefault()))
-			p.SetReplicaSetName(rs.Name())
-			p.SetWiredTigerCache(wiredtiger.CalculateCache(set, util.AppDbContainerName, rs.GetVersion()))
-			p.SetSystemLog(automationconfig.SystemLog{
-				Destination: "file",
-				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
-			})
-			p.SetStoragePath(automationconfig.DefaultMongoDBDataDir)
-			if rs.GetTlsCertificatesSecretName() != "" {
+	return true
+}
 
-				certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, p.Name)
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(rs omv1.AppDBSpec, opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, set appsv1.StatefulSet, log *zap.SugaredLogger) (*om.AutomationConfig, error) {
+	d := om.NewDeployment()
 
-				// TODO: this will move to net.tls.x with the new agent
-				p.Args26.Set("net.ssl.mode", string(mdbv1.RequireSSLMode))
-				if p.Args26.Has("net.ssl.certificateKeyFile") {
-					p.Args26.Set("net.ssl.certificateKeyFile", certFile)
-				} else {
-					p.Args26.Set("net.ssl.PEMKeyFile", certFile)
-				}
-			}
-		}).Build()
+	replicaSet := replicaset.BuildAppDBFromStatefulSet(set, rs)
+
+	d.MergeReplicaSet(replicaSet, nil)
+
+	automationConfig := om.NewAutomationConfig(d)
+	automationConfig.SetOptions(util.AgentDownloadsDir)
+
+	d.AddMonitoring(log, rs.GetTLSConfig().IsEnabled())
+	automationConfig.SetBaseUrlForAgents(opsManager.CentralURL())
+
+	sha1Creds, sha256Creds, err := generateScramShaCredentials(opsManagerUserPassword, opsManager)
 
 	if err != nil {
-		return automationconfig.AutomationConfig{}, err
+		return nil, err
 	}
 
-	// TODO: configure these fields as part of the building process
-	// for now, this is a replication of the operations performed on om.AutomationConfig
-	// acting on the type automationconfig.AutomationConfig
-	addMonitoring(&ac, log, rs.GetTLSConfig().IsEnabled())
-	setBaseUrlForAgents(&ac, opsManager.CentralURL())
-	if err := r.configureMongoDBVersions(&ac, rs, log); err != nil {
-		return automationconfig.AutomationConfig{}, err
+	if err := configureScramShaAuthentication(automationConfig, sha1Creds, sha256Creds, opsManager, log); err != nil {
+		return nil, err
 	}
 
-	return ac, nil
+	if err := r.configureMongoDBVersions(automationConfig, rs, log); err != nil {
+		return nil, err
+	}
+	// Setting the default version - will be used if no automation config has been published before
+	automationConfig.SetVersion(1)
+	return automationConfig, nil
 }
 
-func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *automationconfig.AutomationConfig, rs omv1.AppDBSpec, log *zap.SugaredLogger) error {
+// configureScramShaAuthentication configures agent and deployment authentication mechanisms using both SHA-1 and SHA-256
+// mechanisms. This is actual for 1.8.0 version of the Operator and needs to be changed after 3-4 versions released -
+// the OM 4.4 should get support for SHA-256 only.
+// Unfortunately we cannot move to SHA-256 right away due to Agent limitation which requires to do a stepped move
+// (SHA-1 -> SHA-1, SHA-256, SHA-256)
+func configureScramShaAuthentication(automationConfig *om.AutomationConfig, sha1Creds, sha256Creds *om.ScramShaCreds, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+	scramSha1 := authentication.NewAutomationConfigScramSha1(automationConfig)
+
+	if err := scramSha1.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
+		return err
+	}
+	scramSha256 := authentication.NewAutomationConfigScramSha256(automationConfig)
+	if err := scramSha256.EnableDeploymentAuthentication(authentication.Options{}); err != nil {
+		return err
+	}
+	// Adding SCRAM-SHA-256 to the list of mechanisms for the agent
+	automationConfig.Auth.AutoAuthMechanisms = append(automationConfig.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
+
+	// we set AuthoritativeSet to false which ensures that it is possible to add additional AppDB
+	// MongoDB users if required which will not be deleted by the operator. We will never be dealing with
+	// a multi agent environment here.
+	authOpts := authentication.Options{AuthoritativeSet: false, OneAgent: true}
+	if err := scramSha1.EnableAgentAuthentication(authOpts, log); err != nil {
+		return err
+	}
+
+	opsManagerUser := buildOpsManagerUser(sha1Creds, sha256Creds)
+	automationConfig.Auth.AddUser(opsManagerUser)
+
+	// update the underlying deployment with the changes made
+	return automationConfig.Apply()
+}
+
+func buildOpsManagerUser(scramSha1Creds, scramSha256Creds *om.ScramShaCreds) om.MongoDBUser {
+	return om.MongoDBUser{
+		Username:                   util.OpsManagerMongoDBUserName,
+		Database:                   util.DefaultUserDatabase,
+		AuthenticationRestrictions: []string{},
+		Mechanisms:                 []string{},
+		ScramSha1Creds:             scramSha1Creds,
+		ScramSha256Creds:           scramSha256Creds,
+
+		// required roles for the AppDB user are outlined in the documentation
+		// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
+		Roles: []*om.Role{
+			{
+				Role:     "readWriteAnyDatabase",
+				Database: "admin",
+			},
+			{
+				Role:     "dbAdminAnyDatabase",
+				Database: "admin",
+			},
+			{
+				Role:     "clusterMonitor",
+				Database: "admin",
+			},
+			// Enables backup and restoration roles
+			// https://docs.mongodb.com/manual/reference/built-in-roles/#backup-and-restoration-roles
+			{
+				Role:     "backup",
+				Database: "admin",
+			},
+			{
+				Role:     "restore",
+				Database: "admin",
+			},
+			// Allows user to do db.fsyncLock required by CLOUDP-78890
+			// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+			{
+				Role:     "hostManager",
+				Database: "admin",
+			},
+		},
+	}
+}
+
+func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *om.AutomationConfig, rs omv1.AppDBSpec, log *zap.SugaredLogger) error {
 	if rs.GetVersion() == util.BundledAppDbMongoDBVersion {
 		versionManifest, err := manifest.FileProvider{FilePath: r.VersionManifestFilePath}.GetVersion()
 		if err != nil {
 			return err
 		}
-		config.Versions = versionManifest.Versions
+		config.SetMongodbVersions(versionManifest.Versions)
 		log.Infof("Using bundled MongoDB version: %s", util.BundledAppDbMongoDBVersion)
 		return nil
 	} else {
@@ -312,13 +412,13 @@ func (r ReconcileAppDbReplicaSet) configureMongoDBVersions(config *automationcon
 	}
 }
 
-func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *automationconfig.AutomationConfig, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) addLatestMongoDBVersions(config *om.AutomationConfig, log *zap.SugaredLogger) error {
 	start := time.Now()
 	versionManifest, err := r.InternetManifestProvider.GetVersion()
 	if err != nil {
 		return err
 	}
-	config.Versions = versionManifest.Versions
+	config.SetMongodbVersions(versionManifest.Versions)
 	log.Debugf("Mongodb version manifest %s downloaded, took %s", util.LatestOmVersion, time.Since(start))
 	return nil
 }
@@ -470,14 +570,17 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, rs omv1.AppDBSpec, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
-	config, err := r.buildAppDbAutomationConfig(rs, opsManager, appDbSts, log)
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, rs omv1.AppDBSpec, opsManagerUserPassword string, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+	config, err := r.buildAppDbAutomationConfig(rs, opsManager, opsManagerUserPassword, appDbSts, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
 
-	var configVersion int
-	if configVersion, err = r.publishAutomationConfig(rs, opsManager, config); err != nil {
+	// TODO remove in some later Operator releases
+	_ = ensureLegacyConfigMapRemoved(r.client, rs)
+
+	var configVersion int64
+	if configVersion, err = r.publishAutomationConfig(rs, opsManager, config, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -494,7 +597,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsM
 }
 
 // allAgentsReachedGoalState checks if all the AppDB Agents have reached the goal state.
-func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(manager omv1.MongoDBOpsManager, targetConfigVersion int, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(manager omv1.MongoDBOpsManager, targetConfigVersion int64, log *zap.SugaredLogger) workflow.Status {
 	appdbSize := manager.Spec.AppDB.Members
 	upgradeFromOldInitImage := false
 	// We need to read the current StatefulSet to find the real number of pods - we cannot rely on OpsManager resource
@@ -511,15 +614,34 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(manager omv1.MongoD
 	} else if !apiErrors.IsNotFound(err) {
 		return workflow.Failed(err.Error())
 	}
-
-	goalState, err := agent.AllReachedGoalState(set, r.client, appdbSize, targetConfigVersion, log)
-	if err != nil {
-		return workflow.Failed(err.Error())
+	var podsNotFound []string
+	for _, podName := range manager.AppDBMemberNames(appdbSize) {
+		pod := &corev1.Pod{}
+		if err := r.client.Get(context.TODO(), kube.ObjectKey(manager.Namespace, podName), pod); err != nil {
+			if apiErrors.IsNotFound(err) {
+				// If the Pod is not found yet - this could mean one of:
+				// 1. The StatefulSet just doesn't exist
+				// 2. The StatefulSet exists but the Pod doesn't exist (terminated/failed and will be rescheduled?)
+				podsNotFound = append(podsNotFound, podName)
+				continue
+			}
+			return workflow.Failed(err.Error())
+		}
+		if agentReachedGoalState := agentReachedGoalState(pod, targetConfigVersion, log); !agentReachedGoalState {
+			return workflow.Pending("Application Database Agents haven't reached Running state yet")
+		}
 	}
-	if goalState {
+
+	if len(podsNotFound) == manager.Spec.AppDB.Members {
+		// No Pod existing means that the StatefulSet hasn't been created yet - will be done during the next step
 		return workflow.OK()
 	}
-	return workflow.Pending("Application Database Agents haven't reached Running state yet")
+	if len(podsNotFound) > 0 {
+		log.Infof("The following Pods don't exist: %v. Assuming they will be rescheduled by Kubernetes soon", podsNotFound)
+		return workflow.Pending("Application Database Agents haven't reached Running state yet")
+	}
+	log.Infof("All %d Application Database Agents have reached Running state", manager.Spec.AppDB.Members)
+	return workflow.OK()
 }
 
 // isOldInitAppDBImageForAgentsCheck returns true if the currently deployed Init Containers don't support annotations yet.
@@ -540,6 +662,21 @@ func isOldInitAppDBImageForAgentsCheck(initAppDBImage string, log *zap.SugaredLo
 	}
 	breakingVersion := semver.MustParse(InitAppDBVersionBeforeBreakingChange)
 	return version.LTE(breakingVersion)
+}
+
+// agentReachedGoalState checks if a single AppDB Agent has reached the goal state. To do this it reads the Pod annotation
+// to find out the current version the Agent is on.
+func agentReachedGoalState(pod *corev1.Pod, targetConfigVersion int64, log *zap.SugaredLogger) bool {
+	currentAgentVersion, ok := pod.Annotations[PodAnnotationAgentVersion]
+	if !ok {
+		log.Debugf("The Pod '%s' doesn't have annotation '%s' yet", pod.Name, PodAnnotationAgentVersion)
+		return false
+	}
+	if cast.ToInt64(currentAgentVersion) != targetConfigVersion {
+		log.Debugf("The Agent in the Pod '%s' hasn't reached the goal state yet (goal: %d, agent: %s)", pod.Name, targetConfigVersion, currentAgentVersion)
+		return false
+	}
+	return true
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored

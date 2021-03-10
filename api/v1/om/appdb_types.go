@@ -91,10 +91,6 @@ func (m AppDBSpec) GetScramOptions() scram.Options {
 // GetScramUsers returns a list of all scram users for this deployment.
 // in this case it is just the Ops Manager user for the AppDB.
 func (m AppDBSpec) GetScramUsers() []scram.User {
-	passwordSecretName := m.GetOpsManagerUserPasswordSecretName()
-	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
-		passwordSecretName = m.PasswordSecretKeyRef.Name
-	}
 	return []scram.User{
 		{
 
@@ -134,7 +130,7 @@ func (m AppDBSpec) GetScramUsers() []scram.User {
 				},
 			},
 			PasswordSecretKey:          m.GetOpsManagerUserPasswordSecretKey(),
-			PasswordSecretName:         passwordSecretName,
+			PasswordSecretName:         m.GetOpsManagerUserPasswordSecretName(),
 			ScramCredentialsSecretName: m.OpsManagerUserScramCredentialsName(),
 		},
 	}
@@ -147,7 +143,10 @@ func (m AppDBSpec) NamespacedName() types.NamespacedName {
 // GetOpsManagerUserPasswordSecretName returns the name of the secret
 // that will store the Ops Manager user's password.
 func (m AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
-	return m.Name() + "-om-password"
+	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
+		return m.PasswordSecretKeyRef.Name
+	}
+	return m.Name() + "-password"
 }
 
 // GetOpsManagerUserPasswordSecretKey returns the key that should be used to map to the Ops Manager user's
@@ -162,7 +161,7 @@ func (m AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
 // OpsManagerUserScramCredentialsName returns the name of the Secret
 // which will store the Ops Manager MongoDB user's scram credentials.
 func (m AppDBSpec) OpsManagerUserScramCredentialsName() string {
-	return m.Name() + "-om-user-scram-credentials"
+	return m.Name() + "-scram-credentials"
 }
 
 type ConnectionSpec struct {
@@ -262,6 +261,10 @@ func DefaultAppDbBuilder() *AppDbBuilder {
 
 func (b *AppDbBuilder) Build() *AppDBSpec {
 	return b.appDb.DeepCopy()
+}
+
+func (m AppDBSpec) GetSecretName() string {
+	return m.Name() + "-password"
 }
 
 func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
