@@ -64,7 +64,7 @@ func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.Mongo
 	return mdb, nil
 }
 
-// +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*
+// +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
 
 // Reconciles a mongodbusers.mongodb.com Custom resource.
 func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {

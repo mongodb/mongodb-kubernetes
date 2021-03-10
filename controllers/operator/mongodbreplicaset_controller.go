@@ -55,14 +55,14 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 }
 
 // Generic Kubernetes Resources
-// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=list;watch
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update
-// +kubebuilder:rbac:groups=core,resources={secrets,configmaps},verbs=get;list;watch;create;delete;update
-// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;get;list;watch;delete;update
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=list;watch,namespace=placeholder
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch,namespace=placeholder
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update,namespace=placeholder
+// +kubebuilder:rbac:groups=core,resources={secrets,configmaps},verbs=get;list;watch;create;delete;update,namespace=placeholder
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;get;list;watch;delete;update,namespace=placeholder
 
 // MongoDB Resource
-// +kubebuilder:rbac:groups=mongodb.com,resources={mongodb,mongodb/status,mongodb/finalizers},verbs=*
+// +kubebuilder:rbac:groups=mongodb.com,resources={mongodb,mongodb/status,mongodb/finalizers},verbs=*,namespace=placeholder
 
 // Setting up a webhook
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;create;update;delete

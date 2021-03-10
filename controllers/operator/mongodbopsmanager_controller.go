@@ -77,7 +77,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 	}
 }
 
-// +kubebuilder:rbac:groups=mongodb.com,resources={opsmanagers,opsmanagers/status,opsmanagers/finalizers},verbs=*
+// +kubebuilder:rbac:groups=mongodb.com,resources={opsmanagers,opsmanagers/status,opsmanagers/finalizers},verbs=*,namespace=placeholder
 
 // Reconcile performs the reconciliation logic for AppDB, Ops Manager and Backup
 // AppDB is reconciled first (independent from Ops Manager as the agent is run in headless mode) and

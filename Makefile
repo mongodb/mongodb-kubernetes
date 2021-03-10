@@ -333,8 +333,8 @@ bundle: manifests kustomize
 
 	rm -r ./bundle/$(VERSION) || true
 	mkdir -p ./bundle/$(VERSION)
-	mv ./bundle/metadata/ -t ./bundle/$(VERSION)/
-	mv ./bundle/manifests/ -t ./bundle/$(VERSION)/
+	mv ./bundle/metadata/  ./bundle/$(VERSION)/
+	mv ./bundle/manifests/  ./bundle/$(VERSION)/
 	mv bundle.Dockerfile ./bundle/$(VERSION)/
 
 
