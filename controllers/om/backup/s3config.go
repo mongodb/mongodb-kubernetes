@@ -49,6 +49,10 @@ type S3Config struct {
 
 	WriteConcern string `json:"writeConcern,omitempty"`
 
+	// Region where the S3 bucket resides.
+	// This is currently set to the empty string to avoid HELP-22791.
+	S3RegionOverride *string `json:"s3RegionOverride,omitempty"`
+
 	// Flag indicating whether this S3 blockstore enables server-side encryption.
 	SseEnabled bool `json:"sseEnabled"`
 
@@ -92,8 +96,9 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Buc
 
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
 	if err == nil && version.Major == 4 && version.Minor == 4 {
-		// DisableProxyS3 is only available in 4.4 version of Ops Manager.
+		// Attributes that are only available in 4.4 version of Ops Manager.
 		config.DisableProxyS3 = util.BooleanRef(false)
+		config.S3RegionOverride = new(string)
 	}
 
 	return config
