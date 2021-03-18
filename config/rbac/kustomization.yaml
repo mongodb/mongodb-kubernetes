@@ -1,6 +1,12 @@
 resources:
 - role.yaml
 - role_binding.yaml
+- database_sa.yaml
+- appdb_sa.yaml
+- appdb_role.yaml
+- appdb_role_binding.yaml
+- om_sa.yaml
+
 
 # The following roles won't be added to the CSV, only rbac: annotations
 # in code. They exist in the operator-sdk project that's created from
