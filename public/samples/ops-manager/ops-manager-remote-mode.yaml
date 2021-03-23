@@ -9,6 +9,8 @@ spec:
   configuration:
     # Change this url to point to the nginx server deployed below
     automation.versions.download.baseUrl: http://nginx-svc.<namespace>.svc.cluster.local:80
+    # Ops Manager versions prior 4.4.11 require this flag to be set to "false" to make MongoDB downloads work correctly
+    # for "remote" mode
     automation.versions.download.baseUrl.allowOnlyAvailableBuilds: "false"
     automation.versions.source: remote
   backup:

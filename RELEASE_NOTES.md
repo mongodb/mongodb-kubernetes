@@ -5,6 +5,11 @@
 * Bug fixes
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces
   * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail
+    
+## MongoDBOpsManager Resource
+* Known issues
+  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds` 
+    needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11. 
 
 
 <!-- Past Releases -->
