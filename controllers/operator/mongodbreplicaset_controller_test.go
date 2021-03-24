@@ -12,6 +12,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/google/uuid"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -51,7 +52,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
-	connection.CheckNumberOfUpdateRequests(t, 1)
+	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
 func TestHorizonVerificationTLS(t *testing.T) {
@@ -109,7 +110,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
-	connection.CheckNumberOfUpdateRequests(t, 2)
+	connection.CheckNumberOfUpdateRequests(t, 4)
 }
 
 func TestCreateReplicaSet_TLS(t *testing.T) {
@@ -133,6 +134,41 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	sslConfig := om.CurrMockedConnection.GetSSL()
 	assert.Equal(t, util.CAFilePathInContainer, sslConfig["CAFilePath"])
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
+}
+
+// TestUpdateDeploymentTLSConfiguration a combination of tests checking that:
+//
+// TLS Disabled -> TLS Disabled: should not lock members
+// TLS Disabled -> TLS Enabled: should not lock members
+// TLS Enabled -> TLS Enabled: should not lock members
+// TLS Enabled -> TLS Disabled: *should lock members*
+func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
+	rsWithTLS := mdbv1.NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
+	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
+	deploymentWithTLS := deployment.CreateFromReplicaSet(rsWithTLS)
+	deploymentNoTLS := deployment.CreateFromReplicaSet(rsNoTLS)
+	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions())
+	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions())
+
+	// TLS Disabled -> TLS Disabled
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsNoTLS, stsNoTLS, zap.S())
+	assert.NoError(t, err)
+	assert.False(t, shouldLockMembers)
+
+	// TLS Disabled -> TLS Enabled
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsWithTLS, stsWithTLS, zap.S())
+	assert.NoError(t, err)
+	assert.False(t, shouldLockMembers)
+
+	// TLS Enabled -> TLS Enabled
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsWithTLS, stsWithTLS, zap.S())
+	assert.NoError(t, err)
+	assert.False(t, shouldLockMembers)
+
+	// TLS Enabled -> TLS Disabled
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsNoTLS, stsNoTLS, zap.S())
+	assert.NoError(t, err)
+	assert.True(t, shouldLockMembers)
 }
 
 // TestCreateDeleteReplicaSet checks that no state is left in OpsManager on removal of the replicaset

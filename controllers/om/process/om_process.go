@@ -11,9 +11,13 @@ import (
 
 // CreateMongodProcesses builds the slice of processes based on 'StatefulSet' and 'MongoDB' spec.
 // Note, that it's not applicable for sharded cluster processes as each of them may have their own mongod
-// options configuration, also mongos process is different
+// options configuration, also mongos process is different.
 func CreateMongodProcesses(set appsv1.StatefulSet, containerName string, mdb *mdbv1.MongoDB) []om.Process {
-	hostnames, names := util.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
+	return CreateMongodProcessesWithLimit(set, containerName, mdb, int(*set.Spec.Replicas))
+}
+
+func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string, mdb *mdbv1.MongoDB, limit int) []om.Process {
+	hostnames, names := util.GetDnsForStatefulSetReplicasSpecified(set, mdb.Spec.GetClusterDomain(), limit)
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, mdb.Spec.GetVersion())
 

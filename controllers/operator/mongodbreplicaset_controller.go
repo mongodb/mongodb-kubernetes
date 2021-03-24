@@ -28,6 +28,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	util_int "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -242,12 +243,31 @@ func AddReplicaSetController(mgr manager.Manager) error {
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
 	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 
-	err := agents.WaitForRsAgentsToRegister(set, rs.Spec.GetClusterDomain(), conn, log)
+	// Only "concrete" RS members should be observed
+	// - if scaling down, let's observe only members that will remain after scale-down operation
+	// - if scaling up, observe only current members, because new ones might not exist yet
+	err := agents.WaitForRsAgentsToRegisterReplicasSpecified(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
 
-	replicaSet := replicaset.BuildFromStatefulSet(set, rs)
+	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
+	// this is, do not scale them up or down util TLS disabling has completed.
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, membersNumberBefore, rs, set, log)
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	var updatedMembers int
+	if shouldLockMembers {
+		// We should not add or remove members during this run, we'll wait for
+		// TLS to be completely disabled first.
+		updatedMembers = membersNumberBefore
+	} else {
+		updatedMembers = int(*set.Spec.Replicas)
+	}
+
+	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs, updatedMembers)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, log)
@@ -265,6 +285,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			if excessProcesses > 0 {
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
+
 			d.MergeReplicaSet(replicaSet, nil)
 			d.AddMonitoringAndBackup(log, rs.Spec.GetTLSConfig().IsEnabled())
 			d.ConfigureTLS(rs.Spec.GetTLSConfig())
@@ -287,6 +308,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 
 	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore)
 	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs))
+
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -297,6 +319,34 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
+}
+
+// updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
+// to be disabled. In which case it will disable it and inform to the calling
+// function.
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
+	tlsConfigWasDisabled := false
+
+	err := conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			if !d.TLSConfigurationWillBeDisabled(rs.Spec.GetTLSConfig()) {
+				return nil
+			}
+
+			tlsConfigWasDisabled = true
+			d.ConfigureTLS(rs.Spec.GetTLSConfig())
+
+			// configure as much agents/Pods as we currently have, no more (in case
+			// there's a scale up change at the same time).
+			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs, membersNumberBefore)
+			d.MergeReplicaSet(replicaSet, nil)
+
+			return nil
+		},
+		log,
+	)
+
+	return tlsConfigWasDisabled, err
 }
 
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {

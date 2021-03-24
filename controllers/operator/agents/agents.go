@@ -61,9 +61,13 @@ func ApiKeySecretName(project string) string {
 	return fmt.Sprintf("%s-group-secret", project)
 }
 
-// WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
 func WaitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
-	hostnames, _ := util.GetDnsForStatefulSet(set, clusterName)
+	return WaitForRsAgentsToRegisterReplicasSpecified(set, 0, clusterName, omConnection, log)
+}
+
+// WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
+func WaitForRsAgentsToRegisterReplicasSpecified(set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
+	hostnames, _ := util.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members)
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilRegistered(omConnection, log, hostnames...) {

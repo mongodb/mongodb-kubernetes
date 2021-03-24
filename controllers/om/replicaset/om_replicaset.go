@@ -16,7 +16,14 @@ import (
 // BuildFromStatefulSet returns a replica set that can be set in the Automation Config
 // based on the given StatefulSet and MongoDB resource.
 func BuildFromStatefulSet(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
-	members := process.CreateMongodProcesses(set, util.DatabaseContainerName, mdb)
+	return BuildFromStatefulSetWithReplicas(set, mdb, int(*set.Spec.Replicas))
+}
+
+// BuildFromStatefulSetWithReplicas returns a replica set that can be set in the Automation Config
+// based on the given StatefulSet and MongoDB resource. The amount of members is set by the replicas
+// parameter.
+func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, replicas int) om.ReplicaSetWithProcesses {
+	members := process.CreateMongodProcessesWithLimit(set, util.DatabaseContainerName, mdb, replicas)
 	replicaSet := om.NewReplicaSet(set.Name, mdb.Spec.GetVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)

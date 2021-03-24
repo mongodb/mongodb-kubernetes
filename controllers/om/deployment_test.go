@@ -153,6 +153,20 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	assert.Empty(t, d["ssl"])
 }
 
+func TestTLSConfigurationWillBeDisabled(t *testing.T) {
+	d := Deployment{}
+	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: false})
+
+	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: false}))
+	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: true}))
+
+	d = Deployment{}
+	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true})
+
+	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: true}))
+	assert.True(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: false}))
+}
+
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than
 // 7 voting members are added
 func TestMergeDeployment_BigReplicaset(t *testing.T) {
