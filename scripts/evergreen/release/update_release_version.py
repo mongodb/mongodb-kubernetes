@@ -25,8 +25,6 @@ from release_json_handler import (
 
 INIT_DATABASE_PATHS = [
     "docker/mongodb-enterprise-init-database/",
-    "probe/readiness.go",
-    "probe/readiness_types.go",
 ]
 
 INIT_OPS_MANAGER_PATHS = ["docker/mongodb-enterprise-init-ops-manager/"]
@@ -68,10 +66,14 @@ def handle_init_image(
     helm_value_key: str,
     current_operator_version: str,
 ):
-    content_changed = [
-        path_has_changes(path, current_operator_version) for path in paths_to_check
-    ]
-    if any(content_changed):
+    print("\nChecking if {} needs a version bump".format(release_object.value))
+    bump_version = False
+    for path in paths_to_check:
+        if path_has_changes(path, current_operator_version):
+            print("=> Path {} has changed".format(path))
+            bump_version = True
+
+    if bump_version:
         new_version = read_version_from_user(release_object)
         update_release_json(release_object, new_version)
         update_all_helm_values_files(helm_value_key, new_version)

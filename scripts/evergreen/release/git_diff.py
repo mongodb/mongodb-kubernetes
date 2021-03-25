@@ -1,16 +1,17 @@
 import sys
 
 from git import Repo
+from git.diff import Diff
 
 
 def path_has_changes(path: str, tag_name: str) -> bool:
-    """ Returns True if the current branch has differences for the 'path' comparing with
+    """Returns True if the current branch has differences for the 'path' comparing with
     the tag with name 'tag_name'
     """
     repo = Repo()
     commit_release = repo.commit(tag_name)
     commit_master = repo.commit()
-    diff_index = commit_release.diff(commit_master, paths=path)
+    diff_index: Diff = commit_release.diff(commit_master, paths=path)
 
     return len(diff_index) > 0
 
