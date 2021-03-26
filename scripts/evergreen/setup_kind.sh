@@ -35,7 +35,7 @@ if ! command -v kind &> /dev/null ; then
   # Store the lowercase name of Operating System
   os=$(uname | tr '[:upper:]' '[:lower:]')
   # This should be changed when needed
-  latest_version="v0.7.0"
+  latest_version="v0.10.0"
 
   mkdir -p "${workdir:?}/bin/"
   echo "Saving kind to ${workdir}/bin"

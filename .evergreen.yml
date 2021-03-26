@@ -242,7 +242,6 @@ functions:
         - kube_environment_name
       binary: scripts/evergreen/setup_kind.sh
 
-
   # installs the Minikube binary (if necessary)
   setup_minikube: &setup_minikube
     command: subprocess.exec
@@ -294,8 +293,8 @@ functions:
       binary: scripts/evergreen/teardown_kubernetes_environment.sh
 
   # Makes sure a kubectl context is defined.
-  setup_kubernetes_environment:
-  - command: subprocess.exec
+  setup_kubernetes_environment_p: &setup_kubernetes_environment_p
+    command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -310,6 +309,9 @@ functions:
       add_to_path:
       - ${workdir}/bin
       binary: scripts/evergreen/setup_kubernetes_environment.sh
+
+  setup_kubernetes_environment:
+  - *setup_kubernetes_environment_p
 
   setup_cloud_qa:
   - command: subprocess.exec
@@ -347,14 +349,6 @@ functions:
         ENV_FILE: ${workdir}/.ops-manager-env
 
       command: "scripts/evergreen/e2e/setup_cloud_qa.py delete"
-
-  # Exit if repository is not clean.
-  guard_git_repo_is_clean:
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        binary: scripts/evergreen/guard_git_repo_is_clean
 
   # This is a blocker for the release process. It will *always* fail and needs to be overriden
   # if the release needs to proceed.
@@ -488,6 +482,35 @@ functions:
 
         command: scripts/evergreen/prepare_aws.sh
 
+  operator-sdk-make-bundle:
+  - *setup_kubernetes_environment_p
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      - *go_bin
+      env:
+        <<: *go_options
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+        operator_img: ${ecr_registry}/dev/ubi/mongodb-enterprise-operator:${version_id}
+      include_expansions_in_env:
+      - workdir
+      - quay_prod_username
+      - quay_prod_robot_token
+      command: scripts/evergreen/operator-sdk/make-bundle.sh
+
+  operator-sdk-run-bundle:
+  - command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      env:
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+      command: scripts/evergreen/operator-sdk/run-bundle.sh
 
 tasks:
 - name: unit_tests
@@ -499,6 +522,14 @@ tasks:
   tags: ["unit_tests"]
   commands:
     - func: "golint"
+
+- name: operator-sdk-run-bundle
+  tags: ["patch-run"]
+  commands:
+  - func: clone
+  - func: download_kube_tools
+  - func: operator-sdk-make-bundle
+  - func: operator-sdk-run-bundle
 
 - name: release_blocker
   git_tag_only: true
@@ -2442,6 +2473,22 @@ buildvariants:
   stepback: false
   tasks:
     - name: "unit_task_group"
+
+- name: operator-sdk-tests
+  display_name: operator-sdk-tests
+  depends_on:
+  - name: build_operator_ubi
+    variant: init_test_run
+  run_on:
+  - ubuntu1604-test
+  expansions:
+    <<: *kubernetes_environment_kind
+  tasks:
+  # CLOUDP-84081
+  - name: operator-sdk-run-bundle
+
+  # CLOUDP-84082
+  # - name: operator-sdk-run-scorecard
 
 ### Build variants for manual patch only
 

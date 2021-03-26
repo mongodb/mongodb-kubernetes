@@ -331,14 +331,13 @@ bundle: manifests kustomize
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	operator-sdk bundle validate ./bundle
 
-	rm -r ./bundle/$(VERSION) || true
 	mkdir -p ./bundle/$(VERSION)
-	mv ./bundle/metadata/  ./bundle/$(VERSION)/
-	mv ./bundle/manifests/  ./bundle/$(VERSION)/
-	mv bundle.Dockerfile ./bundle/$(VERSION)/
+	cp -r ./bundle/metadata/  ./bundle/$(VERSION)/
+	cp -r ./bundle/manifests/  ./bundle/$(VERSION)/
+	cp bundle.Dockerfile ./bundle/$(VERSION)/
 
 
 # Build the bundle image.
 .PHONY: bundle-build
 bundle-build:
-	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+	docker build --label "quay.expires-after=48h" -f bundle.Dockerfile -t $(BUNDLE_IMG) .
