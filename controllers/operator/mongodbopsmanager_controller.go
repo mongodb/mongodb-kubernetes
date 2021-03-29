@@ -218,6 +218,11 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 		return status
 	}
 
+	// StatefulSet will reach ready state eventually once backup has been configured in Ops Manager.
+	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName()); !status.IsOK() {
+		return status
+	}
+
 	if _, err := r.updateStatus(opsManager, workflow.OK(), log, backupStatusPartOption); err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -376,10 +381,6 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	}
 	if needToRequeue {
 		return workflow.OK().Requeue()
-	}
-	// Note, that this will return true quite soon as we don't have daemon readiness so far
-	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName()); !status.IsOK() {
-		return status
 	}
 	return workflow.OK()
 }

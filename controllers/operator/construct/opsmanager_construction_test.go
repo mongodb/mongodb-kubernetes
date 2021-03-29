@@ -108,7 +108,7 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 	assert.Equal(t, "-Xmx4291m -Xms4291m", envVar[0].Value)
 
 	assert.Equal(t, "CUSTOM_JAVA_DAEMON_OPTS", envVar[1].Name)
-	assert.Equal(t, "-Xmx4291m -Xms4291m", envVar[1].Value)
+	assert.Equal(t, "-Xmx4291m -Xms4291m -DDAEMON.DEBUG.PORT=8090", envVar[1].Value)
 }
 
 func TestBuildOpsManagerStatefulSet(t *testing.T) {
@@ -127,7 +127,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
 			env.FromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
-			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m -DDAEMON.DEBUG.PORT=8090"},
 		}
 		env := sts.Spec.Template.Spec.Containers[0].Env
 		assert.Equal(t, expectedVars, env)
@@ -160,7 +160,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		expectedVars := []corev1.EnvVar{
 			env.FromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
-			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m -DDAEMON.DEBUG.PORT=8090"},
 		}
 		env := sts.Spec.Template.Spec.Containers[0].Env
 		assert.Equal(t, expectedVars, env)

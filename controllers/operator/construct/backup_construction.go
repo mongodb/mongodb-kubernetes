@@ -1,6 +1,8 @@
 package construct
 
 import (
+	"fmt"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -16,6 +18,7 @@ import (
 const (
 	BackupDaemonServicePort = 8443
 	backupDaemonEnv         = "BACKUP_DAEMON"
+	healthEndpointPortEnv   = "HEALTH_ENDPOINT_PORT"
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
@@ -87,12 +90,18 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 }
 
 func backupDaemonEnvVars() []corev1.EnvVar {
-	return []corev1.EnvVar{{
-		// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
-		// needs to be passed with any value.configureJvmParams
-		Name:  backupDaemonEnv,
-		Value: "backup",
-	}}
+	return []corev1.EnvVar{
+		{
+			// For the OM Docker image to run as Backup Daemon, the BACKUP_DAEMON env variable
+			// needs to be passed with any value.configureJvmParams
+			Name:  backupDaemonEnv,
+			Value: "backup",
+		},
+		{
+			// Specify the port of the backup daemon health endpoint for the liveness probe.
+			Name:  healthEndpointPortEnv,
+			Value: fmt.Sprintf("%d", backupDaemonHealthPort),
+		}}
 }
 
 func buildBackupDaemonLifecycle() lifecycle.Modification {

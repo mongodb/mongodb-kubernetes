@@ -16,6 +16,6 @@ COPY --from=base /data/scripts /scripts
 COPY --from=base /data/licenses /licenses
 
 USER 2000
-ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh", "/scripts/mmsconfiguration", "/opt/scripts/" ]
+ENTRYPOINT [ "/bin/cp", "-f", "/scripts/docker-entry-point.sh","/scripts/backup-daemon-liveness-probe.sh", "/scripts/mmsconfiguration", "scripts/backupdaemon_readinessprobe", "/opt/scripts/" ]
 
 

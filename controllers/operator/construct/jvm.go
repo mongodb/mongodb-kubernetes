@@ -16,6 +16,7 @@ import (
 const (
 	opsManagerPodMemPercentage = 90
 	oneMB                      = 1048576
+	backupDaemonHealthPort     = 8090
 )
 
 // setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
@@ -40,6 +41,7 @@ func setJvmArgsEnvVars(om omv1.MongoDBOpsManagerSpec, containerName string, sts 
 func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, template corev1.PodTemplateSpec) ([]corev1.EnvVar, error) {
 	mmsJvmEnvVar := corev1.EnvVar{Name: util.MmsJvmParamEnvVar}
 	backupJvmEnvVar := corev1.EnvVar{Name: util.BackupDaemonJvmParamEnvVar}
+
 	omContainer := container.GetByName(containerName, template.Spec.Containers)
 	// calculate xmx from container's memory limit
 	memLimits := omContainer.Resources.Limits.Memory()
@@ -67,6 +69,10 @@ func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, t
 	mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, memParams)
 	backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, memParams)
 
+	// Debug port reports the status of the AppDB, this can be used to determine if the Backup Daemon is in a good state.
+	// this exposes a /health endpoint which returns {"sync_db":"OK","backup_db":"OK","mms_db":"OK"}
+	// https://github.com/10gen/mms/blob/8c4047d67e157672051d37e340305d89ad20964a/server/src/main/com/xgen/svc/brs/grid/Daemon.java#L926
+	backupJvmEnvVar.Value += fmt.Sprintf(" -DDAEMON.DEBUG.PORT=%d", backupDaemonHealthPort)
 	return []corev1.EnvVar{mmsJvmEnvVar, backupJvmEnvVar}, nil
 }
 

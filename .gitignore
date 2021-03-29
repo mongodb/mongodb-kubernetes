@@ -42,6 +42,9 @@ bundle/manifests
 
 .DS_Store
 
+cover.out
+ops-manager-kubernetes.suite
+
 # loadtesting binary
 production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
