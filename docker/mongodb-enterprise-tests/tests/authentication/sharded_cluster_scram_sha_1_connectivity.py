@@ -3,7 +3,7 @@ import pytest
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB
 from kubernetes.client.rest import ApiException
 
 MDB_RESOURCE = "my-sharded-cluster-scram-sha-1"
@@ -53,7 +53,9 @@ class TestCreateMongoDBUser(KubernetesTester):
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,
-            {"password": USER_PASSWORD,},
+            {
+                "password": USER_PASSWORD,
+            },
         )
         super().setup_class()
 

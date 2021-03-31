@@ -2,7 +2,7 @@ import pytest
 
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester
-from kubetester.omtester import get_agent_cert_names, get_sc_cert_names
+from kubetester.omtester import get_sc_cert_names
 
 from typing import Dict, List
 

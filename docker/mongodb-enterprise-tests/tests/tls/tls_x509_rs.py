@@ -1,6 +1,6 @@
 import pytest
 from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.omtester import get_rs_cert_names, get_agent_cert_names
+from kubetester.omtester import get_rs_cert_names
 
 from kubetester.mongotester import ReplicaSetTester
 

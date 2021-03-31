@@ -2,7 +2,7 @@ import pytest
 from kubernetes import client
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.kubetester import fixture as _fixture
-from pytest import fixture, mark
+from pytest import fixture
 
 
 @fixture(scope="module")
@@ -30,7 +30,7 @@ def test_db_connectable(sharded_cluster: MongoDB):
 @pytest.mark.e2e_sharded_cluster_scale_down_shards
 def test_db_data_the_same_count(sharded_cluster: MongoDB):
     """
-     Updates the sharded cluster, scaling down its shards count to 1. Makes sure no data is lost.
+    Updates the sharded cluster, scaling down its shards count to 1. Makes sure no data is lost.
     """
     sharded_cluster.load()
     sharded_cluster["spec"]["shardCount"] = 1

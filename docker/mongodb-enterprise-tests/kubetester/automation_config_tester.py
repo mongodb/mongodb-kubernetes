@@ -1,4 +1,4 @@
-from typing import Dict, Set, Tuple, List, Optional
+from typing import Dict, Set, Tuple, List
 
 X509_AGENT_SUBJECT = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
 SCRAM_AGENT_USER = "mms-automation-agent"
@@ -27,8 +27,8 @@ class AutomationConfigTester:
         ]
 
     def get_mongos_processes(self):
-        """" Returns all mongos processes in deployment. We don't need to filter by sharded cluster name as
-        we have only a single resource per deployment """
+        """ " Returns all mongos processes in deployment. We don't need to filter by sharded cluster name as
+        we have only a single resource per deployment"""
         return [
             process
             for process in self.automation_config["processes"]

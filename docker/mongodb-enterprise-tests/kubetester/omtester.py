@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import json
 import urllib.parse
 
 import semver
@@ -15,8 +14,6 @@ import requests
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import build_auth
 from kubetester.mongotester import BackgroundHealthChecker
-
-from kubernetes import client
 
 from .kubetester import get_env_var_or_fail
 
@@ -72,7 +69,7 @@ class OMContext(object):
 
 
 class OMTester(object):
-    """ OMTester is designed to encapsulate communication with Ops Manager. It also provides the
+    """OMTester is designed to encapsulate communication with Ops Manager. It also provides the
     set of assertion methods helping to write tests"""
 
     def __init__(self, om_context: OMContext):
@@ -86,8 +83,8 @@ class OMTester(object):
             self.context.project_id = self.find_group_id()
 
     def create_restore_job_snapshot(self, snapshot_id: Optional[str] = None) -> str:
-        """ restores the mongodb cluster to some version using the snapshot. If 'snapshot_id' omitted then the
-        latest snapshot will be used. """
+        """restores the mongodb cluster to some version using the snapshot. If 'snapshot_id' omitted then the
+        latest snapshot will be used."""
         cluster_id = self.get_backup_cluster_id()
         if snapshot_id is None:
             snapshots = self.api_get_snapshots(cluster_id)
@@ -201,7 +198,7 @@ class OMTester(object):
 
     def assert_support_page_enabled(self):
         """The method ends successfully if 'mms.helpAndSupportPage.enabled' is set to 'true'. It's 'false' by default.
-            See mms SupportResource.supportLoggedOut()"""
+        See mms SupportResource.supportLoggedOut()"""
         endpoint = self.context.base_url + "/support"
         response = requests.request("get", endpoint, allow_redirects=False)
 
@@ -217,7 +214,8 @@ class OMTester(object):
     def assert_daemon_enabled(self, host_name: str, head_db_path: str):
         encoded_head_db_path = urllib.parse.quote(head_db_path, safe="")
         response = self.om_request(
-            "get", f"/admin/backup/daemon/configs/{host_name}/{encoded_head_db_path}",
+            "get",
+            f"/admin/backup/daemon/configs/{host_name}/{encoded_head_db_path}",
         )
 
         assert response.status_code == requests.status_codes.codes.OK
@@ -289,8 +287,8 @@ class OMTester(object):
         )
 
     def om_request(self, method, path, json_object: Optional[Dict] = None):
-        """ performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
-        '/api../v1.0' as the method does it internally. """
+        """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
+        '/api../v1.0' as the method does it internally."""
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.context.user, self.context.public_key)
 

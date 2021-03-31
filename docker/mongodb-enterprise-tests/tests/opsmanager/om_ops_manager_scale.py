@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 from kubernetes import client
 
@@ -44,11 +42,11 @@ def background_tester(ops_manager: MongoDBOpsManager) -> OMBackgroundTester:
 @pytest.mark.e2e_om_ops_manager_scale
 class TestOpsManagerCreation:
     """
-      Creates an Ops Manager resource of size 2. There are many configuration options passed to the OM created -
-      which allows to bypass the welcome wizard (see conf-hosted-mms-public-template.properties in mms) and get OM
-      ready for use
-      TODO we need to create a MongoDB resource referencing the OM and check that everything is working during scaling
-      operations
+    Creates an Ops Manager resource of size 2. There are many configuration options passed to the OM created -
+    which allows to bypass the welcome wizard (see conf-hosted-mms-public-template.properties in mms) and get OM
+    ready for use
+    TODO we need to create a MongoDB resource referencing the OM and check that everything is working during scaling
+    operations
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
@@ -82,13 +80,16 @@ class TestOpsManagerCreation:
 
     def test_om_resource(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.om_status().get_replicas() == 2
-        assert ops_manager.om_status().get_url() == "http://om-scale-svc.{}.svc.cluster.local:8080".format(
-            ops_manager.namespace
+        assert (
+            ops_manager.om_status().get_url()
+            == "http://om-scale-svc.{}.svc.cluster.local:8080".format(
+                ops_manager.namespace
+            )
         )
 
     def test_backup_statefulset(self, ops_manager: MongoDBOpsManager):
-        """ If spec.backup is not specified the backup statefulset is still expected to be created.
-         Also the number of replicas doesn't depend on OM replicas """
+        """If spec.backup is not specified the backup statefulset is still expected to be created.
+        Also the number of replicas doesn't depend on OM replicas"""
         statefulset = ops_manager.read_backup_statefulset()
         assert statefulset.status.ready_replicas == 1
         assert statefulset.status.current_replicas == 1
@@ -107,8 +108,8 @@ class TestOpsManagerCreation:
 @pytest.mark.e2e_om_ops_manager_scale
 class TestOpsManagerVersionUpgrade:
     """
-      The OM version is upgraded - this means the new image is deployed for both OM, appdb and backup.
-      The OM upgrade happens in rolling manner, we are checking for OM healthiness in parallel
+    The OM version is upgraded - this means the new image is deployed for both OM, appdb and backup.
+    The OM upgrade happens in rolling manner, we are checking for OM healthiness in parallel
     """
 
     def test_upgrade_om(
@@ -140,7 +141,7 @@ class TestOpsManagerVersionUpgrade:
 @pytest.mark.e2e_om_ops_manager_scale
 class TestOpsManagerScaleUp:
     """
-      The OM statefulset is scaled to 3 nodes
+    The OM statefulset is scaled to 3 nodes
     """
 
     def test_scale_up_om(self, ops_manager: MongoDBOpsManager):
@@ -175,8 +176,8 @@ class TestOpsManagerScaleUp:
 @pytest.mark.e2e_om_ops_manager_scale
 class TestOpsManagerScaleDown:
     """
-      The OM resource is scaled to 1 node. This is expected to be quite fast and not availability.
-      TODO somehow we need to check that termination for OM pods happened successfully: CLOUDP-52310
+    The OM resource is scaled to 1 node. This is expected to be quite fast and not availability.
+    TODO somehow we need to check that termination for OM pods happened successfully: CLOUDP-52310
     """
 
     def test_scale_down_om(self, ops_manager: MongoDBOpsManager):

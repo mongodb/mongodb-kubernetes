@@ -3,7 +3,7 @@ from pytest import mark, fixture
 from kubetester import create_secret, find_fixture
 
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongodb_user import MongoDBUser, generic_user, Role
+from kubetester.mongodb_user import MongoDBUser, generic_user
 from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
 
 

@@ -1,15 +1,14 @@
-from typing import List
-
 from pytest import mark, fixture
 
-from kubetester import find_fixture, create_secret
+from kubetester import find_fixture
 
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.kubetester import KubernetesTester
 
 
 @fixture(scope="module")
-def replica_set(namespace: str,) -> MongoDB:
+def replica_set(
+    namespace: str,
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace
     )

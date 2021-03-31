@@ -1,10 +1,5 @@
 import re
-import ssl
-
 import pytest
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
-
 from kubetester.omtester import get_sc_cert_names
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ShardedClusterTester

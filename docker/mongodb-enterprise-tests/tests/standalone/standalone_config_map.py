@@ -1,5 +1,3 @@
-from datetime import datetime
-
 import pytest
 import time
 from kubernetes import client

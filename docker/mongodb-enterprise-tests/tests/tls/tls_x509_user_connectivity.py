@@ -1,13 +1,11 @@
 import pytest
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
-from kubetester.omtester import get_rs_cert_names
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import Certificate, ISSUER_CA_NAME
 from kubetester.mongodb import MongoDB, Phase
 
 import copy
-import re
 import time
 
 
@@ -87,7 +85,9 @@ def server_certs(issuer: str, namespace: str):
     """Creates one 'test-x509-rs-cert' Secret with server TLS certs for 3 RS members. """
     resource_name = "test-x509-rs"
     pod_fqdn_fstring = "{resource_name}-{index}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name, namespace=namespace, index="{}",
+        resource_name=resource_name,
+        namespace=namespace,
+        index="{}",
     )
     data = {}
     for i in range(3):

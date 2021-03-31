@@ -7,7 +7,6 @@ from typing import Optional, Dict, Tuple, List
 import time
 from kubeobject import CustomObject
 from kubernetes import client
-from kubernetes.client import V1ConfigMap
 
 from kubetester.kubetester import KubernetesTester, build_host_fqdn
 from kubetester.omtester import OMTester, OMContext

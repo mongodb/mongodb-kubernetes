@@ -1,15 +1,13 @@
 import tempfile
 
-from pytest import mark, fixture, xfail
+from pytest import mark, fixture
 
 from kubetester import create_secret, read_secret, delete_secret, find_fixture
-from kubetester.kubetester import KubernetesTester
 
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.ldap import OpenLDAP, LDAPUser
 from kubetester.certs import generate_cert
-from tests.opsmanager.conftest import ensure_ent_version
 
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
@@ -21,7 +19,9 @@ def server_certs(issuer: str, namespace: str):
     # no need to worry about the tls things on every test.
     resource_name = "ldap-replica-set"
     pod_fqdn_fstring = "{resource_name}-{index}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name, namespace=namespace, index="{}",
+        resource_name=resource_name,
+        namespace=namespace,
+        index="{}",
     )
     data = {}
     for i in range(3):
@@ -46,7 +46,11 @@ def client_cert_path(issuer: str, namespace: str):
     }
 
     client_secret = generate_cert(
-        namespace, "client-cert", "client-cert", issuer, spec=spec,
+        namespace,
+        "client-cert",
+        "client-cert",
+        issuer,
+        spec=spec,
     )
     client_cert = read_secret(namespace, client_secret)
     cert_file = tempfile.NamedTemporaryFile()

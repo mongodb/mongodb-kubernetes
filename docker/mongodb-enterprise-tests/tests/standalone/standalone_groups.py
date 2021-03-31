@@ -1,5 +1,3 @@
-import re
-
 import pytest
 
 from kubetester.kubetester import (

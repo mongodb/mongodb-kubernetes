@@ -1,5 +1,5 @@
 from pytest import fixture, mark
-from kubetester.kubetester import skip_if_local, fixture as yaml_fixture
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 
 
@@ -58,8 +58,8 @@ def test_sharded_cluster_reaches_running_phase(sharded_cluster: MongoDB):
 
 
 def cluster_reaches_not_ready(sharded_cluster: MongoDB, sts_name: str):
-    """ This function waits until the sharded cluster status gets 'resource_not_ready' element for the specified
-    StatefulSet """
+    """This function waits until the sharded cluster status gets 'resource_not_ready' element for the specified
+    StatefulSet"""
 
     def resource_not_ready(s: MongoDB):
         if s.get_status_resources_not_ready() is None:
@@ -68,6 +68,7 @@ def cluster_reaches_not_ready(sharded_cluster: MongoDB, sts_name: str):
 
     sharded_cluster.wait_for(resource_not_ready, timeout=150, should_raise=True)
     sharded_cluster.assert_status_resource_not_ready(
-        sts_name, msg_regexp="Not all the Pods are ready \(total: 1.*\)",
+        sts_name,
+        msg_regexp="Not all the Pods are ready \(total: 1.*\)",
     )
     assert sharded_cluster.get_status_phase() == Phase.Pending

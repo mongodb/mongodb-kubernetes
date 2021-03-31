@@ -1,18 +1,9 @@
-import random
-
 from pytest import mark, fixture
-
-from kubernetes import client
-from kubernetes.client.rest import ApiException
 from kubetester import find_fixture
-
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.omtester import get_rs_cert_names
 from kubetester.kubetester import KubernetesTester
-
 from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
-from datetime import datetime, timezone
-import time
 
 
 @fixture(scope="module")
@@ -65,7 +56,9 @@ def test_file_has_correct_permissions(replica_set: MongoDB, namespace: str):
     ]
     for i in range(3):
         result = KubernetesTester.run_command_in_pod_container(
-            f"test-tls-base-rs-{i}", namespace, cmd,
+            f"test-tls-base-rs-{i}",
+            namespace,
+            cmd,
         ).splitlines()
         for res in result:
             assert (

@@ -1,6 +1,6 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
-from kubetester.omtester import get_agent_cert_names, get_sc_cert_names
+from kubetester.omtester import get_sc_cert_names
 
 MDB_RESOURCE = "test-x509-sc"
 

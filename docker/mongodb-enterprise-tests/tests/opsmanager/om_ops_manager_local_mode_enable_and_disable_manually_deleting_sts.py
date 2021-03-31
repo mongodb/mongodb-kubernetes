@@ -1,13 +1,10 @@
 from typing import Optional
 
-import yaml
-import subprocess
 from kubetester import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 
 from kubetester import (
-    get_default_storage_class,
     delete_statefulset,
     delete_pod,
     get_pod_when_ready,
@@ -18,7 +15,9 @@ from pytest import mark, fixture
 
 @fixture(scope="module")
 def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str,
+    namespace: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
@@ -36,7 +35,8 @@ def replica_set(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
     yield resource.create()
@@ -92,7 +92,9 @@ def test_new_binaries_are_present(ops_manager: MongoDBOpsManager, namespace: str
     ]
     for i in range(2):
         result = KubernetesTester.run_command_in_pod_container(
-            f"om-basic-{i}", namespace, cmd,
+            f"om-basic-{i}",
+            namespace,
+            cmd,
         )
         assert result != "0"
 

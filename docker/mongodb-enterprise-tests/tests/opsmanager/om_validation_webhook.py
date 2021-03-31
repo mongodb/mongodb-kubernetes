@@ -4,10 +4,8 @@ Ensures that validation warnings for ops manager reflect its current state
 from typing import Optional
 
 import pytest
-from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark

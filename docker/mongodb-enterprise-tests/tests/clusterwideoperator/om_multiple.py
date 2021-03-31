@@ -3,7 +3,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from pytest import fixture, mark
-from typing import Optional
 from kubetester import (
     create_service_account,
     create_object_from_dict,

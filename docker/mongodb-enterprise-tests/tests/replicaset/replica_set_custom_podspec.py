@@ -1,9 +1,4 @@
-import subprocess
-
 from pytest import fixture, mark
-
-from kubernetes.stream import stream
-
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.custom_podspec import assert_stateful_set_podspec
@@ -30,7 +25,14 @@ def test_stateful_set_spec_updated(replica_set, namespace):
     containers_spec = [
         {
             "name": "mongodb-enterprise-database",
-            "resources": {"limits": {"cpu": "2",}, "requests": {"cpu": "1",},},
+            "resources": {
+                "limits": {
+                    "cpu": "2",
+                },
+                "requests": {
+                    "cpu": "1",
+                },
+            },
             "volume_mounts": [
                 {
                     "name": "database-scripts",

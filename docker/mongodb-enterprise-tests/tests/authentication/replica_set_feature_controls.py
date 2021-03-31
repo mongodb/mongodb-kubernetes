@@ -1,18 +1,14 @@
-from os import environ
-import time
-
 from pytest import fixture, mark
 
 from kubetester.mongodb import Phase, MongoDB
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.automation_config_tester import AutomationConfigTester
 
 
 @fixture(scope="module")
 def replicaset(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-basic.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-basic.yaml"),
+        namespace=namespace,
     )
 
     return resource.create()

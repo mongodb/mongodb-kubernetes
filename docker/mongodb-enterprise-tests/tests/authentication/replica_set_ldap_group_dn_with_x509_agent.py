@@ -8,8 +8,8 @@ from kubetester import create_secret, find_fixture
 from kubetester import kubetester
 
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongodb_user import MongoDBUser, generic_user, Role
-from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
+from kubetester.mongodb_user import MongoDBUser, generic_user
+from kubetester.ldap import OpenLDAP, LDAPUser
 from kubetester.omtester import get_rs_cert_names
 
 from datetime import datetime, timezone
@@ -18,7 +18,9 @@ import time
 
 @fixture(scope="module")
 def replica_set(
-    openldap: OpenLDAP, issuer_ca_configmap: str, namespace: str,
+    openldap: OpenLDAP,
+    issuer_ca_configmap: str,
+    namespace: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace
@@ -89,8 +91,10 @@ def test_replica_set(
         # otherwise we might got stuck on a single cert that has not appeared yet in K8S.
         cert_name = random.choice(certs)
         try:
-            body = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
-                cert_name
+            body = (
+                client.CertificatesV1beta1Api().read_certificate_signing_request_status(
+                    cert_name
+                )
             )
             conditions = client.V1beta1CertificateSigningRequestCondition(
                 last_update_time=datetime.now(timezone.utc).astimezone(),

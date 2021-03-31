@@ -6,7 +6,6 @@ from os import path
 import yaml
 from kubernetes import client
 from kubernetes.client import ApiClient
-import kubernetes.utils
 from kubernetes.utils.create_from_yaml import create_from_yaml_single_item
 
 """

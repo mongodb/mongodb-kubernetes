@@ -6,7 +6,7 @@ from kubetester.kubetester import (
     EXTERNALLY_MANAGED_TAG,
     MAX_TAG_LEN,
 )
-from kubetester.omtester import skip_if_cloud_manager, should_include_tag
+from kubetester.omtester import should_include_tag
 
 
 @pytest.mark.e2e_replica_set_groups

@@ -3,7 +3,7 @@ Checks that the CRD conform to Structural Schema:
 https://kubernetes.io/docs/tasks/access-kubernetes-api/custom-resources/custom-resource-definitions/#specifying-a-structural-schema
 """
 
-from pytest import mark, fixture
+from pytest import mark
 
 from kubernetes.client import ApiextensionsV1beta1Api, V1beta1CustomResourceDefinition
 

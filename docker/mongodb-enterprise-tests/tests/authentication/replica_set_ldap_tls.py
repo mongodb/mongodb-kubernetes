@@ -2,16 +2,16 @@ from pytest import mark, fixture
 
 from kubetester import create_secret, find_fixture
 
-from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
-from kubetester.helm import helm_install_from_chart
 from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
 
 
 @fixture(scope="module")
 def replica_set(
-    openldap_tls: OpenLDAP, issuer_ca_configmap: str, namespace: str,
+    openldap_tls: OpenLDAP,
+    issuer_ca_configmap: str,
+    namespace: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace

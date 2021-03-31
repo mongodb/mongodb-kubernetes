@@ -5,7 +5,6 @@ from kubernetes.client import ApiException
 from kubetester import MongoDB
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
 
 
 def mdb_resource(namespace: str) -> MongoDB:

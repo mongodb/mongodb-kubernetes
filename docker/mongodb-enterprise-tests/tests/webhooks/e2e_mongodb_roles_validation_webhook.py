@@ -1,4 +1,3 @@
-import yaml
 import pytest
 from pytest import fixture
 from kubernetes import client

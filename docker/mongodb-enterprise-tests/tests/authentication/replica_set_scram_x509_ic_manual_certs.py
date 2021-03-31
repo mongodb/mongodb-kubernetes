@@ -1,5 +1,3 @@
-import collections
-
 from kubetester.certs import (
     create_mongodb_tls_certs,
     SetProperties,
@@ -49,7 +47,11 @@ def all_certs(issuer, namespace) -> None:
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, all_certs, issuer_ca_configmap: str,) -> MongoDB:
+def replica_set(
+    namespace: str,
+    all_certs,
+    issuer_ca_configmap: str,
+) -> MongoDB:
     _ = all_certs
     mdb: MongoDB = MongoDB.from_yaml(
         _fixture("replica-set-scram-sha-256-x509-internal-cluster.yaml"),
