@@ -59,23 +59,15 @@ class TestOpsManagerCreation:
     def test_appdb_3_reaches_running_phase_2(self, ops_manager: MongoDBOpsManager):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_backup_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        """ backup is not configured properly - but it's ok as we are testing Statefulset only"""
-        ops_manager.backup_status().assert_reaches_phase(
-            Phase.Pending, msg_regexp="StatefulSet not ready", timeout=200
-        )
-
-    def test_backup_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.backup_status().assert_status_resource_not_ready(
-            ops_manager.backup_daemon_name(),
-            msg_regexp="Not all the Pods are ready \(total: 1.*\)",
-        )
-
-    def test_backup_2_reaches_pending_phase(self, ops_manager: MongoDBOpsManager):
+    def test_backup_0_reaches_pending_phase(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending, msg_regexp=".*is required for backup.*", timeout=900
         )
         ops_manager.backup_status().assert_empty_status_resources_not_ready()
+
+    def test_backup_1_pod_becomes_ready(self, ops_manager: MongoDBOpsManager):
+        """ backup web server is up and running"""
+        ops_manager.wait_until_backup_pod_becomes_ready()
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
@@ -274,23 +266,15 @@ class TestOpsManagerUpdate:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
         ops_manager.om_status().assert_empty_status_resources_not_ready()
 
-    def test_backup_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        """ backup is not configured properly - but it's ok as we are testing Statefulset only"""
-        ops_manager.backup_status().assert_reaches_phase(
-            Phase.Pending, msg_regexp="StatefulSet not ready", timeout=100
-        )
-
-    def test_backup_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.backup_status().assert_status_resource_not_ready(
-            ops_manager.backup_daemon_name(),
-            msg_regexp="Not all the Pods are ready \(total: 1.*\)",
-        )
-
-    def test_backup_2_reaches_pending_phase(self, ops_manager: MongoDBOpsManager):
+    def test_backup_0_reaches_pending_phase(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending, msg_regexp=".*is required for backup.*", timeout=900
         )
         ops_manager.backup_status().assert_empty_status_resources_not_ready()
+
+    def test_backup_1_pod_becomes_ready(self, ops_manager: MongoDBOpsManager):
+        """ backup web server is up and running"""
+        ops_manager.wait_until_backup_pod_becomes_ready()
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()

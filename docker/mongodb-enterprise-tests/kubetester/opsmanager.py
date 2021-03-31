@@ -160,6 +160,17 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self.backup_daemon_pod_name(), self.namespace
         )
 
+    def wait_until_backup_pod_becomes_ready(self, timeout=300):
+        def backup_daemon_is_ready():
+            try:
+                backup_pod = self.read_backup_pod()
+                return backup_pod.status.container_statuses[0].ready
+            except Exception as e:
+                print("Error checking if pod is ready: " + str(e))
+                return False
+
+        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=timeout)
+
     def read_gen_key_secret(self) -> client.V1Secret:
         return client.CoreV1Api().read_namespaced_secret(
             self.name + "-gen-key", self.namespace
