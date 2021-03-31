@@ -1,14 +1,16 @@
+import logging
 import random
 import ssl
 import string
 import threading
-from typing import List, Optional
+import time
+import timeit
+from typing import Callable, List, Optional
 
 import pymongo
-import time
 from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
-from pymongo.errors import ServerSelectionTimeoutError, OperationFailure
+from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 from pytest import fail
 
 TEST_DB = "test-db"
@@ -16,11 +18,14 @@ TEST_COLLECTION = "test-collection"
 
 
 class MongoTester:
-    """ MongoTester is a general abstraction to work with mongo database. It incapsulates the client created in
-    the constructor. All general methods non-specific to types of mongodb topologies should reside here. """
+    """MongoTester is a general abstraction to work with mongo database. It incapsulates the client created in
+    the constructor. All general methods non-specific to types of mongodb topologies should reside here."""
 
     def __init__(
-        self, connection_string: str, use_ssl: bool, ca_path: Optional[str] = None,
+        self,
+        connection_string: str,
+        use_ssl: bool,
+        ca_path: Optional[str] = None,
     ):
         # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
         # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
@@ -191,28 +196,15 @@ class MongoTester:
                     fail(msg=f"unable to authenticate after {total_attempts} attempts")
                 time.sleep(5)
 
-    def upload_random_data(self, count, test_collection=TEST_COLLECTION):
-        """ Generates random json documents and uploads them to database. This data can be later checked for
-        integrity """
-        print(
-            "Inserting {} fake records to {}.{}".format(count, TEST_DB, test_collection)
-        )
-        target = self.client[TEST_DB][test_collection]
-        buf = []
-        for a in range(count):
-            buf.append(generate_single_json())
-            if len(buf) == 10_000:
-                target.insert_many(buf)
-                buf.clear()
-            if (a + 1) % 50_000 == 0:
-                print("Inserted {} records".format(a + 1))
-        # tail
-        if len(buf) > 0:
-            target.insert_many(buf)
-        print("Data inserted")
+    def upload_random_data(
+        self,
+        count: int,
+        generation_function: Optional[Callable] = None,
+    ):
+        return upload_random_data(self.client, count, generation_function)
 
     def assert_deployment_reachable(self, attempts: int = 5):
-        """ See: https://jira.mongodb.org/browse/CLOUDP-68873
+        """See: https://jira.mongodb.org/browse/CLOUDP-68873
         the agents might report being in goal state, the MDB resource
         would report no errors but the deployment would be unreachable
         The workaround is to use the public API to get the list of
@@ -268,7 +260,11 @@ class ReplicaSetTester(MongoTester):
         self.replicas_count = replicas_count
 
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_resource_name, namespace, replicas_count, servicename=None, srv=srv,
+            mdb_resource_name,
+            namespace,
+            replicas_count,
+            servicename=None,
+            srv=srv,
         )
 
         super().__init__(self.cnx_string, ssl, ca_path)
@@ -316,15 +312,19 @@ class ShardedClusterTester(MongoTester):
             namespace = KubernetesTester.get_namespace()
 
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_name, namespace, mongos_count, servicename, srv=srv,
+            mdb_name,
+            namespace,
+            mongos_count,
+            servicename,
+            srv=srv,
         )
         super().__init__(self.cnx_string, ssl, ca_path)
 
     def shard_collection(
         self, shards_pattern, shards_count, key, test_collection=TEST_COLLECTION
     ):
-        """ enables sharding and creates zones to make sure data is spread over shards.
-        Assumes that the documents have field 'key' with value in [0,10] range """
+        """enables sharding and creates zones to make sure data is spread over shards.
+        Assumes that the documents have field 'key' with value in [0,10] range"""
         for i in range(shards_count):
             self.client.admin.command(
                 "addShardToZone", shards_pattern.format(i), zone="zone-{}".format(i)
@@ -345,8 +345,8 @@ class ShardedClusterTester(MongoTester):
         )
 
     def prepare_for_shard_removal(self, shards_pattern, shards_count):
-        """ We need to map all the shards to all the zones to let shard be removed (otherwise the balancer gets
-        stuck as it cannot move chunks from shards being removed) """
+        """We need to map all the shards to all the zones to let shard be removed (otherwise the balancer gets
+        stuck as it cannot move chunks from shards being removed)"""
         for i in range(shards_count):
             for j in range(shards_count):
                 self.client.admin.command(
@@ -360,7 +360,7 @@ class ShardedClusterTester(MongoTester):
 class BackgroundHealthChecker(threading.Thread):
     """BackgroundHealthChecker is the thread which periodically calls the function to check health of some resource. It's
     run as a daemon so usually there's no need in stopping it manually.
-     """
+    """
 
     def __init__(
         self,
@@ -488,3 +488,42 @@ def generate_single_json():
 def db_namespace(collection):
     """ https://docs.mongodb.com/manual/reference/glossary/#term-namespace """
     return "{}.{}".format(TEST_DB, collection)
+
+
+def upload_random_data(
+    client,
+    count: int,
+    generation_function: Optional[Callable] = None,
+    task_name: Optional[str] = "default",
+):
+    """
+    Generates random json documents and uploads them to database. This data can
+    be later checked for integrity.
+    """
+
+    if generation_function is None:
+        generation_function = generate_single_json
+
+    logging.info(
+        "task: {}. Inserting {} fake records to {}.{}".format(
+            task_name, count, TEST_DB, TEST_COLLECTION
+        )
+    )
+
+    target = client[TEST_DB][TEST_COLLECTION]
+    buf = []
+
+    for a in range(count):
+        buf.append(generation_function())
+        if len(buf) == 1_000:
+            target.insert_many(buf)
+            buf.clear()
+        if (a + 1) % 10_000 == 0:
+            logging.info("task: {}. Inserted {} document".format(task_name, a + 1))
+    # tail
+    if len(buf) > 0:
+        target.insert_many(buf)
+
+    logging.info(
+        "task: {}. Task finished, {} documents inserted. ".format(task_name, count)
+    )

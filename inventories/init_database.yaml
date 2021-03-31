@@ -1,4 +1,5 @@
 vars:
+  readiness_probe_repo: quay.io/mongodb/mongodb-kubernetes-readinessprobe
   quay_registry: quay.io/mongodb/mongodb-enterprise-init-database
   rh_registry: scan.connect.redhat.com/ospid-cf1063a9-6391-4dd7-b995-a4614483e6a1/mongodb-enterprise-init-database
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-init-database
@@ -20,6 +21,7 @@ images:
           mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
           mongodb_tools_url_ubuntu: $(inputs.params.mongodb_tools_url_ubuntu)
           readiness_probe_version: $(inputs.params.readiness_probe_version)
+          readiness_probe_repo: $(inputs.params.readiness_probe_repo)
 
         output:
           - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context

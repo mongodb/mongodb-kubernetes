@@ -68,6 +68,10 @@ parameters:
   value: quay.io/mongodb
   description: registry where database images are stored for this run
 
+- key: readiness_probe
+  value: ""
+  description: set this to the repository:tag of the readinessprobe image
+
 functions:
   "golint":
     - command: subprocess.exec
@@ -139,6 +143,7 @@ functions:
       - test_suffix
       - om_version
       - triggered_by_git_tag
+      - readiness_probe
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
@@ -940,6 +945,12 @@ tasks:
 - name: e2e_replica_set_readiness_probe
   tags: ["patch-run"]
   exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replication_state_awareness
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
@@ -1869,6 +1880,7 @@ task_groups:
     - e2e_replica_set_pv_multiple
     - e2e_replica_set_schema_validation
     - e2e_replica_set_statefulset_status
+    - e2e_replication_state_awareness
     - e2e_sharded_cluster_pv
     - e2e_sharded_cluster_recovery
     - e2e_sharded_cluster_schema_validation

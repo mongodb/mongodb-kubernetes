@@ -23,7 +23,7 @@ from sonar.sonar import process_image
 from dataclasses import dataclass, field
 
 
-LOGLEVEL = os.environ.get("LOGLEVEL", "WARNING").upper()
+LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
 
 skippable_tags = frozenset(["ubi", "ubuntu"])
@@ -622,6 +622,14 @@ def build_init_appdb(build_configuration: BuildConfiguration):
         is_appdb=True,
     )
 
+    if os.environ.get("readiness_probe"):
+        logging.info(
+            "Using readiness_probe source image: %s", os.environ["readiness_probe"]
+        )
+        repo, tag = os.environ["readiness_probe"].split(":")
+        args["readiness_probe_repo"] = repo
+        args["readiness_probe_version"] = tag
+
     sonar_build_image(
         image_name,
         build_configuration,
@@ -685,6 +693,19 @@ def build_init_database(build_configuration: BuildConfiguration):
         readiness_probe_version=readiness_probe_version,
         is_appdb=False,
     )
+
+    # TODO:
+    # This is a temporary solution to be able to specify a different readiness_probe image
+    # at build time.
+    # If this is set to "" or not set at all, then the default value in
+    # "inventories/init_database.yaml" will be used.
+    if os.environ.get("readiness_probe"):
+        logging.info(
+            "Using readiness_probe source image: %s", os.environ["readiness_probe"]
+        )
+        repo, tag = os.environ["readiness_probe"].split(":")
+        args["readiness_probe_repo"] = repo
+        args["readiness_probe_version"] = tag
 
     sonar_build_image(
         image_name,

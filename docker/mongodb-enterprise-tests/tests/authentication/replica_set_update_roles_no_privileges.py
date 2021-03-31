@@ -131,4 +131,4 @@ def test_automation_config_has_new_roles(replica_set: MongoDB):
         tester = replica_set.get_automation_config_tester()
         return tester.get_role_at_index(0) == role
 
-    wait_until("", has_role, timeout=90, sleep_time=5)
+    wait_until(has_role, timeout=90, sleep_time=5)

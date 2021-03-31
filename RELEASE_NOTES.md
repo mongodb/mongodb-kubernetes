@@ -1,6 +1,14 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
-# MongoDB Enterprise Kubernetes Operator 1.9.3
+# MongoDB Enterprise Kubernetes Operator 1.10.1
+## Kubernetes Operator
+* Changes
+  * The readiness probe on Database Pods is more strict when restarting a
+    Replica Set and will only set the Pod as "Ready" when the MongoDB server has
+    reached `PRIMARY` or `SECONDARY` states.
+
+<!-- Past Releases -->
+# MongoDB Enterprise Kubernetes Operator 1.10.0
 ## Kubernetes Operator
 * Bug fixes
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces
@@ -13,7 +21,6 @@
     needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11. 
 
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.9.2
 ## Miscellaneous
 * Fix errors with CSV

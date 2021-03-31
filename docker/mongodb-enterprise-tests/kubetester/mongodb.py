@@ -1,15 +1,15 @@
 from __future__ import annotations
-import re
-from enum import Enum
-import urllib.parse
-from typing import Optional, Dict, Tuple, List
 
+import re
 import time
+import urllib.parse
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
 from kubeobject import CustomObject
 from kubernetes import client
-
 from kubetester.kubetester import KubernetesTester, build_host_fqdn
-from kubetester.omtester import OMTester, OMContext
+from kubetester.omtester import OMContext, OMTester
 
 from .mongotester import (
     MongoTester,
@@ -30,7 +30,7 @@ class Phase(Enum):
 class MongoDBCommon:
     def wait_for(self, fn, timeout=None, should_raise=False):
         if timeout is None:
-            timeout = 240
+            timeout = 360
         initial_timeout = timeout
 
         wait = 3
@@ -153,7 +153,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             self.name, self.get_status_phase(), self.get_status_message()
         )
 
-    def configure(self, om, project_name: str):
+    def configure(self, om: MongoDBOpsManager, project_name: str) -> MongoDB:
         if "project" in self["spec"]:
             del self["spec"]["project"]
 
@@ -396,3 +396,29 @@ def in_desired_state(
         )
 
     return is_in_desired_state
+
+
+def generic_replicaset(
+    namespace: str,
+    version: str,
+    name: Optional[str] = None,
+    ops_manager: Optional[MongoDBOpsManager] = None,
+) -> MongoDB:
+    if name is None:
+        name = KubernetesTester.random_k8s_name("rs-")
+
+    rs = MongoDB(namespace=namespace, name=name)
+    rs["spec"] = {
+        "members": 3,
+        "type": "ReplicaSet",
+        "persistent": False,
+        "version": version,
+    }
+
+    if ops_manager is None:
+        rs["spec"]["credentials"] = "my-credentials"
+        rs["spec"]["opsManager"] = {"configMapRef": {"name": "my-project"}}
+    else:
+        rs.configure(ops_manager, KubernetesTester.random_k8s_name("project-"))
+
+    return rs

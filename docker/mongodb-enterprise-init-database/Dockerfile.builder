@@ -1,7 +1,8 @@
 # Build compilable stuff
 
+ARG readiness_probe_repo
 ARG readiness_probe_version
-FROM quay.io/mongodb/mongodb-kubernetes-readinessprobe:${readiness_probe_version} as builder
+FROM ${readiness_probe_repo}:${readiness_probe_version} as builder
 
 FROM scratch
 ARG mongodb_tools_url_ubi

@@ -2,7 +2,7 @@ import random
 import string
 import time
 from base64 import b64decode
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Callable, Any
 
 from kubernetes import client, utils
 from kubernetes.client.rest import ApiException
@@ -171,11 +171,8 @@ def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
     return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
 
 
-def wait_until(cls, action, timeout=0, **kwargs):
-    func = None
-    # if passed a function directly, we can use it
-    if callable(action):
-        func = action
-    else:  # otherwise find a function of that name
-        func = getattr(cls, action)
-    return run_periodically(func, timeout=timeout, **kwargs)
+def wait_until(fn: Callable[..., Any], timeout=0, **kwargs):
+    """
+    Runs the Callable `fn` until timeout is reached or until it returns True.
+    """
+    return run_periodically(fn, timeout=timeout, **kwargs)
