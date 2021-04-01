@@ -87,12 +87,12 @@ class TestOpsManagerCreation:
             )
         )
 
-    def test_backup_statefulset(self, ops_manager: MongoDBOpsManager):
+    def test_backup_pod(self, ops_manager: MongoDBOpsManager):
         """If spec.backup is not specified the backup statefulset is still expected to be created.
-        Also the number of replicas doesn't depend on OM replicas"""
-        statefulset = ops_manager.read_backup_statefulset()
-        assert statefulset.status.ready_replicas == 1
-        assert statefulset.status.current_replicas == 1
+        Also the number of replicas doesn't depend on OM replicas. The backup daemon pod will become
+        ready when the web server becomes available.
+        """
+        ops_manager.wait_until_backup_pod_becomes_ready()
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):

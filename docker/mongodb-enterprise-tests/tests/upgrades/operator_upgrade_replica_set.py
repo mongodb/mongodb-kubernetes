@@ -24,7 +24,9 @@ def replica_set(
     custom_mdb_version: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), namespace=namespace, name=RS_NAME,
+        yaml_fixture("replica-set.yaml"),
+        namespace=namespace,
+        name=RS_NAME,
     )
     resource["spec"]["version"] = custom_mdb_version
     # TLS
@@ -57,7 +59,9 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
-        {"password": USER_PASSWORD,},
+        {
+            "password": USER_PASSWORD,
+        },
     )
 
     yield resource.create()
@@ -86,7 +90,7 @@ def test_upgrade_operator(default_operator: Operator):
 @pytest.mark.e2e_operator_upgrade_replica_set
 def test_replicaset_reconciled(replica_set: MongoDB):
     replica_set.assert_abandons_phase(phase=Phase.Running, timeout=100)
-    replica_set.assert_reaches_phase(phase=Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set

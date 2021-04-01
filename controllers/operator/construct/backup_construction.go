@@ -3,6 +3,8 @@ package construct
 import (
 	"fmt"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -16,9 +18,11 @@ import (
 )
 
 const (
-	BackupDaemonServicePort = 8443
-	backupDaemonEnv         = "BACKUP_DAEMON"
-	healthEndpointPortEnv   = "HEALTH_ENDPOINT_PORT"
+	BackupDaemonServicePort           = 8443
+	backupDaemonEnv                   = "BACKUP_DAEMON"
+	healthEndpointPortEnv             = "HEALTH_ENDPOINT_PORT"
+	backupDaemonReadinessProbeCommand = "/opt/scripts/backup-daemon-readiness-probe"
+	backupDaemonLivenessProbeCommand  = "/opt/scripts/backup-daemon-liveness-probe.sh"
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
@@ -83,6 +87,8 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 						container.WithEnvs(backupDaemonEnvVars()...),
 						container.WithLifecycle(buildBackupDaemonLifecycle()),
 						container.WithVolumeMounts([]corev1.VolumeMount{headDbMount}),
+						container.WithLivenessProbe(buildBackupDaemonLivenessProbe()),
+						container.WithReadinessProbe(buildBackupDaemonReadinessProbe()),
 					),
 				)),
 		),
@@ -106,4 +112,30 @@ func backupDaemonEnvVars() []corev1.EnvVar {
 
 func buildBackupDaemonLifecycle() lifecycle.Modification {
 	return lifecycle.WithPrestopCommand([]string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"})
+}
+
+// buildBackupDaemonReadinessProbe returns a probe modification which will add
+// the readiness probe.
+func buildBackupDaemonReadinessProbe() probes.Modification {
+	return probes.Apply(
+		probes.WithExecCommand([]string{backupDaemonReadinessProbeCommand}),
+		probes.WithFailureThreshold(3),
+		probes.WithInitialDelaySeconds(1),
+		probes.WithSuccessThreshold(1),
+		probes.WithPeriodSeconds(3),
+		probes.WithTimeoutSeconds(5),
+	)
+}
+
+// buildBackupDaemonLivenessProbe returns a probe modification which will add
+// the liveness probe.
+func buildBackupDaemonLivenessProbe() probes.Modification {
+	return probes.Apply(
+		probes.WithExecCommand([]string{backupDaemonLivenessProbeCommand}),
+		probes.WithFailureThreshold(5),
+		probes.WithInitialDelaySeconds(1),
+		probes.WithSuccessThreshold(1),
+		probes.WithPeriodSeconds(5),
+		probes.WithTimeoutSeconds(5),
+	)
 }
