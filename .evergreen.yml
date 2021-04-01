@@ -2389,6 +2389,8 @@ buildvariants:
     variant: init_test_run
   - name: build_test_image
     variant: init_test_run
+  - name: build_init_appdb_images_ubi
+    variant: init_test_run
   expansions:
     <<: *cloud_manager_qa
     kube_environment_name: *kubernetes_environment_minikube

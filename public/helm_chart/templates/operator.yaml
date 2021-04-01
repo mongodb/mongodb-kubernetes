@@ -32,7 +32,7 @@ spec:
 {{- end }}
       containers:
       - name: {{ .Values.operator.deployment_name }}
-        image: {{ .Values.registry.operator }}/{{ .Values.operator.name }}:{{ .Values.operator.version }}{{ .Values.build }}
+        image: {{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.build }}
         imagePullPolicy: {{ .Values.registry.pullPolicy }}
         {{- if .Values.operator.watchedResources }}
         args:

@@ -9,9 +9,12 @@
       Replica Set and will only set the Pod as "Ready" when the MongoDB server has
       reached `PRIMARY` or `SECONDARY` states.
 
+## Miscellaneous
+* Added a new value in openshift-values.yaml `operator_image_name` which allows the label selector of the webhook
+  to match the operator label.
+
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.10.0
-
 ## Kubernetes Operator
 
 * Changes

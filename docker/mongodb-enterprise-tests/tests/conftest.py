@@ -230,6 +230,7 @@ def official_operator(
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead if the "ubi" images
     # are used for installing the dev Operator
+    helm_args["operator.operator_image_name"] = name
     if image_type == "ubi":
         helm_options = [
             "--values",
@@ -237,7 +238,7 @@ def official_operator(
         ]
         # on the other side we still need to manage the security context by ourselves
         helm_args["managedSecurityContext"] = "true"
-        name = "enterprise-operator"
+        helm_args["operator.operator_image_name"] = "enterprise-operator"
 
     return Operator(
         namespace=namespace,
