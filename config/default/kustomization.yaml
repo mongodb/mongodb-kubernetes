@@ -16,6 +16,7 @@ bases:
 - ../crd
 - ../rbac
 - ../manager
+- ../scorecard
 
 # not used
 patchesStrategicMerge:

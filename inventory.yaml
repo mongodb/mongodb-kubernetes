@@ -159,4 +159,6 @@ images:
       - registry: $(inputs.params.quay_registry)-ubi
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
       - registry: $(inputs.params.rh_registry)
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.rh_registry)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

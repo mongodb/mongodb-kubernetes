@@ -206,6 +206,9 @@ ensure-k8s-and-reset: ensure-k8s
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 VERSION ?= 0.0.1
 
+# EXPIRES sets a label to expire images (quay specific)
+EXPIRES := --label quay.expires-after=48h
+
 # CHANNELS define the bundle channels used in the bundle. 
 # Add a new line here if you would like to change its default config. (E.g CHANNELS = "preview,fast,stable")
 # To re-generate a bundle for other specific channels without changing the standard setup, you can:
@@ -328,16 +331,26 @@ endef
 bundle: manifests kustomize
 	operator-sdk generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
-	operator-sdk bundle validate ./bundle
+	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)\
+		--channels=stable --default-channel=stable\
+		--output-dir ./bundle/$(VERSION)/
+	operator-sdk bundle validate ./bundle/$(VERSION)
 
-	mkdir -p ./bundle/$(VERSION)
-	cp -r ./bundle/metadata/  ./bundle/$(VERSION)/
-	cp -r ./bundle/manifests/  ./bundle/$(VERSION)/
-	cp bundle.Dockerfile ./bundle/$(VERSION)/
+
+.PHONY: bundle-annotated
+bundle-annotated: bundle
+	echo 'LABEL com.redhat.openshift.versions="v4.5,v4.6"' >> bundle.Dockerfile
+	echo 'LABEL com.redhat.delivery.backport=true' >> bundle.Dockerfile
+	echo 'LABEL com.redhat.delivery.operator.bundle=true' >> bundle.Dockerfile
+	mv bundle.Dockerfile ./bundle/$(VERSION)/bundle.Dockerfile
 
 
 # Build the bundle image.
 .PHONY: bundle-build
 bundle-build:
-	docker build --label "quay.expires-after=48h" -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+	docker build $(EXPIRES) -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
+
+
+.PHONY: bundle-push
+bundle-push:
+	scripts/evergreen/operator-sdk/bundle-push.sh

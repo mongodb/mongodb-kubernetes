@@ -83,14 +83,18 @@ check the list of names under `Github Users/Teams Authorized To Create Versions 
 ```bash
 git checkout master
 git pull
-git tag --annotate --sign $(jq --raw-output .mongodbOperator < release.json)
+git tag --sign $(jq --raw-output .mongodbOperator < release.json)
 git push origin $(jq --raw-output .mongodbOperator < release.json)
 ```
 
-Note: there will be two runs on evergreen waterfall: the one triggered by the merge
-and the one triggered by the git tag.
-The one triggered by the git tag will have title `Triggered From Git Tag 'X.Y.Z':` and is
-the correct one to use, as it will ensure that the operator will be built with the correct tag.
+Notes:
+
+* There will be two runs on evergreen waterfall: the one triggered by the merge
+  and the one triggered by the git tag. The one triggered by the git tag will have
+  title `Triggered From Git Tag 'X.Y.Z':` and is the correct one to use, as it
+  will ensure that the operator will be built with the correct tag.
+* Evergreen can't initiate versions from an annotated tag, until this is resolved
+  tags should not be annotated: EVG-14357.
 
 ## 7. Build and push images
 
@@ -150,7 +154,7 @@ To complete the update of the public repo, you need to add any new images
 produced by the release process. Remember that these are the same images,
 stored in S3 to build the images daily.
 
-    scripts/update_supported_dockerfiles.py
+    ./scripts/update_supported_dockerfiles.py
 
 All of the supported files will be downloaded and staged into your repo, before
 moving on, make sure you commit these changes locally.
@@ -163,7 +167,7 @@ with any changes that have yet to be copied over.
 
 Then run
 
-    scripts/evergreen/update_public_repo.sh <path_to_public_repo_root>
+    ./scripts/evergreen/update_public_repo.sh <path_to_public_repo_root>
 
 This will copy the contents of the `public` directory in the
 `10gen/ops-manager-kubernetes` into the root of the
