@@ -40,9 +40,10 @@ def ops_manager_cert(domain: str, namespace: str, issuer: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(
-        issuer, namespace, f"{OM_NAME}-db", "certs-for-appdb"
+    create_mongodb_tls_certs(
+        issuer, namespace, f"{OM_NAME}-db", "appdb-om-tls-monitored-appdb-db-cert"
     )
+    return "appdb"
 
 
 @fixture(scope="module")

@@ -356,7 +356,7 @@ func (spec MongoDbSpec) GetSecurity() *Security {
 }
 
 func (spec MongoDbSpec) IsTLSEnabled() bool {
-	return spec.Security != nil && spec.Security.TLSConfig != nil && spec.Security.TLSConfig.Enabled
+	return spec.Security != nil && spec.Security.TLSConfig != nil && spec.Security.TLSConfig.IsEnabled()
 }
 
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
@@ -551,11 +551,16 @@ type Ldap struct {
 	// +optional
 	BindQueryUser string `json:"bindQueryUser"`
 	// +optional
-	BindQuerySecretRef TLSSecretRef `json:"bindQueryPasswordSecretRef"`
+	BindQuerySecretRef SecretRef `json:"bindQueryPasswordSecretRef"`
 	// +optional
 	AuthzQueryTemplate string `json:"authzQueryTemplate"`
 	// +optional
 	UserToDNMapping string `json:"userToDNMapping"`
+}
+
+type SecretRef struct {
+	// kubebuilder:validation:Required
+	Name string `json:"name"`
 }
 
 type TLSConfig struct {
@@ -571,10 +576,7 @@ type TLSConfig struct {
 	// used to validate the certificates created already.
 	CA string `json:"ca,omitempty"`
 
-	// AppDB-only attributes
-	//
-	// SecretRef points to a Secret object containing the certificates to use when enabling
-	// TLS on the AppDB.
+	// SecretRef points to a Secret object containing the certificates to use when enabling TLS.
 	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
@@ -582,19 +584,25 @@ func (t *TLSConfig) IsEnabled() bool {
 	if t == nil {
 		return false
 	}
-	return t.Enabled || t.SecretRef.Name != ""
+	return t.Enabled || (t.SecretRef.Prefix != "" || t.SecretRef.Name != "")
 }
 
 // IsSelfManaged returns true if the TLS is self-managed (cert provided by the customer), not Operator-managed
 func (t TLSConfig) IsSelfManaged() bool {
-	return t.CA != "" || t.SecretRef.Name != ""
+	return t.CA != "" || (t.SecretRef.Prefix != "" || t.SecretRef.Name != "")
 }
 
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
 // be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {
-	// kubebuilder:validation:Required
+	// +optional
+	// DEPRECATED please use security.tls.secretRef.prefix instead
 	Name string `json:"name"`
+
+	// TODO: make prefix required once name has been removed.
+
+	// +optional
+	Prefix string `json:"prefix"`
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {

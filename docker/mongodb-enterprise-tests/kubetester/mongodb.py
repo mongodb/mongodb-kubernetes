@@ -177,7 +177,10 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self
 
     def configure_custom_tls(
-        self, issuer_ca_configmap_name: str, tls_cert_secret_name: str
+        self,
+        issuer_ca_configmap_name: str,
+        tls_cert_secret_name: str,
+        secret_ref_key: str = "prefix",
     ):
         if "security" not in self["spec"]:
             self["spec"]["security"] = {}
@@ -186,7 +189,9 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         self["spec"]["security"]["tls"]["enabled"] = True
         self["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap_name
-        self["spec"]["security"]["tls"]["secretRef"] = {"name": tls_cert_secret_name}
+        self["spec"]["security"]["tls"]["secretRef"] = {
+            secret_ref_key: tls_cert_secret_name
+        }
 
     def build_list_of_hosts(self):
         """ Returns the list of full_fqdn:27017 for every member of the mongodb resource """

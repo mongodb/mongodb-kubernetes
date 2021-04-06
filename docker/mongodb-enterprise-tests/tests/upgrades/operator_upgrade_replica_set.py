@@ -13,7 +13,9 @@ USER_PASSWORD = "/qwerty@!#:"
 
 @fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(issuer, namespace, RS_NAME, "certs-for-replicaset")
+    return create_mongodb_tls_certs(
+        issuer, namespace, RS_NAME, "certs-my-replica-set-cert"
+    )
 
 
 @fixture(scope="module")
@@ -30,7 +32,9 @@ def replica_set(
     )
     resource["spec"]["version"] = custom_mdb_version
     # TLS
-    resource.configure_custom_tls(issuer_ca_configmap, rs_certs_secret)
+    resource.configure_custom_tls(
+        issuer_ca_configmap, rs_certs_secret, secret_ref_key="name"
+    )
 
     # SCRAM-SHA
     resource["spec"]["security"]["authentication"] = {

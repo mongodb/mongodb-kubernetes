@@ -18,9 +18,10 @@ MDB_RESOURCE = "ldap-replica-set"
 
 @fixture(scope="module")
 def server_certs(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(
-        issuer, namespace, "ldap-replica-set", "server-certs"
+    create_mongodb_tls_certs(
+        issuer, namespace, "ldap-replica-set", "certs-ldap-replica-set-cert"
     )
+    return "certs"
 
 
 @fixture(scope="module")
@@ -48,7 +49,7 @@ def replica_set(
         "tls": {
             "enabled": True,
             "ca": issuer_ca_configmap,
-            "secretRef": {"name": server_certs},
+            "secretRef": {"prefix": server_certs},
         },
         "authentication": {
             "enabled": True,
@@ -98,7 +99,10 @@ def user_ldap(
 @fixture(scope="module")
 def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
     user = generic_user(
-        namespace, username="mms-user-1", db="admin", mongodb_resource=replica_set,
+        namespace,
+        username="mms-user-1",
+        db="admin",
+        mongodb_resource=replica_set,
     )
     secret_name = "user-password"
     secret_key = "password"

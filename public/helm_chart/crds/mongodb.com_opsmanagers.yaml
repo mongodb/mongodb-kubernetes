@@ -435,8 +435,8 @@ spec:
                             properties:
                               name:
                                 type: string
-                            required:
-                            - name
+                              prefix:
+                                type: string
                             type: object
                         type: object
                     type: object

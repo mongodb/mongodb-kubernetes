@@ -11,9 +11,10 @@ MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
 @fixture("module")
 def rs_certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(
-        issuer, namespace, MDB_RESOURCE, "certs-for-replicaset"
+    create_mongodb_tls_certs(
+        issuer, namespace, MDB_RESOURCE, "certs-test-tls-base-rs-require-ssl-cert"
     )
+    return "certs"
 
 
 @fixture(scope="module")

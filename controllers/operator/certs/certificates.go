@@ -197,12 +197,12 @@ func VerifyCertificatesForStatefulSet(secretGetter secret.Getter, secretName str
 
 // getPodNames returns the pod names based on the Cert Options provided.
 func getPodNames(opts Options) []string {
-	_, podnames := util.GetDNSNames(opts.Name, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	_, podnames := util.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
 	return podnames
 }
 
 func GetDNSNames(opts Options) (hostnames, podnames []string) {
-	return util.GetDNSNames(opts.Name, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	return util.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
 }
 
 // GetAdditionalCertDomainsForMember gets any additional domains that the
@@ -291,11 +291,8 @@ func EnsureSSLCertsForStatefulSet(client kubernetesClient.Client, mdb mdbv1.Mong
 		return workflow.OK()
 	}
 
-	secretName := opts.Name + "-cert"
+	secretName := opts.CertSecretName
 	if mdb.Spec.Security.TLSConfig.IsSelfManaged() {
-		if mdb.Spec.Security.TLSConfig.SecretRef.Name != "" {
-			secretName = mdb.Spec.Security.TLSConfig.SecretRef.Name
-		}
 		return validateSelfManagedSSLCertsForStatefulSet(client, secretName, opts)
 	}
 	return ensureOperatorManagedSSLCertsForStatefulSet(client, secretName, opts, log)
@@ -401,7 +398,7 @@ func ensureOperatorManagedSSLCertsForStatefulSet(client kubernetesClient.Client,
 	}
 
 	if certsNeedApproval {
-		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", opts.Name)
+		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", opts.ResourceName)
 	}
 	return workflow.OK()
 }

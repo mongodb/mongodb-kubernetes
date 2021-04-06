@@ -45,7 +45,7 @@ func TestCreateProcessWithTLSEnabled(t *testing.T) {
 	appdb.Security = &mdbv1.Security{
 		TLSConfig: &mdbv1.TLSConfig{
 			SecretRef: mdbv1.TLSSecretRef{
-				Name: "some-cert",
+				Prefix: "some-cert",
 			},
 		},
 	}

@@ -358,7 +358,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
 				Servers:       []string{"server0:1234", "server1:9876"},
-				BindQuerySecretRef: mdbv1.TLSSecretRef{
+				BindQuerySecretRef: mdbv1.SecretRef{
 					Name: "bind-query-password",
 				},
 			},
@@ -410,7 +410,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
 				Servers:       []string{"server0:1234"},
-				BindQuerySecretRef: mdbv1.TLSSecretRef{
+				BindQuerySecretRef: mdbv1.SecretRef{
 					Name: "bind-query-password",
 				},
 			},
@@ -463,7 +463,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 			mdbv1.Ldap{
 				BindQueryUser: "bindQueryUser",
 				Servers:       []string{"server0:0000,server1:1111,server2:2222"},
-				BindQuerySecretRef: mdbv1.TLSSecretRef{
+				BindQuerySecretRef: mdbv1.SecretRef{
 					Name: "bind-query-password",
 				},
 				AuthzQueryTemplate: authzTemplate,

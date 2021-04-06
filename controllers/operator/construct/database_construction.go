@@ -354,14 +354,19 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	if mdb.GetSecurity() != nil {
 		tlsConfig := mdb.GetSecurity().TLSConfig
 		if mdb.GetSecurity().TLSConfig.IsEnabled() {
-			var secretName string
-			if tlsConfig.SecretRef.Name != "" {
-				// From this location, the certificates will be used inplace
-				secretName = tlsConfig.SecretRef.Name
-			} else {
-				// In this location the certificates will be linked -s into server.pem
-				secretName = fmt.Sprintf("%s-cert", databaseOpts.Name)
+
+			// In this location the certificates will be linked -s into server.pem
+			secretName := fmt.Sprintf("%s-cert", databaseOpts.Name)
+
+			if tlsConfig.SecretRef.Prefix != "" {
+				// Certificates will be used from the secret with the corresponding prefix.
+				secretName = fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, databaseOpts.Name)
 			}
+
+			if tlsConfig.SecretRef.Name != "" {
+				secretName = tlsConfig.SecretRef.Name
+			}
+
 			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: util.SecretVolumeMountPath + "/certs",

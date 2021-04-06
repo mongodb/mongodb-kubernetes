@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"k8s.io/apimachinery/pkg/types"
@@ -323,11 +324,17 @@ func (a AppDBSpec) GetCAConfigMapName() string {
 // GetTlsCertificatesSecretName returns the name of the secret
 // which holds the certificates used to connect to the AppDB
 func (a AppDBSpec) GetTlsCertificatesSecretName() string {
-	security := a.Security
-	if security != nil && security.TLSConfig != nil {
-		return security.TLSConfig.SecretRef.Name
+	tlsConfig := a.GetSecurity().TLSConfig
+	if !tlsConfig.IsEnabled() {
+		return ""
 	}
-	return ""
+
+	// maintain old behaviour if name is specified instead of prefix
+	if tlsConfig.SecretRef.Name != "" {
+		return tlsConfig.SecretRef.Name
+	}
+
+	return fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, a.Name())
 }
 
 // ConnectionURL returns the connection url to the AppDB

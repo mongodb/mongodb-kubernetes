@@ -135,9 +135,14 @@ type MongoDBOpsManagerSecurity struct {
 
 type MongoDBOpsManagerTLS struct {
 	// +optional
-	SecretRef mdbv1.TLSSecretRef `json:"secretRef"`
+	SecretRef TLSSecretRef `json:"secretRef"`
 	// +optional
 	CA string `json:"ca"`
+}
+
+type TLSSecretRef struct {
+	// kubebuilder:validation:Required
+	Name string `json:"name"`
 }
 
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {

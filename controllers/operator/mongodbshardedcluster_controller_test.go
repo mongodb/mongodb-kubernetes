@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
@@ -847,6 +849,71 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 }
 
+// createShardedClusterTLSSecretsFromCustomCerts creates and populates all the required
+// secrets required to enabled TLS with custom certs for all sharded cluster components.
+func createShardedClusterTLSSecretsFromCustomCerts(sc *mdbv1.MongoDB, prefix string, client kubernetesClient.Client) {
+	mongosSecret := secret.Builder().
+		SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.MongosRsName())).
+		SetNamespace(sc.Namespace).
+		Build()
+
+	for i := 0; i < sc.Spec.MongosCount; i++ {
+		mongosSecret.Data[fmt.Sprintf("%s-%d-pem", sc.MongosRsName(), i)] = createMockCertAndKeyBytes()
+	}
+
+	err := client.CreateSecret(mongosSecret)
+	if err != nil {
+		panic(err)
+	}
+
+	configSrvSecret := secret.Builder().
+		SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.ConfigRsName())).
+		SetNamespace(sc.Namespace).
+		Build()
+
+	for i := 0; i < sc.Spec.ConfigServerCount; i++ {
+		configSrvSecret.Data[fmt.Sprintf("%s-%d-pem", sc.ConfigRsName(), i)] = createMockCertAndKeyBytes()
+	}
+
+	err = client.CreateSecret(configSrvSecret)
+	if err != nil {
+		panic(err)
+	}
+
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		shardSecret := secret.Builder().
+			SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.ShardRsName(i))).
+			SetNamespace(sc.Namespace).
+			Build()
+
+		for j := 0; j < sc.Spec.MongodsPerShardCount; j++ {
+			shardSecret.Data[fmt.Sprintf("%s-%d-pem", sc.ShardRsName(i), j)] = createMockCertAndKeyBytes()
+		}
+
+		err = client.CreateSecret(shardSecret)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func TestTlsConfigPrefix_ForShardedCluster(t *testing.T) {
+	sc := DefaultClusterBuilder().
+		SetTLSConfig(mdbv1.TLSConfig{
+			Enabled: false,
+			SecretRef: mdbv1.TLSSecretRef{
+				Prefix: "my-prefix",
+			},
+		}).
+		Build()
+
+	reconciler, client := defaultClusterReconciler(sc)
+
+	createShardedClusterTLSSecretsFromCustomCerts(sc, "my-prefix", client)
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+}
+
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
 	assertPodSpecTemplate(t, "some-node-name", "some-host-name", corev1.RestartPolicyAlways, sts)
 }
@@ -1008,6 +1075,14 @@ func (b *ClusterBuilder) EnableTLS() *ClusterBuilder {
 		return b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
+func (b *ClusterBuilder) SetTLSConfig(tlsConfig mdbv1.TLSConfig) *ClusterBuilder {
+	if b.Spec.Security == nil {
+		b.Spec.Security = &mdbv1.Security{}
+	}
+	b.Spec.Security.TLSConfig = &tlsConfig
 	return b
 }
 

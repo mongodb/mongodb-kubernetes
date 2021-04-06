@@ -330,7 +330,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 	// TODO: move this logic into the certs package
 	// Flag that's set to false if any of the certificates have not been approved yet.
 	certsNeedApproval := false
-	secretName := certs.ToInternalClusterAuthName(opts.Name) // my-replica-set-clusterfile
+	secretName := certs.ToInternalClusterAuthName(opts.ResourceName) // my-replica-set-clusterfile
 
 	if mdb.Spec.Security.TLSConfig.CA != "" {
 		// A "Certs" attribute has been provided

@@ -298,7 +298,7 @@ func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.Mong
 func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
-	if tlsConfig == nil || !s.Spec.GetTLSConfig().Enabled {
+	if tlsConfig == nil || !s.Spec.GetTLSConfig().IsEnabled() {
 		return workflow.OK()
 	}
 

@@ -16,9 +16,10 @@ def domain(namespace: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(
-        issuer, namespace, "om-with-https-db", "certs-for-appdb"
+    create_mongodb_tls_certs(
+        issuer, namespace, "om-with-https-db", "appdb-om-with-https-db-cert"
     )
+    return "appdb"
 
 
 @fixture(scope="module")
@@ -63,7 +64,7 @@ def ops_manager(
 
     # configure CA + tls secrets for AppDB members to community with each other
     om["spec"]["applicationDatabase"]["security"] = {
-        "tls": {"ca": issuer_ca_plus, "secretRef": {"name": appdb_certs}}
+        "tls": {"ca": issuer_ca_plus, "secretRef": {"prefix": appdb_certs}}
     }
 
     # configure the CA that will be used to communicate with Ops Manager
@@ -106,7 +107,9 @@ def test_enable_https_on_opsmanager(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_ops_manager_https_enabled_internet_mode
 def test_project_is_configured_with_custom_ca(
-    ops_manager: MongoDBOpsManager, namespace: str, issuer_ca_plus: str,
+    ops_manager: MongoDBOpsManager,
+    namespace: str,
+    issuer_ca_plus: str,
 ):
     """Both projects are configured with the new HTTPS enabled Ops Manager."""
     project1 = ops_manager.get_or_create_mongodb_connection_config_map(

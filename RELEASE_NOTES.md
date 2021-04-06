@@ -1,6 +1,7 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.10.1
+
 ## Kubernetes Operator
 * Changes
   * Added a liveness probe to the Backup Daemon.
@@ -13,8 +14,33 @@
 * Added a new value in openshift-values.yaml `operator_image_name` which allows the label selector of the webhook
   to match the operator label.
 
+## MongoDB Resource
+* Changes
+  * Deprecated field `spec.security.tls.secretRef.name`, the field `spec.security.tls.secretRef.prefix` should now be used instead.
+  * Added field `spec.security.tls.secretRef.prefix`. This property should be used to specify the prefix of the secret which contains custom tls certificates. 
+
+
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.10.0
+
+## Kubernetes Operator
+
+* Changes
+  * The CRDs have been updated to from `v1beta1` to `v1` version. This should not have any impact on Kubernetes clusters 1.16 and up. The CRDs won't be installable in clusters with versions older than 1.16.
+
+* Bug fixes
+  * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces.
+  * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail.
+  * Fixes an issue which made a Replica Set go to Fail state if, at the same time, the amount of members of a Replica Set are increased and TLS is disabled.
+    
+## MongoDBOpsManager Resource
+
+* Known issues
+  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds` 
+    needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11.
+
+
+# MongoDB Enterprise Kubernetes Operator 1.9.3
 ## Kubernetes Operator
 
 * Changes
@@ -104,3 +130,4 @@
 * mongodb-enterprise-operator 1.8.2:
  * Ubi: quay.io/mongodb/mongodb-enterprise-operator-ubi:1.8.2
  * Ubuntu: quay.io/mongodb/mongodb-enterprise-operator:1.8.2
+

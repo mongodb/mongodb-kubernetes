@@ -7,12 +7,17 @@ from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
 
 
 @fixture(scope="module")
-def certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(issuer, namespace, "test-tls-base-rs", "certs")
+def certs_secret_prefix(namespace: str, issuer: str):
+    create_mongodb_tls_certs(
+        issuer, namespace, "test-tls-base-rs", "certs-test-tls-base-rs-cert"
+    )
+    return "certs"
 
 
 @fixture(scope="module")
-def replica_set(issuer_ca_configmap: str, namespace: str, certs_secret) -> MongoDB:
+def replica_set(
+    issuer_ca_configmap: str, namespace: str, certs_secret_prefix
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("test-tls-base-rs.yaml"), namespace=namespace
     )
@@ -31,7 +36,7 @@ def replica_set(issuer_ca_configmap: str, namespace: str, certs_secret) -> Mongo
             }
         }
     }
-    resource.configure_custom_tls(issuer_ca_configmap, certs_secret)
+    resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)
     return resource.create()
 
 

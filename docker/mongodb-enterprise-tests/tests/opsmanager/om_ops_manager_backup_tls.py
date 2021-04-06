@@ -21,21 +21,26 @@ This test checks the work with TLS-enabled backing databases (oplog & blockstore
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(
-        issuer, namespace, "om-backup-tls-db", "certs-for-appdb"
+    create_mongodb_tls_certs(
+        issuer, namespace, "om-backup-tls-db", "appdb-om-backup-tls-db-cert"
     )
+    return "appdb"
 
 
 @fixture(scope="module")
 def oplog_certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(issuer, namespace, OPLOG_RS_NAME, "certs-for-oplog")
+    create_mongodb_tls_certs(
+        issuer, namespace, OPLOG_RS_NAME, f"oplog-{OPLOG_RS_NAME}-cert"
+    )
+    return "oplog"
 
 
 @fixture(scope="module")
 def blockstore_certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(
-        issuer, namespace, BLOCKSTORE_RS_NAME, "certs-for-blockstore"
+    create_mongodb_tls_certs(
+        issuer, namespace, BLOCKSTORE_RS_NAME, f"blockstore-{BLOCKSTORE_RS_NAME}-cert"
     )
+    return "blockstore"
 
 
 @fixture(scope="module")
