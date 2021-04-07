@@ -1,0 +1,19 @@
+# Headless service tagetting each mongoDB pods.
+# Edit labels.app and labels.name changing the "1" with the corresponsing replicaset/pod number.
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: my-replica-set-1-svc
+  name: my-replica-set-1-svc
+spec:
+  clusterIP: None
+  ports:
+  - name: mongodb
+    port: 27017
+    protocol: TCP
+    targetPort: 27017
+  publishNotReadyAddresses: true
+  selector:
+    # this should change to "my-replica-set-$number" based on which replicaset number the service is targetting.
+    app: my-replica-set-1
