@@ -50,7 +50,11 @@ def all_certs(issuer, namespace) -> None:
 
 
 @fixture(scope="module")
-def sharded_cluster(namespace: str, all_certs, issuer_ca_configmap: str,) -> MongoDB:
+def sharded_cluster(
+    namespace: str,
+    all_certs,
+    issuer_ca_configmap: str,
+) -> MongoDB:
     mdb: MongoDB = MongoDB.from_yaml(
         _fixture("sharded-cluster-scram-sha-256-x509-internal-cluster.yaml"),
         namespace=namespace,

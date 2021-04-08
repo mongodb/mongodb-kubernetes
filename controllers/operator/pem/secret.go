@@ -36,10 +36,9 @@ func CreateOrUpdateSecret(secretGetUpdateCreator secret.GetUpdateCreator, name, 
 // ReadHashFromSecret reads the existing Pem from
 // the secret that stores this StatefulSet's Pem collection.
 func ReadHashFromSecret(secretGetter secret.Getter, namespace, name string, log *zap.SugaredLogger) string {
-	secretName := name + "-cert"
-	secretData, err := secret.ReadStringData(secretGetter, kube.ObjectKey(namespace, secretName))
+	secretData, err := secret.ReadStringData(secretGetter, kube.ObjectKey(namespace, name))
 	if err != nil {
-		log.Infof("secret %s doesn't exist yet", secretName)
+		log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
 		return ""
 	}
 	pemCollection := NewCollection()

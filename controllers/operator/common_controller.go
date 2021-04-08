@@ -857,7 +857,7 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
 	volumeMounts := databaseContainer.VolumeMounts
 	if mdb.Spec.Security != nil {
-		if !mdb.Spec.Security.TLSConfig.Enabled && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
+		if !mdb.Spec.Security.TLSConfig.IsEnabled() && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
 			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
 			return true
 		}

@@ -96,11 +96,13 @@ def create_tls_certs(
     if spec is None:
         spec = dict()
 
-    pod_fqdn_fstring = "{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name,
-        service_name=service_name,
-        namespace=namespace,
-        index="{}",
+    pod_fqdn_fstring = (
+        "{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local".format(
+            resource_name=resource_name,
+            service_name=service_name,
+            namespace=namespace,
+            index="{}",
+        )
     )
     secret_and_pod_names = {}
     for idx in range(replicas):

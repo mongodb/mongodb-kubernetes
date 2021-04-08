@@ -782,28 +782,31 @@ func (r shardedClusterScaler) CurrentReplicaSetMembers() int {
 
 // getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.
 func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	certSecretName := certs.ConfigSrvConfig(sc, r.configSrvScaler).CertSecretName
 	return construct.ConfigServerOptions(
 		Replicas(r.getConfigSrvCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.ConfigRsName(), log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, certSecretName, log)),
 	)
 }
 
 // getMongosOptions returns the Options needed to build the StatefulSet for the mongos.
 func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	certSecretName := certs.MongosConfig(sc, r.mongosScaler).CertSecretName
 	return construct.MongosOptions(
 		Replicas(r.getMongosCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.MongosRsName(), log)))
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, certSecretName, log)))
 }
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
 func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, podVars *env.PodEnvVars, currentAgentAuthMechanism string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+	certSecretName := certs.ShardConfig(sc, shardNum, r.mongodsPerShardScaler).CertSecretName
 	return construct.ShardOptions(shardNum,
 		Replicas(r.getMongodsPerShardCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, sc.ShardRsName(shardNum), log)))
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, certSecretName, log)))
 }

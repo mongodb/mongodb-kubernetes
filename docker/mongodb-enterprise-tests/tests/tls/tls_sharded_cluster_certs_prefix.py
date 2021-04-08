@@ -1,0 +1,64 @@
+from kubetester.certs import create_mongodb_tls_certs, SetProperties
+from kubetester.mongodb import MongoDB, Phase
+
+from kubetester.kubetester import fixture as _fixture
+from pytest import mark, fixture
+
+MDB_RESOURCE = "sharded-cluster-custom-certs"
+SUBJECT = {"organizations": ["MDB Tests"], "organizationalUnits": ["Servers"]}
+SERVER_SETS = frozenset(
+    [
+        SetProperties(MDB_RESOURCE + "-0", MDB_RESOURCE + "-sh", 3),
+        SetProperties(MDB_RESOURCE + "-config", MDB_RESOURCE + "-cs", 3),
+        SetProperties(MDB_RESOURCE + "-mongos", MDB_RESOURCE + "-svc", 2),
+    ]
+)
+
+
+@fixture(scope="module")
+def all_certs(issuer, namespace) -> None:
+    """Generates all required TLS certificates: Servers and Client/Member."""
+    spec = {
+        "subject": SUBJECT,
+        "usages": ["server auth", "client auth"],
+    }
+
+    for server_set in SERVER_SETS:
+        create_mongodb_tls_certs(
+            issuer,
+            namespace,
+            server_set.name,
+            "prefix-" + server_set.name + "-cert",
+            server_set.replicas,
+            server_set.service,
+            spec,
+        )
+
+
+@fixture(scope="module")
+def sharded_cluster(
+    namespace: str,
+    all_certs,
+    issuer_ca_configmap: str,
+) -> MongoDB:
+    mdb: MongoDB = MongoDB.from_yaml(
+        _fixture("test-tls-base-sc-require-ssl.yaml"),
+        name=MDB_RESOURCE,
+        namespace=namespace,
+    )
+    mdb["spec"]["security"]["tls"] = {
+        "ca": issuer_ca_configmap,
+        "secretRef": {"prefix": "prefix"},
+    }
+    return mdb.create()
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+def test_sharded_cluster_with_prefix_gets_to_running_state(sharded_cluster: MongoDB):
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+def test_sharded_cluster_has_connectivity(sharded_cluster: MongoDB, ca_path: str):
+    tester = sharded_cluster.tester(ca_path=ca_path, use_ssl=True)
+    tester.assert_connectivity()

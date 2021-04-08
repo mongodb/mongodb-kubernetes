@@ -24,6 +24,12 @@
   to match the operator label.
 
 
+## MongoDB Resource
+* Changes
+  * Deprecated field `spec.security.tls.secretRef.name`, the field `spec.security.tls.secretRef.prefix` should now be used instead.
+  * Added field `spec.security.tls.secretRef.prefix`. This property should be used to specify the prefix of the secret which contains custom tls certificates. 
+
+
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.10.0
 

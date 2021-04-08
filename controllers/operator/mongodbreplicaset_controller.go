@@ -132,10 +132,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(rs, status, log)
 	}
 
+	rsCertSecretName := certs.ReplicaSetConfig(*rs).CertSecretName
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rs.Name, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertSecretName, log)),
 	)
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
