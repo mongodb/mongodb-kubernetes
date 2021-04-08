@@ -50,7 +50,7 @@ def mdb(ops_manager: MongoDBOpsManager) -> MongoDB:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerCreation:
     """
-      Creates an Ops Manager instance with AppDB of size 3.
+    Creates an Ops Manager instance with AppDB of size 3.
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
@@ -115,8 +115,7 @@ class TestOpsManagerCreation:
     def test_generations(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.appdb_status().get_observed_generation() == 1
         assert ops_manager.om_status().get_observed_generation() == 1
-        # backup is not enabled - thus no observed generation there
-        assert ops_manager.backup_status().get_observed_generation() is None
+        assert ops_manager.backup_status().get_observed_generation() == 1
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -127,8 +126,8 @@ class TestOpsManagerWithMongoDB:
         mdb.tester().assert_version(MDB_CURRENT_VERSION)
 
     def test_mongodb_upgrade(self, mdb: MongoDB):
-        """ Scales up the mongodb. Note, that we are not upgrading the Mongodb version at this stage as it can be
-        the major update (e.g. 4.2 -> 4.4) and this requires OM upgrade as well - this happens later. """
+        """Scales up the mongodb. Note, that we are not upgrading the Mongodb version at this stage as it can be
+        the major update (e.g. 4.2 -> 4.4) and this requires OM upgrade as well - this happens later."""
         mdb["spec"]["members"] = 4
 
         mdb.update()
@@ -140,9 +139,9 @@ class TestOpsManagerWithMongoDB:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerConfigurationChange:
     """
-      The OM configuration changes: one property is removed, another is added.
-      Note, that this is quite artificial change to make it testable, these properties affect the behavior of different
-      endpoints in Ops Manager, so we can then check if the changes were propagated to OM
+    The OM configuration changes: one property is removed, another is added.
+    Note, that this is quite artificial change to make it testable, these properties affect the behavior of different
+    endpoints in Ops Manager, so we can then check if the changes were propagated to OM
     """
 
     def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
@@ -175,14 +174,13 @@ class TestOpsManagerConfigurationChange:
     def test_generations(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.appdb_status().get_observed_generation() == 2
         assert ops_manager.om_status().get_observed_generation() == 2
-        # backup is not enabled - thus no observed generation there
-        assert ops_manager.backup_status().get_observed_generation() is None
+        assert ops_manager.backup_status().get_observed_generation() == 2
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerVersionUpgrade:
     """
-      The OM version is upgraded - this means the new image is deployed for both OM and appdb.
+    The OM version is upgraded - this means the new image is deployed for both OM and appdb.
     """
 
     agent_version = None
@@ -242,7 +240,7 @@ class TestOpsManagerVersionUpgrade:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestMongoDbsVersionUpgrade:
     def test_mongodb_upgrade(self, mdb: MongoDB, custom_mdb_version: str):
-        """ Ensures that the existing MongoDB works fine with the new Ops Manager (scales up one member)
+        """Ensures that the existing MongoDB works fine with the new Ops Manager (scales up one member)
         Some details:
         - in case of patch upgrade of OM the existing agent is guaranteed to work with the new OM - we don't require
         the upgrade of all the agents
@@ -258,9 +256,9 @@ class TestMongoDbsVersionUpgrade:
         mdb.tester().assert_version(custom_mdb_version)
 
     def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager):
-        """ The agents were requested to get upgraded immediately after Ops Manager upgrade.
+        """The agents were requested to get upgraded immediately after Ops Manager upgrade.
         Note, that this happens only for OM major/minor upgrade, so we need to check only this case
-        TODO CLOUDP-64622: we need to check the periodic agents upgrade as well - this can be done through Operator custom configuration """
+        TODO CLOUDP-64622: we need to check the periodic agents upgrade as well - this can be done through Operator custom configuration"""
         prev_version = semver.VersionInfo.parse(OM_CURRENT_VERSION)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if (
@@ -299,7 +297,7 @@ class TestAppDBScramShaUpdated:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerRemoved:
     """
-      Deletes an Ops Manager Custom resource and verifies that some of the dependant objects are removed
+    Deletes an Ops Manager Custom resource and verifies that some of the dependant objects are removed
     """
 
     def test_opsmanager_deleted(self, ops_manager: MongoDBOpsManager):
@@ -322,7 +320,7 @@ class TestOpsManagerRemoved:
             ops_manager.read_api_key_secret()
 
     def test_gen_key_not_removed(self, ops_manager: MongoDBOpsManager):
-        """ The gen key must not be removed - this is for situations when the appdb is persistent -
+        """The gen key must not be removed - this is for situations when the appdb is persistent -
         so PVs may survive removal"""
         gen_key_secret = ops_manager.read_gen_key_secret()
         assert gen_key_secret.metadata.resource_version == gen_key_resource_version

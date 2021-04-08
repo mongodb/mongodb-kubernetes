@@ -178,8 +178,7 @@ class TestOpsManagerMixed:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
 
-        # no backup status
-        assert ops_manager.backup_status().get_phase() is None
+        ops_manager.backup_status().assert_reaches_phase(Phase.Disabled, timeout=400)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 3

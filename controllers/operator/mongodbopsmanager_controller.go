@@ -135,10 +135,8 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	}
 
 	// 3. Reconcile Backup Daemon
-	if opsManager.Spec.Backup.Enabled {
-		if status = r.reconcileBackupDaemon(opsManager, omAdmin, opsManagerUserPassword, log); !status.IsOK() {
-			return r.updateStatus(opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
-		}
+	if status := r.reconcileBackupDaemon(opsManager, omAdmin, opsManagerUserPassword, log); !status.IsOK() {
+		return r.updateStatus(opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
 	// All statuses are updated by now - we don't need to update any others - just return
@@ -203,6 +201,22 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
+	// If backup is not enabled, we check whether it is still configured in OM to update the statys.
+	if !opsManager.Spec.Backup.Enabled {
+		var backupStatus workflow.Status
+		backupStatus = workflow.OK()
+
+		_, err := omAdmin.ReadDaemonConfig(opsManager.BackupDaemonHostName(), util.PvcMountPathHeadDb)
+		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
+			backupStatus = workflow.Disabled()
+		}
+
+		_, err = r.updateStatus(opsManager, backupStatus, log, backupStatusPartOption)
+		if err != nil {
+			return workflow.Failed(err.Error())
+		}
+		return backupStatus
+	}
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, backupStatusPartOption)
 	if err != nil {
 		return workflow.Failed(err.Error())

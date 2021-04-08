@@ -16,6 +16,9 @@ const (
 	// PhaseFailed means the Mongodb Resource is in a failed state
 	PhaseFailed Phase = "Failed"
 
+	// PhaseDisabled means that the resource is not enabled
+	PhaseDisabled Phase = "Disabled"
+
 	// PhaseUpdated means a MongoDBUser was successfully updated
 	PhaseUpdated Phase = "Updated"
 )

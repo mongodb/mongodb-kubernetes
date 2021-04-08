@@ -10,14 +10,18 @@
       Replica Set and will only set the Pod as "Ready" when the MongoDB server has
       reached `PRIMARY` or `SECONDARY` states.
 
-## Miscellaneous
-* Added a new value in openshift-values.yaml `operator_image_name` which allows the label selector of the webhook
-  to match the operator label.
-
 ## MongoDB Resource
 * Changes
   * Deprecated field `spec.security.tls.secretRef.name`, the field `spec.security.tls.secretRef.prefix` should now be used instead.
-  * Added field `spec.security.tls.secretRef.prefix`. This property should be used to specify the prefix of the secret which contains custom tls certificates. 
+  * Added field `spec.security.tls.secretRef.prefix`. This property should be used to specify the prefix of the secret which contains custom tls certificates.
+
+## MongoDBOpsManager Resource
+* Changes
+  * A new status field for the OpsManager backup has been added: `Disabled`. This status will be displayed when `spec.backup.enabled` is set to `false` and no backup is configured in OpsManager
+
+## Miscellaneous
+* Added a new value in openshift-values.yaml `operator_image_name` which allows the label selector of the webhook
+  to match the operator label.
 
 
 <!-- Past Releases -->
@@ -32,11 +36,11 @@
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces.
   * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail.
   * Fixes an issue which made a Replica Set go to Fail state if, at the same time, the amount of members of a Replica Set are increased and TLS is disabled.
-    
+
 ## MongoDBOpsManager Resource
 
 * Known issues
-  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds` 
+  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds`
     needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11.
 
 
@@ -50,11 +54,11 @@
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces.
   * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail.
   * Fixes an issue which made a Replica Set go to Fail state if, at the same time, the amount of members of a Replica Set are increased and TLS is disabled.
-    
+
 ## MongoDBOpsManager Resource
 
 * Known issues
-  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds` 
+  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds`
     needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11.
 
 
@@ -64,11 +68,11 @@
   * Fixes an issue which made it not possible do have multiple ops-manager resources with the same name in different namespaces
   * Fixes an issue which made new MongoDB resources created with `spec.backup.mode=disabled` fail
   * Fixes an issue which made a Replica Set go to Fail state if, at the same time, the amount of members of a Replica Set are increased and TLS is disabled.
-    
+
 ## MongoDBOpsManager Resource
 * Known issues
-  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds` 
-    needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11. 
+  * When using remote or hybrid mode, and `automation.versions.download.baseUrl` has been set, the property `automation.versions.download.baseUrl.allowOnlyAvailableBuilds`
+    needs to be set to `false`. This has been fixed in Ops Manager version 4.4.11.
 
 
 # MongoDB Enterprise Kubernetes Operator 1.9.2
@@ -130,4 +134,3 @@
 * mongodb-enterprise-operator 1.8.2:
  * Ubi: quay.io/mongodb/mongodb-enterprise-operator-ubi:1.8.2
  * Ubuntu: quay.io/mongodb/mongodb-enterprise-operator:1.8.2
-
