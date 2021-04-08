@@ -24,7 +24,6 @@ black_formatting
 # and also format them with go imports
 
 export GO111MODULE=on
-export GOFLAGS="-mod=vendor"
 
 if [[ -z $GOPATH ]]; then
     echo "GOPATH is not configured"
@@ -43,8 +42,6 @@ then
 fi
 
 mkdir -p "${GOPATH}/bin"
-
-go mod vendor
 
 # important to turn off modules to ensure a global install
 if ! [[ -x "$(command -v goimports)" ]]; then
