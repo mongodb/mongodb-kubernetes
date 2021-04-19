@@ -595,8 +595,8 @@ func (t TLSConfig) IsSelfManaged() bool {
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
 // be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {
-	// +optional
 	// DEPRECATED please use security.tls.secretRef.prefix instead
+	// +optional
 	Name string `json:"name"`
 
 	// TODO: make prefix required once name has been removed.
