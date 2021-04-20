@@ -1,7 +1,5 @@
 vars:
   quay_registry: quay.io/mongodb/mongodb-enterprise-appdb
-  rh_registry: scan.connect.redhat.com/ospid-31c2f102-af15-4e15-87b9-30710586d9ad/mongodb-enterprise-appdb
-  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-appdb
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-appdb
 
 images:
@@ -110,43 +108,3 @@ images:
 
     output:
     - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
-
-
-- name: appdb-daily
-  vars:
-    context: .
-
-  stages:
-  - name: build-ubuntu
-    task_type: docker_build
-
-    inputs:
-    - build_id
-
-    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
-    buildargs:
-      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-    output:
-    - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)
-    - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-
-  - name: build-ubi
-    task_type: docker_build
-
-    inputs:
-    - build_id
-
-    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
-    buildargs:
-      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-    output:
-    - registry: $(inputs.params.quay_registry)-ubi
-      tag: $(inputs.params.release_version)
-    - registry: $(inputs.params.quay_registry)-ubi
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-    - registry: $(inputs.params.rh_registry)
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

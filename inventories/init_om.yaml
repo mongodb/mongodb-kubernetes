@@ -1,7 +1,5 @@
 vars:
   quay_registry: quay.io/mongodb/mongodb-enterprise-init-ops-manager
-  rh_registry: scan.connect.redhat.com/ospid-7da92b80-396f-4298-9de5-909165ba0c9e/mongodb-enterprise-init-ops-manager
-  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-init-ops-manager
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-init-ops-manager
 
 images:
@@ -99,45 +97,3 @@ images:
 
     output:
     - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
-
-
-# This is exactly the same as the other "daily" builds. Maybe we could make one task that
-# behaves generically enough to support all image types.
-- name: init-ops-manager-daily
-  vars:
-    context: .
-
-  stages:
-  - name: build-ubuntu
-    task_type: docker_build
-
-    inputs:
-    - build_id
-
-    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
-    buildargs:
-      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-    output:
-    - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)
-    - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-
-  - name: build-ubi
-    task_type: docker_build
-
-    inputs:
-    - build_id
-
-    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
-    buildargs:
-      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-    output:
-    - registry: $(inputs.params.quay_registry)-ubi
-      tag: $(inputs.params.release_version)
-    - registry: $(inputs.params.quay_registry)-ubi
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-    - registry: $(inputs.params.rh_registry)-ubi
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

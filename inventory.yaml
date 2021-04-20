@@ -1,8 +1,6 @@
 vars:
   registry: <container-registry>
   quay_registry: quay.io/mongodb/mongodb-enterprise-operator
-  rh_registry: scan.connect.redhat.com/ospid-5558a531-617e-46d7-9320-e84d3458768a/mongodb-enterprise-operator
-  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-enterprise-operator
 
 images:
@@ -120,7 +118,6 @@ images:
 
       output:
       - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.release_version)
-
 
   - name: operator-daily-build
     vars:

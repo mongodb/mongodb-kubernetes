@@ -99,8 +99,8 @@ def build_configuration_from_env() -> Dict[str, str]:
     This is to be used in Evergreen environment.
     """
 
-    # The `base_repo_url` is suffixed with `/dev` because in Evergreen that would
-    # replace the `username` we use locally.
+    # The `base_repo_url` is suffixed with `/dev` because in Evergreen that
+    # would replace the `username` we use locally.
     return {
         "image_type": os.environ.get("distro"),
         "base_repo_url": os.environ["registry"] + "/dev",
@@ -134,7 +134,7 @@ def operator_build_configuration(
     )
 
 
-def should_pin_at() -> Optional[Tuple[int, int]]:
+def should_pin_at() -> Optional[Tuple[str, str]]:
     """Gets the value of the pin_tag_at to tag the images with.
 
     Returns its value splited on :.
@@ -213,13 +213,20 @@ def sonar_build_image(
     inventory="inventory.yaml",
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
+    build_options = {
+        # Will continue building an image if it finds an error. See next comment.
+        "continue_on_errors": True,
+        # But will still fail after all the tasks have completed
+        "fail_on_errors": True,
+        "pipeline": build_configuration.pipeline,
+    }
     process_image(
         image_name,
         skip_tags=build_configuration.get_skip_tags(),
         include_tags=build_configuration.get_include_tags(),
-        pipeline=build_configuration.pipeline,
         build_args=build_configuration.build_args(args),
         inventory=inventory,
+        build_options=build_options,
     )
 
 
@@ -401,137 +408,85 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     return requests.get(supported_versions).json()
 
 
-def build_operator_daily(build_configuration: BuildConfiguration):
+def image_config(
+    image_name: str,
+    rh_ospid: str,
+    name_prefix: str = "mongodb-enterprise-",
+    s3_bucket: str = "enterprise-operator-dockerfiles",
+) -> Dict[str, str]:
+    """Generates configuration for an image suitable to be passed
+    to Sonar.
+
+    It returns a dictionary with registries and S3 configuration."""
+    return image_name, {
+        "quay_registry": "quay.io/mongodb/{}{}".format(name_prefix, image_name),
+        "rh_registry": "scan.connect.redhat.com/ospid-{}/{}{}".format(
+            rh_ospid, name_prefix, image_name
+        ),
+        "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(
+            s3_bucket, name_prefix, image_name
+        ),
+    }
+
+
+def args_for_daily_image(image_name: str) -> Dict[str, str]:
+    """Returns configuration for an image to be able to be pushed with Sonar.
+
+    This includes the quay_registry and ospid corresponding to RedHat's project id.
     """
-    Finds all the supported Operator versions and rebuilds them.
-    """
-    image_name = "operator-daily-build"
+    image_configs = [
+        image_config("appdb", "31c2f102-af15-4e15-87b9-30710586d9ad"),
+        image_config("database", "239de277-d8bb-44b4-8593-73753752317f"),
+        image_config(
+            "init-appdb",
+            "053baed4-c625-44bb-a9bf-a3a5585a17e8",
+        ),
+        image_config(
+            "init-database",
+            "cf1063a9-6391-4dd7-b995-a4614483e6a1",
+        ),
+        image_config(
+            "init-ops-manager",
+            "7da92b80-396f-4298-9de5-909165ba0c9e",
+        ),
+        image_config(
+            "operator",
+            "5558a531-617e-46d7-9320-e84d3458768a",
+        ),
+        image_config("ops-manager", "b419ca35-17b4-4655-adee-a34e704a6835"),
+    ]
 
-    supported_versions = get_supported_version_for_image("operator")
-    logging.info("Operator Supported Versions: {}".format(supported_versions))
-    for releases in supported_versions:
-        logging.info("Rebuilding {}".format(releases["version"]))
-
-        args = dict(build_id=build_id(), release_version=releases["version"])
-        try:
-            sonar_build_image(image_name, build_configuration, args)
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
-
-
-def build_init_appdb_daily(build_configuration: BuildConfiguration):
-    image_name = "init-appdb-daily"
-
-    supported_versions = get_supported_version_for_image("init-appdb")
-    logging.info("Init-AppDB Supported Versions: {}".format(supported_versions))
-
-    for release in supported_versions:
-        logging.info("Rebuilding {}".format(release["version"]))
-
-        args = dict(build_id=build_id(), release_version=release["version"])
-        try:
-            sonar_build_image(
-                image_name, build_configuration, args, "inventories/init_appdb.yaml"
-            )
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
+    images = {k: v for k, v in image_configs}
+    return images[image_name]
 
 
-def build_appdb_daily(build_configuration: BuildConfiguration):
-    image_name = "appdb-daily"
+def build_image_daily(image_name: str):
+    """Builds a daily image."""
 
-    supported_versions = get_supported_version_for_image("appdb")
-    logging.info("AppDB Supported Versions: {}".format(supported_versions))
+    def inner(build_configuration: BuildConfiguration):
+        supported_versions = get_supported_version_for_image(image_name)
+        args = args_for_daily_image(image_name)
+        args["build_id"] = build_id()
+        logging.info(
+            "Supported Versions for {}: {}".format(image_name, supported_versions)
+        )
 
-    for release in supported_versions:
-        logging.info("Rebuilding {}".format(release["version"]))
+        for releases in supported_versions:
+            logging.info("Rebuilding {}".format(releases["version"]))
+            args["release_version"] = releases["version"]
 
-        args = dict(build_id=build_id(), release_version=release["version"])
-        try:
-            sonar_build_image(
-                image_name, build_configuration, args, "inventories/appdb.yaml"
-            )
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
+            try:
+                sonar_build_image(
+                    "image-daily-build",
+                    build_configuration,
+                    args,
+                    inventory="inventories/daily.yaml",
+                )
+            except Exception as e:
+                # Log error and continue
+                logging.error(e)
 
-
-def build_database_daily(build_configuration: BuildConfiguration):
-    image_name = "database-daily"
-
-    supported_versions = get_supported_version_for_image("database")
-    logging.info("Database Supported Versions: {}".format(supported_versions))
-
-    for release in supported_versions:
-        logging.info("Rebuilding {}".format(release["version"]))
-
-        args = dict(build_id=build_id(), release_version=release["version"])
-        try:
-            sonar_build_image(
-                image_name, build_configuration, args, "inventories/database.yaml"
-            )
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
-
-
-def build_ops_manager_daily(build_configuration: BuildConfiguration):
-    image_name = "ops-manager-daily"
-
-    supported_versions = get_supported_version_for_image("ops-manager")
-    logging.info("Ops Manager Supported Versions: {}".format(supported_versions))
-
-    for release in supported_versions:
-        logging.info("Rebuilding {}".format(release["version"]))
-
-        args = dict(build_id=build_id(), release_version=release["version"])
-        try:
-            sonar_build_image(
-                image_name, build_configuration, args, "inventories/om.yaml"
-            )
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
-
-
-def build_init_database_daily(build_configuration: BuildConfiguration):
-    image_name = "init-database-daily"
-
-    supported_versions = get_supported_version_for_image("init-database")
-    logging.info("Init-Database Supported Versions: {}".format(supported_versions))
-
-    for release in supported_versions:
-        logging.info("Rebuilding {}".format(release["version"]))
-
-        args = dict(build_id=build_id(), release_version=release["version"])
-        try:
-            sonar_build_image(
-                image_name, build_configuration, args, "inventories/init_database.yaml"
-            )
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
-
-
-def build_init_ops_manager_daily(build_configuration: BuildConfiguration):
-    image_name = "init-ops-manager-daily"
-
-    supported_versions = get_supported_version_for_image("init-ops-manager")
-    logging.info("Init-Ops-Manager Supported Versions: {}".format(supported_versions))
-
-    for release in supported_versions:
-        logging.info("Rebuilding {}".format(release["version"]))
-
-        args = dict(build_id=build_id(), release_version=release["version"])
-        try:
-            sonar_build_image(
-                image_name, build_configuration, args, "inventories/init_om.yaml"
-            )
-        except Exception as e:
-            # Log error and continue
-            logging.error(e)
+    return inner
 
 
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
@@ -654,13 +609,13 @@ def get_builder_function_for_image_name():
         "init-ops-manager": build_init_om_image,
         #
         # Daily builds
-        "operator-daily": build_operator_daily,
-        "appdb-daily": build_appdb_daily,
-        "database-daily": build_database_daily,
-        "init-appdb-daily": build_init_appdb_daily,
-        "init-database-daily": build_init_database_daily,
-        "init-ops-manager-daily": build_init_ops_manager_daily,
-        "ops-manager-daily": build_ops_manager_daily,
+        "operator-daily": build_image_daily("operator"),
+        "appdb-daily": build_image_daily("appdb"),
+        "database-daily": build_image_daily("database"),
+        "init-appdb-daily": build_image_daily("init-appdb"),
+        "init-database-daily": build_image_daily("init-database"),
+        "init-ops-manager-daily": build_image_daily("init-ops-manager"),
+        "ops-manager-daily": build_image_daily("ops-manager"),
         #
         # Ops Manager image
         "ops-manager": build_om_image,
