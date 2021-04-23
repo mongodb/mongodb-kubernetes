@@ -5,6 +5,8 @@ set -Eeou pipefail
 # FIXME: remove the scripts from docker/mongodb-enterprise-database/content once database builds also uses multi-stage builds
 
 agent_pid=/mongodb-automation/mongodb-mms-automation-agent.pid
+mins=${1:-60}
+
 
 check_agent_pid () {
     # the agent PID must exists always
@@ -21,8 +23,9 @@ baby_container () {
     pid1_alive_secs=$(ps -o etimes= -p 1)
     pid1_alive_mins=$((pid1_alive_secs / 60))
 
-    [ $pid1_alive_mins -lt 60 ]
+    [ $pid1_alive_mins -lt "$mins" ]
 }
+
 
 check_mongod_alive () {
     pgrep --exact 'mongod'

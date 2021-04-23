@@ -864,6 +864,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_liveness_probe
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set
   tags: ["patch-run"]
   exec_timeout_secs: 1800
@@ -1719,6 +1725,7 @@ task_groups:
     # e2e_om_4_4_plus_only_task_group
     - e2e_feature_controls_authentication
     - e2e_replica_set
+    - e2e_replica_set_liveness_probe
     - e2e_replica_set_mongod_options
     - e2e_replica_set_readiness_probe
     - e2e_replica_set_update_delete_parallel
@@ -1908,6 +1915,7 @@ task_groups:
     # e2e_om_4_4_plus_only_task_group
     - e2e_feature_controls_authentication
     - e2e_replica_set
+    - e2e_replica_set_liveness_probe
     - e2e_replica_set_mongod_options
     - e2e_replica_set_readiness_probe
     - e2e_replica_set_update_delete_parallel
