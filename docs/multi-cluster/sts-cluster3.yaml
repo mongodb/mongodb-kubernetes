@@ -1,0 +1,124 @@
+# Statefulset to be deployed in Cluster3
+# kubectl --context cluster3 apply -f sts-headless-cluster3.yaml
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: rs-cluster3
+  name: rs-cluster3
+spec:
+  podManagementPolicy: OrderedReady
+  # 2 Replicas in Cluster 3
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: rs-cluster3
+  serviceName: rs-cluster3-svc
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: rs-cluster3
+    spec:
+      containers:
+      - name: mongodb-enterprise-appdb
+        command:
+        - /opt/scripts/agent-launcher.sh
+        env:
+        - name: AGENT_FLAGS
+          value: -logFile,/var/log/mongodb-mms-automation/automation-agent.log,
+        - name: AUTOMATION_CONFIG_MAP
+          value: automation-config-headless
+        - name: HEADLESS_AGENT
+          value: "true"
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        image: quay.io/mongodb/mongodb-enterprise-appdb:10.2.15.5958-1_4.2.11-ent
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command:
+            - /opt/scripts/probe.sh
+          failureThreshold: 240
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 30
+        ports:
+        - containerPort: 27017
+          protocol: TCP
+        resources:
+          requests:
+            memory: 500M
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 2000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/scripts
+          name: appdb-scripts
+          readOnly: true
+        - mountPath: /var/lib/mongodb-automation/
+          name: cluster-config
+          readOnly: true
+        - mountPath: /data
+          name: data
+          subPath: data
+        - mountPath: /journal
+          name: data
+          subPath: journal
+        - mountPath: /var/log/mongodb-mms-automation
+          name: data
+          subPath: logs
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - image: quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.6
+        imagePullPolicy: Always
+        name: mongodb-enterprise-init-appdb
+        resources: {}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 2000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/scripts
+          name: appdb-scripts
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 2000
+      serviceAccountName: mongodb-enterprise-multi-cluster
+      terminationGracePeriodSeconds: 600
+      volumes:
+      - name: cluster-config
+        secret:
+          defaultMode: 416
+          secretName: automation-config-headless
+      - emptyDir: {}
+        name: appdb-scripts
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      creationTimestamp: null
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 16G
+      volumeMode: Filesystem
+    status:
+      phase: Pending

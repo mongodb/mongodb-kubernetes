@@ -88,7 +88,18 @@
       "baseUrl": "http://rs-cluster2-1-svc.mdb8080",
       "hostname": "rs-cluster2-1-svc.mdb.svc.cluster.local",
       "name": "6.4.0.433-1"
+    },
+    {
+      "baseUrl": "http://rs-cluster3-0-svc.mdb:8080",
+      "hostname": "rs-cluster3-0-svc.mdb.svc.cluster.local",
+      "name": "6.4.0.433-1"
+    },
+    {
+      "baseUrl": "http://rs-cluster3-1-svc.mdb8080",
+      "hostname": "rs-cluster3-1-svc.mdb.svc.cluster.local",
+      "name": "6.4.0.433-1"
     }
+
   ],
   "options": {
     "downloadBase": "/var/lib/mongodb-mms-automation/downloads"
@@ -213,7 +224,56 @@
       "name": "rs-cluster2-1",
       "processType": "mongod",
       "version": "4.2.8"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017
+        },
+        "replication": {
+          "replSetName": "rs"
+        },
+        "storage": {
+          "dbPath": "/data"
+        },
+        "systemLog": {
+          "destination": "file",
+          "path": "/var/log/mongodb-mms-automation/mongodb.log"
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "4.2",
+      "hostname": "rs-cluster3-0.rs-cluster3-svc.mdb.svc.cluster.local",
+      "alias": "rs-cluster3-0-svc.mdb.svc.cluster.local",
+      "name": "rs-cluster3-0",
+      "processType": "mongod",
+      "version": "4.2.8"
+    },
+    {
+      "args2_6": {
+        "net": {
+          "port": 27017
+        },
+        "replication": {
+          "replSetName": "rs"
+        },
+        "storage": {
+          "dbPath": "/data"
+        },
+        "systemLog": {
+          "destination": "file",
+          "path": "/var/log/mongodb-mms-automation/mongodb.log"
+        }
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "4.2",
+      "hostname": "rs-cluster3-1.rs-cluster3-svc.mdb.svc.cluster.local",
+      "alias": "rs-cluster3-1-svc.mdb.svc.cluster.local",
+      "name": "rs-cluster3-1",
+      "processType": "mongod",
+      "version": "4.2.8"
     }
+
   ],
   "replicaSets": [
     {
@@ -248,7 +308,20 @@
           "host": "rs-cluster2-1",
           "priority": 1,
           "votes": 1
+        },
+        {
+          "_id": 5,
+          "host": "rs-cluster3-0",
+          "priority": 1,
+          "votes": 1
+        },
+        {
+          "_id": 6,
+          "host": "rs-cluster3-1",
+          "priority": 1,
+          "votes": 1
         }
+
       ],
       "protocolVersion": "1"
     }
