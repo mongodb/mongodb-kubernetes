@@ -5,7 +5,7 @@ click==7.1.2
 docker==4.3.1
 Jinja2==2.11.3
 pytest==6.1.2
-pyyaml==5.3.1
+pyyaml==5.4
 gitpython==3.1.11
 pymongo==3.11.2
 dnspython==2.0.0
