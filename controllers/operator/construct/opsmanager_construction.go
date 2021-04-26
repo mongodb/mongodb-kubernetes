@@ -56,12 +56,6 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 	}
 }
 
-func WithVersion(version string) func(opts *OpsManagerStatefulSetOptions) {
-	return func(opts *OpsManagerStatefulSetOptions) {
-		opts.Version = version
-	}
-}
-
 // OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
 func OpsManagerStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
