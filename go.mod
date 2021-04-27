@@ -22,7 +22,7 @@ require (
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.7.0
-	github.com/xdg/stringprep v1.0.0
+	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.16.0
 	golang.org/x/mod v0.4.0 // indirect
 	golang.org/x/tools v0.1.1-0.20210201201750-4d4ee958a9b7 // indirect
