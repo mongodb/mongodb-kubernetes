@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 )
 
 type Options struct {

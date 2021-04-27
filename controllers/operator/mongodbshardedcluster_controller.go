@@ -26,7 +26,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 	appsv1 "k8s.io/api/apps/v1"
@@ -103,9 +103,9 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 			r.configSrvScaler,
 		),
 			log,
-			scale.MongodsPerShardOption(r.mongodsPerShardScaler),
-			scale.ConfigServerOption(r.configSrvScaler),
-			scale.MongosCountOption(r.mongosScaler),
+			mdbstatus.MongodsPerShardOption(r.mongodsPerShardScaler),
+			mdbstatus.ConfigServerOption(r.configSrvScaler),
+			mdbstatus.MongosCountOption(r.mongosScaler),
 		)
 	}
 
@@ -118,7 +118,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(sc, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
-		scale.MongodsPerShardOption(r.mongodsPerShardScaler), scale.ConfigServerOption(r.configSrvScaler), scale.MongosCountOption(r.mongosScaler))
+		mdbstatus.MongodsPerShardOption(r.mongodsPerShardScaler), mdbstatus.ConfigServerOption(r.configSrvScaler), mdbstatus.MongosCountOption(r.mongosScaler))
 }
 
 func (r *ReconcileMongoDbShardedCluster) initCountsForThisReconciliation(sc mdbv1.MongoDB) {
@@ -500,11 +500,11 @@ func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient
 }
 
 func (r *ReconcileMongoDbShardedCluster) isConfigServerScaleDown() bool {
-	return scale.ReplicasThisReconciliation(r.configSrvScaler) < r.configSrvScaler.CurrentReplicaSetMembers()
+	return scale.ReplicasThisReconciliation(r.configSrvScaler) < r.configSrvScaler.CurrentReplicas()
 }
 
 func (r *ReconcileMongoDbShardedCluster) isShardsSizeScaleDown() bool {
-	return scale.ReplicasThisReconciliation(r.mongodsPerShardScaler) < r.mongodsPerShardScaler.CurrentReplicaSetMembers()
+	return scale.ReplicasThisReconciliation(r.mongodsPerShardScaler) < r.mongodsPerShardScaler.CurrentReplicas()
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -772,11 +772,11 @@ type shardedClusterScaler struct {
 	CurrentMembers int
 }
 
-func (r shardedClusterScaler) DesiredReplicaSetMembers() int {
+func (r shardedClusterScaler) DesiredReplicas() int {
 	return r.DesiredMembers
 }
 
-func (r shardedClusterScaler) CurrentReplicaSetMembers() int {
+func (r shardedClusterScaler) CurrentReplicas() int {
 	return r.CurrentMembers
 }
 

@@ -16,8 +16,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 
@@ -175,12 +174,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconc
 	}
 
 	if scale.IsStillScaling(rs) {
-		return r.updateStatus(rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicaSetMembers(), scale.ReplicasThisReconciliation(rs)), log,
-			scale.MembersOption(rs))
+		return r.updateStatus(rs, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), log,
+			mdbstatus.MembersOption(rs))
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), scale.MembersOption(rs))
+	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs))
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

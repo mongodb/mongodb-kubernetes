@@ -7,8 +7,8 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 	zap "go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 )

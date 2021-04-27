@@ -8,10 +8,9 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"

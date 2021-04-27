@@ -29,7 +29,7 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -125,17 +125,17 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		// this doesn't requeue the reconciliation immediately, the calling OM controller
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
-		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption, scale.MembersOption(opsManager))
+		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption, status.MembersOption(opsManager))
 	}
 
 	if scale.IsStillScaling(opsManager) {
 		return r.updateStatus(opsManager, workflow.Pending("Continuing scaling operation on AppDB desiredMembers=%d, currentMembers=%d",
-			opsManager.DesiredReplicaSetMembers(), scale.ReplicasThisReconciliation(opsManager)), log, appDbStatusOption, scale.MembersOption(opsManager))
+			opsManager.DesiredReplicas(), scale.ReplicasThisReconciliation(opsManager)), log, appDbStatusOption, status.MembersOption(opsManager))
 	}
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, scale.MembersOption(opsManager))
+	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, status.MembersOption(opsManager))
 }
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and

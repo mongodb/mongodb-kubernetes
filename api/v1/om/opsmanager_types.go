@@ -9,8 +9,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
-
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -398,8 +396,8 @@ func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...st
 func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.AppDbStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
-	if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
-		m.Status.AppDbStatus.Members = option.(scale.ReplicaSetMembersOption).Members
+	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
+		m.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
@@ -538,11 +536,11 @@ func (m MongoDBOpsManager) CentralURL() string {
 	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
 }
 
-func (m *MongoDBOpsManager) DesiredReplicaSetMembers() int {
+func (m *MongoDBOpsManager) DesiredReplicas() int {
 	return m.Spec.AppDB.Members
 }
 
-func (m *MongoDBOpsManager) CurrentReplicaSetMembers() int {
+func (m *MongoDBOpsManager) CurrentReplicas() int {
 	return m.Status.AppDbStatus.Members
 }
 

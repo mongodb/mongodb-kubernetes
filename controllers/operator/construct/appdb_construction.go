@@ -7,7 +7,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"

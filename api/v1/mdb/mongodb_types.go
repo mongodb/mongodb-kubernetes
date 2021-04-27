@@ -9,8 +9,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/scale"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -222,11 +220,11 @@ type AgentConfig struct {
 
 type StartupParameters map[string]string
 
-func (m *MongoDB) DesiredReplicaSetMembers() int {
+func (m *MongoDB) DesiredReplicas() int {
 	return m.Spec.Members
 }
 
-func (m *MongoDB) CurrentReplicaSetMembers() int {
+func (m *MongoDB) CurrentReplicas() int {
 	return m.Status.Members
 }
 
@@ -680,18 +678,18 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
-		if option, exists := status.GetOption(statusOptions, scale.ReplicaSetMembersOption{}); exists {
-			m.Status.Members = option.(scale.ReplicaSetMembersOption).Members
+		if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
+			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
 	case ShardedCluster:
-		if option, exists := status.GetOption(statusOptions, scale.ShardedClusterConfigServerOption{}); exists {
-			m.Status.ConfigServerCount = option.(scale.ShardedClusterConfigServerOption).Members
+		if option, exists := status.GetOption(statusOptions, status.ShardedClusterConfigServerOption{}); exists {
+			m.Status.ConfigServerCount = option.(status.ShardedClusterConfigServerOption).Members
 		}
-		if option, exists := status.GetOption(statusOptions, scale.ShardedClusterMongodsPerShardCountOption{}); exists {
-			m.Status.MongodsPerShardCount = option.(scale.ShardedClusterMongodsPerShardCountOption).Members
+		if option, exists := status.GetOption(statusOptions, status.ShardedClusterMongodsPerShardCountOption{}); exists {
+			m.Status.MongodsPerShardCount = option.(status.ShardedClusterMongodsPerShardCountOption).Members
 		}
-		if option, exists := status.GetOption(statusOptions, scale.ShardedClusterMongosOption{}); exists {
-			m.Status.MongosCount = option.(scale.ShardedClusterMongosOption).Members
+		if option, exists := status.GetOption(statusOptions, status.ShardedClusterMongosOption{}); exists {
+			m.Status.MongosCount = option.(status.ShardedClusterMongosOption).Members
 		}
 	}
 
