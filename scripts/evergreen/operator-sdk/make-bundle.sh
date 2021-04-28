@@ -8,7 +8,7 @@ chmod +x "${operator_sdk_bin}"
 
 echo "Installed operator-sdk ${version} in ${operator_sdk_bin}"
 
-operator-sdk olm install
+operator-sdk olm install --version v0.17.0
 
 echo "Installed Operator Lifecycle Management (olm) into cluster."
 
