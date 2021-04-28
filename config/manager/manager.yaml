@@ -24,8 +24,6 @@ spec:
     spec:
       terminationGracePeriodSeconds: 10
       serviceAccountName: mongodb-enterprise-operator
-      securityContext:
-        runAsUser: 65532
       containers:
       - command:
         - /usr/local/bin/mongodb-enterprise-operator

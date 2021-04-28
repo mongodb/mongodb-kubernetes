@@ -2,15 +2,115 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   annotations:
-    alm-examples: '[]'
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "my-replica-set"
+          },
+          "spec": {
+            "credentials": "my-credentials",
+            "members": 3,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": true,
+            "type": "ReplicaSet",
+            "version": "4.4.0-ent"
+          },
+          "status": {
+            "phase": "Running",
+            "type": "ReplicaSet"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "sample-sharded-cluster"
+          },
+          "spec": {
+            "configServerCount": 3,
+            "credentials": "my-credentials",
+            "mongodsPerShardCount": 3,
+            "mongosCount": 2,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": true,
+            "shardCount": 1,
+            "type": "ShardedCluster",
+            "version": "4.4.0-ent"
+          },
+          "status": {
+            "phase": "Running",
+            "type": "ShardedCluster"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBOpsManager",
+          "metadata": {
+            "name": "ops-manager"
+          },
+          "spec": {
+            "adminCredentials": "ops-manager-admin",
+            "applicationDatabase": {
+              "members": 3,
+              "persistent": true,
+              "podSpec": {
+                "cpu": 1
+              }
+            },
+            "configuration": {
+              "mms.fromEmailAddr": "admin@thecompany.com"
+            },
+            "externalConnectivity": {
+              "type": "LoadBalancer"
+            },
+            "version": "4.4.1"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBUser",
+          "metadata": {
+            "name": "my-replica-set-x509-user"
+          },
+          "spec": {
+            "db": "$external",
+            "mongodbResourceRef": {
+              "name": "my-replica-set"
+            },
+            "roles": [
+              {
+                "db": "admin",
+                "name": "dbOwner"
+              }
+            ],
+            "username": "CN=my-replica-set-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
+          },
+          "status": {
+            "phase": "Updated"
+          }
+        }
+      ]
     capabilities: Deep Insights
     categories: Database
     certified: "true"
     createdAt: ""
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB into Kubernetes clusters, using our management, monitoring and backup platforms, Ops Manager and Cloud Manager.
+    operators.operatorframework.io/builder: operator-sdk-v1.4.0+git
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
     support: support@mongodb.com
-  name: mongodb-enterprise.v0.0.0
+  name: mongodb-enterprise.v1.10.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -272,8 +372,171 @@ spec:
     mediatype: image/png
   install:
     spec:
-      deployments: null
-    strategy: ""
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - validatingwebhookconfigurations
+          verbs:
+          - create
+          - delete
+          - get
+          - update
+        - apiGroups:
+          - certificates.k8s.io
+          resources:
+          - certificatesigningrequests
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+        serviceAccountName: mongodb-enterprise-operator
+      deployments:
+      - name: mongodb-enterprise-controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              control-plane: controller-manager
+          strategy: {}
+          template:
+            metadata:
+              labels:
+                control-plane: controller-manager
+            spec:
+              containers:
+              - command:
+                - /usr/local/bin/mongodb-enterprise-operator
+                env:
+                - name: CURRENT_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: WATCH_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
+                - name: MANAGED_SECURITY_CONTEXT
+                  value: "true"
+                - name: OPERATOR_ENV
+                  value: prod
+                - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
+                  value: quay.io/mongodb/mongodb-enterprise-database
+                - name: INIT_DATABASE_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-init-database
+                - name: INIT_DATABASE_VERSION
+                  value: 1.0.2
+                - name: DATABASE_VERSION
+                  value: 2.0.0
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: OPS_MANAGER_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-ops-manager
+                - name: OPS_MANAGER_IMAGE_PULL_POLICY
+                  value: Always
+                - name: APPDB_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-appdb
+                - name: APPDB_AGENT_VERSION
+                  value: 10.2.15.5958-1_4.2.11-ent
+                - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+                - name: INIT_OPS_MANAGER_VERSION
+                  value: 1.0.3
+                - name: INIT_APPDB_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-init-appdb
+                - name: INIT_APPDB_VERSION
+                  value: 1.0.6
+                image: registry.connect.redhat.com/mongodb/enterprise-operator:1.10.0
+                name: manager
+                resources:
+                  limits:
+                    cpu: 100m
+                    memory: 30Mi
+                  requests:
+                    cpu: 100m
+                    memory: 20Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+              serviceAccountName: mongodb-enterprise-operator
+              terminationGracePeriodSeconds: 10
+      permissions:
+      - rules:
+        - apiGroups:
+          - apps
+          resources:
+          - statefulsets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - secrets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - namespaces
+          verbs:
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - pods
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - services
+          verbs:
+          - create
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - mongodb
+          - mongodb/finalizers
+          - mongodb/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - mongodbusers
+          - mongodbusers/finalizers
+          - mongodbusers/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - opsmanagers
+          - opsmanagers/finalizers
+          - opsmanagers/status
+          verbs:
+          - '*'
+        serviceAccountName: mongodb-enterprise-operator
+    strategy: deployment
   installModes:
   - supported: true
     type: OwnNamespace
@@ -297,5 +560,5 @@ spec:
   minKubeVersion: 1.16.0
   provider:
     name: MongoDB, Inc
-  replaces: mongodb-enterprise.v1.10.0
-  version: 0.0.0
+  replaces: mongodb-enterprise.v1.9.1
+  version: 1.10.0
