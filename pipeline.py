@@ -22,7 +22,6 @@ from sonar.sonar import process_image
 
 from dataclasses import dataclass, field
 
-
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
 
@@ -418,15 +417,18 @@ def image_config(
     to Sonar.
 
     It returns a dictionary with registries and S3 configuration."""
-    return image_name, {
+    args = {
         "quay_registry": "quay.io/mongodb/{}{}".format(name_prefix, image_name),
-        "rh_registry": "scan.connect.redhat.com/ospid-{}/{}{}".format(
-            rh_ospid, name_prefix, image_name
-        ),
         "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(
             s3_bucket, name_prefix, image_name
         ),
     }
+
+    if rh_ospid:
+        args["rh_registry"] = "scan.connect.redhat.com/ospid-{}/{}{}".format(
+            rh_ospid, name_prefix, image_name
+        )
+    return image_name, args
 
 
 def args_for_daily_image(image_name: str) -> Dict[str, str]:
@@ -454,6 +456,7 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             "5558a531-617e-46d7-9320-e84d3458768a",
         ),
         image_config("ops-manager", "b419ca35-17b4-4655-adee-a34e704a6835"),
+        image_config("mongodb-agent", "", name_prefix=""),
     ]
 
     images = {k: v for k, v in image_configs}
@@ -616,6 +619,7 @@ def get_builder_function_for_image_name():
         "init-database-daily": build_image_daily("init-database"),
         "init-ops-manager-daily": build_image_daily("init-ops-manager"),
         "ops-manager-daily": build_image_daily("ops-manager"),
+        "mongodb-agent-daily": build_image_daily("mongodb-agent"),
         #
         # Ops Manager image
         "ops-manager": build_om_image,

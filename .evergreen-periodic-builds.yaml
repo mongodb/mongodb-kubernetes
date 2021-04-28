@@ -170,6 +170,17 @@ tasks:
     vars:
       image_name: ops-manager-daily
 
+- name: periodic_build_agent
+  commands:
+    - func: clone
+    - func: configure_docker_auth
+    - func: pipeline
+      vars:
+        image_name: mongodb-agent-daily
+
+        # TODO: create redhat project for agent image
+        include_tags: ubuntu
+
 buildvariants:
 - name: periodic_build
   display_name: periodic_build
@@ -183,3 +194,4 @@ buildvariants:
   - periodic_build_ops_manager
   - periodic_build_appdb
   - periodic_build_database
+  - periodic_build_agent
