@@ -184,7 +184,7 @@ def get_git_release_tag() -> str:
         return release_env_var
 
     output = subprocess.check_output(
-        ["git", "describe"],
+        ["git", "describe", "--tags"],
     )
     output = output.decode("utf-8")
     return output.strip()

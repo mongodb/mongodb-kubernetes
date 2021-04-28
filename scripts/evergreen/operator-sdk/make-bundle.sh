@@ -19,7 +19,7 @@ echo "${quay_prod_robot_token:?}" | docker login quay.io/mongodb --password-stdi
 docker pull "${operator_img:?}"
 kind load docker-image "${operator_img}"
 
-tag="$(git describe)"
+tag="$(git describe --tags)"
 bundle_img="quay.io/mongodb/operator-bundle:${tag}"
 
 make bundle-annotated VERSION="${tag}" IMG="${operator_img:?}"
