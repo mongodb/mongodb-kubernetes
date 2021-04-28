@@ -186,8 +186,7 @@ type MongoDbSpec struct {
 
 	Agent AgentConfig `json:"agent,omitempty"`
 
-	// replica set
-
+	// Amount of members for this MongoDB Replica Set
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 	// +optional
@@ -455,7 +454,7 @@ type Authentication struct {
 	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
 	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
 
-	// LDAP
+	// LDAP Configuration
 	// +optional
 	Ldap *Ldap `json:"ldap"`
 
@@ -557,7 +556,7 @@ type Ldap struct {
 }
 
 type SecretRef struct {
-	// kubebuilder:validation:Required
+	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 }
 
@@ -841,6 +840,7 @@ type MongoDbPodSpec struct {
 	PodAffinityWrapper PodAffinityWrapper `json:"podAffinity,omitempty"`
 	// +kubebuilder:pruning:PreserveUnknownFields
 	NodeAffinityWrapper NodeAffinityWrapper `json:"nodeAffinity,omitempty"`
+
 	// +kubebuilder:pruning:PreserveUnknownFields
 	PodTemplateWrapper         PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
 	PodAntiAffinityTopologyKey string                 `json:"podAntiAffinityTopologyKey,omitempty"`
@@ -872,9 +872,11 @@ type MultiplePersistenceConfig struct {
 }
 
 type PersistenceConfig struct {
-	Storage       string                `json:"storage,omitempty"`
-	StorageClass  *string               `json:"storageClass,omitempty"`
-	LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
+	Storage      string  `json:"storage,omitempty"`
+	StorageClass *string `json:"storageClass,omitempty"`
+
+	// +kubebuilder:pruning:PreserveUnknownFields
+	LabelSelector *LabelSelectorWrapper `json:"labelSelector,omitempty"`
 }
 
 func (p PodSpecWrapper) GetCpuOrDefault() string {

@@ -25,11 +25,6 @@ black_formatting
 
 export GO111MODULE=on
 
-if [[ -z $GOPATH ]]; then
-    echo "GOPATH is not configured"
-    exit 1
-fi
-
 if [[ $(git diff --cached --name-only --diff-filter=ACM | grep -c '^go.*') == "1" ]]; then
   echo 'ERROR: Should change both or neither of go.mod and go.sum'
   exit 1
@@ -41,7 +36,7 @@ then
     exit 1
 fi
 
-mkdir -p "${GOPATH}/bin"
+mkdir -p "$(go env GOPATH)/bin"
 
 # important to turn off modules to ensure a global install
 if ! [[ -x "$(command -v goimports)" ]]; then
@@ -59,6 +54,13 @@ staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./controllers/...
 
 if ! command -v "shellcheck" > /dev/null; then
     echo "Please install shellcheck"
+    exit 1
+fi
+
+# Makes sure there are not erroneous kubebuilder annotations that can
+# end up in CRDs as descriptions.
+if grep "// kubebuilder" ./* -r --include=\*.go ; then
+    echo "Found an erroneous kubebuilder annotation"
     exit 1
 fi
 
@@ -103,7 +105,7 @@ done
 # If a package is split into multiple files go vet has no knowledge of it
 # and will complain about undefined names that are instead defined in other files
 packages_to_analyze=()
-repo_root=`git rev-parse --show-toplevel`
+repo_root=$(git rev-parse --show-toplevel)
 if [ ${#packages_to_analyze[@]} -ne 0 ]; then
     # Remove duplicate directories
     packages_to_analyze=($(echo "${packages_to_analyze[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
@@ -117,7 +119,5 @@ if [ ${#packages_to_analyze[@]} -ne 0 ]; then
         fi
     done
 fi
-
-
 
 exit $exitcode

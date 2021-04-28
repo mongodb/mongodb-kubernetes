@@ -127,7 +127,7 @@ func (p *PersistenceConfigBuilder) SetStorageClass(class string) *PersistenceCon
 	return p
 }
 func (p *PersistenceConfigBuilder) SetLabelSelector(labels map[string]string) *PersistenceConfigBuilder {
-	p.config.LabelSelector = &metav1.LabelSelector{MatchLabels: labels}
+	p.config.LabelSelector = &LabelSelectorWrapper{metav1.LabelSelector{MatchLabels: labels}}
 	return p
 }
 

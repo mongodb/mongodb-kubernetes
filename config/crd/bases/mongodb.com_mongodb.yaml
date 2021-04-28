@@ -41,14 +41,23 @@ spec:
       openAPIV3Schema:
         properties:
           apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
           spec:
             properties:
               additionalMongodConfig:
+                description: 'AdditionalMongodConfig is additional configuration that
+                  can be passed to each data-bearing mongod at runtime. Uses the same
+                  structure as the mongod configuration file: https://docs.mongodb.com/manual/reference/configuration-options/'
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               agent:
@@ -59,6 +68,8 @@ spec:
                     type: object
                 type: object
               backup:
+                description: Backup contains configuration options for configuring
+                  backup for this MongoDB resource
                 properties:
                   mode:
                     enum:
@@ -79,6 +90,8 @@ spec:
                 format: hostname
                 type: string
               clusterName:
+                description: 'Deprecated: This has been replaced by the ClusterDomain
+                  which should be used instead'
                 format: hostname
                 type: string
               configServerCount:
@@ -100,12 +113,20 @@ spec:
               configSrvPodSpec:
                 properties:
                   cpu:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   cpuRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memory:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memoryRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   nodeAffinity:
                     type: object
@@ -117,28 +138,8 @@ spec:
                           data:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -147,28 +148,8 @@ spec:
                           journal:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -177,28 +158,8 @@ spec:
                           logs:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -208,28 +169,8 @@ spec:
                       single:
                         properties:
                           labelSelector:
-                            properties:
-                              matchExpressions:
-                                items:
-                                  properties:
-                                    key:
-                                      type: string
-                                    operator:
-                                      type: string
-                                    values:
-                                      items:
-                                        type: string
-                                      type: array
-                                  required:
-                                  - key
-                                  - operator
-                                  type: object
-                                type: array
-                              matchLabels:
-                                additionalProperties:
-                                  type: string
-                                type: object
                             type: object
+                            x-kubernetes-preserve-unknown-fields: true
                           storage:
                             type: string
                           storageClass:
@@ -251,12 +192,22 @@ spec:
                     items:
                       additionalProperties:
                         type: string
+                      description: 'MongoDBHorizonConfig holds a map of horizon names
+                        to the node addresses, e.g. {   "internal": "my-rs-2.my-internal-domain.com:31843",   "external":
+                        "my-rs-2.my-external-domain.com:21467" } The key of each item
+                        in the map is an arbitrary, user-chosen string that represents
+                        the name of the horizon. The value of the item is the host
+                        and, optionally, the port that this mongod node will be connected
+                        to from.'
                       type: object
                     type: array
                 type: object
               credentials:
+                description: Name of the Secret holding credentials information
                 type: string
               exposedExternally:
+                description: ExposedExternally determines whether a NodePort service
+                  should be created for the resource
                 type: boolean
               featureCompatibilityVersion:
                 type: string
@@ -269,6 +220,7 @@ spec:
                 - FATAL
                 type: string
               members:
+                description: Amount of members for this MongoDB Replica Set
                 type: integer
               mongodsPerShardCount:
                 type: integer
@@ -291,12 +243,20 @@ spec:
               mongosPodSpec:
                 properties:
                   cpu:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   cpuRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memory:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memoryRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   nodeAffinity:
                     type: object
@@ -308,28 +268,8 @@ spec:
                           data:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -338,28 +278,8 @@ spec:
                           journal:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -368,28 +288,8 @@ spec:
                           logs:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -399,28 +299,8 @@ spec:
                       single:
                         properties:
                           labelSelector:
-                            properties:
-                              matchExpressions:
-                                items:
-                                  properties:
-                                    key:
-                                      type: string
-                                    operator:
-                                      type: string
-                                    values:
-                                      items:
-                                        type: string
-                                      type: array
-                                  required:
-                                  - key
-                                  - operator
-                                  type: object
-                                type: array
-                              matchLabels:
-                                additionalProperties:
-                                  type: string
-                                type: object
                             type: object
+                            x-kubernetes-preserve-unknown-fields: true
                           storage:
                             type: string
                           storageClass:
@@ -449,12 +329,20 @@ spec:
               podSpec:
                 properties:
                   cpu:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   cpuRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memory:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memoryRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   nodeAffinity:
                     type: object
@@ -466,28 +354,8 @@ spec:
                           data:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -496,28 +364,8 @@ spec:
                           journal:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -526,28 +374,8 @@ spec:
                           logs:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -557,28 +385,8 @@ spec:
                       single:
                         properties:
                           labelSelector:
-                            properties:
-                              matchExpressions:
-                                items:
-                                  properties:
-                                    key:
-                                      type: string
-                                    operator:
-                                      type: string
-                                    values:
-                                      items:
-                                        type: string
-                                      type: array
-                                  required:
-                                  - key
-                                  - operator
-                                  type: object
-                                type: array
-                              matchLabels:
-                                additionalProperties:
-                                  type: string
-                                type: object
                             type: object
+                            x-kubernetes-preserve-unknown-fields: true
                           storage:
                             type: string
                           storageClass:
@@ -595,22 +403,36 @@ spec:
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
               project:
+                description: 'Deprecated: This has been replaced by the PrivateCloudConfig
+                  which should be used instead'
                 type: string
               security:
                 properties:
                   authentication:
+                    description: Authentication holds various authentication related
+                      settings that affect this MongoDB resource.
                     properties:
                       agents:
+                        description: Agents contains authentication configuration
+                          properties for the agents
                         properties:
                           automationLdapGroupDN:
                             type: string
                           automationPasswordSecretRef:
+                            description: SecretKeySelector selects a key of a Secret.
                             properties:
                               key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
                                 type: string
                               name:
+                                description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  TODO: Add other useful fields. apiVersion, kind,
+                                  uid?'
                                 type: string
                               optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
                                 type: boolean
                             required:
                             - key
@@ -621,6 +443,8 @@ spec:
                             type: object
                             x-kubernetes-preserve-unknown-fields: true
                           mode:
+                            description: Mode is the desired Authentication mode that
+                              the agents will use
                             type: string
                         required:
                         - mode
@@ -628,10 +452,12 @@ spec:
                       enabled:
                         type: boolean
                       ignoreUnknownUsers:
+                        description: IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
                         type: boolean
                       internalCluster:
                         type: string
                       ldap:
+                        description: LDAP Configuration
                         properties:
                           authzQueryTemplate:
                             type: string
@@ -645,12 +471,20 @@ spec:
                           bindQueryUser:
                             type: string
                           caConfigMapRef:
+                            description: Allows to point at a ConfigMap/key with a
+                              CA file to mount on the Pod
                             properties:
                               key:
+                                description: The key to select.
                                 type: string
                               name:
+                                description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  TODO: Add other useful fields. apiVersion, kind,
+                                  uid?'
                                 type: string
                               optional:
+                                description: Specify whether the ConfigMap or its
+                                  key must be defined
                                 type: boolean
                             required:
                             - key
@@ -674,11 +508,14 @@ spec:
                           type: string
                         type: array
                       requireClientTLSAuthentication:
+                        description: Clients should present valid TLS certificates
                         type: boolean
                     required:
                     - enabled
                     type: object
                   clusterAuthenticationMode:
+                    description: 'Deprecated: This has been replaced by Authentication.InternalCluster
+                      which should be used instead'
                     type: string
                   roles:
                     items:
@@ -745,12 +582,24 @@ spec:
                           type: string
                         type: array
                       ca:
+                        description: CA corresponds to a ConfigMap containing an entry
+                          for the CA certificate (ca.pem) used to validate the certificates
+                          created already.
                         type: string
                       enabled:
+                        description: Enables TLS for this resource. This will make
+                          the operator try to mount a Secret with a defined name (<resource-name>-cert).
+                          This is only used when enabling TLS on a MongoDB resource,
+                          and not on the AppDB, where TLS is configured by setting
+                          `secretRef.Name`.
                         type: boolean
                       secretRef:
+                        description: SecretRef points to a Secret object containing
+                          the certificates to use when enabling TLS.
                         properties:
                           name:
+                            description: DEPRECATED please use security.tls.secretRef.prefix
+                              instead
                             type: string
                           prefix:
                             type: string
@@ -758,6 +607,8 @@ spec:
                     type: object
                 type: object
               service:
+                description: this is an optional service, it will get the name "<rsName>-service"
+                  in case not provided
                 type: string
               shard:
                 properties:
@@ -778,12 +629,20 @@ spec:
               shardPodSpec:
                 properties:
                   cpu:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   cpuRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memory:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   memoryRequests:
+                    description: DEPRECATED. Please set this value using `spec.podTemplate`
+                      instead.
                     type: string
                   nodeAffinity:
                     type: object
@@ -795,28 +654,8 @@ spec:
                           data:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -825,28 +664,8 @@ spec:
                           journal:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -855,28 +674,8 @@ spec:
                           logs:
                             properties:
                               labelSelector:
-                                properties:
-                                  matchExpressions:
-                                    items:
-                                      properties:
-                                        key:
-                                          type: string
-                                        operator:
-                                          type: string
-                                        values:
-                                          items:
-                                            type: string
-                                          type: array
-                                      required:
-                                      - key
-                                      - operator
-                                      type: object
-                                    type: array
-                                  matchLabels:
-                                    additionalProperties:
-                                      type: string
-                                    type: object
                                 type: object
+                                x-kubernetes-preserve-unknown-fields: true
                               storage:
                                 type: string
                               storageClass:
@@ -886,28 +685,8 @@ spec:
                       single:
                         properties:
                           labelSelector:
-                            properties:
-                              matchExpressions:
-                                items:
-                                  properties:
-                                    key:
-                                      type: string
-                                    operator:
-                                      type: string
-                                    values:
-                                      items:
-                                        type: string
-                                      type: array
-                                  required:
-                                  - key
-                                  - operator
-                                  type: object
-                                type: array
-                              matchLabels:
-                                additionalProperties:
-                                  type: string
-                                type: object
                             type: object
+                            x-kubernetes-preserve-unknown-fields: true
                           storage:
                             type: string
                           storageClass:
@@ -968,6 +747,8 @@ spec:
                 type: string
               resourcesNotReady:
                 items:
+                  description: ResourceNotReady describes the dependent resource which
+                    is not ready yet
                   properties:
                     errors:
                       items:
@@ -979,6 +760,8 @@ spec:
                         type: object
                       type: array
                     kind:
+                      description: ResourceKind specifies a kind of a Kubernetes resource.
+                        Used in status of a Custom Resource
                       type: string
                     message:
                       type: string

@@ -16,7 +16,7 @@ func pvcFunc(name string, config *mdbv1.PersistenceConfig, defaultConfig mdbv1.P
 	storageClassNameFunc := persistentvolumeclaim.NOOP()
 	if config != nil {
 		if config.LabelSelector != nil {
-			selectorFunc = persistentvolumeclaim.WithLabelSelector(config.LabelSelector)
+			selectorFunc = persistentvolumeclaim.WithLabelSelector(&config.LabelSelector.LabelSelector)
 		}
 		if config.StorageClass != nil {
 			storageClassNameFunc = persistentvolumeclaim.WithStorageClassName(*config.StorageClass)

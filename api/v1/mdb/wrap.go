@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type ClientCertificateSecretRefWrapper struct {
@@ -34,6 +35,10 @@ type PodTemplateSpecWrapper struct {
 	PodTemplate *corev1.PodTemplateSpec `json:"-"`
 }
 
+type LabelSelectorWrapper struct {
+	LabelSelector metav1.LabelSelector `json:"-"`
+}
+
 // MarshalJSON defers JSON encoding to the wrapped map
 func (m *PodTemplateSpecWrapper) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m.PodTemplate)
@@ -47,6 +52,22 @@ func (m *PodTemplateSpecWrapper) UnmarshalJSON(data []byte) error {
 func (m *PodTemplateSpecWrapper) DeepCopy() *PodTemplateSpecWrapper {
 	return &PodTemplateSpecWrapper{
 		PodTemplate: m.PodTemplate,
+	}
+}
+
+// MarshalJSON defers JSON encoding to the wrapped map
+func (m *LabelSelectorWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.LabelSelector)
+}
+
+// UnmarshalJSON will decode the data into the wrapped map
+func (m *LabelSelectorWrapper) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &m.LabelSelector)
+}
+
+func (m *LabelSelectorWrapper) DeepCopy() *LabelSelectorWrapper {
+	return &LabelSelectorWrapper{
+		LabelSelector: m.LabelSelector,
 	}
 }
 

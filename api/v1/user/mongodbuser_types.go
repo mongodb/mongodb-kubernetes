@@ -20,7 +20,7 @@ func init() {
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// kubebuilder:resource:shortName=mdbu
+// +kubebuilder:resource:shortName=mdbu
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="The current state of the MongoDB User."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB User resource was created."

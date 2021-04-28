@@ -15,7 +15,7 @@ import (
 type AppDBSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	Version string `json:"version,omitempty"`
-	// replica set
+	// Amount of members for this MongoDB Replica Set
 	// +kubebuilder:validation:Maximum=50
 	// +kubebuilder:validation:Minimum=3
 	Members                     int                   `json:"members,omitempty"`

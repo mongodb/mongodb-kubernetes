@@ -139,7 +139,7 @@ type MongoDBOpsManagerTLS struct {
 }
 
 type TLSSecretRef struct {
-	// kubebuilder:validation:Required
+	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 }
 
