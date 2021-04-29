@@ -20,6 +20,21 @@ task will be to check each one of the PRs on the following list and:
 3. Wait for tests to complete
 4. Merge PR!
 
+* **Important Note on k8s.io Golang libraries**. `k8s.io` Go modules are based
+  on the Kubernetes version they support. As an example:
+
+  1) `k8s.io/apimachinery 0.20.0` was released with Kubernetes 1.20
+  2) `k8s.io/apimachinery 0.21.0` was released with Kubernetes 1.21
+
+The following dependencies are part of Kubernetes:
+
+| Module name           | Version | Kubernetes version |
+|-----------------------|---------|--------------------|
+| k8s.io/api            | v0.20.2 | 1.20               |
+| k8s.io/apimachinery   | v0.20.2 | 1.20               |
+| k8s.io/client-go      | v0.20.2 | 1.20               |
+| k8s.io/code-generator | v0.20.2 | 1.20               |
+
 ### For Enterprise Operator
 
 * [Go modules](https://github.com/10gen/ops-manager-kubernetes/pulls?q=is%3Aopen+is%3Apr+author%3Aapp%2Fdependabot+label%3Ago)
@@ -50,21 +65,6 @@ places. Make sure you are using the latest possible all the time!
 * Update Golang in `.evergreen.yml` (search for `go_options`)
 * Update Golang to the same as the previous point in every `Dockerfile` (search
   for `^from golang:`).
-
-* **Important Note on k8s.io Golang libraries**. `k8s.io` Go modules are based
-  on the Kubernetes version they support. As an example:
-
-  1) `k8s.io/apimachinery 0.20.0` was released with Kubernetes 1.20
-  2) `k8s.io/apimachinery 0.21.0` was released with Kubernetes 1.21
-
-The following dependencies are part of Kubernetes:
-
-| Module name           | Version | Kubernetes version |
-|-----------------------|---------|--------------------|
-| k8s.io/api            | v0.20.2 | 1.20               |
-| k8s.io/apimachinery   | v0.20.2 | 1.20               |
-| k8s.io/client-go      | v0.20.2 | 1.20               |
-| k8s.io/code-generator | v0.20.2 | 1.20               |
 
 **These should not be updated until that particular version of Kubernetes is
 supported.** Look at our [platform
@@ -97,13 +97,13 @@ latest versions:
 
 ### Enterprise
 
-* [Kind](scripts/evergreen/setup_kind.sh)
-* [Kubectl](scripts/evergreen/setup_kubectl.sh)
-* [Helm](scripts/evergreen/setup_kubectl.sh)
-* [Kops](scripts/evergreen/setup_kubernetes_environment.sh)
+* [Kind](../scripts/evergreen/setup_kind.sh)
+* [Kubectl](../scripts/evergreen/setup_kubectl.sh)
+* [Helm](../scripts/evergreen/setup_kubectl.sh)
+* [Kops](../scripts/evergreen/setup_kubernetes_environment.sh)
 * [Openshift](https://console-openshift-console.apps.openshift.mongokubernetes.com/settings/cluster).
   There is an update process that can be initiated from the UI.
-* [Minikube](scripts/evergreen/setup_minikube.sh). Minikube is always installed
+* [Minikube](../scripts/evergreen/setup_minikube.sh). Minikube is always installed
   from `latest`, on every test so there is no need to update it manually.
 
 
@@ -126,6 +126,7 @@ Make sure all of the docs are up-to-date! Go through them and:
 
 There are a few other dependencies that you might want to find to update:
 
-* [Cert-manager Helm Chart](docker/mongodb-enterprise-tests/tests/conftest.py).
+* [Cert-manager Helm Chart](../docker/mongodb-enterprise-tests/tests/conftest.py).
   Latest should be
-  [here](https://artifacthub.io/packages/helm/microfunctions/cert-manager)
+  [here](https://artifacthub.io/packages/helm/microfunctions/cert-manager).
+* [LDAP Helm Chart](../docker/mongodb-enterprise-tests/tests/authentication/conftest.py).
