@@ -61,7 +61,7 @@ functions:
   - command: subprocess.exec
     type: setup
     params:
-      command: virtualenv --python /opt/python/3.7/bin/python3 ./venv
+      command: virtualenv --python /opt/python/3.9/bin/python3 ./venv
   - command: subprocess.exec
     type: setup
     params:

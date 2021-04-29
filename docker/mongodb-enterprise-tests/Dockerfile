@@ -6,7 +6,7 @@
 #
 # Ref: https://cryptography.io/en/latest/installation/#building-cryptography-on-linux
 #
-FROM python:3.7-slim as builder
+FROM python:3.9-slim as builder
 
 
 RUN apt-get -qq update \
@@ -18,7 +18,7 @@ COPY requirements.txt requirements.txt
 RUN python3 -m venv /venv && . /venv/bin/activate && python3 -m pip install -r requirements.txt
 
 
-FROM python:3.7-slim
+FROM python:3.9-slim
 
 RUN apt-get -qq update \
         && apt-get -y -qq install \
