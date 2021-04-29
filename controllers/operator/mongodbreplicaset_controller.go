@@ -32,6 +32,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -81,6 +82,26 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconc
 	mutex := r.GetMutex(request.NamespacedName)
 	mutex.Lock()
 	defer mutex.Unlock()
+
+	// check the statefulset for update to status
+	var sts appsv1.StatefulSet
+	// check the mdb resource is in Running state but the number of pods doesn't match
+	err := r.client.Get(context.TODO(), request.NamespacedName, &sts)
+	if err != nil {
+		log.Errorf("Failed to get StatefulSet: %s", err)
+		// we shouldn't return here, since this step is just to update the status of MongoDB CR, the reconcile
+		// loop should progress as it is.
+	} else {
+		// check if MongoDB CR is running but the statefulset has status.readyReplicas < spec.replicas
+		// the operator has no action point here, Kubernetes sts controller/infra needs to successfully run the pod
+		// and we should reflect the status in the MongoDB CR.
+		// checking the sts again just to be double sure, although this condition exists in predicate, there could be
+		// duplicate events
+		if rs.Status.Phase == mdbstatus.PhaseRunning && sts.Status.ReadyReplicas < *sts.Spec.Replicas {
+			return r.updateStatus(rs, workflow.Pending(`Waiting for %d pods to reach READY state, 
+		currently %d pods are READY`, sts.Spec.Replicas, sts.Status.ReadyReplicas), log)
+		}
+	}
 
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != nil {
 		return *reconcileResult, err
@@ -138,7 +159,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconc
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertSecretName, log)),
 	)
 
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
+	sts = construct.DatabaseStatefulSet(*rs, rsConfig)
 
 	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
@@ -201,26 +222,14 @@ func AddReplicaSetController(mgr manager.Manager) error {
 		return err
 	}
 
-	//	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
-	//	// TODO CLOUDP-35240
-	//	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-	//		IsController: true,
-	//		OwnerType:    &mdbv1.MongoDbReplicaSet{},
-	//	}, predicate.Funcs{
-	//		CreateFunc: func(e event.CreateEvent) bool {
-	//			return false
-	//		},
-	//		UpdateFunc: func(e event.UpdateEvent) bool {
-	//			// The controller must watch only for changes in spec made by users, we don't care about status changes
-	//			if !reflect.DeepEqual(e.ObjectOld.(*appsv1.StatefulSet).Spec, e.ObjectNew.(*appsv1.StatefulSet).Spec) {
-	//				return true
-	//			}
-	//			return false
-	//		}})
-	//	if err != nil {
-	//		return err
-	//	}*/
-	//
+	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &mdbv1.MongoDB{},
+	}, watch.PredicatesForStatefulSet())
+	if err != nil {
+		return err
+	}
+
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {

@@ -69,6 +69,7 @@ type DatabaseStatefulSetOptions struct {
 	OwnerReference          []metav1.OwnerReference
 	AgentConfig             mdbv1.AgentConfig
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
+	Annotations             map[string]string
 }
 
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
@@ -119,6 +120,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Replicas:                scale.ReplicasThisReconciliation(&mdb),
 			Name:                    mdb.Name,
 			ServiceName:             mdb.ServiceName(),
+			Annotations:             map[string]string{"type": "Replicaset"},
 			PodSpec:                 newDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
 			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
 			Persistent:              mdb.Spec.Persistent,
@@ -217,6 +219,11 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
 	dbSts := databaseStatefulSet(&mdb, &stsOptions)
+
+	if len(stsOptions.Annotations) > 0 {
+		dbSts.Annotations = stsOptions.Annotations
+	}
+
 	if stsOptions.StatefulSetSpecOverride != nil {
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}

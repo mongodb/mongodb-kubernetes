@@ -44,6 +44,14 @@ def delete_service_account(namespace: str, name: str) -> str:
     return name
 
 
+def delete_pvc(namespace: str, name: str):
+    """Deletes a persistent volument claim(pvc) with `name` in `namespace`"""
+    pvc = client.V1PersistentVolumeClaim(metadata=client.V1ObjectMeta(name=name))
+    client.CoreV1Api().delete_namespaced_persistent_volume_claim(
+        namespace=namespace, name=name
+    )
+
+
 def create_object_from_dict(data, namespace: str) -> List:
     k8s_client = client.ApiClient()
     return utils.create_from_dict(k8s_client=k8s_client, data=data, namespace=namespace)

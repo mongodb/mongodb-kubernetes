@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -55,4 +56,31 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 			return newResource.Spec.ResourceType == resourceType &&
 				reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		}}
+}
+
+func PredicatesForStatefulSet() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
+			newSts := e.ObjectNew.(*appsv1.StatefulSet)
+
+			val, ok := newSts.Annotations["type"]
+
+			if ok && val == "Replicaset" {
+				if !reflect.DeepEqual(oldSts.Status, newSts.Status) && (newSts.Status.ReadyReplicas < *newSts.Spec.Replicas) {
+					return true
+				}
+			}
+			return false
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+		CreateFunc: func(e event.CreateEvent) bool {
+			return false
+		},
+	}
 }
