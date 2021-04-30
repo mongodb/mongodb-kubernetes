@@ -2,7 +2,7 @@
 set -Eeou pipefail
 
 operator_sdk_bin="${workdir:?}/bin/operator-sdk"
-version="v1.5.0"
+version="v1.6.2"
 curl -L "https://github.com/operator-framework/operator-sdk/releases/download/${version}/operator-sdk_linux_amd64" -o "${workdir}/bin/operator-sdk"
 chmod +x "${operator_sdk_bin}"
 
