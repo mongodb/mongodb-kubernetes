@@ -848,7 +848,7 @@ tasks:
 
 - name: e2e_operator_upgrade_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 900
+  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 

@@ -93,8 +93,8 @@ def test_upgrade_operator(default_operator: Operator):
 
 @pytest.mark.e2e_operator_upgrade_replica_set
 def test_replicaset_reconciled(replica_set: MongoDB):
-    replica_set.assert_abandons_phase(phase=Phase.Running, timeout=100)
-    replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
+    replica_set.assert_abandons_phase(phase=Phase.Running, timeout=300)
+    replica_set.assert_reaches_phase(phase=Phase.Running, timeout=1500)
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set
