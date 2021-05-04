@@ -73,7 +73,7 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
-func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
 
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
@@ -86,7 +86,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(_ context.Context, request reconc
 	// check the statefulset for update to status
 	var sts appsv1.StatefulSet
 	// check the mdb resource is in Running state but the number of pods doesn't match
-	err := r.client.Get(context.TODO(), request.NamespacedName, &sts)
+	err := r.client.Get(ctx, request.NamespacedName, &sts)
 	if err != nil {
 		log.Errorf("Failed to get StatefulSet: %s", err)
 		// we shouldn't return here, since this step is just to update the status of MongoDB CR, the reconcile
