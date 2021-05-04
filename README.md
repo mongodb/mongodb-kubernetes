@@ -110,10 +110,4 @@ We also use `quay.io` private and public repositories
 
 # Release process
 
-```
-# Release to Amazon ECR
-evergreen patch -p ops-manager-kubernetes -t push_images_to_development -v push_images_to_development -f -y
-
-# Release to public quay.io repo
-evergreen patch -p ops-manager-kubernetes -t release -v release -f -y
-```
+The release process is described [here](docs/dev/release/how-to-release.md).
