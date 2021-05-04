@@ -83,26 +83,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	// check the statefulset for update to status
-	var sts appsv1.StatefulSet
-	// check the mdb resource is in Running state but the number of pods doesn't match
-	err := r.client.Get(ctx, request.NamespacedName, &sts)
-	if err != nil {
-		log.Errorf("Failed to get StatefulSet: %s", err)
-		// we shouldn't return here, since this step is just to update the status of MongoDB CR, the reconcile
-		// loop should progress as it is.
-	} else {
-		// check if MongoDB CR is running but the statefulset has status.readyReplicas < spec.replicas
-		// the operator has no action point here, Kubernetes sts controller/infra needs to successfully run the pod
-		// and we should reflect the status in the MongoDB CR.
-		// checking the sts again just to be double sure, although this condition exists in predicate, there could be
-		// duplicate events
-		if rs.Status.Phase == mdbstatus.PhaseRunning && sts.Status.ReadyReplicas < *sts.Spec.Replicas {
-			return r.updateStatus(rs, workflow.Pending(`Waiting for %d pods to reach READY state, 
-		currently %d pods are READY`, sts.Spec.Replicas, sts.Status.ReadyReplicas), log)
-		}
-	}
-
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
@@ -159,7 +139,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertSecretName, log)),
 	)
 
-	sts = construct.DatabaseStatefulSet(*rs, rsConfig)
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
 
 	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
