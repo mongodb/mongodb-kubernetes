@@ -255,7 +255,6 @@ class TestReplicaSetCreation(KubernetesTester):
             assert m["arbiterOnly"] is False
             assert m["hidden"] is False
             assert m["priority"] == 1
-            assert m["slaveDelay"] == 0
             assert m["votes"] == 1
             assert m["buildIndexes"] is True
             assert m["host"] == f"my-replica-set-{idx}"
@@ -270,8 +269,10 @@ class TestReplicaSetCreation(KubernetesTester):
             # baseUrl is not present in Cloud Manager response
             if "baseUrl" in mv[i]:
                 assert mv[i]["baseUrl"] is None
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
-                i, self.namespace
+            hostname = (
+                "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                    i, self.namespace
+                )
             )
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
@@ -284,8 +285,10 @@ class TestReplicaSetCreation(KubernetesTester):
 
         # Backup agent is installed on all hosts
         for i in range(0, 3):
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
-                i, self.namespace
+            hostname = (
+                "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                    i, self.namespace
+                )
             )
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
@@ -458,7 +461,6 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert m["arbiterOnly"] is False
             assert m["hidden"] is False
             assert m["priority"] == 1
-            assert m["slaveDelay"] == 0
             assert m["votes"] == 1
             assert m["buildIndexes"] is True
             assert m["host"] == f"my-replica-set-{idx}"
@@ -472,8 +474,10 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for i in range(0, 5):
             if "baseUrl" in mv[i]:
                 assert mv[i]["baseUrl"] is None
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
-                i, self.namespace
+            hostname = (
+                "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                    i, self.namespace
+                )
             )
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
@@ -523,8 +527,8 @@ class TestReplicaSetDelete(KubernetesTester):
     """
 
     def test_replica_set_sts_doesnt_exist(self):
-        """ The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
-        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit """
+        """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
+        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit"""
         time.sleep(15)
         with pytest.raises(client.rest.ApiException):
             self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
