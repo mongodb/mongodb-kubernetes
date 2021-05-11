@@ -456,7 +456,9 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             "5558a531-617e-46d7-9320-e84d3458768a",
         ),
         image_config("ops-manager", "b419ca35-17b4-4655-adee-a34e704a6835"),
-        image_config("mongodb-agent", "", name_prefix=""),
+        image_config(
+            "mongodb-agent", "b2beced3-e4db-46e1-9850-4b85ab4ff8d6", name_prefix=""
+        ),
     ]
 
     images = {k: v for k, v in image_configs}

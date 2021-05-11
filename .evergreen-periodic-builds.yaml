@@ -178,9 +178,6 @@ tasks:
       vars:
         image_name: mongodb-agent-daily
 
-        # TODO: create redhat project for agent image
-        include_tags: ubuntu
-
 buildvariants:
 - name: periodic_build
   display_name: periodic_build

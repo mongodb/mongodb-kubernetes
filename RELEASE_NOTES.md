@@ -1,5 +1,17 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next release -->
+# MongoDB Enterprise Kubernetes Operator 1.11.0
+
+## New Images
+
+TODO: determine version of agent that will be shipped with 1.11.0
+
+* mongodb-agent <version>:
+ * Ubi: quay.io/mongodb/mongodb-agent-ubi:<version>
+ * Ubuntu: quay.io/mongodb/mongodb-agent:<version>
+
+
+<!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.10.1
 
 ## Kubernetes Operator
