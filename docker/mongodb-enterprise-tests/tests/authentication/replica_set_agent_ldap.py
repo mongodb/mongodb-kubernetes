@@ -173,7 +173,7 @@ def test_enable_SCRAM_auth(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["mode"] = "SCRAM"
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=700)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
