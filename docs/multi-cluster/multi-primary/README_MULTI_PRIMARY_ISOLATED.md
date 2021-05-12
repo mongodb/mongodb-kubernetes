@@ -1,19 +1,18 @@
-# Multi Cluster Deployment with Isolated Networks
+# Multi Cluster Deployment with Isolated Networks in Multi Primary Mode
 
 This guide describes the process to deploy a Replica Set in a multi-cluster
-environment, using 3 GCP clusters and Istio.
+environment, using 2 GCP clusters and Istio in a Multi-Primary mode.
 
-The end result will be a 7 member Replica Set, deployed across the 3 clusters,
-with 3 members in `cluster1`, 2 members in `cluster2` and 2 members in
-`cluster3`. The Pods will be deployed using one StatefulSet per cluster. To
-satisfy Istio requirements, a Service will have to be created as an entrypoint
-for each one of the Pods, this is 7; the Services will have to be created in all
-three clusters.
+The end result will be a 3 member Replica Set, deployed across the 2 clusters,
+with 2 members in `cluster1` and 1 member in `cluster2`. The Pods will be
+deployed using one StatefulSet per cluster. To satisfy Istio requirements, a
+Service will have to be created as an entrypoint for each one of the Pods, this
+is 7; the Services will have to be created in all three clusters.
 
 Reference:
 
-* [Install Primary-Remote on different networks](https://istio.io/latest/docs/setup/install/multicluster/primary-remote_multi-network/).
-
+* [Install Multi-Primary on different networks](https://istio.io/latest/docs/setup/install/multicluster/multi-primary_multi-network/).
+* [Replica Sets Distributed Across Two or More Data Centers](https://docs.mongodb.com/manual/core/replica-set-architecture-geographically-distributed/).
 
 # Deploying Clusters with GCP
 
@@ -25,9 +24,8 @@ To create GCP Kubernetes clusters is very easy, we'll start creating 2 clusters
 with:
 
 ``` shell
-gcloud container clusters create cluster1 --machine-type e2-standard-4 --zone europe-west1-c
-gcloud container clusters create cluster2 --machine-type e2-standard-4 --zone europe-west1-b
-gcloud container clusters create cluster3 --machine-type e2-standard-4 --zone europe-west1-d
+gcloud container clusters create mp1 --machine-type e2-standard-4 --zone europe-west1-c
+gcloud container clusters create mp2 --machine-type e2-standard-4 --zone europe-west1-b
 ```
 
 Here we are using `europe-west1-c` and `europe-west1-b` which is the closest I
@@ -40,9 +38,8 @@ To easily follow the Istio docs, we'll rename clusters to `cluster1` and
 `cluster2` with:
 
 ``` shell
-kubectl config rename-context gke_scratch-kubernetes-team_europe-west1-c_cluster1 cluster1
-kubectl config rename-context gke_scratch-kubernetes-team_europe-west1-b_cluster2 cluster2
-kubectl config rename-context gke_scratch-kubernetes-team_europe-west1-d_cluster3 cluster3
+kubectl config rename-context gke_scratch-kubernetes-team_europe-west1-c_mp1 cluster1
+kubectl config rename-context gke_scratch-kubernetes-team_europe-west1-b_mp2 cluster2
 ```
 
 Please note that the *names* of the contexts as created by `gcloud` could be
@@ -53,7 +50,6 @@ To check that the clusters were deployed correctly you can do:
 ``` shell
 kubectl get namespaces --context=cluster1
 kubectl get namespaces --context=cluster2
-kubectl get namespaces --context=cluster3
 ```
 
 # Istio Installation
@@ -90,7 +86,6 @@ pushd certs
 make -f ../tools/certs/Makefile.selfsigned.mk root-ca
 make -f ../tools/certs/Makefile.selfsigned.mk cluster1-cacerts
 make -f ../tools/certs/Makefile.selfsigned.mk cluster2-cacerts
-make -f ../tools/certs/Makefile.selfsigned.mk cluster3-cacerts
 popd
 ```
 
@@ -104,7 +99,6 @@ kubectl create secret generic cacerts --context cluster1 -n istio-system \
       --from-file=certs/cluster1/ca-key.pem \
       --from-file=certs/cluster1/root-cert.pem \
       --from-file=certs/cluster1/cert-chain.pem
-kubectl --context cluster1 label namespace istio-system topology.istio.io/network=network1
 
 # cluster2
 kubectl create namespace istio-system --context cluster2
@@ -113,14 +107,6 @@ kubectl create secret generic cacerts --context cluster2 -n istio-system \
       --from-file=certs/cluster2/ca-key.pem \
       --from-file=certs/cluster2/root-cert.pem \
       --from-file=certs/cluster2/cert-chain.pem
-
-# cluster3
-kubectl create namespace istio-system --context cluster3
-kubectl create secret generic cacerts --context cluster3 -n istio-system \
-      --from-file=certs/cluster3/ca-cert.pem \
-      --from-file=certs/cluster3/ca-key.pem \
-      --from-file=certs/cluster3/root-cert.pem \
-      --from-file=certs/cluster3/cert-chain.pem
 ```
 
 ## Configure `cluster1` as Primary
@@ -151,12 +137,6 @@ samples/multicluster/gen-eastwest-gateway.sh \
 kubectl --context cluster1 get svc istio-eastwestgateway -n istio-system
 ```
 
-## Expose Control Panel in `cluster1`
-
-``` shell
-kubectl --context cluster1 apply -f samples/multicluster/expose-istiod.yaml
-```
-
 ## Expose Services in `cluster1`
 
 ``` shell
@@ -168,94 +148,69 @@ kubectl --context cluster1 apply -n istio-system -f \
 
 ``` shell
 kubectl --context cluster2 label namespace istio-system topology.istio.io/network=network2
-kubectl --context cluster3 label namespace istio-system topology.istio.io/network=network3
 ```
 
-## Enable API Server access to remote clusters
 
-``` shell
-istioctl x create-remote-secret \
-    --context cluster2 \
-    --name=cluster2 | \
-    kubectl apply -f - --context cluster1
-istioctl x create-remote-secret \
-    --context cluster3 \
-    --name=cluster3 | \
-    kubectl apply -f - --context cluster1
-```
-
-## Configure remote clusters
+## Configure clusters as Primary
 
 First we need to configure `cluster2`.
 
 ``` shell
-export DISCOVERY_ADDRESS=$(kubectl --context cluster1 \
-    -n istio-system get svc istio-eastwestgateway \
-    -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-
 cat <<EOF > cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
-  profile: remote
   values:
     global:
       meshID: mesh1
       multiCluster:
         clusterName: cluster2
       network: network2
-      remotePilotAddress: ${DISCOVERY_ADDRESS}
 EOF
 
 istioctl install --context cluster2 -f cluster2.yaml --skip-confirmation
 ```
 
-And similar to the previous one, we configure `cluster3`.
-
-``` shell
-cat <<EOF > cluster3.yaml
-apiVersion: install.istio.io/v1alpha1
-kind: IstioOperator
-spec:
-  profile: remote
-  values:
-    global:
-      meshID: mesh1
-      multiCluster:
-        clusterName: cluster3
-      network: network3
-      remotePilotAddress: ${DISCOVERY_ADDRESS}
-EOF
-
-istioctl install --context cluster3 -f cluster3.yaml --skip-confirmation
-```
-
-## Install East-West Gateway in Remote Clusters
+## Install East-West Gateway in Cluster2 2
 
 ``` shell
 samples/multicluster/gen-eastwest-gateway.sh \
     --mesh mesh1 --cluster cluster2 --network network2 | \
     istioctl --context cluster2 install -y -f -
 
-samples/multicluster/gen-eastwest-gateway.sh \
-    --mesh mesh1 --cluster cluster3 --network network3 | \
-    istioctl --context cluster3 install -y -f -
+# Check if service is ready
+kubectl --context=cluster2 get svc istio-eastwestgateway -n istio-system
 ```
 
-## Expose Services in Remote Clusters
+## Expose Services in Cluster 2
 
 ``` shell
 kubectl --context cluster2 apply -n istio-system -f \
     samples/multicluster/expose-services.yaml
-
-kubectl --context cluster3 apply -n istio-system -f \
-    samples/multicluster/expose-services.yaml
 ```
 
-After completing these steps, we should have a configured Istio mesh in 3 GCP
-clusters.
 
-Next we will deploy a Replica Set in both clusters.
+## Enable Endpoint Discovery
+
+### Enable Endpoint Discovery to `cluster1`
+
+* Install a remote secret in cluster2 that provides access to cluster1's API server.
+
+```
+istioctl x create-remote-secret \
+  --context="${CTX_CLUSTER1}" \
+  --name=cluster1 | \
+  kubectl apply -f - --context="${CTX_CLUSTER2}"
+```
+
+* Install a remote secret in cluster1 that provides access to cluster2's API server.
+
+```
+istioctl x create-remote-secret \
+  --context="${CTX_CLUSTER2}" \
+  --name=cluster2 | \
+  kubectl apply -f - --context="${CTX_CLUSTER1}"
+```
 
 # Deploying a MongoDB ReplicaSet in a Kubernetes Multi-cluster Environment
 
@@ -267,13 +222,10 @@ Istio Sidecar injection:
 ``` shell
 kubectl create namespace mdb --context cluster1
 kubectl create namespace mdb --context cluster2
-kubectl create namespace mdb --context cluster3
 
 kubectl label --context cluster1 namespace mdb \
     istio-injection=enabled
 kubectl label --context cluster2 namespace mdb \
-    istio-injection=enabled
-kubectl label --context cluster3 namespace mdb \
     istio-injection=enabled
 ```
 
@@ -282,7 +234,6 @@ kubectl label --context cluster3 namespace mdb \
 ``` shell
 kubectl --context=cluster1 create secret generic automation-config-headless --from-file=cluster-config.json -n mdb
 kubectl --context=cluster2 create secret generic automation-config-headless --from-file=cluster-config.json -n mdb
-kubectl --context=cluster3 create secret generic automation-config-headless --from-file=cluster-config.json -n mdb
 ```
 
 * Please note that this Cluster Config is configured to work with the provided
@@ -294,9 +245,8 @@ will have to be manually modified.
 For Istio to work, we need to deploy Services in both clusters.
 
 ``` shell
-kubectl -n mdb apply -f multi-cluster-services.yaml --context cluster1
-kubectl -n mdb apply -f multi-cluster-services.yaml --context cluster2
-kubectl -n mdb apply -f multi-cluster-services.yaml --context cluster3
+kubectl -n mdb apply -f services.yaml --context cluster1
+kubectl -n mdb apply -f services.yaml --context cluster2
 ```
 
 This will create 21 Services, 7 on each cluster.
@@ -306,7 +256,6 @@ This will create 21 Services, 7 on each cluster.
 ``` shell
 kubectl --context cluster1 create sa mongodb-enterprise-multi-cluster -n mdb
 kubectl --context cluster2 create sa mongodb-enterprise-multi-cluster -n mdb
-kubectl --context cluster3 create sa mongodb-enterprise-multi-cluster -n mdb
 ```
 
 ## Create StatefulSets controlling the MongoDB Pods
@@ -315,9 +264,11 @@ We'll create one StatefulSet per cluster, one with 3 Replica Set members, and
 another one with 2.
 
 ``` shell
-kubectl -n mdb apply -f sts-cluster1.yaml --context cluster1
-kubectl -n mdb apply -f sts-cluster2.yaml --context cluster2
-kubectl -n mdb apply -f sts-cluster3.yaml --context cluster3
+kubectl -n mdb apply -f ../sts-cluster1.yaml --context cluster1
+kubectl -n mdb apply -f ../sts-cluster2.yaml --context cluster2
+
+kubectl -n mdb scale sts/rs-cluster1 --replicas 2 --context cluster1
+kubectl -n mdb scale sts/rs-cluster2 --replicas 1 --context cluster2
 ```
 
 # Test
@@ -372,9 +323,8 @@ rs:SECONDARY> db.coll.find()
 Clusters can be removed with `gcloud` tool as well.
 
 ``` shell
-gcloud container clusters delete cluster1 --zone europe-west1-c
-gcloud container clusters delete cluster2 --zone europe-west1-b
-gcloud container clusters delete cluster3 --zone europe-west1-d
+gcloud container clusters delete mp1 --zone europe-west1-c
+gcloud container clusters delete mp2 --zone europe-west1-b
 ```
 
 ## Delete Kubectl Config
@@ -382,5 +332,17 @@ gcloud container clusters delete cluster3 --zone europe-west1-d
 ``` shell
 kubectl config delete-context cluster1
 kubectl config delete-context cluster2
-kubectl config delete-context cluster3
 ```
+
+# Disaster Recovery analysis
+
+I have tested a Replica Set replicated across 2 Kubernetes clusters over a
+multi-primary Istio mesh. As the MongoDB docs
+[state](https://docs.mongodb.com/manual/core/replica-set-architecture-geographically-distributed/#three-member-replica-set),
+failure on the data center with 1 member, will allow the Replica Set to continue
+working. However if the Kubernetes cluster with 2 members is lost, the Replica
+Set will continue operating in read-only mode.
+
+I have only tested communication from a client living in the *surviving
+Kubernetes cluster*. I have not tested using clients living outside the cluster
+and how will they handle this situation.

@@ -1,5 +1,5 @@
 # Statefulset to be deployed in Cluster2
-# kubectl --context $CLUSTER2_CTX apply -f sts-headless-cluster2.yaml
+# kubectl --context $CTX_CLUSTER2 apply -f sts-headless-cluster2.yaml
 ---
 apiVersion: apps/v1
 kind: StatefulSet

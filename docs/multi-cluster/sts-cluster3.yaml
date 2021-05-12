@@ -1,5 +1,5 @@
 # Statefulset to be deployed in Cluster3
-# kubectl --context cluster3 apply -f sts-headless-cluster3.yaml
+# kubectl --context $CTX_CLUSTER3 apply -f sts-headless-cluster3.yaml
 ---
 apiVersion: apps/v1
 kind: StatefulSet
