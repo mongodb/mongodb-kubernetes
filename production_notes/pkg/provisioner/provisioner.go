@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"fmt"
 	"log"
 	"os/exec"
 	"strings"
@@ -41,8 +42,13 @@ func DeleteIfExists(clusterName string) error {
 	return execWithOutputAndReturnError(cmd)
 }
 
-func CreateCluster(clusterName string, nodeSize string) error {
-	createCmd := exec.Command("kops", "create", "cluster", clusterName, "--node-size", nodeSize, "--zones=eu-west-2a", "--node-count=4", "--node-volume-size=40", "--master-size=t2.medium", "--master-volume-size=16", "--ssh-public-key=~/.ssh/id_rsa.pub", "--authorization=RBAC", "--kubernetes-version=1.18.10")
+func CreateCluster(clusterName string, nodeSize string, networking string) error {
+	var cni string
+	if networking != "" {
+		cni = fmt.Sprintf("--networking=%s", networking)
+	}
+
+	createCmd := exec.Command("kops", "create", "cluster", clusterName, "--node-size", nodeSize, "--zones=eu-west-2a", "--node-count=4", "--node-volume-size=40", "--master-size=t2.medium", "--master-volume-size=16", "--ssh-public-key=~/.ssh/id_rsa.pub", "--authorization=RBAC", "--kubernetes-version=1.18.10", cni)
 	err := execWithOutputAndReturnError(createCmd)
 	if err != nil {
 		return err
