@@ -366,6 +366,12 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     container_name = "mongodb-enterprise-operator"
     operator_binary_location = "/usr/local/bin/mongodb-enterprise-operator"
+    try:
+        client.containers.get(container_name).remove()
+        print(f"Removed {container_name}")
+    except docker.errors.NotFound:
+        pass
+
     container = client.containers.run(
         repo_tag, name=container_name, entrypoint="sh", detach=True
     )
