@@ -2,6 +2,10 @@
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
 
+## MongoDB Resource
+* Bug fixes
+  * Fixes an issue with the `LivenessProbe` that could cause the database Pods to be restarted in the middle of a restore operation from Backup.
+
 ## New Images
 
 TODO: determine version of agent that will be shipped with 1.11.0

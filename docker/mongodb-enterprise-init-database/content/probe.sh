@@ -43,7 +43,13 @@ check_mongo_process_alive () {
     #    failureThreshold on the livenessProbe to a few minutes before we
     #    give up.
 
-    baby_container || check_mongod_alive || check_mongos_alive
+    check_mongod_alive || check_mongos_alive
 }
 
-check_agent_pid && check_mongo_process_alive
+# 3 conditions are sufficient to state that a Pod is "Alive":
+#
+# 1. The container started less than 60 minutes ago
+# 2. There is an agent PID present in the filesystem (meaning that the agent is running)
+# 3. There is a `mongod` or `mongos` process running
+#
+baby_container || check_agent_pid || check_mongo_process_alive
