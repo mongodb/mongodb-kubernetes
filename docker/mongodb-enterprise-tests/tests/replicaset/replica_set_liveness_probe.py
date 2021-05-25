@@ -84,8 +84,48 @@ def test_pods_get_restarted(replica_set: MongoDB, namespace: str):
     )
     failure_threshold = statefulset_liveness_probe.failure_threshold
     period_seconds = statefulset_liveness_probe.period_seconds
+
     # Leave some extra time after the failure threshold just to be sure
     time.sleep(failure_threshold * period_seconds + 20)
     for podname in _get_pods("my-replica-set-{}", 3):
         pod = corev1_client.read_namespaced_pod(podname, namespace)
-        assert pod.status.container_statuses[0].restart_count > 0
+
+        # Pods should not restart because of a missing mongod process
+        assert pod.status.container_statuses[0].restart_count == 0
+
+
+@pytest.mark.e2e_replica_set_liveness_probe
+def test_pods_are_restarted_if_agent_process_is_terminated(replica_set: MongoDB, namespace: str):
+    corev1_client = client.CoreV1Api()
+
+    agent_pid_file = "/mongodb-automation/mongodb-mms-automation-agent.pid"
+    pid_cmd = ["cat", agent_pid_file]
+    # Get the agent's PID
+    agent_pid = KubernetesTester.run_command_in_pod_container(
+        "my-replica-set-0", namespace, pid_cmd)
+
+    # Kill the agent using its PID
+    kill_cmd = ["kill", "-s", "SIGTERM", agent_pid.strip()]
+    KubernetesTester.run_command_in_pod_container(
+        "my-replica-set-0", namespace, kill_cmd
+    )
+
+    # Remove PID file (not removed by agent after termination)
+    rm_agent_pid_cmd = ["rm", agent_pid_file]
+    KubernetesTester.run_command_in_pod_container(
+        "my-replica-set-0", namespace, rm_agent_pid_cmd
+    )
+
+    statefulset_liveness_probe = (
+        replica_set.read_statefulset().spec.template.spec.containers[0].liveness_probe
+    )
+    failure_threshold = statefulset_liveness_probe.failure_threshold
+    period_seconds = statefulset_liveness_probe.period_seconds
+    time.sleep(failure_threshold * period_seconds + 20)
+
+    # Pod zero should have restarted, because the agent was killed
+    assert corev1_client.read_namespaced_pod("my-replica-set-0", namespace).status.container_statuses[0].restart_count > 0
+
+    # Pods 1 and 2 should not have restarted, because the agent is intact
+    assert corev1_client.read_namespaced_pod("my-replica-set-1", namespace).status.container_statuses[0].restart_count == 0
+    assert corev1_client.read_namespaced_pod("my-replica-set-2", namespace).status.container_statuses[0].restart_count == 0
