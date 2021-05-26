@@ -48,5 +48,6 @@ ops-manager-kubernetes.suite
 # loadtesting binary
 production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
+multi_cluster/multi_cluster
 
 _.yaml

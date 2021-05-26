@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcluster-deployment
+  labels:
+    app: mcluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcluster
+  template:
+    metadata:
+      labels:
+        app: mcluster
+    spec:
+      containers:
+      - name: mcluster
+        image: rajdeep21/mcluster:1.2
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: 50m
+            memory: 20Mi
+          limits:
+            cpu: 50m
+            memory: 20Mi
