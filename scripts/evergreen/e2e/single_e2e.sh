@@ -111,6 +111,9 @@ deploy_test_app() {
         helm_params+=("--set" "customOmMdbPrevVersion=${custom_mdb_prev_version}")
     fi
 
+    if [[ -n "${GITHUB_TOKEN_READ:-}" ]]; then
+        helm_params+=("--set" "githubToken=${GITHUB_TOKEN_READ}")
+    fi
 
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
 

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-set -x
-
 context_config="${workdir:?}/${kube_environment_name:?}_config"
 bindir="${workdir}/bin"
 if [ -f "${context_config}" ]; then
@@ -59,7 +57,7 @@ elif [ "${kube_environment_name}" = "kind" ]; then
 
 elif [[ "${kube_environment_name}" = "minikube" ]]; then
     echo "Starting Minikube"
-    minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=16g
+    minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=50g &> /dev/null
     mv "${HOME}"/.kube/config "${context_config}"
 else
     echo "kube_environment_name not recognized"

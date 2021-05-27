@@ -35,6 +35,7 @@ class Operator(object):
         helm_options: Optional[List[str]] = None,
         helm_chart_path: Optional[str] = "helm_chart",
         name: Optional[str] = "mongodb-enterprise-operator",
+        enable_webhook_check: bool = True,
     ):
         if helm_args is None:
             helm_args = {}
@@ -47,6 +48,7 @@ class Operator(object):
         self.helm_options = helm_options
         self.helm_chart_path = helm_chart_path
         self.name = name
+        self.enable_webhook_check = enable_webhook_check
 
     def install_from_template(self):
         """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
@@ -146,6 +148,10 @@ class Operator(object):
         )
 
     def _wait_operator_webhook_is_ready(self, retries: int = 10):
+        # TODO: Remove after 1.11 has been released
+        if self.enable_webhook_check is False:
+            return
+
         logging.debug("_wait_operator_webhook_is_ready")
         validation_endpoint = "validate-mongodb-com-v1-mongodb"
         webhook_endpoint = "https://operator-webhook.{}.svc.cluster.local/{}".format(

@@ -1,7 +1,11 @@
 import logging
 import os
 import tempfile
+import time
 from typing import Optional, Dict
+
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 import kubernetes
 import requests
@@ -206,9 +210,18 @@ def official_operator(
     """Installs the Operator from the official GitHub repository. The version of the Operator is either passed to the
     function or the latest version is fetched from the repository.
     The configuration properties are not overridden - this can be added to the fixture parameters if necessary."""
+
     temp_dir = tempfile.mkdtemp()
     if custom_operator_release_version is None:
         custom_operator_release_version = fetch_latest_released_operator_version()
+
+    enable_webhook_check = True
+    logging.info("Updating from version {}".format(custom_operator_release_version))
+
+    if custom_operator_release_version.startswith("1.10"):
+        logging.info("Will update from version < 1.11 with a broken webhook-service. "
+                     "We will not check webhook functionality during this test.")
+        enable_webhook_check = False
 
     clone_and_checkout(
         "https://github.com/mongodb/mongodb-enterprise-kubernetes",
@@ -227,10 +240,19 @@ def official_operator(
         ]
     }
     name = "mongodb-enterprise-operator"
+
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead if the "ubi" images
     # are used for installing the dev Operator
     helm_args["operator.operator_image_name"] = name
+
+    # When testing the UBI image type we need to assume a few things
+    #
+    # 1. The testing cluster is Openshift or Minikube
+    # 2. The operator name is "enterprise-operator" (instead of "mongodb-enterprise-operator")
+    # 3. The "values.yaml" file is "values-openshift.yaml"
+    # 4. We set "managedSecurityContext" to true
+    #
     if image_type == "ubi":
         helm_options = [
             "--values",
@@ -239,6 +261,7 @@ def official_operator(
         # on the other side we still need to manage the security context by ourselves
         helm_args["managedSecurityContext"] = "true"
         helm_args["operator.operator_image_name"] = "enterprise-operator"
+        name = "enterprise-operator"
 
     return Operator(
         namespace=namespace,
@@ -246,17 +269,52 @@ def official_operator(
         helm_chart_path=os.path.join(temp_dir, "helm_chart"),
         helm_options=helm_options,
         name=name,
+        enable_webhook_check=enable_webhook_check
     ).install()
 
 
-def fetch_latest_released_operator_version() -> str:
-    response = requests.request(
-        "get",
-        "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
+def get_headers() -> Dict[str, str]:
+    """
+    Returns an authentication header that can be used when accessing
+    the Github API. This is to avoid rate limiting when accessing the
+    API from the Evergreen hosts.
+    """
+
+    if github_token := os.getenv("GITHUB_TOKEN_READ"):
+        return {
+            "Authorization": "token {}".format(github_token)
+        }
+
+    return dict()
+
+
+def get_retriable_session() -> requests.Session:
+    """
+    Returns a request Session object with a retry mechanism.
+
+    This is required to overcome a DNS resolution problem that we have
+    experienced in the Evergreen hosts. This can also probably alleviate
+    problems arising from request throttling.
+    """
+
+    s = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=2,
     )
-    if response.status_code != 200:
-        raise Exception(
-            f"Failed to find out the latest Operator version, response: {response}"
-        )
+    s.mount('https://', HTTPAdapter(max_retries=retries))
+
+    return s
+
+
+def fetch_latest_released_operator_version() -> str:
+    """
+    Fetches the currently released operator version from the Github API.
+    """
+
+    response = get_retriable_session().get(
+        "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
+        headers=get_headers())
+    response.raise_for_status()
 
     return response.json()["tag_name"]

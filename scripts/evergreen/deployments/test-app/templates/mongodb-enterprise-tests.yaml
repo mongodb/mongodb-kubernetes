@@ -86,6 +86,10 @@ spec:
     - name: IMAGE_TYPE
       value: {{ .Values.imageType }}
     {{ end }}
+    {{ if .Values.githubToken }}
+    - name: GITHUB_TOKEN_READ
+      value: {{ .Values.githubToken }}
+    {{ end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

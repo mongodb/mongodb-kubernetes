@@ -31,6 +31,7 @@ def replica_set(
         name=RS_NAME,
     )
     resource["spec"]["version"] = custom_mdb_version
+
     # TLS
     resource.configure_custom_tls(
         issuer_ca_configmap, rs_certs_secret, secret_ref_key="name"
@@ -94,7 +95,7 @@ def test_upgrade_operator(default_operator: Operator):
 @pytest.mark.e2e_operator_upgrade_replica_set
 def test_replicaset_reconciled(replica_set: MongoDB):
     replica_set.assert_abandons_phase(phase=Phase.Running, timeout=300)
-    replica_set.assert_reaches_phase(phase=Phase.Running, timeout=1500)
+    replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
 
 
 @pytest.mark.e2e_operator_upgrade_replica_set

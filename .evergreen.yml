@@ -423,6 +423,7 @@ functions:
           - version_id
           - install_operator_in_python
           - task_id
+          - GITHUB_TOKEN_READ
           - RED_HAT_TOKEN
           - usaf_operator_version
           - usaf_database_version
@@ -854,7 +855,7 @@ tasks:
 
 - name: e2e_operator_upgrade_ops_manager
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
+  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
@@ -1984,7 +1985,7 @@ task_groups:
     - func: teardown_cloud_qa
 
 # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
-# cluster-wise resources so should be run in isolated K8s clusters only (Kind)
+# cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
 - name: e2e_operator_task_group
   max_hosts: 2
   setup_group:
@@ -2376,7 +2377,7 @@ buildvariants:
 - name: e2e_operator_kind_ubuntu_cloudqa
   display_name: e2e_operator_kind_ubuntu_cloudqa
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-large
   depends_on:
   - name: build_operator_ubuntu
     variant: init_test_run
@@ -2401,7 +2402,7 @@ buildvariants:
 - name: e2e_operator_minikube_ubi_cloudqa
   display_name: e2e_operator_minikube_ubi_cloudqa
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-large
   depends_on:
   - name: build_operator_ubi
     variant: init_test_run
