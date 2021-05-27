@@ -74,36 +74,7 @@ updated with the latest operator version.
   attributes.
 
 ```bash
-echo "${rhc_operator_bundle_pid}" | docker scan.connect.redhat.com login -u unused --password-stdin
-
-VERSION="$(jq .mongodbOperator -r release.json)"
-BUNDLE_IMG="scan.connect.redhat.com/ospid-52d1c6df-b3f6-432b-9646-adb7f689e581/operator-bundle:${VERSION}"
-
-make bundle-annotated "VERSION=${VERSION}" IMG="registry.connect.redhat.com/mongodb/enterprise-operator:${VERSION}"
-```
-
-After this process, you will have a new directory corresponding to the version
-to release under `./bundle`. Before continuing pushing the bundle to RedHat, we
-have to *downgrade* our CRD version to `v1beta1`. *This is a temporary measure
-and should be resolved before Kubernetes 1.22 is released around July 2021.*
-
-* **If the CRDs have not been modified since previous release**, just copy all the
-  CRDs exactly as they were last time:
-
-``` shell
-cp bundle/<previous-version>/manifests/mongodb.com_* bundle/<this-version>/manifests
-```
-
-* **If the CRDs have been modified since last time**, *downgrade them to CRD
-  v1beta1*. Follow [this
-  document](https://kubernetes.io/docs/reference/using-api/deprecation-guide/#customresourcedefinition-v122)
-  to know how to do this.
-
-After your CRDs are in the right version, execute the following commands:
-
-``` shell
-make bundle-build EXPIRES= "VERSION=${VERSION}" "BUNDLE_IMG=${BUNDLE_IMG}"
-make docker-push "VERSION=${VERSION}" "IMG=${BUNDLE_IMG}"
+make bundle-push
 ```
 
 After the verification process [have
