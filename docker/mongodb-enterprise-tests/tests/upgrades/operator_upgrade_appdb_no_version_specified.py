@@ -52,8 +52,8 @@ def test_om_is_ok(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_operator_upgrade_appdb_empty_version
-def test_delete_operator(namespace: str):
-    delete_deployment(namespace, "mongodb-enterprise-operator")
+def test_delete_operator(operator_deployment_name: str, namespace: str):
+    delete_deployment(namespace, operator_deployment_name)
 
 
 @mark.e2e_operator_upgrade_appdb_empty_version

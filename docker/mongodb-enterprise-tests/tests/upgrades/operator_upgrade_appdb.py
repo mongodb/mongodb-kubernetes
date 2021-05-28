@@ -28,7 +28,7 @@ def test_install_latest_official_operator(official_operator: Operator):
 
 @mark.e2e_operator_upgrade_appdb
 def test_om_created(ops_manager: MongoDBOpsManager):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Reconciling, timeout=100)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 

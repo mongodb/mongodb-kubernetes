@@ -201,6 +201,14 @@ def default_operator(
 
 
 @fixture(scope="module")
+def operator_deployment_name(image_type: str) -> str:
+    if image_type == "ubi":
+        return "enterprise-operator"
+
+    return "mongodb-enterprise-operator"
+
+
+@fixture(scope="module")
 def official_operator(
     namespace: str,
     image_type: str,
@@ -219,8 +227,10 @@ def official_operator(
     logging.info("Updating from version {}".format(custom_operator_release_version))
 
     if custom_operator_release_version.startswith("1.10"):
-        logging.info("Will update from version < 1.11 with a broken webhook-service. "
-                     "We will not check webhook functionality during this test.")
+        logging.info(
+            "Will update from version < 1.11 with a broken webhook-service. "
+            "We will not check webhook functionality during this test."
+        )
         enable_webhook_check = False
 
     clone_and_checkout(
@@ -269,7 +279,7 @@ def official_operator(
         helm_chart_path=os.path.join(temp_dir, "helm_chart"),
         helm_options=helm_options,
         name=name,
-        enable_webhook_check=enable_webhook_check
+        enable_webhook_check=enable_webhook_check,
     ).install()
 
 
@@ -281,9 +291,7 @@ def get_headers() -> Dict[str, str]:
     """
 
     if github_token := os.getenv("GITHUB_TOKEN_READ"):
-        return {
-            "Authorization": "token {}".format(github_token)
-        }
+        return {"Authorization": "token {}".format(github_token)}
 
     return dict()
 
@@ -302,7 +310,7 @@ def get_retriable_session() -> requests.Session:
         total=5,
         backoff_factor=2,
     )
-    s.mount('https://', HTTPAdapter(max_retries=retries))
+    s.mount("https://", HTTPAdapter(max_retries=retries))
 
     return s
 
@@ -314,7 +322,8 @@ def fetch_latest_released_operator_version() -> str:
 
     response = get_retriable_session().get(
         "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
-        headers=get_headers())
+        headers=get_headers(),
+    )
     response.raise_for_status()
 
     return response.json()["tag_name"]
