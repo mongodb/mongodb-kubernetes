@@ -28,6 +28,9 @@ variables:
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20
 
+    # This is the automation agent version used for the AppDB
+  - &agent_version 10.29.0.6830-1
+
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
     kube_environment_name: openshift_4
@@ -427,6 +430,7 @@ functions:
           - RED_HAT_TOKEN
           - usaf_operator_version
           - usaf_database_version
+          - agent_version
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -859,6 +863,31 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_operator_upgrade_appdb
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_appdb_empty_version
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_appdb_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_appdb_community_to_enterprise
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+
 - name: e2e_om_ops_manager_backup_delete_sts
   tags: ["patch-run"]
   exec_timeout_secs: 1800
@@ -1274,7 +1303,7 @@ tasks:
 
 - name: e2e_replica_set_scram_sha_256_user_first
   tags: ["patch-run"]
-  exec_timeout_secs: 600
+  exec_timeout_secs: 900
   commands:
     - func: "e2e_test"
 
@@ -1494,6 +1523,12 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_om_multiple
+  tags: ["patch-run"]
+  exec_timeout_secs: 2000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_configure_all_images
   tags: ["patch-run"]
   exec_timeout_secs: 2000
   commands:
@@ -2000,6 +2035,10 @@ task_groups:
     - e2e_operator_upgrade_ops_manager
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
+    - e2e_operator_upgrade_appdb
+    - e2e_operator_upgrade_appdb_empty_version
+    - e2e_operator_upgrade_appdb_community_to_enterprise
+    - e2e_operator_upgrade_appdb_tls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2043,6 +2082,7 @@ task_groups:
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
     - e2e_om_multiple
+    - e2e_om_appdb_configure_all_images
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2099,6 +2139,7 @@ task_groups:
     - e2e_om_ops_manager_scale
     - e2e_om_ops_manager_upgrade
     - e2e_om_ops_manager_secure_config
+    - e2e_om_appdb_configure_all_images
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2252,6 +2293,7 @@ buildvariants:
     custom_om_version: *ops_manager_42_latest
     custom_mdb_version: *mdb_42_latest
     custom_mdb_prev_version: *mdb_40_latest
+    agent_version: *agent_version
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
     - name: e2e_ops_manager_task_group_safe
@@ -2280,6 +2322,7 @@ buildvariants:
     custom_om_version: *ops_manager_42_latest
     custom_mdb_version: *mdb_42_latest
     custom_mdb_prev_version: *mdb_40_latest
+    agent_version: *agent_version
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
     - name: e2e_ops_manager_task_group_safe
@@ -2307,6 +2350,7 @@ buildvariants:
     custom_om_version: *ops_manager_42_latest
     custom_mdb_version: *mdb_42_latest
     custom_mdb_prev_version: *mdb_40_latest
+    agent_version: *agent_version
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
@@ -2335,6 +2379,7 @@ buildvariants:
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
+    agent_version: *agent_version
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
@@ -2367,6 +2412,7 @@ buildvariants:
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
+    agent_version: *agent_version
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
@@ -2395,6 +2441,7 @@ buildvariants:
     image_type: ubuntu
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_operator_task_group
@@ -2420,6 +2467,7 @@ buildvariants:
     image_type: ubi
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_operator_task_group

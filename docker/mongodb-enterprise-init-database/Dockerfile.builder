@@ -2,13 +2,17 @@
 
 ARG readiness_probe_repo
 ARG readiness_probe_version
-FROM ${readiness_probe_repo}:${readiness_probe_version} as builder
+ARG version_upgrade_post_start_hook_version
+
+FROM ${readiness_probe_repo}:${readiness_probe_version} as readiness_builder
+FROM quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_upgrade_post_start_hook_version} as version_upgrade_builder
 
 FROM scratch
 ARG mongodb_tools_url_ubi
 ARG mongodb_tools_url_ubuntu
 
-COPY --from=builder /probes/readinessprobe /data/
+COPY --from=readiness_builder /probes/readinessprobe /data/
+COPY --from=version_upgrade_builder /version-upgrade-hook /data/version-upgrade-hook
 
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
 ADD ${mongodb_tools_url_ubuntu} /data/mongodb_tools_ubuntu.tgz

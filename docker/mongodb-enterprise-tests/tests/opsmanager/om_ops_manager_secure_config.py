@@ -124,7 +124,11 @@ def test_changing_app_db_password_triggers_rolling_restart(
     ops_manager: MongoDBOpsManager,
 ):
     KubernetesTester.update_secret(
-        ops_manager.namespace, "my-password", {"password": "new-password",},
+        ops_manager.namespace,
+        "my-password",
+        {
+            "password": "new-password",
+        },
     )
     # unfortunately changing the external secret doesn't change the metadata.generation so we cannot track
     # when the Operator started working on the spec - let's just wait for a bit
@@ -149,10 +153,10 @@ def test_no_unnecessary_rolling_upgrades_happen(ops_manager: MongoDBOpsManager):
     assert old_backup_hash == old_hash
 
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.2"
+    ops_manager["spec"]["applicationDatabase"]["version"] = "4.2.2-ent"
     ops_manager.update()
 
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     sts = ops_manager.read_statefulset()
     assert (

@@ -105,7 +105,7 @@ func TestOpsManager_RunValidations_InvalidAppDBVersion(t *testing.T) {
 }
 
 func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").Build()
+	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").SetAppDbVersion("4.4.4-ent").Build()
 	version, err := versionutil.StringToSemverVersion(om.Spec.Version)
 	err, part := om.ProcessValidationsOnReconcile()
 	assert.Equal(t, status.None, part)
@@ -117,28 +117,28 @@ func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
 }
 
 func TestOpsManager_RunValidations_InvalidMajor(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4_4.4.0").Build()
+	om := NewOpsManagerBuilder().SetVersion("4_4.4.0").SetAppDbVersion("4.4.4-ent").Build()
 	err, part := om.ProcessValidationsOnReconcile()
 	assert.Equal(t, status.OpsManager, part)
 	assert.Equal(t, errors.New("'4_4.4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4_4.4.0 is invalid"), err)
 }
 
 func TestOpsManager_RunValidations_InvalidMinor(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4.4_4.0").Build()
+	om := NewOpsManagerBuilder().SetVersion("4.4_4.0").SetAppDbVersion("4.4.4-ent").Build()
 	err, part := om.ProcessValidationsOnReconcile()
 	assert.Equal(t, status.OpsManager, part)
 	assert.Equal(t, errors.New("'4.4_4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4_4.0 is invalid"), err)
 }
 
 func TestOpsManager_RunValidations_InvalidPatch(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4.4.4_0").Build()
+	om := NewOpsManagerBuilder().SetVersion("4.4.4_0").SetAppDbVersion("4.4.4-ent").Build()
 	err, part := om.ProcessValidationsOnReconcile()
 	assert.Equal(t, status.OpsManager, part)
 	assert.Equal(t, errors.New("'4.4.4_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4_0 is invalid"), err)
 }
 
 func TestOpsManager_RunValidations_MultipleWarnings(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
+	om := NewOpsManagerBuilderDefault().SetAppDbVersion("4.4.4-ent").Build()
 	om.Spec.AppDB.Project = "something"
 
 	err, part := om.ProcessValidationsOnReconcile()

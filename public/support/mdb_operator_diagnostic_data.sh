@@ -263,9 +263,18 @@ then
     echo "+ Saving OpsManager Status to ${ops_manager_filename}"
     kubectl -n "${namespace}" get om -o yaml > "${log_dir}/${ops_manager_filename}"
     echo "+ Saving Pods state to ${om_resource_name}-N.logs"
-    pods_in_namespace=$(kubectl -n "${namespace}" get pods -o name | cut -d'/' -f 2 | grep -E "^${om_resource_name}-[a-z,0-9]+")
+    pods_in_namespace=$(kubectl -n "${namespace}" get pods -o name -l "app=${om_resource_name}-svc" | cut -d'/' -f 2)
     for pod in ${pods_in_namespace}; do
         kubectl -n "${namespace}" logs "${pod}" --tail 2000 > "${log_dir}/${pod}.log"
+        echo "Collecting Events: ${pod}"
+        kubectl -n "${namespace}" get event --field-selector "involvedObject.name=${pod}" > "${log_dir}/${pod}_events.log"
+    done
+    echo "+ Saving AppDB Pods state to ${om_resource_name}-db-N-<container_name>.logs"
+    pods_in_namespace=$(kubectl -n "${namespace}" get pods -o name -l "app=${om_resource_name}-db-svc" | cut -d'/' -f 2 )
+    for pod in ${pods_in_namespace}; do
+        kubectl -n "${namespace}" logs "${pod}" -c "mongod" --tail 2000 > "${log_dir}/${pod}-mongod.log"
+        kubectl -n "${namespace}" logs "${pod}" -c "mongodb-agent" --tail 2000 > "${log_dir}/${pod}-mongodb-agent.log"
+        kubectl -n "${namespace}" logs "${pod}" -c "mongodb-agent-monitoring" --tail 2000 > "${log_dir}/${pod}-mongodb-agent-monitoring.log"
         echo "Collecting Events: ${pod}"
         kubectl -n "${namespace}" get event --field-selector "involvedObject.name=${pod}" > "${log_dir}/${pod}_events.log"
     done

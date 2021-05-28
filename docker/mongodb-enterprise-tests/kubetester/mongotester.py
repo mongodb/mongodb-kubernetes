@@ -61,7 +61,12 @@ class MongoTester:
             pass
 
     def assert_version(self, expected_version: str):
-        assert self.client.admin.command("buildInfo")["version"] == expected_version
+        # version field does not contain -ent suffix in MongoDB
+        assert self.client.admin.command("buildInfo")[
+            "version"
+        ] == expected_version.rstrip("-ent")
+        if expected_version.endswith("-ent"):
+            self.assert_is_enterprise()
 
     def assert_data_size(self, expected_count, test_collection=TEST_COLLECTION):
         assert self.client[TEST_DB][test_collection].count() == expected_count

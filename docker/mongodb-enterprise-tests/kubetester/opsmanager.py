@@ -188,7 +188,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def read_appdb_generated_password_secret(self) -> client.V1Secret:
         return client.CoreV1Api().read_namespaced_secret(
-            self.app_db_name() + "-password", self.namespace
+            self.app_db_name() + "-om-password", self.namespace
         )
 
     def read_appdb_generated_password(self) -> str:
@@ -325,7 +325,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self.name + "-db"
 
     def app_db_password_secret_name(self) -> str:
-        return self.app_db_name() + "-password"
+        return self.app_db_name() + "-om-user-password"
 
     def backup_daemon_name(self) -> str:
         return self.name + "-backup-daemon"
@@ -540,10 +540,3 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 return self.ops_manager.get_status()["opsManager"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None
-
-    @staticmethod
-    def get_bundled_appdb_version() -> str:
-        version = os.getenv("BUNDLED_APP_DB_VERSION", None)
-        if version is None:
-            raise ValueError("BUNDLED_APP_DB_VERSION needs to be defined")
-        return version.partition("-")[0]

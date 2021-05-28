@@ -15,7 +15,7 @@ spec:
     enabled: false
   applicationDatabase:
     members: 3
-    version: 4.2.11-ent
+    version: "4.2.11-ent"
     security:
       tls:
         ca: issuer-ca
@@ -34,4 +34,3 @@ spec:
     mms.mail.transport: smtp
     mms.minimumTLSVersion: TLSv1.2
     mms.replyToEmailAddr: cloud-manager-support@mongodb.com
-

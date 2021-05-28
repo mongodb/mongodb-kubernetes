@@ -33,7 +33,7 @@ def ops_manager(
 @pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerCreation:
     """
-      Creates an Ops Manager instance with AppDB of size 3. Note, that the initial creation usually takes ~500 seconds
+    Creates an Ops Manager instance with AppDB of size 3. Note, that the initial creation usually takes ~500 seconds
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
@@ -82,7 +82,7 @@ class TestOpsManagerCreation:
 @pytest.mark.e2e_om_appdb_scale_up_down
 class TestOpsManagerAppDbScaleUp:
     """
-      Scales appdb up to 5 members
+    Scales appdb up to 5 members
     """
 
     def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):

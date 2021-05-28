@@ -86,7 +86,7 @@ class TestOpsManagerCreation:
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
-            timeout=200,
+            timeout=500,
             ignore_errors=True,
         )
 

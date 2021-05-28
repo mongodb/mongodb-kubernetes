@@ -298,9 +298,9 @@ type ProcessOption func(process Process)
 
 func WithResourceSpec(resourceSpec mdbv1.DbSpec) ProcessOption {
 	return func(process Process) {
-		processVersion := resourceSpec.GetVersion()
+		processVersion := resourceSpec.GetMongoDBVersion()
 		process["version"] = processVersion
-		process["authSchemaVersion"] = calculateAuthSchemaVersion(processVersion)
+		process["authSchemaVersion"] = CalculateAuthSchemaVersion(processVersion)
 		featureCompatibilityVersion := resourceSpec.GetFeatureCompatibilityVersion()
 		if featureCompatibilityVersion == nil {
 			computedFcv := calculateFeatureCompatibilityVersion(processVersion)
@@ -380,7 +380,7 @@ func calculateFeatureCompatibilityVersion(version string) string {
 }
 
 // see https://github.com/10gen/ops-manager-kubernetes/pull/68#issuecomment-397247337
-func calculateAuthSchemaVersion(version string) int {
+func CalculateAuthSchemaVersion(version string) int {
 	v, err := semver.Make(version)
 	if err != nil {
 		zap.S().Warnf("Failed to parse version %s: %s", version, err)

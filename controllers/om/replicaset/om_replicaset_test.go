@@ -19,12 +19,15 @@ func init() {
 
 func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		appDbSts := construct.AppDbStatefulSet(omv1.NewOpsManagerBuilder().SetAppDbPodSpec(mdbv1.MongoDbPodSpec{}).Build(),
-			func(options *construct.DatabaseStatefulSetOptions) {
-				options.Replicas = i
-			},
+		opsManager := omv1.NewOpsManagerBuilder().SetAppDbPodSpec(mdbv1.MongoDbPodSpec{}).Build()
+		opsManager.Spec.AppDB.Members = i
+		appDbSts, err := construct.AppDbStatefulSet(
+			opsManager,
+			nil,
+			"",
 		)
-		omRs := BuildAppDBFromStatefulSet(appDbSts, omv1.AppDBSpec{})
+		assert.NoError(t, err)
+		omRs := BuildAppDBFromStatefulSet(appDbSts, omv1.AppDBSpec{Version: "4.4.0"})
 		assert.Len(t, omRs.Processes, i)
 	}
 }

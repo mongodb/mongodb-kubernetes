@@ -16,7 +16,7 @@ from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 gen_key_resource_version = None
 admin_key_resource_version = None
 OM_CURRENT_VERSION = "4.2.13"
-MDB_CURRENT_VERSION = "4.2.1"
+MDB_CURRENT_VERSION = "4.2.1-ent"
 
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.

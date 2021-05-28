@@ -7,12 +7,11 @@ import (
 )
 
 func InitDefaultEnvVariables() {
-	os.Setenv(util.AppDBImageUrl, "some.repo")
 	os.Setenv(util.AutomationAgentImage, "mongodb-enterprise-database")
 	os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
 	os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
 	os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-ops-manager")
-	os.Setenv(util.InitAppdbImageUrl, "quay.io/mongodb/mongodb-enterprise-init-appdb")
+	os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
 	os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
 	os.Setenv(util.OpsManagerPullPolicy, "Never")
 	os.Setenv(util.OmOperatorEnv, "test")

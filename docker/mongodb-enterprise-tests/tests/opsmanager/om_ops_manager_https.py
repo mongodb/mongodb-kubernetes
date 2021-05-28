@@ -56,6 +56,7 @@ def ops_manager(
         _fixture("om_https_enabled.yaml"), namespace=namespace
     )
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
 
     return om.create()
 

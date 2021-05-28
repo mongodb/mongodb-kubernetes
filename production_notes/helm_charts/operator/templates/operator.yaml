@@ -89,8 +89,6 @@ spec:
           value: {{ .Values.registry.initAppDb.Tag }}
         - name: OPS_MANAGER_IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
-        - name: APPDB_IMAGE_REPOSITORY
-          value: {{ .Values.registry.appDb.Image }}
         - name: IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
 {{- if .Values.registry.imagePullSecrets }}

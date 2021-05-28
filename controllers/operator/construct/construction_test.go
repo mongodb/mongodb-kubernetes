@@ -111,12 +111,13 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	appDbSts, err := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build(), nil, "")
+	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)
-	assert.Equal(t, podSpecTemplate.InitContainers[0].Name, "mongodb-enterprise-init-appdb")
-	assert.Len(t, podSpecTemplate.Containers, 1, "Should have only the db")
-	assert.Equal(t, "mongodb-enterprise-appdb", podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	assert.Len(t, podSpecTemplate.Containers, 2, "Should contain mongodb and agent")
+	assert.Equal(t, "mongodb-agent", podSpecTemplate.Containers[0].Name)
+	assert.Equal(t, "mongod", podSpecTemplate.Containers[1].Name)
 }
 
 func TestBasePodSpec_Affinity(t *testing.T) {

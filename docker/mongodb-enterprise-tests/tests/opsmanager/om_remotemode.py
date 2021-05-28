@@ -11,7 +11,7 @@ from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
-BUNDLED_APP_DB_VERSION = "4.2.11-ent"
+
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
 
@@ -60,6 +60,7 @@ def replica_set(
     resource["spec"]["version"] = custom_mdb_version
     yield resource.create()
 
+
 @fixture(scope="module")
 def replica_set_ent(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
@@ -67,7 +68,20 @@ def replica_set_ent(
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
-        name="the-replica-set-ent"
+        name="the-replica-set-ent",
+    ).configure(ops_manager, "my-other-replica-set")
+    resource["spec"]["version"] = custom_mdb_version + "-ent"
+    yield resource.create()
+
+
+@fixture(scope="module")
+def replica_set_ent(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name="the-replica-set-ent",
     ).configure(ops_manager, "my-other-replica-set")
     resource["spec"]["version"] = custom_mdb_version + "-ent"
     yield resource.create()
@@ -77,7 +91,6 @@ def replica_set_ent(
 def test_appdb(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
     assert ops_manager.appdb_status().get_members() == 3
-    assert ops_manager.appdb_status().get_version() == BUNDLED_APP_DB_VERSION
 
 
 @skip_if_local
@@ -85,12 +98,12 @@ def test_appdb(ops_manager: MongoDBOpsManager):
 def test_appdb_mongod(ops_manager: MongoDBOpsManager):
     mdb_tester = ops_manager.get_appdb_tester()
     mdb_tester.assert_connectivity()
-    mdb_tester.assert_version(BUNDLED_APP_DB_VERSION.rstrip("-ent"))
 
 
 @mark.e2e_om_remotemode
 def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
     # CLOUDP-83792: some insight: OM has a number of Cron jobs and one of them is responsible for filtering the builds
     # returned in the automation config to include only the available ones (in remote/local modes).
@@ -103,7 +116,9 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_remotemode
-def test_replica_sets_reache_running_phase(replica_set: MongoDB, replica_set_ent: MongoDB):
+def test_replica_sets_reache_running_phase(
+    replica_set: MongoDB, replica_set_ent: MongoDB
+):
     """ Doing this in parallel for faster success """
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     replica_set_ent.assert_reaches_phase(Phase.Running, timeout=300)
@@ -129,6 +144,13 @@ def test_replica_set_recovers(replica_set: MongoDB, custom_mdb_version: str):
 @mark.e2e_om_remotemode
 def test_client_can_connect_to_mongodb(replica_set: MongoDB):
     replica_set.assert_connectivity()
+
+
+@skip_if_local
+@mark.e2e_om_remotemode
+def test_client_can_connect_to_mongodb_ent(replica_set_ent: MongoDB):
+    replica_set_ent.assert_connectivity()
+
 
 @skip_if_local
 @mark.e2e_om_remotemode
@@ -156,6 +178,7 @@ def test_can_scale_replica_set(replica_set: MongoDB):
 @mark.e2e_om_remotemode
 def test_client_can_still_connect(replica_set: MongoDB):
     replica_set.assert_connectivity()
+
 
 @skip_if_local
 @mark.e2e_om_remotemode

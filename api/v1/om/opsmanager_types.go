@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -18,6 +19,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -406,7 +408,7 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions 
 
 	if phase == status.PhaseRunning {
 		spec := m.Spec.AppDB
-		m.Status.AppDbStatus.Version = spec.GetVersion()
+		m.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
 		m.Status.AppDbStatus.Message = ""
 	}
 }
@@ -536,11 +538,11 @@ func (m MongoDBOpsManager) CentralURL() string {
 	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
 }
 
-func (m *MongoDBOpsManager) DesiredReplicas() int {
+func (m MongoDBOpsManager) DesiredReplicas() int {
 	return m.Spec.AppDB.Members
 }
 
-func (m *MongoDBOpsManager) CurrentReplicas() int {
+func (m MongoDBOpsManager) CurrentReplicas() int {
 	return m.Status.AppDbStatus.Members
 }
 
@@ -558,6 +560,32 @@ func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
 func (m MongoDBOpsManager) BackupDaemonHostName() string {
 	_, podnames := util.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), 1)
 	return podnames[0]
+}
+
+func (m MongoDBOpsManager) NamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: m.Name, Namespace: m.Namespace}
+}
+
+func (m MongoDBOpsManager) GetMongoDBVersionForAnnotation() string {
+	return m.Spec.AppDB.Version
+}
+
+func (m MongoDBOpsManager) IsChangingVersion() bool {
+	prevVersion := m.getPreviousVersion()
+	return prevVersion != "" && prevVersion != m.Spec.AppDB.Version
+}
+
+func (m MongoDBOpsManager) getPreviousVersion() string {
+	return annotations.GetAnnotation(&m, annotations.LastAppliedMongoDBVersion)
+}
+
+// GetAppDBUpdateStrategyType returns the update strategy type the AppDB Statefulset needs to be configured with.
+// This depends whether or not a version change is in progress.
+func (m MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
+	if !m.IsChangingVersion() {
+		return appsv1.RollingUpdateStatefulSetStrategyType
+	}
+	return appsv1.OnDeleteStatefulSetStrategyType
 }
 
 // newBackup returns an empty backup object

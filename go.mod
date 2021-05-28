@@ -10,26 +10,27 @@ require (
 	github.com/go-logr/logr v0.4.0
 	github.com/go-openapi/spec v0.19.8 // indirect
 	github.com/go-openapi/swag v0.19.9 // indirect
-	github.com/google/uuid v1.2.0
+	github.com/google/uuid v1.1.2
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/imdario/mergo v0.3.12
 	github.com/mailru/easyjson v0.7.1 // indirect
-	github.com/mongodb/mongodb-kubernetes-operator v0.5.2-prerelease.0.20210324112425-2c0e35ef587f
+	github.com/mongodb/mongodb-kubernetes-operator v0.6.1-0.20210520153015-9cd074947197
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.10.0
 	github.com/prometheus/common v0.25.0
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/objx v0.3.0
 	github.com/stretchr/testify v1.7.0
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.16.0
 	golang.org/x/mod v0.4.0 // indirect
 	golang.org/x/tools v0.1.1-0.20210201201750-4d4ee958a9b7 // indirect
 	honnef.co/go/tools v0.0.1-2020.1.6 // indirect
-	k8s.io/api v0.20.2
-	k8s.io/apimachinery v0.20.2
-	k8s.io/client-go v0.20.2
-	k8s.io/code-generator v0.21.0
+	k8s.io/api v0.20.4
+	k8s.io/apimachinery v0.21.0
+	k8s.io/client-go v0.20.4
+	k8s.io/code-generator v0.20.1
 	sigs.k8s.io/controller-runtime v0.8.3
 )
 

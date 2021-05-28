@@ -43,6 +43,7 @@ spec:
     enabled: false
 
   applicationDatabase:
+    version: "4.4.1"
     members: 3
 
 ---

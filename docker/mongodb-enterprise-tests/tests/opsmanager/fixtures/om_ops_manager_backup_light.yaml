@@ -18,6 +18,7 @@ spec:
 
   applicationDatabase:
     members: 3
+
     version: 4.2.6-ent
 
   # Dev: adding this just to avoid wizard when opening OM UI

@@ -55,7 +55,7 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
-    # resource.set_appdb_version(custom_appdb_version)
+    resource.set_appdb_version(custom_appdb_version)
     return resource.create()
 
 

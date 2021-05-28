@@ -25,6 +25,10 @@ COPY --from=base /data/probe.sh /probes/probe.sh
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
 
+{%- if is_appdb %}
+COPY --from=base /data/version-upgrade-hook /probes/version-upgrade-hook
+{%- endif %}
+
 {% block mongodb_tools %}
 {% endblock %}
 

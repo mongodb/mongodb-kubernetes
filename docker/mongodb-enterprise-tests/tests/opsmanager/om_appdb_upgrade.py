@@ -12,7 +12,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-INITIAL_APPDB_VERSION = "4.0.20"
+INITIAL_APPDB_VERSION = "4.0.20-ent"
 
 
 @fixture(scope="module")
@@ -38,8 +38,8 @@ class TestOpsManagerCreation:
         assert ops_manager.appdb_status().get_version() == INITIAL_APPDB_VERSION
         db_pods = ops_manager.read_appdb_pods()
         for pod in db_pods:
-            # the appdb pods by default have 500M
-            assert pod.spec.containers[0].resources.requests["memory"] == "500M"
+            # the appdb pod container 'mongodb' by default has 500M
+            assert pod.spec.containers[1].resources.requests["memory"] == "500M"
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(1)
@@ -101,37 +101,6 @@ class TestOpsManagerCreation:
 
 
 @pytest.mark.e2e_om_appdb_upgrade
-class TestOpsManagerAppDbUpgrade:
-    """
-    Upgrades appdb to the bundled version. The test waits until the AppDB is ready, not the OM resource
-    """
-
-    def test_appdb_bundled_version(self, ops_manager: MongoDBOpsManager):
-        ops_manager.load()
-        ops_manager.set_appdb_version("")
-        ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
-        # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=100)
-
-    def test_appdb(self, ops_manager: MongoDBOpsManager):
-        assert ops_manager.appdb_status().get_members() == 3
-
-    def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
-        ops_manager.get_automation_config_tester().reached_version(2)
-
-    @skip_if_local
-    def test_mongod(self, ops_manager: MongoDBOpsManager):
-        mdb_tester = ops_manager.get_appdb_tester()
-        mdb_tester.assert_connectivity()
-        mdb_tester.assert_version(MongoDBOpsManager.get_bundled_appdb_version())
-        mdb_tester.assert_is_enterprise()
-
-    def test_om_is_running(self, ops_manager: MongoDBOpsManager):
-        ops_manager.get_om_tester().assert_healthiness()
-
-
-@pytest.mark.e2e_om_appdb_upgrade
 class TestOpsManagerAppDbUpdateMemory:
     """
     Changes memory limits requirements for the AppDB
@@ -148,7 +117,7 @@ class TestOpsManagerAppDbUpdateMemory:
     def test_appdb(self, ops_manager: MongoDBOpsManager):
         db_pods = ops_manager.read_appdb_pods()
         for pod in db_pods:
-            assert pod.spec.containers[0].resources.requests["memory"] == "350M"
+            assert pod.spec.containers[1].resources.requests["memory"] == "350M"
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         # The version hasn't changed as there were no changes to the automation config
@@ -175,7 +144,7 @@ class TestOpsManagerMixed:
             "mms.helpAndSupportPage.enabled": "true"
         }
         ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
 
         ops_manager.backup_status().assert_reaches_phase(Phase.Disabled, timeout=400)

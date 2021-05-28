@@ -65,10 +65,6 @@ spec:
           value: quay.io/mongodb/mongodb-enterprise-ops-manager
         - name: OPS_MANAGER_IMAGE_PULL_POLICY
           value: Always
-        - name: APPDB_IMAGE_REPOSITORY
-          value: quay.io/mongodb/mongodb-enterprise-appdb
-        - name: APPDB_AGENT_VERSION
-          value: 10.2.15.5958-1_4.2.11-ent
         - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-init-ops-manager
         - name: INIT_OPS_MANAGER_VERSION
@@ -77,3 +73,9 @@ spec:
           value: quay.io/mongodb/mongodb-enterprise-init-appdb
         - name: INIT_APPDB_VERSION
           value: 1.0.6
+        - name: AGENT_IMAGE
+          value: quay.io/mongodb/mongodb-agent:10.29.0.6830-1
+        - name: MONGODB_IMAGE
+          value: mongodb-enterprise-appdb-database
+        - name: MONGODB_REPO_URL
+          value: quay.io/mongodb

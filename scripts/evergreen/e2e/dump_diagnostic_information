@@ -105,8 +105,10 @@ dump_namespace() {
                 # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
                 kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' > "logs/${pod}-launcher.log" || true
             else
-                echo "Writing log file for pod ${pod} to logs/${pod}.log"
-                kubectl logs -n "${namespace}" "${pod}" > "logs/${pod}.log" || true
+                for container in $(kubectl get pods -n "${namespace}" "$pod" -o jsonpath='{.spec.containers[*].name}'); do
+                    echo "Writing log file for pod ${pod} - container ${container} to logs/${pod}-${container}.log"
+                    kubectl logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}.log" || true;
+                done
             fi
             if kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
                 kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${pod}-agent-stderr.log" &> /dev/null || true

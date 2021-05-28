@@ -47,13 +47,18 @@ initOpsManager:
   version: 1.0.3
 
 ## Application Database
-appDb:
-  name: mongodb-enterprise-appdb
-  version: 10.2.15.5958-1_4.2.11-ent
-
 initAppDb:
   name: mongodb-enterprise-init-appdb
   version: 1.0.6
+
+agent:
+  name: mongodb-agent
+  version: 10.29.0.6830-1
+
+mongodb:
+  name: mongodb-enterprise-appdb-database
+  repo: quay.io/mongodb
+
 
 ## Registry
 registry:
@@ -68,6 +73,7 @@ registry:
   opsManager: quay.io/mongodb
   initAppDb: quay.io/mongodb
   appDb: quay.io/mongodb
+  agent: quay.io/mongodb
 
 # Set this to true if the operator will require Kubernetes CA
 # infrastructure to generate TLS certificates.

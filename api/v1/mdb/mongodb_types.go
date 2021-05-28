@@ -98,7 +98,7 @@ func (mdb MongoDB) AddValidationToManager(m manager.Manager) error {
 type DbSpec interface {
 	Replicas() int
 	GetClusterDomain() string
-	GetVersion() string
+	GetMongoDBVersion() string
 	GetSecurityAuthenticationModes() []string
 	GetResourceType() ResourceType
 	IsSecurityTLSConfigEnabled() bool
@@ -219,6 +219,29 @@ type AgentConfig struct {
 
 type StartupParameters map[string]string
 
+func (s StartupParameters) ToCommandLineArgs() string {
+	var keys []string
+	for k := range s {
+		keys = append(keys, k)
+	}
+
+	// order must be preserved to ensure the same set of command line arguments
+	// results in the same StatefulSet template spec.
+	sort.SliceStable(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+
+	sb := strings.Builder{}
+	for _, key := range keys {
+		if value := s[key]; value != "" {
+			sb.Write([]byte(fmt.Sprintf(" -%s=%s", key, value)))
+		} else {
+			sb.Write([]byte(fmt.Sprintf(" -%s", key)))
+		}
+	}
+	return sb.String()
+}
+
 func (m *MongoDB) DesiredReplicas() int {
 	return m.Spec.Members
 }
@@ -239,13 +262,8 @@ type StatefulSetConfiguration struct {
 	SpecWrapper StatefulSetSpecWrapper `json:"spec"`
 }
 
-// GetVersion returns the version of the MongoDB. In the case of the AppDB
-// it is possible for this to be an empty string. For a regular mongodb, the regex
-// version string validator will not allow this.
-func (ms MongoDbSpec) GetVersion() string {
-	if ms.Version == "" {
-		return util.BundledAppDbMongoDBVersion
-	}
+// GetMongoDBVersion returns the version of the MongoDB.
+func (ms MongoDbSpec) GetMongoDBVersion() string {
 	return ms.Version
 }
 
@@ -268,7 +286,7 @@ func (m MongoDbSpec) MinimumMajorVersion() uint64 {
 		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
 		return semverFcv.Major
 	}
-	semverVersion, _ := semver.Make(m.GetVersion())
+	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
 	return semverVersion.Major
 }
 
@@ -1071,7 +1089,7 @@ func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) {
 		params["authSource"] = util.DefaultUserDatabase
 
-		comparison, err := util.CompareVersions(spec.GetVersion(), util.MinimumScramSha256MdbVersion)
+		comparison, err := util.CompareVersions(spec.GetMongoDBVersion(), util.MinimumScramSha256MdbVersion)
 		if err != nil {
 			// This is the dev error - the object must have a correct state by this stage and the version must be
 			// validated in the controller/web hook

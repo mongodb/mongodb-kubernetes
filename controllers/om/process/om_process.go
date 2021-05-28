@@ -19,7 +19,7 @@ func CreateMongodProcesses(set appsv1.StatefulSet, containerName string, mdb *md
 func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string, mdb *mdbv1.MongoDB, limit int) []om.Process {
 	hostnames, names := util.GetDnsForStatefulSetReplicasSpecified(set, mdb.Spec.GetClusterDomain(), limit)
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, mdb.Spec.GetVersion())
+	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, mdb.Spec.GetMongoDBVersion())
 
 	for idx, hostname := range hostnames {
 		processes[idx] = om.NewMongodProcess(names[idx], hostname, mdb.Spec.AdditionalMongodConfig, mdb)
@@ -36,7 +36,7 @@ func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
 
 	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := wiredtiger.CalculateCache(set, util.AppDbContainerName, mdb.GetVersion())
+	wiredTigerCache := wiredtiger.CalculateCache(set, util.AppDbContainerName, mdb.GetMongoDBVersion())
 
 	if mongoType != om.ProcessTypeMongod {
 		panic("Dev error: Wrong process type passed!")

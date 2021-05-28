@@ -17,5 +17,7 @@
   "initOpsManagerVersion": "1.0.3",
   "initAppDbVersion": "1.0.7",
   "databaseImageVersion": "2.0.0",
-  "readinessProbeVersion": "1.0.3"
+  "readinessProbeVersion": "1.0.1",
+  "versionUpgradePostStartHookVersion": "1.0.2",
+  "agentVersion" : "10.29.0.6830-1"
 }

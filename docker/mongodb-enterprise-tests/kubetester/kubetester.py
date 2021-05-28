@@ -1144,13 +1144,14 @@ class KubernetesTester(object):
 
     @staticmethod
     def run_command_in_pod_container(
-        pod_name: str, namespace: str, cmd: List[str]
+        pod_name: str, namespace: str, cmd: List[str], container: str = ""
     ) -> str:
         api_client = client.CoreV1Api()
         api_response = stream(
             api_client.connect_get_namespaced_pod_exec,
             pod_name,
             namespace,
+            container=container,
             command=cmd,
             stdout=True,
         )
@@ -1561,6 +1562,14 @@ def build_monitoring_config_endpoint(base_url, group_id):
 
 def build_hosts_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)
+
+
+def ensure_nested_objects(resource: Dict, keys: List[str]):
+    curr_dict = resource
+    for k in keys:
+        if k not in curr_dict:
+            curr_dict[k] = {}
+        curr_dict = curr_dict[k]
 
 
 def fixture(filename):

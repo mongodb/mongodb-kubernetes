@@ -2,7 +2,7 @@ package operator
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -12,17 +12,13 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/manifest"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -30,9 +26,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -44,14 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-const relativeVersionManifestFixturePath = "testdata/version_manifest.json"
-
-const gitVersionFromTestData = "a57d8e71e6998a2d0afde7edc11bd23e5661c915"
-const firstMdbVersionInTestManifest = "3.6.0"
-const numberOfBuildsInFirstVersion = 2
-
 func init() {
-	util.BundledAppDbMongoDBVersion = "4.2.11-ent"
 	mock.InitDefaultEnvVariables()
 }
 
@@ -88,32 +75,22 @@ func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
 		appdb.ConnectionURL("user", "passwd", map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}))
 }
 
-// TestAutomationConfig_IsCreatedInSecret verifies that the automation config config map is deleted
-// and that the config exists in the secret instead.
+// TestAutomationConfig_IsCreatedInSecret verifies that the automation config is created in a secret.
 func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeManager := mock.NewManager(&opsManager)
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager)
 
-	// pre-populate with a configmap that would store the automation config
-	err := kubeManager.Client.CreateConfigMap(
-		configmap.Builder().
-			SetName(appdb.AutomationConfigSecretName()).
-			SetNamespace(opsManager.Namespace).
-			Build(),
-	)
+	err := createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
-
 	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
 
-	_, err = kubeManager.Client.GetConfigMap(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
-	assert.True(t, apiErrors.IsNotFound(err), "Config Map should have been deleted!")
-
-	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
-	assert.NoError(t, err, "The Automation Config should have been created in a secret instead!")
+	s, err := kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.NoError(t, err, "The Automation Config was created in a secret.")
+	assert.Contains(t, s.Data, automationconfig.ConfigKey)
 }
 
 // TestPublishAutomationConfig_Create verifies that the automation config map is created if it doesn't exist
@@ -122,17 +99,46 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeManager := mock.NewEmptyManager()
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager)
+	automationConfig, err := buildAutomationConfigForAppDb(builder, kubeManager, automation)
 	assert.NoError(t, err)
-	version, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	version, err := reconciler.publishAutomationConfig(opsManager, automationConfig, appdb.AutomationConfigSecretName())
 	assert.NoError(t, err)
-	assert.Equal(t, 1, int(version))
+	assert.Equal(t, 1, version)
 
-	// verify the configmap was created
-	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
-	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
-	assert.Len(t, kubeManager.Client.GetMapForObject(&corev1.Secret{}), 1)
+	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(builder, kubeManager, monitoring)
+	assert.NoError(t, err)
+	version, err = reconciler.publishAutomationConfig(opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName())
+	assert.NoError(t, err)
+	assert.Equal(t, 1, version)
+
+	// verify the automation config secret for the automation agent
+	acSecret := readAutomationConfigSecret(t, kubeManager, opsManager)
+	checkDeploymentEqualToPublished(t, automationConfig, acSecret)
+
+	// verify the automation config secret for the monitoring agent
+	acMonitoringSecret := readAutomationConfigMonitoringSecret(t, kubeManager, opsManager)
+	checkDeploymentEqualToPublished(t, monitoringAutomationConfig, acMonitoringSecret)
+
+	assert.Len(t, kubeManager.Client.GetMapForObject(&corev1.Secret{}), 6)
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.GetOpsManagerUserPasswordSecretName()))
+	assert.NoError(t, err)
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.GetAgentKeyfileSecretNamespacedName().Name))
+	assert.NoError(t, err)
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.GetAgentPasswordSecretNamespacedName().Name))
+	assert.NoError(t, err)
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.OpsManagerUserScramCredentialsName()))
+	assert.NoError(t, err)
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.NoError(t, err)
+
+	_, err = kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.MonitoringAutomationConfigSecretName()))
+	assert.NoError(t, err)
 
 	// verifies Users and Roles are created
 	assert.Len(t, automationConfig.Auth.Users, 1)
@@ -141,7 +147,7 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	assert.Len(t, automationConfig.Auth.Users[0].Roles, len(expectedRoles))
 	for idx, role := range expectedRoles {
 		assert.Equal(t, automationConfig.Auth.Users[0].Roles[idx],
-			&om.Role{
+			automationconfig.Role{
 				Role:     role,
 				Database: "admin",
 			})
@@ -153,62 +159,39 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := mock.NewEmptyManager()
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.NoError(t, err)
+	kubeManager := mock.NewManager(&opsManager)
+	reconciler := newAppDbReconciler(kubeManager)
+
 	// create
-	version, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err := reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
-	assert.Equal(t, 1, int(version))
-	kubeManager.Client.ClearHistory()
+
+	ac, err := automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, ac.Version)
 
 	// publishing the config without updates should not result in API call
-	version, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
-	assert.Equal(t, 1, int(version))
+
+	ac, err = automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, ac.Version)
 	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// publishing changed config will result in update
-	automationConfig.Deployment.AddMonitoringAndBackup(zap.S(), appdb.GetTLSConfig().IsEnabled())
-	version, err = reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
+	fcv := "4.4.2"
+	opsManager.Spec.AppDB.FeatureCompatibilityVersion = &fcv
+	kubeManager.Client.Update(context.TODO(), &opsManager)
+
+	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
-	assert.Equal(t, 2, int(version))
+
+	ac, err = automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, ac.Version)
 	kubeManager.Client.CheckOrderOfOperations(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
-
-	// verify the configmap was updated (the version must get incremented)
-	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
-	automationConfig.SetVersion(2)
-	checkDeploymentEqualToPublished(t, automationConfig.Deployment, configMap)
-}
-
-func TestPublishAutomationConfig_ScramShaConfigured(t *testing.T) {
-	builder := DefaultOpsManagerBuilder()
-	opsManager := builder.Build()
-	appdb := opsManager.Spec.AppDB
-	kubeManager := mock.NewEmptyManager()
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.NoError(t, err)
-	version, err := reconciler.publishAutomationConfig(appdb, opsManager, automationConfig, zap.S())
-	assert.NoError(t, err)
-	assert.Equal(t, 1, int(version))
-
-	configMap := readAutomationConfigMap(t, kubeManager, opsManager)
-
-	acStr := configMap.Data[util.AppDBAutomationConfigKey]
-
-	ac, _ := om.BuildAutomationConfigFromBytes([]byte(acStr))
-
-	assert.NotEmpty(t, ac.Auth.Key, "key file content should have been generated")
-	assert.NotEmpty(t, ac.Auth.AutoPwd, "automation agent password should have been generated")
-	assert.False(t, ac.Auth.AuthoritativeSet, "authoritativeSet should be set to false")
-	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "agent should have default name")
-	assert.True(t, stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
-	assert.True(t, stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(authentication.MongoDBCR)), "MONGODB-CR should be configured")
-
-	_, omUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
-	assert.NotNil(t, omUser, "ops manager user should have been created")
 }
 
 // TestBuildAppDbAutomationConfig checks that the automation config is built correctly
@@ -217,170 +200,39 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.2.11-ent").
 		SetAppDbFeatureCompatibility("4.0")
-	builder.Build()
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.NoError(t, err)
-	deployment := automationConfig.Deployment
 
+	om := builder.Build()
+
+	manager := mock.NewManager(&om)
+	createOpsManagerUserPasswordSecret(manager.Client, om, "omPass")
+
+	automationConfig, err := buildAutomationConfigForAppDb(builder, manager, automation)
+	assert.NoError(t, err)
+	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(builder, manager, monitoring)
+	assert.NoError(t, err)
 	// processes
-	assert.Len(t, deployment.ProcessesCopy(), 2)
-	assert.Equal(t, "4.2.11-ent", deployment.ProcessesCopy()[0].Version())
-	assert.Equal(t, "test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[0].HostName())
-	assert.Equal(t, "4.0", deployment.ProcessesCopy()[0].FeatureCompatibilityVersion())
-	assert.Equal(t, "4.2.11-ent", deployment.ProcessesCopy()[1].Version())
-	assert.Equal(t, "test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local", deployment.ProcessesCopy()[1].HostName())
-	assert.Equal(t, "4.0", deployment.ProcessesCopy()[1].FeatureCompatibilityVersion())
+	assert.Len(t, automationConfig.Processes, 2)
+	assert.Equal(t, "4.2.11-ent", automationConfig.Processes[0].Version)
+	assert.Equal(t, "test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local", automationConfig.Processes[0].HostName)
+	assert.Equal(t, "4.0", automationConfig.Processes[0].FeatureCompatibilityVersion)
+	assert.Equal(t, "4.2.11-ent", automationConfig.Processes[1].Version)
+	assert.Equal(t, "test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local", automationConfig.Processes[1].HostName)
+	assert.Equal(t, "4.0", automationConfig.Processes[1].FeatureCompatibilityVersion)
+	assert.Len(t, monitoringAutomationConfig.Processes, 0)
+	assert.Len(t, monitoringAutomationConfig.ReplicaSets, 0)
 
 	// replicasets
-	assert.Len(t, deployment.ReplicaSetsCopy(), 1)
-	assert.Equal(t, builder.Build().Spec.AppDB.Name(), deployment.ReplicaSetsCopy()[0].Name())
-
-	// no sharded clusters
-	assert.Empty(t, deployment.ShardedClustersCopy())
+	assert.Len(t, automationConfig.ReplicaSets, 1)
+	assert.Equal(t, builder.Build().Spec.AppDB.Name(), automationConfig.ReplicaSets[0].Id)
 
 	// monitoring agent has been configured
-	assert.Len(t, deployment.MonitoringVersionsCopy(), 2)
+	assert.Len(t, automationConfig.MonitoringVersions, 0)
 
 	// backup agents have not been configured
-	assert.Len(t, deployment.BackupVersionsCopy(), 0)
+	assert.Len(t, automationConfig.BackupVersions, 0)
 
 	// options
-	assert.Equal(t, map[string]string{"downloadBase": util.AgentDownloadsDir}, deployment["options"])
-
-	// we have only the bundled version here
-	assert.Len(t, automationConfig.MongodbVersions(), 3)
-
-	threeSixZero := automationConfig.MongodbVersions()[0]
-
-	assert.Equal(t, firstMdbVersionInTestManifest, threeSixZero.Name)
-	assert.Len(t, threeSixZero.Builds, numberOfBuildsInFirstVersion)
-
-	// only checking 1st build data matches
-	firstBuild := threeSixZero.Builds[0]
-	assert.Equal(t, "linux", firstBuild.Platform)
-	assert.Equal(t, gitVersionFromTestData, firstBuild.GitVersion)
-	assert.Equal(t, "amd64", firstBuild.Architecture)
-	assert.Equal(t, "ubuntu", firstBuild.Flavor)
-	assert.Equal(t, "14.04", firstBuild.MinOsVersion)
-	assert.Equal(t, "15.04", firstBuild.MaxOsVersion)
-	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1404-3.6.0.tgz", firstBuild.Url)
-	assert.Empty(t, firstBuild.Modules)
-
-}
-
-func TestGenerateScramCredentials(t *testing.T) {
-	opsManager := DefaultOpsManagerBuilder().Build()
-	firstScram1Creds, firstScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
-	assert.NoError(t, err)
-
-	secondScram1Creds, secondScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
-	assert.NoError(t, err)
-
-	assert.Equal(t, firstScram1Creds, secondScram1Creds, "scram sha 1 credentials should be the same as the password was the same")
-	assert.Equal(t, firstScram256Creds, secondScram256Creds, "scram sha 256 credentials should be the same as the password was the same")
-
-	changedPasswordScram1Creds, changedPassword256Creds, err := generateScramShaCredentials("my-changed-password", opsManager)
-
-	assert.NoError(t, err)
-	assert.NotEqual(t, changedPasswordScram1Creds, firstScram1Creds, "different scram 1 credentials should have been generated as the password changed")
-	assert.NotEqual(t, changedPassword256Creds, firstScram256Creds, "different scram 256 credentials should have been generated as the password changed")
-
-	opsManager.Name = "my-different-ops-manager"
-
-	differentNameScram1Creds, differentNameScram256Creds, err := generateScramShaCredentials("my-password", opsManager)
-
-	assert.NoError(t, err)
-	assert.NotEqual(t, differentNameScram1Creds, firstScram1Creds, "a different name should generate different scram 1 credentials even with the same password")
-	assert.NotEqual(t, differentNameScram256Creds, firstScram256Creds, "a different name should generate different scram 256 credentials even with the same password")
-}
-
-func TestBundledVersionManifestIsUsed_WhenSpecified(t *testing.T) {
-	builder := DefaultOpsManagerBuilder().
-		SetAppDbMembers(2).
-		SetAppDbVersion(util.BundledAppDbMongoDBVersion).
-		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.NoError(t, err)
-	mongodbVersion := automationConfig.MongodbVersions()[0]
-	mongodbBuilds := mongodbVersion.Builds
-	firstBuild := mongodbBuilds[0]
-
-	assert.Equal(t, firstBuild.Platform, "linux")
-	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
-	assert.Equal(t, mongodbVersion.Name, firstMdbVersionInTestManifest)
-	assert.Len(t, mongodbBuilds, numberOfBuildsInFirstVersion)
-}
-
-func TestBundledVersionManifestIsUsed_WhenVersionIsEmpty(t *testing.T) {
-	builder := DefaultOpsManagerBuilder().
-		SetAppDbMembers(2).
-		SetAppDbVersion("").
-		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.NoError(t, err)
-	mongodbVersion := automationConfig.MongodbVersions()[0]
-	mongodbBuilds := mongodbVersion.Builds
-	firstBuild := mongodbBuilds[0]
-
-	assert.Equal(t, firstBuild.Platform, "linux")
-	assert.Equal(t, firstBuild.GitVersion, gitVersionFromTestData)
-	assert.Equal(t, mongodbVersion.Name, firstMdbVersionInTestManifest)
-	assert.Len(t, mongodbBuilds, numberOfBuildsInFirstVersion)
-}
-
-func TestVersionManifestIsDownloaded_WhenNotUsingBundledVersion(t *testing.T) {
-	builder := DefaultOpsManagerBuilder().
-		SetAppDbMembers(2).
-		SetAppDbVersion("4.1.2-ent").
-		SetAppDbFeatureCompatibility("4.0")
-	automationConfig, err := buildAutomationConfigForAppDb(builder, manifest.InternetProvider{})
-	if err != nil {
-		// if failing, checking that the error is connectivity only
-		assert.Contains(t, err.Error(), "dial tcp: lookup opsmanager.mongodb.com: no such host")
-		return
-	}
-
-	// mongodb versions should be non empty
-	assert.Greater(t, len(automationConfig.MongodbVersions()), 0)
-
-	// All versions before 3.6.0 are removed
-	threeSix := automationConfig.MongodbVersions()[0]
-	assert.Equal(t, "3.6.0", threeSix.Name)
-	assert.Equal(t, "linux", threeSix.Builds[0].Platform)
-	assert.Equal(t, "a57d8e71e6998a2d0afde7edc11bd23e5661c915", threeSix.Builds[0].GitVersion)
-	assert.Equal(t, "amd64", threeSix.Builds[0].Architecture)
-	assert.Equal(t, "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.6.0.tgz", threeSix.Builds[0].Url)
-	assert.Len(t, threeSix.Builds, 13)
-	assert.Len(t, threeSix.Builds[0].Modules, 0)
-
-	var fourTwoEnt om.MongoDbVersionConfig
-	// seems like we cannot rely on the build by index - there used to be the "4.2.0-ent" on 234 position in the
-	// builds array but later it was replaced by 4.2.0-rc8-ent and the test started failing..
-	// So we try to find the version by name instead
-	for _, v := range automationConfig.MongodbVersions() {
-		if v.Name == "4.2.0-ent" {
-			fourTwoEnt = v
-			break
-		}
-	}
-	assert.Equal(t, "4.2.0-ent", fourTwoEnt.Name)
-	assert.Equal(t, "linux", fourTwoEnt.Builds[13].Platform)
-	assert.Equal(t, "a4b751dcf51dd249c5865812b390cfd1c0129c30", fourTwoEnt.Builds[13].GitVersion)
-	assert.Equal(t, "amd64", fourTwoEnt.Builds[13].Architecture)
-	assert.Equal(t, "ubuntu", fourTwoEnt.Builds[13].Flavor)
-	assert.Equal(t, "18.04", fourTwoEnt.Builds[13].MinOsVersion)
-	assert.Equal(t, "19.04", fourTwoEnt.Builds[13].MaxOsVersion)
-	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1804-4.2.0.tgz", fourTwoEnt.Builds[13].Url)
-	assert.Len(t, fourTwoEnt.Builds[13].Modules, 1)
-}
-
-func TestFetchingVersionManifestFails_WhenUsingNonBundledVersion(t *testing.T) {
-	builder := DefaultOpsManagerBuilder().
-		SetAppDbMembers(2).
-		SetAppDbVersion("4.0.2-ent").
-		SetAppDbFeatureCompatibility("4.0")
-	_, err := buildAutomationConfigForAppDb(builder, AlwaysFailingManifestProvider{})
-	assert.Error(t, err)
+	assert.Equal(t, automationconfig.Options{DownloadBase: util.AgentDownloadsDir}, automationConfig.Options)
 }
 
 func TestRegisterAppDBHostsWithProject(t *testing.T) {
@@ -388,10 +240,11 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager)
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	appDbSts := construct.AppDbStatefulSet(opsManager)
+	appDbSts, err := construct.AppDbStatefulSet(opsManager, nil, "")
+	assert.NoError(t, err)
 
 	t.Run("Ensure all hosts are added", func(t *testing.T) {
 
@@ -420,7 +273,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager)
 
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	conn.AgentAPIKey = "my-api-key"
@@ -438,7 +291,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	reconciler := newAppDbReconciler(kubeManager)
 
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		return om.NewEmptyMockedOmConnection(context)
@@ -451,7 +304,9 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.ProjectID)
 	assert.Empty(t, podVars.User)
 
-	appDbSts := construct.AppDbStatefulSet(opsManager, Replicas(5))
+	opsManager.Spec.AppDB.Members = 5
+	appDbSts, err := construct.AppDbStatefulSet(opsManager, nil, "")
+	assert.NoError(t, err)
 
 	_ = client.Update(context.TODO(), &appDbSts)
 
@@ -543,6 +398,39 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	assert.Equal(t, int32(30000), appdbSvc.Spec.Ports[0].Port)
 }
 
+func TestGetMonitoringAgentVersion(t *testing.T) {
+	jsonContents := `
+{
+	"4.2" : "version0",
+	"4.4" : "version1"
+}`
+	t.Run("The version returned for the agent 4.2 when OM is 4.2", func(t *testing.T) {
+		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
+		version, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {
+			return []byte(jsonContents), nil
+		})
+		assert.Nil(t, err)
+		assert.Equal(t, "version0", version)
+	})
+
+	t.Run("The version returned for the agent 4.4 when OM is 4.4", func(t *testing.T) {
+		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.4.6").Build()
+		version, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {
+			return []byte(jsonContents), nil
+		})
+		assert.Nil(t, err)
+		assert.Equal(t, "version1", version)
+	})
+
+	t.Run("There is an error when the version is not present", func(t *testing.T) {
+		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.0.6").Build()
+		_, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {
+			return []byte(jsonContents), nil
+		})
+		assert.Error(t, err)
+	})
+}
+
 // appDBStatefulSetLabelsAndServiceName returns extra fields that we have to manually set to the AppDB statefulset
 // since we manually create it. Otherwise the tests will fail as we try to update parts of the sts that we are not
 // allowed to change
@@ -555,14 +443,15 @@ func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]str
 
 func appDBStatefulSetVolumeClaimtemplates() []corev1.PersistentVolumeClaim {
 
-	res, _ := resource.ParseQuantity("16G")
+	resData, _ := resource.ParseQuantity("16G")
 	return []corev1.PersistentVolumeClaim{{
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
 			Resources: corev1.ResourceRequirements{
-				Requests: map[corev1.ResourceName]resource.Quantity{"storage": res},
+				Requests: map[corev1.ResourceName]resource.Quantity{"storage": resData},
 			},
-		}}}
+		}},
+	}
 }
 
 func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
@@ -570,7 +459,8 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
-	reconciler := newAppDbReconciler(kubeManager, AlwaysFailingManifestProvider{})
+	createOpsManagerUserPasswordSecret(client, opsManager, "pass")
+	reconciler := newAppDbReconciler(kubeManager)
 
 	// create the apiKey and OM user
 	data := map[string]string{
@@ -606,10 +496,6 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		SetServiceName(serviceName).
 		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimtemplates()).
 		SetReplicas(startingMembers).
-		SetPodTemplateSpec(
-			podtemplatespec.New(
-				podtemplatespec.WithInitContainer("mongodb-enterprise-init-appdb",
-					container.WithImage("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.4")))).
 		Build()
 
 	assert.NoError(t, err)
@@ -657,72 +543,64 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	assert.Equal(t, finalMembers, opsManager.Status.AppDbStatus.Members)
 }
 
-func TestIsOldInitAppDBImageForAgentsCheck(t *testing.T) {
-	assert.True(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.4", zap.S()))
-	assert.True(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.0", zap.S()))
-	assert.False(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb", zap.S()))
-	assert.False(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:latest", zap.S()))
-	assert.False(t, isOldInitAppDBImageForAgentsCheck("quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.5", zap.S()))
-}
-
-func TestAgentReachedGoalState(t *testing.T) {
-	pod := &corev1.Pod{}
-	assert.False(t, agentReachedGoalState(pod, int64(10), zap.S()))
-
-	pod.Annotations = map[string]string{"foo": "bar"}
-	assert.False(t, agentReachedGoalState(pod, int64(10), zap.S()))
-
-	pod.Annotations[PodAnnotationAgentVersion] = "9"
-	assert.False(t, agentReachedGoalState(pod, int64(10), zap.S()))
-
-	pod.Annotations[PodAnnotationAgentVersion] = "10"
-	assert.True(t, agentReachedGoalState(pod, int64(10), zap.S()))
-}
-
 // ***************** Helper methods *******************************
 
-func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, internetManifestProvider manifest.Provider) (*om.AutomationConfig, error) {
+func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager *mock.MockedManager, acType agentType) (automationconfig.AutomationConfig, error) {
 	opsManager := builder.Build()
-	kubeManager := mock.NewManager(&opsManager)
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
-	kubeManager.Client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetSecretName())] = &corev1.Secret{
-		StringData: map[string]string{
-			util.OpsManagerPasswordKey: "my-password",
-		},
+	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
+	reconciler := newAppDbReconciler(kubeManager)
+	sts, err := construct.AppDbStatefulSet(opsManager, nil, "")
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
 	}
+	return reconciler.buildAppDbAutomationConfig(opsManager, sts, acType, zap.S())
 
-	reconciler := newAppDbReconciler(kubeManager, internetManifestProvider)
-	sts := construct.AppDbStatefulSet(opsManager)
-	return reconciler.buildAppDbAutomationConfig(opsManager.Spec.AppDB, opsManager, "my-pass", sts, zap.S())
 }
 
-func checkDeploymentEqualToPublished(t *testing.T, expected om.Deployment, s *corev1.Secret) {
-	publishedDeployment, err := om.BuildDeploymentFromBytes(s.Data["cluster-config.json"])
+func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.AutomationConfig, s *corev1.Secret) {
+	actual, err := automationconfig.FromBytes(s.Data["cluster-config.json"])
 	assert.NoError(t, err)
-	assert.Equal(t, expected.ToCanonicalForm(), publishedDeployment)
+	expectedBytes, err := json.Marshal(expected)
+	assert.NoError(t, err)
+	expectedAc := automationconfig.AutomationConfig{}
+	err = json.Unmarshal(expectedBytes, &expectedAc)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedAc, actual)
 }
 
-func newAppDbReconciler(mgr manager.Manager, internetManifestProvider manifest.Provider) *ReconcileAppDbReplicaSet {
+func newAppDbReconciler(mgr manager.Manager) *ReconcileAppDbReplicaSet {
 	return &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		VersionManifestFilePath:   relativeVersionManifestFixturePath,
-		InternetManifestProvider:  internetManifestProvider,
 		omConnectionFactory:       om.NewEmptyMockedOmConnection,
+		versionMappingProvider: func(s string) ([]byte, error) {
+			return nil, nil
+		},
 	}
 }
 
-func readAutomationConfigMap(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.Secret {
+// createOpsManagerUserPasswordSecret creates the secret which holds the password that will be used for the Ops Manager user.
+func createOpsManagerUserPasswordSecret(client *mock.MockedClient, om omv1.MongoDBOpsManager, password string) error {
+	return client.CreateSecret(
+		secret.Builder().
+			SetName(om.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
+			SetNamespace(om.Namespace).
+			SetField("password", password).
+			Build(),
+	)
+}
+
+func readAutomationConfigSecret(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.Secret {
 	s := &corev1.Secret{}
 	key := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
 	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, s))
 	return s
 }
 
-// AlwaysFailingManifestProvider mimics not having an internet connection
-// by failing to fetch the version manifest
-type AlwaysFailingManifestProvider struct{}
-
-func (AlwaysFailingManifestProvider) GetVersion() (*manifest.Manifest, error) {
-	return nil, errors.New("failed to get version manifest")
+func readAutomationConfigMonitoringSecret(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.Secret {
+	s := &corev1.Secret{}
+	key := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.MonitoringAutomationConfigSecretName())
+	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, s))
+	return s
 }

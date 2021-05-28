@@ -43,9 +43,6 @@ if [[ ${IMAGE_TYPE} = "ubi" ]]; then
     if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
       OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
     fi
-    if [[ "${APPDB_REGISTRY}" == quay.io* ]]; then
-      APPDB_NAME=mongodb-enterprise-appdb-ubi
-    fi
     if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
       DATABASE_NAME=mongodb-enterprise-database-ubi
     fi
@@ -81,7 +78,6 @@ helm_params=(
      "--set" "operator.name=${OPERATOR_NAME:=mongodb-enterprise-operator}"
      "--set" "database.name=${DATABASE_NAME:=mongodb-enterprise-database}"
      "--set" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
-     "--set" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
      "--set" "initDatabase.version=latest"
      "--set" "initOpsManager.name=${INIT_OPS_MANAGER_NAME:=mongodb-enterprise-init-ops-manager}"
      "--set" "initOpsManager.version=latest"

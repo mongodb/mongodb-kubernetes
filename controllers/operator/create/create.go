@@ -15,6 +15,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -55,19 +56,20 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, config construct.AppDBConfiguration, log *zap.SugaredLogger) error {
-	opts := config(opsManager)
+func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
+
 	set, err := enterprisests.CreateOrUpdateStatefulset(client,
 		opsManager.Namespace,
 		log,
 		&sts,
 	)
+
 	if err != nil {
 		return err
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	return enterprisesvc.CreateOrUpdateService(client, internalService, log)
 }
 

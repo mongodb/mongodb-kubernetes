@@ -10,11 +10,16 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	appsv1 "k8s.io/api/apps/v1"
+)
+
+const (
+	appDBKeyfilePath = "/var/lib/mongodb-mms-automation/authentication/keyfile"
 )
 
 type AppDBSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
-	Version string `json:"version,omitempty"`
+	Version string `json:"version"`
 	// Amount of members for this MongoDB Replica Set
 	// +kubebuilder:validation:Maximum=50
 	// +kubebuilder:validation:Minimum=3
@@ -38,9 +43,14 @@ type AppDBSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
-	Agent                  mdbv1.AgentConfig            `json:"agent,omitempty"`
-	Persistent             *bool                        `json:"persistent,omitempty"`
-	ConnectionSpec         `json:",inline"`
+
+	// specify startup flags for the AutomationAgent and MonitoringAgent
+	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
+
+	// specify startup flags for just the MonitoringAgent. These take precedence over
+	// the flags set in AutomationAgent
+	MonitoringAgent mdbv1.AgentConfig `json:"monitoringAgent,omitempty"`
+	ConnectionSpec  `json:",inline"`
 
 	// PasswordSecretKeyRef contains a reference to the secret which contains the password
 	// for the mongodb-ops-manager SCRAM-SHA user
@@ -54,6 +64,8 @@ type AppDBSpec struct {
 	Namespace      string `json:"-"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
+
+	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }
 
 // GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret
@@ -61,7 +73,7 @@ type AppDBSpec struct {
 func (m AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.Namespace,
-		Name:      m.Name() + "-password",
+		Name:      m.Name() + "-agent-password",
 	}
 }
 
@@ -79,7 +91,7 @@ func (m AppDBSpec) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
 func (m AppDBSpec) GetScramOptions() scram.Options {
 	return scram.Options{
 		AuthoritativeSet: false,
-		KeyFile:          util.AutomationAgentKeyFilePathInContainer,
+		KeyFile:          appDBKeyfilePath,
 		AutoAuthMechanisms: []string{
 			scram.Sha256,
 			scram.Sha1,
@@ -92,12 +104,14 @@ func (m AppDBSpec) GetScramOptions() scram.Options {
 // GetScramUsers returns a list of all scram users for this deployment.
 // in this case it is just the Ops Manager user for the AppDB.
 func (m AppDBSpec) GetScramUsers() []scram.User {
+	passwordSecretName := m.GetOpsManagerUserPasswordSecretName()
+	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
+		passwordSecretName = m.PasswordSecretKeyRef.Name
+	}
 	return []scram.User{
 		{
-
 			Username: util.OpsManagerMongoDBUserName,
 			Database: util.DefaultUserDatabase,
-
 			// required roles for the AppDB user are outlined in the documentation
 			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
 			Roles: []scram.Role{
@@ -131,7 +145,7 @@ func (m AppDBSpec) GetScramUsers() []scram.User {
 				},
 			},
 			PasswordSecretKey:          m.GetOpsManagerUserPasswordSecretKey(),
-			PasswordSecretName:         m.GetOpsManagerUserPasswordSecretName(),
+			PasswordSecretName:         passwordSecretName,
 			ScramCredentialsSecretName: m.OpsManagerUserScramCredentialsName(),
 		},
 	}
@@ -144,10 +158,7 @@ func (m AppDBSpec) NamespacedName() types.NamespacedName {
 // GetOpsManagerUserPasswordSecretName returns the name of the secret
 // that will store the Ops Manager user's password.
 func (m AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
-	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
-		return m.PasswordSecretKeyRef.Name
-	}
-	return m.Name() + "-password"
+	return m.Name() + "-om-password"
 }
 
 // GetOpsManagerUserPasswordSecretKey returns the key that should be used to map to the Ops Manager user's
@@ -162,7 +173,7 @@ func (m AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
 // OpsManagerUserScramCredentialsName returns the name of the Secret
 // which will store the Ops Manager MongoDB user's scram credentials.
 func (m AppDBSpec) OpsManagerUserScramCredentialsName() string {
-	return m.Name() + "-scram-credentials"
+	return m.Name() + "-om-user-scram-credentials"
 }
 
 type ConnectionSpec struct {
@@ -192,13 +203,8 @@ type AppDbBuilder struct {
 	appDb *AppDBSpec
 }
 
-// GetVersion returns the version of the MongoDB. In the case of the AppDB
-// it is possible for this to be an empty string. For a regular mongodb, the regex
-// version string validator will not allow this.
-func (a AppDBSpec) GetVersion() string {
-	if a.Version == "" {
-		return util.BundledAppDbMongoDBVersion
-	}
+// GetMongoDBVersion returns the version of the MongoDB.
+func (a AppDBSpec) GetMongoDBVersion() string {
 	return a.Version
 }
 
@@ -252,7 +258,7 @@ func (a AppDBSpec) GetTLSConfig() *mdbv1.TLSConfig {
 }
 func DefaultAppDbBuilder() *AppDbBuilder {
 	appDb := &AppDBSpec{
-		Version:              "",
+		Version:              "4.2.0",
 		Members:              3,
 		PodSpec:              &mdbv1.MongoDbPodSpec{},
 		PasswordSecretKeyRef: &userv1.SecretKeyRef{},
@@ -310,6 +316,22 @@ func (m AppDBSpec) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
 }
 
+func (m AppDBSpec) MonitoringAutomationConfigSecretName() string {
+	return m.Name() + "-monitoring-config"
+}
+
+// This function is used in community to determine whether we need to create a single
+// volume for data+logs or two separate ones
+// unless spec.PodSpec.Persistence.MultipleConfig is set, a single volume will be created
+func (m AppDBSpec) HasSeparateDataAndLogsVolumes() bool {
+	p := m.PodSpec.Persistence
+	return p != nil && (p.MultipleConfig != nil && p.SingleConfig == nil)
+}
+
+func (m AppDBSpec) GetUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
+	return m.UpdateStrategyType
+}
+
 // GetCAConfigMapName returns the name of the ConfigMap which contains
 // the CA which will recognize the certificates used to connect to the AppDB
 // deployment
@@ -342,9 +364,17 @@ func (m AppDBSpec) ConnectionURL(userName, password string, connectionParams map
 	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m, connectionParams)
 }
 
-func (m *AppDBSpec) GetName() string {
+func (m AppDBSpec) GetName() string {
 	return m.Name()
 }
-func (m *AppDBSpec) GetNamespace() string {
+func (m AppDBSpec) GetNamespace() string {
 	return m.Namespace
+}
+
+func (m AppDBSpec) DataVolumeName() string {
+	return "data"
+}
+
+func (m AppDBSpec) LogsVolumeName() string {
+	return "logs"
 }

@@ -26,7 +26,9 @@ def scram_user(namespace) -> MongoDBUser:
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
-        {"password": USER_PASSWORD,},
+        {
+            "password": USER_PASSWORD,
+        },
     )
 
     yield resource.create()
@@ -61,7 +63,7 @@ def test_replica_set_auth_enabled(replica_set: MongoDB):
     }
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
-    replica_set.assert_reaches_phase(Phase.Running)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first

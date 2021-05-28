@@ -121,6 +121,10 @@ def delete_pod(namespace: str, name: str):
     client.CoreV1Api().delete_namespaced_pod(name, namespace)
 
 
+def delete_deployment(namespace: str, name: str):
+    client.AppsV1Api().delete_namespaced_deployment(name, namespace)
+
+
 def delete_statefulset(namespace: str, name: str, propagation_policy: str = "Orphan"):
     client.AppsV1Api().delete_namespaced_stateful_set(
         name, namespace, propagation_policy=propagation_policy

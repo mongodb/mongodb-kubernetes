@@ -68,7 +68,7 @@ const (
 	OpsManagerContainerName     = "mongodb-ops-manager"
 	BackupDaemonContainerName   = "mongodb-backup-daemon"
 	DatabaseContainerName       = "mongodb-enterprise-database"
-	AppDbContainerName          = "mongodb-enterprise-appdb"
+	AppDbContainerName          = "mongod"
 	InitOpsManagerContainerName = "mongodb-enterprise-init-ops-manager"
 	PvcNameData                 = "data"
 	PvcMountPathData            = "/data"
@@ -100,9 +100,6 @@ const (
 	// Service accounts
 	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
 	MongoDBServiceAccount    = "mongodb-enterprise-database-pods"
-
-	// Operator Filesystem constants
-	VersionManifestFilePath = "/var/lib/mongodb-enterprise-operator/version_manifest.json"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"
@@ -141,7 +138,7 @@ const (
 	OpsManagerImageUrl             = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl         = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion          = "INIT_OPS_MANAGER_VERSION"
-	InitAppdbImageUrl              = "INIT_APPDB_IMAGE_REPOSITORY"
+	InitAppdbImageUrlEnv           = "INIT_APPDB_IMAGE_REPOSITORY"
 	InitDatabaseImageUrlEnv        = "INIT_DATABASE_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy           = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	AutomationAgentImage           = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
@@ -151,7 +148,6 @@ const (
 	BackupDisableWaitSecondsEnv    = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
-	AppDBImageUrl                  = "APPDB_IMAGE_REPOSITORY"
 	CurrentNamespace               = "CURRENT_NAMESPACE"
 	WatchNamespace                 = "WATCH_NAMESPACE"
 
@@ -233,7 +229,6 @@ const (
 // installed for development (using 'make') meaning the Ops Manager/AppDB images deployed won't have
 // "operator specific" part of the version tag
 var OperatorVersion string
-var BundledAppDbMongoDBVersion string
 
 var LogAutomationConfigDiff string
 

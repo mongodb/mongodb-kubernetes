@@ -19,6 +19,7 @@ type StatefulSetState struct {
 	total              int32
 	generation         int64
 	observedGeneration int64
+	updateStrategyType appsv1.StatefulSetUpdateStrategyType
 }
 
 // GetResourcesNotReadyStatus returns the status of dependent resources which have any problems
@@ -44,7 +45,8 @@ func (s StatefulSetState) GetMessage() string {
 }
 
 func (s StatefulSetState) IsReady() bool {
-	return s.updated == s.ready && s.ready == s.total && s.observedGeneration == s.generation
+	isReady := s.updated == s.ready && s.ready == s.total && s.observedGeneration == s.generation
+	return isReady || s.updateStrategyType == appsv1.OnDeleteStatefulSetStrategyType
 }
 
 func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
@@ -55,6 +57,7 @@ func StatefulSet(set appsv1.StatefulSet) StatefulSetState {
 		total:              *set.Spec.Replicas,
 		observedGeneration: set.Status.ObservedGeneration,
 		generation:         set.Generation,
+		updateStrategyType: set.Spec.UpdateStrategy.Type,
 	}
 	return state
 }

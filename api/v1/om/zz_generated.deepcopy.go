@@ -51,12 +51,8 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 		(*in).DeepCopyInto(*out)
 	}
 	in.AdditionalMongodConfig.DeepCopyInto(&out.AdditionalMongodConfig)
-	in.Agent.DeepCopyInto(&out.Agent)
-	if in.Persistent != nil {
-		in, out := &in.Persistent, &out.Persistent
-		*out = new(bool)
-		**out = **in
-	}
+	in.AutomationAgent.DeepCopyInto(&out.AutomationAgent)
+	in.MonitoringAgent.DeepCopyInto(&out.MonitoringAgent)
 	in.ConnectionSpec.DeepCopyInto(&out.ConnectionSpec)
 	if in.PasswordSecretKeyRef != nil {
 		in, out := &in.PasswordSecretKeyRef, &out.PasswordSecretKeyRef

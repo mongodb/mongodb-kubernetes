@@ -8,6 +8,7 @@ spec:
   adminCredentials: ops-manager-admin-secret
 
   applicationDatabase:
+    version: "4.2.0-ent"
     members: 3
     podSpec:
       cpu: '0.25'

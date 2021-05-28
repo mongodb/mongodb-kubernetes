@@ -2,9 +2,14 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 
@@ -195,26 +200,15 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 }
 
 func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: true,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	s := secret.Builder().
-		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
-		SetNamespace(testOm.Namespace).
-		SetByteData(map[string][]byte{
-			"password": []byte("password"),
-		}).SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
-		Build()
-
-	err := reconciler.client.CreateSecret(s)
-	assert.NoError(t, err)
-
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	backupSts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should have been created when backup is enabled")
 
 	testOm.Spec.Backup.Enabled = false
@@ -231,20 +225,20 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 }
 
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
 	s := secret.Builder().
-		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
+		SetName(testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
 		SetNamespace(testOm.Namespace).
 		SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
 		SetByteData(map[string][]byte{
 			"password": []byte("password"),
 		}).Build()
 
-	err := reconciler.client.CreateSecret(s)
+	err := reconciler.client.UpdateSecret(s)
 	assert.NoError(t, err)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
@@ -258,41 +252,28 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	assert.NoError(t, err)
 
 	podTemplate := sts.Spec.Template
+
 	assert.Contains(t, podTemplate.Annotations, "connectionStringHash")
 	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")))
-
 	testOm.Spec.AppDB.Members = 5
 	assert.NotEqual(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")),
 		"Changing the number of members should result in a different Connection String and different hash")
-
 	testOm.Spec.AppDB.Members = 3
 	testOm.Spec.AppDB.Version = "4.2.0"
-
 	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")),
 		"Changing version should not change connection string and so the hash should stay the same")
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
 
-	s := secret.Builder().
-		SetName(testOm.Spec.AppDB.PasswordSecretKeyRef.Name).
-		SetNamespace(testOm.Namespace).
-		SetByteData(map[string][]byte{
-			"password": []byte("password"),
-		}).SetOwnerReferences(kube.BaseOwnerReference(&testOm)).
-		Build()
-
-	err := reconciler.client.CreateSecret(s)
-	assert.NoError(t, err)
-
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	sts := appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
+	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
 	assert.NoError(t, err)
 
 	envs := sts.Spec.Template.Spec.Containers[0].Env
@@ -376,6 +357,108 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 
 }
 
+func TestEnsureResourcesForArchitectureChange(t *testing.T) {
+	om := DefaultOpsManagerBuilder().Build()
+
+	t.Run("When no automation config is present, there is no error", func(t *testing.T) {
+		client := mock.NewClient()
+		err := ensureResourcesForArchitectureChange(client, om)
+		assert.NoError(t, err)
+	})
+
+	t.Run("If User is not present, there is an error", func(t *testing.T) {
+		client := mock.NewClient()
+		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
+			Users: []automationconfig.MongoDBUser{
+				{
+					Username: "not-ops-manager-user",
+				}},
+		}).Build()
+
+		assert.NoError(t, err)
+
+		acBytes, err := json.Marshal(ac)
+		assert.NoError(t, err)
+
+		// create the automation config secret
+		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
+		assert.NoError(t, err)
+
+		err = ensureResourcesForArchitectureChange(client, om)
+		assert.Error(t, err)
+	})
+
+	t.Run("If an automation config is present, all secrets are created with the correct values", func(t *testing.T) {
+		client := mock.NewClient()
+		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
+			AutoPwd: "VrBQgsUZJJs",
+			Key:     "Z8PSBtvvjnvds4zcI6iZ",
+			Users: []automationconfig.MongoDBUser{
+				{
+					Username: util.OpsManagerMongoDBUserName,
+					ScramSha256Creds: &scramcredentials.ScramCreds{
+						Salt:      "sha256-salt-value",
+						ServerKey: "sha256-serverkey-value",
+						StoredKey: "sha256-storedkey-value",
+					},
+					ScramSha1Creds: &scramcredentials.ScramCreds{
+						Salt:      "sha1-salt-value",
+						ServerKey: "sha1-serverkey-value",
+						StoredKey: "sha1-storedkey-value",
+					},
+				}},
+		}).Build()
+
+		assert.NoError(t, err)
+
+		acBytes, err := json.Marshal(ac)
+		assert.NoError(t, err)
+
+		// create the automation config secret
+		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
+		assert.NoError(t, err)
+
+		// create the old ops manager user password
+		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.Name()+"-password").SetField("my-password", "jrJP7eUeyn").Build())
+		assert.NoError(t, err)
+
+		err = ensureResourcesForArchitectureChange(client, om)
+		assert.NoError(t, err)
+
+		t.Run("Scram credentials have been created", func(t *testing.T) {
+			scramCreds, err := client.GetSecret(kube.ObjectKey(om.Namespace, om.Spec.AppDB.OpsManagerUserScramCredentialsName()))
+			assert.NoError(t, err)
+
+			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.Salt, string(scramCreds.Data["sha256-salt"]))
+			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.StoredKey, string(scramCreds.Data["sha-256-stored-key"]))
+			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.ServerKey, string(scramCreds.Data["sha-256-server-key"]))
+
+			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.Salt, string(scramCreds.Data["sha1-salt"]))
+			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.StoredKey, string(scramCreds.Data["sha-1-stored-key"]))
+			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.ServerKey, string(scramCreds.Data["sha-1-server-key"]))
+		})
+
+		t.Run("Ops Manager user password has been copied", func(t *testing.T) {
+			newOpsManagerUserPassword, err := client.GetSecret(kube.ObjectKey(om.Namespace, om.Spec.AppDB.GetOpsManagerUserPasswordSecretName()))
+			assert.NoError(t, err)
+			assert.Equal(t, string(newOpsManagerUserPassword.Data["my-password"]), "jrJP7eUeyn")
+		})
+
+		t.Run("Agent password has been created", func(t *testing.T) {
+			agentPasswordSecret, err := client.GetSecret(om.Spec.AppDB.GetAgentPasswordSecretNamespacedName())
+			assert.NoError(t, err)
+			assert.Equal(t, ac.Auth.AutoPwd, string(agentPasswordSecret.Data[scram.AgentPasswordKey]))
+		})
+
+		t.Run("Keyfile has been created", func(t *testing.T) {
+			keyFileSecret, err := client.GetSecret(om.Spec.AppDB.GetAgentKeyfileSecretNamespacedName())
+			assert.NoError(t, err)
+			assert.Equal(t, ac.Auth.Key, string(keyFileSecret.Data[scram.AgentKeyfileKey]))
+		})
+	})
+
+}
+
 // configureBackupResources ensures all of the dependent resources for the Backup configuration
 // are created in the mocked client. This includes MongoDB resources for OplogStores, S3 credentials secrets
 // MongodbUsers and their credentials secrets.
@@ -442,7 +525,9 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 
 	// It's important to clean the om state as soon as the reconciler is built!
 	admin := api.NewMockedAdmin()
-	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, relativeVersionManifestFixturePath)
+	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, func(s string) ([]byte, error) {
+		return nil, nil
+	})
 	reconciler.client.CreateSecret(s)
 	return reconciler,
 		manager.Client, initializer, admin

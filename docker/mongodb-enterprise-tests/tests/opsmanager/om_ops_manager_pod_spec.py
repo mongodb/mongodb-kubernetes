@@ -71,17 +71,17 @@ class TestOpsManagerCreation:
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert len(appdb_sts.spec.template.spec.containers) == 2
+        assert len(appdb_sts.spec.template.spec.containers) == 4
 
         assert (
             appdb_sts.spec.template.spec.service_account_name
             == "mongodb-enterprise-appdb"
         )
 
-        appdb_container = appdb_sts.spec.template.spec.containers[1]
-        assert appdb_container.name == "mongodb-enterprise-appdb"
-        assert appdb_container.resources.limits["cpu"] == "250m"
-        assert appdb_container.resources.limits["memory"] == "350M"
+        appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
+        assert appdb_agent_container.name == "mongodb-agent"
+        assert appdb_agent_container.resources.limits["cpu"] == "250m"
+        assert appdb_agent_container.resources.limits["memory"] == "350M"
 
         assert appdb_sts.spec.template.spec.containers[0].name == "appdb-sidecar"
         assert appdb_sts.spec.template.spec.containers[0].image == "busybox"
@@ -278,10 +278,16 @@ class TestOpsManagerUpdate:
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert len(appdb_sts.spec.template.spec.containers) == 2
+        assert len(appdb_sts.spec.template.spec.containers) == 4
 
-        appdb_container = appdb_sts.spec.template.spec.containers[1]
-        assert appdb_container.name == "mongodb-enterprise-appdb"
+        appdb_mongod_container = appdb_sts.spec.template.spec.containers[1]
+        assert appdb_mongod_container.name == "mongod"
+
+        appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
+        assert appdb_agent_container.name == "mongodb-agent"
+
+        appdb_agent_monitoring_container = appdb_sts.spec.template.spec.containers[3]
+        assert appdb_agent_monitoring_container.name == "mongodb-agent-monitoring"
 
         assert appdb_sts.spec.template.metadata.annotations == {"annotation1": "val"}
 

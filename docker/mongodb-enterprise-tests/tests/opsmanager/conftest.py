@@ -22,10 +22,9 @@ def custom_mdb_prev_version() -> str:
 @fixture(scope="module")
 def custom_appdb_version() -> str:
     """Returns a CUSTOM_APPDB_VERSION for AppDB to be created/upgraded to for testing,
-    defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB) """
-    # TODO uncomment when AppDB 4.4 is supported
-    return "4.2.8"
-    # return os.getenv("CUSTOM_APPDB_VERSION", custom_mdb_version)
+    defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)"""
+    # Defaulting to 4.2.8-ent if not specified as we didn't release all possible images yet
+    return os.getenv("CUSTOM_APPDB_VERSION", "4.2.8-ent")
 
 
 def ensure_ent_version(mdb_version: str) -> str:

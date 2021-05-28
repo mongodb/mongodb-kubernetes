@@ -17,9 +17,7 @@ if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
     if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
       OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
     fi
-    if [[ "${APPDB_REGISTRY}" == quay.io* ]]; then
-      APPDB_NAME=mongodb-enterprise-appdb-ubi
-    fi
+    # shellcheck disable=SC2153
     if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
       DATABASE_NAME=mongodb-enterprise-database-ubi
     fi
@@ -35,10 +33,13 @@ prepare_operator_config_map() {
     local database_registry=${DATABASE_REGISTRY}
     local database_name=${DATABASE_NAME}
     if [[ ${IMAGE_TYPE} == "usaf" ]]; then
+      # shellcheck disable=SC2154
       operator_version="${usaf_operator_version}"
       # in 1.7.1, the MONGODB_ENTERPRISE_DATABASE_IMAGE is the registry and tag
       # and is created from ${DATABASE_REGISTRY}/${DATABASE_NAME}
+      # shellcheck disable=SC2154
       database_registry="${ecr_registry}/dev/usaf"
+      # shellcheck disable=SC2154
       database_name="mongodb-enterprise-database:${usaf_database_version}"
     fi
 
@@ -53,18 +54,28 @@ prepare_operator_config_map() {
       "--from-literal" "registry.appDb=${APPDB_REGISTRY}"
       "--from-literal" "registry.database=${database_registry}"
       "--from-literal" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
-      "--from-literal" "appDb.name=${APPDB_NAME:=mongodb-enterprise-appdb}"
       "--from-literal" "database.name=${database_name:=mongodb-enterprise-database}"
       "--from-literal" "operator.version=${operator_version}"
       "--from-literal" "initOpsManager.version=${version_id}"
       "--from-literal" "initAppDb.version=${version_id}"
       "--from-literal" "initDatabase.version=${version_id}"
+      "--from-literal" "agent.version=${agent_version}"
     )
+
+    if [[ ${IMAGE_TYPE} == "ubi" ]]; then
+      config+=("--from-literal" "agent.name=mongodb-agent-ubi")
+      config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database-ubi")
+    else
+      config+=("--from-literal" "agent.name=mongodb-agent")
+      config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database")
+    fi
+
 
     if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
       config+=("--from-literal useRunningOperator=true")
     fi
 
+    # shellcheck disable=SC2086
     kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config[*]}
     # for some reasons the previous 'create' command doesn't return >0 in case of failures...
     ! kubectl get configmap operator-installation-config -n "${PROJECT_NAMESPACE}" && \
@@ -76,7 +87,6 @@ deploy_test_app() {
     title "Deploying test application"
 
     helm_template_file=$(mktemp)
-    BUNDLED_APP_DB_VERSION="$(jq --raw-output .appDbBundle.mongodbVersion < release.json)"
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
@@ -92,7 +102,6 @@ deploy_test_app() {
         "--set" "baseUrl=${OM_BASE_URL:-http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}"
         "--set" "apiKey=${OM_API_KEY:-}"
         "--set" "apiUser=${OM_USER:-admin}"
-        "--set" "bundledAppDbVersion=${BUNDLED_APP_DB_VERSION}"
         "--set" "orgId=${OM_ORGID:-}"
         "--set" "imageType=${IMAGE_TYPE}"
         "--set" "imagePullSecrets=image-registries-secret"

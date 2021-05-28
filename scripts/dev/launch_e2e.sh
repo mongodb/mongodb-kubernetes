@@ -27,9 +27,6 @@ if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
     if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
       export OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
     fi
-    if [[ "${APPDB_REGISTRY}" == quay.io* ]]; then
-      export APPDB_NAME=mongodb-enterprise-appdb-ubi
-    fi
     if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
       export DATABASE_NAME=mongodb-enterprise-database-ubi
     fi

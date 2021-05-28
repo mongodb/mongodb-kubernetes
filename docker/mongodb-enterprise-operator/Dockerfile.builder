@@ -20,17 +20,17 @@ COPY . /go/src/github.com/10gen/ops-manager-kubernetes
 
 RUN mkdir /build && go build -i -o /build/mongodb-enterprise-operator \
         -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${release_version} \
-        -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff} \
-        -X github.com/10gen/ops-manager-kubernetes/pkg/util.BundledAppDbMongoDBVersion=${mdb_version}"
+        -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"
+
+ADD https://us-east-1.aws.webhooks.mongodb-realm.com/api/client/v2.0/app/kubernetes-version-mappings-aarzq/service/ops_manager_version_to_minimum_agent_version/incoming_webhook/list /data/om_version_mapping.json
+RUN chmod +r /data/om_version_mapping.json
 
 RUN go get -u github.com/go-delve/delve/cmd/dlv
 
 FROM scratch
-ARG version_manifest_url
 
 COPY --from=builder /go/bin/dlv /data/dlv
 COPY --from=builder /build/mongodb-enterprise-operator /data/
-
-ADD ${version_manifest_url} /data/version_manifest.json
+COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
 ADD docker/mongodb-enterprise-operator/licenses /data/licenses/

@@ -20,6 +20,7 @@ spec:
     tls:
       ca: issuer-ca
   applicationDatabase:
+    version: 4.2.6-ent
     members: 3
     security:
       tls:

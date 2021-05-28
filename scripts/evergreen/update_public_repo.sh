@@ -17,7 +17,7 @@ generate_standalone_yaml() {
     cat "helm_chart/crds/"* > crds.yaml
 
     if ! kubectl apply -f crds.yaml --dry-run; then
-        echo "Genereted CRDs were invalid!"
+        echo "Generated CRDs were invalid!"
         exit 1
     fi
 

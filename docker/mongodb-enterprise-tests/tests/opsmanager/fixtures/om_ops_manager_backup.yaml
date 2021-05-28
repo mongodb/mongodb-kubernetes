@@ -30,7 +30,7 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.0.0
+    version: 4.0.14-ent
 
   # Dev: adding this just to avoid wizard when opening OM UI
   # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'

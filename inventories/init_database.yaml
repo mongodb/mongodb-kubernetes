@@ -20,6 +20,7 @@ images:
           mongodb_tools_url_ubuntu: $(inputs.params.mongodb_tools_url_ubuntu)
           readiness_probe_version: $(inputs.params.readiness_probe_version)
           readiness_probe_repo: $(inputs.params.readiness_probe_repo)
+          version_upgrade_post_start_hook_version: $(inputs.params.version_upgrade_post_start_hook_version)
 
         output:
           - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context

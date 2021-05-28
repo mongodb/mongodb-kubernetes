@@ -251,18 +251,12 @@ def build_operator_image(build_configuration: BuildConfiguration):
 
     appdb_version = get_release()["appDbBundle"]["mongodbVersion"]  # 4.2.11-ent
 
-    version = ".".join(appdb_version.split(".")[0:2])
-    version_manifest_url = (
-        "https://opsmanager.mongodb.com/static/version_manifest/{}.json".format(version)
-    )
-
     # In evergreen we can pass test_suffix env to publish the operator to a quay
     # repostory with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
 
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
     args = dict(
-        version_manifest_url=version_manifest_url,
         mdb_version=appdb_version,
         release_version=get_git_release_tag(),
         log_automation_config_diff=log_automation_config_diff,
@@ -579,12 +573,16 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     )
 
     readiness_probe_version = release["readinessProbeVersion"]
+    version_upgrade_post_start_hook_version = release[
+        "versionUpgradePostStartHookVersion"
+    ]
 
     args = dict(
         version=version,
         mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
         readiness_probe_version=readiness_probe_version,
+        version_upgrade_post_start_hook_version=version_upgrade_post_start_hook_version,
         is_appdb=True,
     )
 
@@ -652,12 +650,16 @@ def build_init_database(build_configuration: BuildConfiguration):
     )
 
     readiness_probe_version = release["readinessProbeVersion"]
+    version_upgrade_post_start_hook_version = release[
+        "versionUpgradePostStartHookVersion"
+    ]
 
     args = dict(
         version=version,
         mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
         readiness_probe_version=readiness_probe_version,
+        version_upgrade_post_start_hook_version=version_upgrade_post_start_hook_version,
         is_appdb=False,
     )
 

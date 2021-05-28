@@ -41,7 +41,7 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 def ops_manager(
     namespace: str, s3_bucket: str, custom_version: Optional[str]
 ) -> MongoDBOpsManager:
-    """ The fixture for Ops Manager to be created. Also results in a new s3 bucket
+    """The fixture for Ops Manager to be created. Also results in a new s3 bucket
     created and used in OM spec"""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace
@@ -118,13 +118,17 @@ def test_install_latest_official_operator(official_operator: Operator):
 @mark.e2e_operator_upgrade_ops_manager
 def test_om_created(ops_manager: MongoDBOpsManager):
     ops_manager.backup_status().assert_reaches_phase(
-        Phase.Pending, msg_regexp="The MongoDB object .+ doesn't exist", timeout=900,
+        Phase.Pending,
+        msg_regexp="The MongoDB object .+ doesn't exist",
+        timeout=900,
     )
 
 
 @mark.e2e_operator_upgrade_ops_manager
 def test_backup_enabled(
-    ops_manager: MongoDBOpsManager, oplog_replica_set: MongoDB, s3_replica_set: MongoDB,
+    ops_manager: MongoDBOpsManager,
+    oplog_replica_set: MongoDB,
+    s3_replica_set: MongoDB,
 ):
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.assert_reaches_phase(Phase.Running)
@@ -169,8 +173,10 @@ def test_om_ok(ops_manager: MongoDBOpsManager):
     # status phases are updated gradually - we need to check for each of them (otherwise "check(Running) for OM"
     # will return True right away
     ops_manager.appdb_status().assert_reaches_phase(Phase.Reconciling, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+    # TODO: reduce this timeout, increased from 400 when upgrading from 1 -> 3 container arch.
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
+
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
 
     ops_manager.get_om_tester().assert_healthiness()

@@ -78,6 +78,8 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                   agent:
+                    description: specify startup flags for the AutomationAgent and
+                      MonitoringAgent
                     properties:
                       startupOptions:
                         additionalProperties:
@@ -132,6 +134,15 @@ spec:
                     maximum: 50
                     minimum: 3
                     type: integer
+                  monitoringAgent:
+                    description: specify startup flags for just the MonitoringAgent.
+                      These take precedence over the flags set in AutomationAgent
+                    properties:
+                      startupOptions:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                   opsManager:
                     properties:
                       configMapRef:
@@ -152,8 +163,6 @@ spec:
                     required:
                     - name
                     type: object
-                  persistent:
-                    type: boolean
                   podSpec:
                     properties:
                       cpu:
@@ -451,6 +460,8 @@ spec:
                   version:
                     pattern: ^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
                     type: string
+                required:
+                - version
                 type: object
               backup:
                 description: Backup

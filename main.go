@@ -72,6 +72,7 @@ func getCrdsToWatchStr() string {
 }
 
 func main() {
+
 	initializeEnvironment()
 
 	// get watch namespace from environment variable
@@ -192,6 +193,8 @@ func initializeEnvironment() {
 		"MONGODB_ENTERPRISE_",
 		"OPS_MANAGER_",
 		"KUBERNETES_",
+		"AGENT_IMAGE",
+		"MONGODB_",
 	}
 
 	// Only env variables with one of these prefixes will be printed

@@ -14,6 +14,7 @@ spec:
 
   applicationDatabase:
     members: 3
+    version: "4.2.0-ent"
 
   statefulSet:
     spec:

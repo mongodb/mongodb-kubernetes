@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"time"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
@@ -47,29 +52,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const omVersionWithNewDriver = "4.4.0"
+const (
+	omVersionWithNewDriver                 = "4.4.0"
+	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json"
+)
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
 	watch.ResourceWatcher
-	omInitializer       api.Initializer
-	omAdminProvider     api.AdminProvider
-	omConnectionFactory om.ConnectionFactory
-	// this version manifest is used for offline mode when the agent uses the bundled MongoDB and Operator
-	// must avoid downloading version manifest from the Internet
-	appDbVersionManifestPath string
+	omInitializer          api.Initializer
+	omAdminProvider        api.AdminProvider
+	omConnectionFactory    om.ConnectionFactory
+	versionMappingProvider func(string) ([]byte, error)
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider, appDbVersionManifestPath string) *OpsManagerReconciler {
+func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider, versionMappingProvider func(string) ([]byte, error)) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController: newReconcileCommonController(mgr),
 		omConnectionFactory:       omFunc,
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
-		appDbVersionManifestPath:  appDbVersionManifestPath,
 		ResourceWatcher:           watch.NewResourceWatcher(),
+		versionMappingProvider:    versionMappingProvider,
 	}
 }
 
@@ -103,7 +109,11 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
-	opsManagerUserPassword, err := r.getAppDBPassword(*opsManager, log)
+	if err := ensureResourcesForArchitectureChange(r.client, *opsManager); err != nil {
+		return r.updateStatus(opsManager, workflow.Failed("Error ensuring resources for upgrade from 1 to 3 container AppDB: %s", err), log, opsManagerExtraStatusParams)
+	}
+
+	opsManagerUserPassword, err := r.ensureAppDbPassword(*opsManager, log)
 
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed("Error ensuring Ops Manager user password: %s", err), log, opsManagerExtraStatusParams)
@@ -112,7 +122,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{}
 	retryResult := reconcile.Result{Requeue: true}
-	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.omConnectionFactory, r.appDbVersionManifestPath)
+	appDbReconciler := newAppDBReplicaSetReconciler(r.ReconcileCommonController, r.omConnectionFactory, r.versionMappingProvider)
 	result, err := appDbReconciler.Reconcile(opsManager, opsManagerUserPassword)
 	if err != nil || (result != emptyResult && result != retryResult) {
 		return result, err
@@ -140,6 +150,136 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
 	return reconcile.Result{}, nil
+}
+
+// getMonitoringAgentVersion returns the minimum supported agent version for the given version of Ops Manager.
+func getMonitoringAgentVersion(opsManager omv1.MongoDBOpsManager, readFile func(filename string) ([]byte, error)) (string, error) {
+	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
+	if err != nil {
+		return "", fmt.Errorf("failed extracting semver version from Ops Manager version %s: %s", opsManager.Spec.Version, err)
+	}
+
+	majorMinor := fmt.Sprintf("%d.%d", version.Major, version.Minor)
+	fileContainingMappingsBytes, err := readFile(opsManagerToVersionMappingJsonFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed reading file %s: %s", opsManagerToVersionMappingJsonFilePath, err)
+	}
+
+	// no bytes but no error, with an empty string we will use the same version as automation agent.
+	if fileContainingMappingsBytes == nil {
+		return "", nil
+	}
+
+	m := make(map[string]string)
+	if err := json.Unmarshal(fileContainingMappingsBytes, &m); err != nil {
+		return "", fmt.Errorf("failed unmarshalling bytes: %s", err)
+	}
+
+	if agentVersion, ok := m[majorMinor]; !ok {
+		return "", fmt.Errorf("agent version not present in the mapping file %s", opsManagerToVersionMappingJsonFilePath)
+	} else {
+		return agentVersion, nil
+	}
+}
+
+//ensureResourcesForArchitectureChange ensures that the new resources expected to be present.
+func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpdateCreator, opsManager omv1.MongoDBOpsManager) error {
+	acSecret, err := secretGetUpdaterCreator.GetSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()))
+
+	// if the automation config does not exist, we are not upgrading from an existing deployment. We can create everything from scratch.
+	if err != nil {
+		if !apiErrors.IsNotFound(err) {
+			return fmt.Errorf("error getting existing automation config secret: %s", err)
+		}
+		return nil
+	}
+
+	ac, err := automationconfig.FromBytes(acSecret.Data[automationconfig.ConfigKey])
+	if err != nil {
+		return fmt.Errorf("error unmarshalling existing automation: %s", err)
+	}
+
+	// the Ops Manager user should always exist within the automation config.
+	var omUser automationconfig.MongoDBUser
+	for _, user := range ac.Auth.Users {
+		if user.Username == util.OpsManagerMongoDBUserName {
+			omUser = user
+			break
+		}
+	}
+
+	if omUser.Username == "" {
+		return fmt.Errorf("ops manager user not present in the automation config")
+	}
+
+	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
+		SetName(opsManager.Spec.AppDB.OpsManagerUserScramCredentialsName()).
+		SetNamespace(opsManager.Namespace).
+		SetField("sha1-salt", omUser.ScramSha1Creds.Salt).
+		SetField("sha-1-server-key", omUser.ScramSha1Creds.ServerKey).
+		SetField("sha-1-stored-key", omUser.ScramSha1Creds.StoredKey).
+		SetField("sha256-salt", omUser.ScramSha256Creds.Salt).
+		SetField("sha-256-server-key", omUser.ScramSha256Creds.ServerKey).
+		SetField("sha-256-stored-key", omUser.ScramSha256Creds.StoredKey).
+		Build(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create/update scram crdentials secret for Ops Manager user: %s", err)
+	}
+
+	// ensure that the agent password stays consistent with what it was previously
+	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
+		SetName(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Name).
+		SetNamespace(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Namespace).
+		SetField(scram.AgentPasswordKey, ac.Auth.AutoPwd).
+		Build(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create/update password secret for agent user: %s", err)
+	}
+
+	// ensure that the keyfile stays consistent with what it was previously
+	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
+		SetName(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name).
+		SetNamespace(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Namespace).
+		SetField(scram.AgentKeyfileKey, ac.Auth.Key).
+		Build(),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to create/update keyfile secret for agent user: %s", err)
+	}
+
+	// there was a rename for a specific secret, `om-resource-db-password -> om-resource-db-om-password`
+	// this was done as now there are multiple secrets associated with the AppDB, and the contents of this old one correspond to the Ops Manager user.
+	oldOpsManagerUserPasswordSecret, err := secretGetUpdaterCreator.GetSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()+"-password"))
+	if err != nil {
+		// if it's not there, we don't want to create it. We only want to create the new secret if it is present.
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	return secret.CreateOrUpdate(secretGetUpdaterCreator, secret.Builder().
+		SetNamespace(opsManager.Namespace).
+		SetName(opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
+		SetByteData(oldOpsManagerUserPasswordSecret.Data).
+		Build(),
+	)
+}
+
+// createOrUpdateSecretIfNotFound creates the given secret if it does not exist.
+func createOrUpdateSecretIfNotFound(secretGetUpdaterCreator secret.GetUpdateCreator, desiredSecret corev1.Secret) error {
+	_, err := secretGetUpdaterCreator.GetSecret(kube.ObjectKey(desiredSecret.Namespace, desiredSecret.Name))
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return secret.CreateOrUpdate(secretGetUpdaterCreator, desiredSecret)
+		}
+		return fmt.Errorf("error getting secret %s/%s: %s", desiredSecret.Namespace, desiredSecret.Name, err)
+	}
+	return nil
+
 }
 
 func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
@@ -317,7 +457,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
-	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin, util.VersionManifestFilePath)
+	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin, ioutil.ReadFile)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -496,6 +636,10 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 
 		password, err := secret.ReadKey(r.client, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 		if err != nil {
+			if apiErrors.IsNotFound(err) {
+				log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
+				return r.generatePasswordAndCreateSecret(opsManager, log)
+			}
 			return "", err
 		}
 		log.Debugf("Reading password from secret/%s", passwordRef.Name)
@@ -1095,7 +1239,7 @@ func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, us
 		return workflow.OK()
 	}
 	// This validation is only for 4.2 OM version which doesn't support ScramSha256
-	comparison, err := util.CompareVersions(mongodb.Spec.GetVersion(), util.MinimumScramSha256MdbVersion)
+	comparison, err := util.CompareVersions(mongodb.Spec.GetMongoDBVersion(), util.MinimumScramSha256MdbVersion)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}

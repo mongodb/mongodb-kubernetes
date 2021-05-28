@@ -70,7 +70,7 @@ def test_authentication_enabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset.update()
 
     replicaset.assert_abandons_phase(Phase.Running)
-    replicaset.assert_reaches_phase(Phase.Running)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=400)
 
     fc = replicaset.get_om_tester().get_feature_controls()
 

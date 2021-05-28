@@ -23,4 +23,5 @@ spec:
     mms.minimumTLSVersion: TLSv1.2
 
   applicationDatabase:
+    version: "4.4.0-ent"
     members: 3

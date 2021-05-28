@@ -62,6 +62,7 @@ def ops_manager(
     del om["spec"]["configuration"]["automation.versions.source"]
     del om["spec"]["statefulSet"]
 
+    om.set_appdb_version(custom_appdb_version)
     # configure CA + tls secrets for AppDB members to community with each other
     om["spec"]["applicationDatabase"]["security"] = {
         "tls": {"ca": issuer_ca_plus, "secretRef": {"prefix": appdb_certs}}

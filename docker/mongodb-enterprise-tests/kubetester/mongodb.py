@@ -8,8 +8,14 @@ from typing import Dict, List, Optional, Tuple
 
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, build_host_fqdn
-from kubetester.omtester import OMContext, OMTester
+from kubernetes.client import V1ConfigMap
+
+from kubetester.kubetester import (
+    KubernetesTester,
+    build_host_fqdn,
+    ensure_nested_objects,
+)
+from kubetester.omtester import OMTester, OMContext
 
 from .mongotester import (
     MongoTester,
@@ -158,7 +164,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         if "project" in self["spec"]:
             del self["spec"]["project"]
 
-        self["spec"]["opsManager"] = {"configMapRef": {}}
+        ensure_nested_objects(self, ["spec", "opsManager", "configMapRef"])
 
         self["spec"]["opsManager"]["configMapRef"][
             "name"
@@ -171,9 +177,8 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
-        if "backup" not in self["spec"]:
-            self["spec"]["backup"] = {}
 
+        ensure_nested_objects(self, ["spec", "backup"])
         self["spec"]["backup"]["mode"] = mode
         return self
 
@@ -183,11 +188,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         tls_cert_secret_name: str,
         secret_ref_key: str = "prefix",
     ):
-        if "security" not in self["spec"]:
-            self["spec"]["security"] = {}
-        if "tls" not in self["spec"]["security"]:
-            self["spec"]["security"]["tls"] = {}
-
+        ensure_nested_objects(self, ["spec", "security", "tls"])
         self["spec"]["security"]["tls"]["enabled"] = True
         self["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap_name
         self["spec"]["security"]["tls"]["secretRef"] = {
