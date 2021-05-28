@@ -2,49 +2,24 @@
 set -Eeou pipefail
 
 if [[ "${kube_environment_name-}" != "kind" ]]; then
-  echo "Skiping download of kind"
-  exit 0
+    echo "Skiping download of kind"
+    exit 0
 fi
 
-if docker info 2>/dev/null | grep "Docker Root Dir" | grep -q "/var/lib/docker"; then
-  # we need to reconfigure Docker so its image storage points to a
-  # directory with enough space, in this case /data
-  echo "Trying with /etc/docker/daemon.json file"
-  sudo mkdir -p /etc/docker
-  sudo chmod o+w /etc/docker
-  cat <<EOF > "${HOME}/daemon.json"
-{
-    "graph": "/data/docker",
-    "storage-driver": "overlay2"
-}
-EOF
-  sudo mv "${HOME}/daemon.json" /etc/docker/daemon.json
+if ! command -v kind &>/dev/null; then
+    # Store the lowercase name of Operating System
+    os=$(uname | tr '[:upper:]' '[:lower:]')
+    # This should be changed when needed
+    latest_version="v0.11.0"
 
+    mkdir -p "${workdir:?}/bin/"
+    echo "Saving kind to ${workdir}/bin"
+    curl --retry 3 --silent -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-amd64" -o kind
 
-  sudo systemctl restart docker
-  if docker info 2>/dev/null | grep "Docker Root Dir"| grep -q "/data/docker"; then
-    echo "Docker storage configured correctly"
-  else
-    # The change didn't went through, we are not failing the test, but it might
-    # fail because of no free space left in device.
-    echo "Docker storage was not configured properly"
-  fi
-fi
-
-if ! command -v kind &> /dev/null ; then
-  # Store the lowercase name of Operating System
-  os=$(uname | tr '[:upper:]' '[:lower:]')
-  # This should be changed when needed
-  latest_version="v0.10.0"
-
-  mkdir -p "${workdir:?}/bin/"
-  echo "Saving kind to ${workdir}/bin"
-  curl --retry 3 --silent -L "https://github.com/kubernetes-sigs/kind/releases/download/${latest_version}/kind-${os}-amd64" -o kind
-
-  chmod +x kind
-  mv kind "${workdir}/bin"
-  echo "Installed kind in ${workdir}/bin"
+    chmod +x kind
+    mv kind "${workdir}/bin"
+    echo "Installed kind in ${workdir}/bin"
 else
-  echo "Kind is already present in this host"
-  kind version
+    echo "Kind is already present in this host"
+    kind version
 fi

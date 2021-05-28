@@ -621,13 +621,23 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 					detailedMsg, err).WithRetry(300), nil
 			}
 
-			adminSecret := secret.Builder().
+			adminSecretBuilder := secret.Builder().
 				SetNamespace(adminKeySecretName.Namespace).
 				SetName(adminKeySecretName.Name).
 				SetStringData(secretData).
-				SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
-				SetLabels(map[string]string{}).
-				Build()
+				SetLabels(map[string]string{})
+
+			if opsManager.Namespace == operatorNamespace() {
+				// The Secret where the admin-key is saved is created in the Namespace where the
+				// Operator resides.
+				// The Secret's OwnerReference is only added if both the Secret and Ops Manager
+				// reside in the same Namespace because cross-namespace OwnerReferences are not
+				// allowed.
+				// More information in: CLOUDP-90848
+				adminSecretBuilder.SetOwnerReferences(kube.BaseOwnerReference(&opsManager))
+			}
+
+			adminSecret := adminSecretBuilder.Build()
 
 			if err := r.client.CreateSecret(adminSecret); err != nil {
 				// TODO see above
