@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  namespace: chatton
+  labels:
+    app: myapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: quay.io/chatton/test:service-account-test
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: 50m
+            memory: 20Mi
+          limits:
+            cpu: 50m
+            memory: 20Mi
+        volumeMounts:
+          - name: kube-config-volume
+            mountPath: /etc/config/kubeconfig
+
+      volumes:
+        - name: kube-config-volume
+          configMap:
+            name: kubeconfig
