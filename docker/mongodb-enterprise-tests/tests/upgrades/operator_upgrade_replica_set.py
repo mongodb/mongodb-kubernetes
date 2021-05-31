@@ -32,6 +32,10 @@ def replica_set(
     )
     resource["spec"]["version"] = custom_mdb_version
 
+    # Make sure we persist in order to be able to upgrade gracefully
+    # and it is also faster.
+    resource["spec"]["persistent"] = True
+
     # TLS
     resource.configure_custom_tls(
         issuer_ca_configmap, rs_certs_secret, secret_ref_key="name"
