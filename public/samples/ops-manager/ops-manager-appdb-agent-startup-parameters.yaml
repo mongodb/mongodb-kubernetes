@@ -26,7 +26,6 @@ spec:
   applicationDatabase:
     version: "4.4.0-ent"
     members: 3
-    persistent: true
     # optional. Allows to pass  custom flags that will be used
     # when launching the mongodb agent. All values must be strings
     agent:

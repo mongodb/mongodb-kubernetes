@@ -10,7 +10,6 @@ images:
       template_context: docker/mongodb-enterprise-operator
 
     inputs:
-    - mdb_version
     - release_version
     - log_automation_config_diff
 
@@ -20,7 +19,6 @@ images:
 
       dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
       buildargs:
-        mdb_version: $(inputs.params.mdb_version)
         release_version: $(inputs.params.release_version)
         log_automation_config_diff: $(inputs.params.log_automation_config_diff)
 

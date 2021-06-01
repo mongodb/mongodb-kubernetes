@@ -249,15 +249,12 @@ def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
     image_name = "operator"
 
-    appdb_version = get_release()["appDbBundle"]["mongodbVersion"]  # 4.2.11-ent
-
     # In evergreen we can pass test_suffix env to publish the operator to a quay
     # repostory with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
 
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
     args = dict(
-        mdb_version=appdb_version,
         release_version=get_git_release_tag(),
         log_automation_config_diff=log_automation_config_diff,
         test_suffix=test_suffix,
@@ -273,55 +270,16 @@ def build_database_image(build_configuration: BuildConfiguration):
     """
     image_name = "database"
     release = get_release()
-    base_url = release["appDbBundle"]["baseUrl"]
 
-    mongodb_server_ubi = "{}/{}".format(base_url, release["appDbBundle"]["ubi"])
-    mongodb_server_ubuntu = "{}/{}".format(base_url, release["appDbBundle"]["ubuntu"])
-
-    agent_version = release["appDbBundle"]["agent_version"]
-    agent_url = release["appDbBundle"]["agent_url"]
-    mongodb_agent_linux = agent_url.format(agent_version=agent_version)
     version = release["databaseImageVersion"]
 
     args = dict(
-        mongodb_server_ubi=mongodb_server_ubi,
-        mongodb_server_ubuntu=mongodb_server_ubuntu,
-        mongodb_agent_linux=mongodb_agent_linux,
         version=version,
-        is_appdb=False,
     )
 
     sonar_build_image(
         image_name, build_configuration, args, "inventories/database.yaml"
     )
-
-
-def build_appdb_image(build_configuration: BuildConfiguration):
-    """
-    Builds a new appdb image.
-    """
-    image_name = "appdb"
-    release = get_release()
-    base_url = release["appDbBundle"]["baseUrl"]
-
-    mongodb_server_ubi = "{}/{}".format(base_url, release["appDbBundle"]["ubi"])
-    mongodb_server_ubuntu = "{}/{}".format(base_url, release["appDbBundle"]["ubuntu"])
-
-    agent_version = release["appDbBundle"]["agent_version"]
-    agent_url = release["appDbBundle"]["agent_url"]
-    mongodb_agent_linux = agent_url.format(agent_version=agent_version)
-    version = release["appDbImageVersion"]
-
-    args = dict(
-        mongodb_server_ubi=mongodb_server_ubi,
-        mongodb_server_ubuntu=mongodb_server_ubuntu,
-        mongodb_agent_linux=mongodb_agent_linux,
-        agent_version=agent_version,
-        version=version,
-        is_appdb=True,
-    )
-
-    sonar_build_image(image_name, build_configuration, args, "inventories/appdb.yaml")
 
 
 def build_operator_image_patch(build_configuration: BuildConfiguration):
@@ -610,7 +568,6 @@ def get_builder_function_for_image_name():
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
-        "appdb": build_appdb_image,
         #
         # Init images
         "init-appdb": build_init_appdb,

@@ -55,11 +55,6 @@ def handle_operator_version():
     update_operator_version_chart(new_version)
 
 
-def handle_appdb_version():
-    appdb_agent_version = read_release_from_file(ReleaseObject.appdb)
-    update_all_helm_values_files("appDb", f"{appdb_agent_version}")
-
-
 def handle_init_image(
     release_object: ReleaseObject,
     paths_to_check: List[str],
@@ -86,7 +81,6 @@ def handle_init_image(
 def main():
     current_operator_version = read_release_from_file(ReleaseObject.mongodb_operator)
     handle_operator_version()
-    handle_appdb_version()
     handle_init_image(
         ReleaseObject.init_database,
         INIT_DATABASE_PATHS,

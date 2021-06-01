@@ -12,11 +12,6 @@ images:
     task_type: docker_build
     dockerfile: Dockerfile.builder
 
-    buildargs:
-      mongodb_server_ubi: $(inputs.params.mongodb_server_ubi)
-      mongodb_server_ubuntu: $(inputs.params.mongodb_server_ubuntu)
-      mongodb_agent_linux: $(inputs.params.mongodb_agent_linux)
-
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context
       tag: $(inputs.params.version_id)
@@ -28,7 +23,6 @@ images:
 
     inputs:
     - version
-    - is_appdb
 
     output:
     - dockerfile: docker/mongodb-enterprise-database/Dockerfile.ubuntu-$(inputs.params.version_id)
@@ -52,7 +46,6 @@ images:
 
     inputs:
     - version
-    - is_appdb
 
     output:
     - dockerfile: docker/mongodb-enterprise-database/Dockerfile.ubi-$(inputs.params.version_id)
@@ -88,7 +81,6 @@ images:
 
     inputs:
     - version
-    - is_appdb
 
     output:
     - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
@@ -100,7 +92,6 @@ images:
 
     inputs:
     - version
-    - is_appdb
 
     output:
     - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)

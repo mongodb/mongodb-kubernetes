@@ -29,10 +29,7 @@ spec:
   # Application database has the SCRAM-SHA authentication mode always enabled
   applicationDatabase:
     members: 3
-    # optional. Configures the version of MongoDB used as an application database.
-    # The bundled MongoDB binary will be used if omitted and no download from the Internet will happen
     version: 4.2.6-ent
-    persistent: true
     # optional. Allows to pass custom MongoDB process configuration
     additionalMongodConfig:
       operationProfiling:

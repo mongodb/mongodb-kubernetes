@@ -12,7 +12,6 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.6-ent
-    persistent: true
 
 
   # The statefulSet entry will modify the way the StatefulSet holding the

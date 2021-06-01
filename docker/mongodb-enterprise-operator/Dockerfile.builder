@@ -8,7 +8,6 @@ FROM golang:1.15 as builder
 
 ARG release_version
 ARG log_automation_config_diff
-ARG mdb_version
 
 
 COPY go.sum go.mod /go/src/github.com/10gen/ops-manager-kubernetes/

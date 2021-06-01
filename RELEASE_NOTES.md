@@ -6,15 +6,33 @@
 * Bug fixes
   * Fixes an issue with the `LivenessProbe` that could cause the database Pods to be restarted in the middle of a restore operation from Backup.
 
+## MongoDBOpsManager Resource
+* Breaking Changes
+  *For a complete guide on how to safely upgrade, please check the [upgrade instructions](link here TODO)*
+  * Each Application Database pod consists now of three containers (`mongodb`, `mongodb-agent`, `mongodb-agent-monitoring`) and it does not bundle anymore a MongoDB version
+  * You can now use any version of MongoDB for the Application Database (we recommend to use the enterprise ones provided by MongoDB, see the *New Images* section)
+    * You need to make sure the MongoDB version used is [supported](https://docs.opsmanager.mongodb.com/current/reference/mongodb-compatibility/) by OpsManager
+  * `spec.applicationDatabase.version` is no longer optional.
+  * `spec.applicationDatabase.persistent` does not exist anymore, the Operator will now always use persistent volumes for the AppDB. 
+
 ## New Images
 
-TODO: determine version of agent that will be shipped with 1.11.0
+* mongodb-agent 10.29.0.6830-1:
+ * Ubi: quay.io/mongodb/mongodb-agent-ubi:10.29.0.6830-1
+ * Ubuntu: quay.io/mongodb/mongodb-agent:10.29.0.6830-1
+ 
+* mongodb-enterprise-appdb-database
+ * Ubi: quay.io/mongodb/mongodb-enterprise-appdb-database-ubi
+ * Ubuntu: quay.io/mongodb/mongodb-enterprise-appdb-database
+ 
+* mongodb-enterprise-init-appdb 1.0.7
+  * Ubi: quay.io/mongodb/mongodb-enterprise-init-appdb-ubi:1.0.7
+  * Ubuntu: quay.io/mongodb/mongodb-enterprise-init-appdb:1.0.7
 
-* mongodb-agent <version>:
- * Ubi: quay.io/mongodb/mongodb-agent-ubi:<version>
- * Ubuntu: quay.io/mongodb/mongodb-agent:<version>
-
-
+* mongodb-enterprise-init-database 1.0.3
+  * Ubi: quay.io/mongodb/mongodb-enterprise-init-database-ubi:1.0.3
+  * Ubuntu: quay.io/mongodb/mongodb-enterprise-init-database:1.0.3
+  
 <!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.10.1
 

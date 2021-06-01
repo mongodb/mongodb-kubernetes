@@ -193,11 +193,6 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase
-      - displayName: Enable Persistence
-        path: applicationDatabase.persistent
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase
       - displayName: Secret containing the TLS certificate signed by known or custom CA.
         path: applicationDatabase.security.tls.secretRef.name
         x-descriptors:

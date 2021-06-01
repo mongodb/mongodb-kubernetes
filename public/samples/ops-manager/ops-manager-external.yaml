@@ -33,4 +33,3 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.6-ent
-    persistent: true

@@ -8,43 +8,31 @@ The images released are:
 - operator
 - database
 - ops manager
-- appdb
+- mongodb agent
 
-## 1. Update Jira to reflect the patches in the release
 
-**NOTE: this is being phased out. We are starting to remove the usage of `kube-enterprise-next`
-and directly label our tickets with the next expected release version.**
-
-Update any finished tickets in
-[kube-enterprise-next](https://tinyurl.com/kube-next-resolved) to have the
-version of the release you're doing (kube-x.y):
-
-* Click `tools` -> `bulk change` in the top right corner
-* Select all tickets and click `Next`
-* Choose `Edit issues`
-* Choose `Change Fix Version/s` -> `Replace all with` and select the released
-  version, `Next`
-
-## 2. Prepare Release Notes
+## 1. Prepare Release Notes
 
 Check the [release notes](../../../RELEASE_NOTES.md) document and make sure that
 they conform to the [release notes template](./release-notes-template.md)
 
-Create a DOCSP ticket to publish the release notes. If the DOCSP ticket has not been assigned by
+Create a [DOCSP](https://jira.mongodb.org/secure/CreateIssue.jspa?issuetype=12507&pid=14181) ticket to publish the release notes. If the DOCSP ticket has not been assigned by
 Wednesday, ask about it in the #docs channel.
 
-If this is a major-version release, include the EOL date in the Release Notes so
+If this is a major-version release:
+* Make sure that the Release date in our [Platform Roadmap](https://docs.google.com/spreadsheets/d/1x5vfesgCaGJbFI07OPNRgOAxSIZIAxrJcRME8qjuvcw/edit#gid=0) is correct
+* Include the EOL date in the Release Notes so
 that the docs team update our [Support Lifecycle
 page](https://docs.mongodb.com/kubernetes-operator/master/reference/support-lifecycle/#k8s-support-lifecycle)
 
 
-## 3. Release ticket, branch and PR
+## 2. Release ticket, branch and PR
 
 * Create a branch named after release ticket.
 * Check that all samples and `README` in `public` folder are up-to-date -
   otherwise fix them and push changes.
 
-## 4. Increase release versions in relevant files
+## 3. Increase release versions in relevant files
 
 Ensure the required dependencies are installed
 ```bash
@@ -63,12 +51,12 @@ git fetch
 
 Push the PR changes
 
-## 5. Get the release PR approved and merge the branch to Master
+## 4. Get the release PR approved and merge the branch to Master
 
 Ask someone from the team to approve the PR and then merge the release branch to
 master.
 
-## 6. Tag the commit for release
+## 5. Tag the commit for release
 
 If this is your first time doing a release, make sure your **Github username** is
 on the list of those that can trigger evg versions with git tags:
@@ -96,7 +84,7 @@ Notes:
 * Evergreen can't initiate versions from an annotated tag, until this is resolved
   tags should not be annotated: EVG-14357.
 
-## 7. Build and push images
+## 6. Build and push images
 
 The following images are expected to get released by the end of this procedure:
 * Operator
@@ -111,9 +99,7 @@ Remember that the new images will be produced at midnight, and no new images
 will be pushed to public repositories after the *release* taks have been
 executed.
 
-*(Database, AppDB and Ops Manager images are released manually)*
-**Note** that `appdb` release tasks should be run only if the new version of
-appdb image has been released
+*(Database, Agent, AppDB Database and Ops Manager images are released manually)*
 
 You need to publish the following images (click on the ">" sign to the left from
  the image to expand the section, select "mark with latest tag" checkbox):
@@ -128,9 +114,11 @@ reference:
 
 * https://connect.redhat.com/project/851701/images (Database)
 * https://connect.redhat.com/project/2207181/images (Ops Manager)
-* https://connect.redhat.com/project/2207271/images (AppDB)
+* https://connect.redhat.com/project/5961821/images (AppDB Database)
+* https://connect.redhat.com/project/5961771/images (MongoDB Agent)
 
-## 8. Operator Daily Builds
+
+## 7. Operator Daily Builds
 
 The outcome of the execution of the `release_quay`
 task *will not be new Images published but instead*:
@@ -148,7 +136,7 @@ The results of the periodic builds will appear as notifications in the
 [#k8s-operator-daily-builds](https://mongodb.slack.com/archives/C01HYH2KUJ1)
 Slack channel.
 
-## Publishing newly released Containerimages
+## 8. Publishing newly released Container images
 
 To complete the update of the public repo, you need to add any new images
 produced by the release process. Remember that these are the same images,
@@ -159,7 +147,7 @@ stored in S3 to build the images daily.
 All of the supported files will be downloaded and staged into your repo, before
 moving on, make sure you commit these changes locally.
 
-## Publish public repo
+## 9. Publish public repo
 
 First make sure that the `/public` directory is up to date with the public
 repository. This may involve creating a new PR into the development repository
@@ -181,38 +169,21 @@ repo, and they should not be checked into the private repo either.
 
 Check the last commit in the public repo and if everything is ok - **push it**.
 
-## Ask the Docs team to publish the Release Notes
+## 10. Ask the Docs team to publish the Release Notes
 Do this in the #docs channel
 
-## Create Release Notes on Github
+## 11. Create Release Notes on Github
 Copy the Release Notes from the DOCSP [into Github](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new)
 
-## Release in Github
+## 12. Release in Github
 
 Publish release in our public Github repository
 [https://github.com/mongodb/mongodb-enterprise-kubernetes/releases](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases)
 
-## Update Operator in Kanopy
-
-Create a
-[ticket](https://jira.mongodb.org/projects/TECHOPS/welcome-guide) for
-TechOps to update their Kanopy Kubernetes cluster to latest release of
-our Operator.
-
-## Create the next release ticket
-
-    make_jira_tickets kube_release 0.9
-
 ## Release in Jira
 
-Ask someone with permission (Crystal/James/David/Rahul ) to "release" the version in Jira and create next ones
+Ask someone with permission (Crystal/James/David/Rahul/Akvile ) to "release" the version in Jira and create next ones
 
 ## Publish the New Version into Operatorhub.io and Openshift Marketplace
 
 Find instructions [here](publishing-to-marketplaces.md).
-
-## Inform TechOps
-Let Ricardo (ricardo.hernandez) know that we've released a new version and link
-him the release notes. This will ensure that the Operator as deployed in Kanopy
-is updated appropriately. Also offer to remove this notification from our
-release process if it proves unnecessary.
