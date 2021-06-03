@@ -89,11 +89,6 @@ spec:
               clusterDomain:
                 format: hostname
                 type: string
-              clusterName:
-                description: 'Deprecated: This has been replaced by the ClusterDomain
-                  which should be used instead'
-                format: hostname
-                type: string
               configServerCount:
                 type: integer
               configSrv:

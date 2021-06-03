@@ -32,9 +32,7 @@ type AppDBSpec struct {
 	ClusterDomain string          `json:"clusterDomain,omitempty"`
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
 	ResourceType mdbv1.ResourceType `json:"type,omitempty"`
-	// Deprecated: This has been replaced by the ClusterDomain which should be
-	// used instead
-	ClusterName  string                     `json:"clusterName,omitempty"`
+
 	Connectivity *mdbv1.MongoDBConnectivity `json:"connectivity,omitempty"`
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
@@ -211,9 +209,6 @@ func (a AppDBSpec) GetMongoDBVersion() string {
 func (a AppDBSpec) GetClusterDomain() string {
 	if a.ClusterDomain != "" {
 		return a.ClusterDomain
-	}
-	if a.ClusterName != "" {
-		return a.ClusterName
 	}
 	return "cluster.local"
 }

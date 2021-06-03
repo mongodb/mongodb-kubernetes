@@ -157,10 +157,6 @@ type MongoDbSpec struct {
 	// ExposedExternally determines whether a NodePort service should be created for the resource
 	ExposedExternally bool `json:"exposedExternally,omitempty"`
 
-	// Deprecated: This has been replaced by the ClusterDomain which should be
-	// used instead
-	// +kubebuilder:validation:Format="hostname"
-	ClusterName string `json:"clusterName,omitempty"`
 	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
@@ -270,9 +266,6 @@ func (ms MongoDbSpec) GetMongoDBVersion() string {
 func (ms MongoDbSpec) GetClusterDomain() string {
 	if ms.ClusterDomain != "" {
 		return ms.ClusterDomain
-	}
-	if ms.ClusterName != "" {
-		return ms.ClusterName
 	}
 	return "cluster.local"
 }
