@@ -19,9 +19,9 @@ images:
     - registry: $(inputs.params.registry)/ops-manager-context
       tag: $(inputs.params.version_id)
 
-  - name: ops-manager-template
+  - name: ops-manager-template-ubuntu
     task_type: dockerfile_template
-    distro: ubuntu
+    template_file_extension: ubuntu
     tags: ["ubuntu"]
 
     inputs:
@@ -29,11 +29,11 @@ images:
     - om_version
 
     output:
-    - dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.ubuntu-$(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
 
   - name: ops-manager-build
     task_type: docker_build
-    dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
+    dockerfile: $(stages['ops-manager-template-ubuntu'].outputs[0].dockerfile)
     tags: ["ubuntu"]
 
     buildargs:
@@ -43,9 +43,9 @@ images:
     - registry: $(inputs.params.om_registry)/images/ubuntu/mongodb-enterprise-ops-manager
       tag: $(inputs.params.om_version)
 
-  - name: ops-manager-template
+  - name: ops-manager-template-ubi
     task_type: dockerfile_template
-    distro: ubi
+    template_file_extension: ubi
     tags: ["ubi"]
 
     inputs:
@@ -56,11 +56,11 @@ images:
       imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
 
     output:
-    - dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.ubi-$(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
 
   - name: ops-manager-build
     task_type: docker_build
-    dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
+    dockerfile: $(stages['ops-manager-template-ubi'].outputs[0].dockerfile)
     tags: ["ubi"]
 
     buildargs:
@@ -74,7 +74,7 @@ images:
   ## Release tasks
   - name: ops-manager-template
     task_type: dockerfile_template
-    distro: ubuntu
+    template_file_extension: ubuntu
     tags: ["ubuntu", "release"]
 
     inputs:
@@ -86,7 +86,7 @@ images:
 
   - name: ops-manager-template
     task_type: dockerfile_template
-    distro: ubi
+    template_file_extension: ubi
     tags: ["ubi", "release"]
 
     inputs:

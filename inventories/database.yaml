@@ -25,11 +25,14 @@ images:
     - version
 
     output:
-    - dockerfile: docker/mongodb-enterprise-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
 
   - name: database-build-ubuntu
+    vars:
+      context: docker/mongodb-enterprise-database
+
     task_type: docker_build
-    dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
+    dockerfile: $(stages['init-appdb-template-ubuntu'].outputs[0].dockerfile)
     tags: ["ubuntu"]
 
     buildargs:

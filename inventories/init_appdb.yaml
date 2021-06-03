@@ -27,14 +27,14 @@ images:
   
   - name: init-appdb-template-ubuntu
     task_type: dockerfile_template
-    distro: busybox
+    template_file_extension: busybox
     tags: ["ubuntu"]
 
     inputs:
     - is_appdb
 
     output:
-    - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version)
+    - dockerfile: $(functions.tempfile)
 
   - name: init-appdb-build-ubuntu
     task_type: docker_build
@@ -44,7 +44,7 @@ images:
       version: $(inputs.params.version)
       imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context:$(inputs.params.version_id)
 
-    dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version)
+    dockerfile: $(stages['init-appdb-template-ubuntu'].outputs[0].dockerfile)
 
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb
@@ -54,14 +54,14 @@ images:
 
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
-    distro: ubi_minimal
+    template_file_extension: ubi_minimal
     tags: ["ubi"]
 
     inputs:
     - is_appdb
 
     output:
-    - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version)
+    - dockerfile: $(functions.tempfile)
 
   - name: init-appdb-build-ubi
     task_type: docker_build
@@ -71,7 +71,7 @@ images:
       version: $(inputs.params.version)
       imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context:$(inputs.params.version_id)
 
-    dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version)
+    dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
 
     output:
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-appdb
@@ -91,7 +91,7 @@ images:
 
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
-    distro: ubi_minimal
+    template_file_extension: ubi_minimal
     tags: ["release"]
 
     inputs:
@@ -102,7 +102,7 @@ images:
 
   - name: init-appdb-template-ubuntu
     task_type: dockerfile_template
-    distro: busybox
+    template_file_extension: busybox
     tags: ["release"]
 
     inputs:

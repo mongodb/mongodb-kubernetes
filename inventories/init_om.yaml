@@ -18,18 +18,18 @@ images:
 
   - name: init-ops-manager-template-ubuntu
     task_type: dockerfile_template
-    distro: busybox
+    template_file_extension: busybox
     tags: ["ubuntu"]
 
     inputs:
     - version
 
     output:
-    - dockerfile: docker/mongodb-enterprise-init-ops-manager/Dockerfile.ubuntu-$(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
 
   - name: init-ops-manager-build-ubuntu
     task_type: docker_build
-    dockerfile: Dockerfile.ubuntu-$(inputs.params.version_id)
+    dockerfile: $(stages['init-ops-manager-template-ubuntu'].outputs[0].dockerfile)
     tags: ["ubuntu"]
 
     buildargs:
@@ -43,18 +43,18 @@ images:
   
   - name: init-ops-manager-template-ubi
     task_type: dockerfile_template
-    distro: ubi_minimal
+    template_file_extension: ubi_minimal
     tags: ["ubi"]
 
     inputs:
     - version
 
     output:
-    - dockerfile: docker/mongodb-enterprise-init-ops-manager/Dockerfile.ubi-$(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
   
   - name: init-ops-manager-build-ubi
     task_type: docker_build
-    dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
+    dockerfile: $(stages['init-ops-manager-template-ubi'].outputs[0].dockerfile)
     tags: ["ubi"]
 
     buildargs:
@@ -78,7 +78,7 @@ images:
 
   - name: init-ops-manager-template-ubi
     task_type: dockerfile_template
-    distro: ubi_minimal
+    template_file_extension: ubi_minimal
     tags: ["release"]
 
     inputs:
@@ -89,7 +89,7 @@ images:
 
   - name: init-ops-manager-template-ubuntu
     task_type: dockerfile_template
-    distro: busybox
+    template_file_extension: busybox
     tags: ["release"]
 
     inputs:

@@ -28,14 +28,15 @@ images:
 
       - name: init-database-template-ubuntu
         task_type: dockerfile_template
+
         tags: ["ubuntu"]
-        distro: busybox
+        template_file_extension: busybox
 
         inputs:
           - is_appdb
 
         output:
-        - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+        - dockerfile: $(functions.tempfile)
 
       - name: init-database-build-ubuntu
         task_type: docker_build
@@ -45,9 +46,11 @@ images:
           version: $(inputs.params.version)
           imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
 
-        dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubuntu-$(inputs.params.version_id)
+        dockerfile: $(stages['init-database-template-ubuntu'].outputs[0].dockerfile)
+
         inputs:
           - is_appdb
+
         output:
           - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database
             tag: $(inputs.params.version_id)
@@ -56,13 +59,13 @@ images:
 
       - name: init-database-template-ubi
         task_type: dockerfile_template
-        distro: ubi_minimal
+        template_file_extension: ubi_minimal
         tags: ["ubi"]
 
         inputs:
         - is_appdb
         output:
-        - dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
+        - dockerfile: $(functions.tempfile)
 
       - name: init-database-build-ubi
         task_type: docker_build
@@ -70,9 +73,9 @@ images:
 
         buildargs:
           imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
-
           version: $(inputs.params.version)
-        dockerfile: docker/mongodb-enterprise-init-database/Dockerfile.ubi-$(inputs.params.version_id)
+
+        dockerfile: $(stages['init-database-template-ubi'].outputs[0].dockerfile)
         inputs:
           - is_appdb
 
@@ -92,21 +95,21 @@ images:
         - registry: $(inputs.params.quay_registry)
           tag: $(inputs.params.version)-context
 
-
       - name: init-database-template-ubi
         task_type: dockerfile_template
-        distro: ubi_minimal
+        template_file_extension: ubi_minimal
         tags: ["release"]
 
         inputs:
         - is_appdb
+
         output:
         - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
 
       - name: init-database-template-ubuntu
         task_type: dockerfile_template
         tags: ["release"]
-        distro: busybox
+        template_file_extension: busybox
 
         inputs:
           - is_appdb

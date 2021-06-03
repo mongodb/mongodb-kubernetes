@@ -36,8 +36,7 @@ images:
       - debug
 
       output:
-      - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubi-$(inputs.params.version_id)
-      - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubi-$(inputs.params.release_version)
+      - dockerfile: $(functions.tempfile)
 
     - name: operator-template-ubuntu
       task_type: dockerfile_template
@@ -49,14 +48,13 @@ images:
       - debug
 
       output:
-      - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubuntu-$(inputs.params.version_id)
-      - dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubuntu-$(inputs.params.release_version)
+      - dockerfile: $(functions.tempfile)
 
     - name: operator-ubuntu-build
       task_type: docker_build
       tags: ["ubuntu"]
 
-      dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubuntu-$(inputs.params.version_id)
+      dockerfile: $(stages['operator-template-ubuntu'].outputs[0].dockerfile)
       buildargs:
         imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
 
@@ -71,7 +69,7 @@ images:
       task_type: docker_build
       tags: ["ubi"]
 
-      dockerfile: docker/mongodb-enterprise-operator/Dockerfile.ubi-$(inputs.params.version_id)
+      dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
       buildargs:
         imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
 
@@ -114,44 +112,3 @@ images:
 
       output:
       - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.release_version)
-
-  - name: operator-daily-build
-    vars:
-      context: .
-
-    stages:
-    - name: build-ubuntu
-      task_type: docker_build
-
-      inputs:
-      - build_id
-
-      dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
-      buildargs:
-        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-      output:
-      - registry: $(inputs.params.quay_registry)
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.quay_registry)
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-
-    - name: build-ubi
-      task_type: docker_build
-
-      inputs:
-      - build_id
-
-      dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
-      buildargs:
-        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-      output:
-      - registry: $(inputs.params.quay_registry)-ubi
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.quay_registry)-ubi
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-      - registry: $(inputs.params.rh_registry)
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.rh_registry)
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
