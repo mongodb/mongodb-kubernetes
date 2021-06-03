@@ -473,8 +473,10 @@ functions:
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
-
-        command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port} ${ecr_registry} ${version_id}"
+        include_expansions_in_env:
+        - ecr_registry
+        - version_id
+        command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
   #
   # Performs some AWS cleanup
   #
