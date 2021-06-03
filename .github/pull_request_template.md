@@ -9,7 +9,7 @@
 
 ## Changes to CRDs
 
-* [ ] Add `@jamesbroadhead` (James) and `@theburi` (Andrey) as reviewers.
+* [ ] Add `@jamesbroadhead` (James) and `@jasonmimick` (Jason) as reviewers.
 * [ ] Make sure any changes are reflected on `/public/samples` directory.
 
 ## If this PR introduces any change to the Kubernetes or Ops Manager APIs or core reconciliation logic.
