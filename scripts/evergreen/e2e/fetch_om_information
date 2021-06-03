@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -Eeou pipefail
 
 source scripts/funcs/checks
 source scripts/funcs/printing
@@ -28,15 +29,16 @@ else
     echo "Ops Manager is already installed in this cluster. Will reuse it now."
 fi
 
-# Get the environment from the ops-manager container
-echo "Getting credentials from Ops Manager"
+echo "Getting credentials from secrets"
 
-# Gets the om-environment
-kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" && \
-    eval "$(kubectl -n "${OPERATOR_TESTING_FRAMEWORK_NS}" exec mongodb-enterprise-ops-manager-0 cat "/opt/mongodb/mms/env/.ops-manager-env")" || exit 1
 
-echo "OM_USER: ${OM_USER}"
-echo "OM_PASSWORD: ${OM_PASSWORD}"
-echo "OM_API_KEY: ${OM_API_KEY}"
+OM_USER="$(kubectl get secret ops-manager-admin-secret -n "${OPERATOR_TESTING_FRAMEWORK_NS}"  -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.Username' -r)"
+OM_PASSWORD="$(kubectl get secret ops-manager-admin-secret  -n "${OPERATOR_TESTING_FRAMEWORK_NS}" -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.Password' -r)"
+OM_API_KEY="$(kubectl get secret "${OPERATOR_TESTING_FRAMEWORK_NS}"-ops-manager-admin-key -n "${OPERATOR_TESTING_FRAMEWORK_NS}" -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.publicApiKey' -r)"
+
+export OM_USER
+export OM_PASSWORD
+export OM_API_KEY
+
 
 title "Ops Manager environment is successfully read"

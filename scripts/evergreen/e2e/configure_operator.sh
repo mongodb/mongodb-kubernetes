@@ -18,7 +18,7 @@ title "Creating project and credentials Kubernetes object..."
 if [ -n "${OM_BASE_URL-}" ]; then
   BASE_URL="${OM_BASE_URL}"
 else
-  BASE_URL="http://ops-manager.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
+  BASE_URL="http://ops-manager-svc.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
 fi
 
 # We always create the image pull secret from the docker config.json which gives access to all necessary image repositories

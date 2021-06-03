@@ -7,12 +7,12 @@ stepback: true
 # Ops Manager image building & pushing takes a long time
 exec_timeout_secs: 4500
 variables:
-  - &ops_manager_40_first
-    ops_manager_version: "4.0.11.50485.20190502T1847Z-1_test"
-    ops_manager_namespace: "operator-testing-40-first"
-    node_port: 30041
+  - &ops_manager_42_first
+    ops_manager_version: "4.2.0"
+    ops_manager_namespace: "operator-testing-42-first"
+    node_port: 30042
   - &ops_manager_44_current
-    ops_manager_version: "4.4.1.101.20200805T0050Z-1"
+    ops_manager_version: "4.4.12"
     ops_manager_namespace: "operator-testing-44-current"
     node_port: 30044
   - &cloud_manager_qa
@@ -474,7 +474,7 @@ functions:
           AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
 
-        command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
+        command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port} ${ecr_registry} ${version_id}"
   #
   # Performs some AWS cleanup
   #
@@ -739,8 +739,11 @@ tasks:
       skip_tags: ubuntu,release
 
 - name: prepare_cluster_vanilla
-  exec_timeout_secs: 1200
+  exec_timeout_secs: 1800
   priority: 59
+  depends_on:
+  - name: build_operator_ubuntu
+  - name: build_init_appdb_images_ubuntu
   commands:
     - func: clone
     - func: download_kube_tools
@@ -752,7 +755,8 @@ tasks:
         <<: *ops_manager_44_current
     - func: prepare_test_env
       vars:
-        <<: *ops_manager_40_first
+        <<: *ops_manager_42_first
+        
 
 - name: prepare_cluster_vanilla_om
   exec_timeout_secs: 600
@@ -1874,8 +1878,8 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
-# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om40 build variant
-- name: e2e_mdb_vanilla_ubuntu_om40_task_group
+# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om42 build variant
+- name: e2e_mdb_vanilla_ubuntu_om42_task_group
   # These tests are run on the same kops cluster as om44 ones
   max_hosts: 4
   setup_group:
@@ -2200,8 +2204,8 @@ buildvariants:
 #  tasks:
 #    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
 
-- name: e2e_mdb_vanilla_ubuntu_om40
-  display_name: "e2e_mdb_vanilla_ubuntu_om40"
+- name: e2e_mdb_vanilla_ubuntu_om42
+  display_name: "e2e_mdb_vanilla_ubuntu_om42"
   depends_on:
     - name: build_operator_ubuntu
       variant: init_test_run
@@ -2215,12 +2219,12 @@ buildvariants:
   - ubuntu1604-test
   stepback: false
   expansions:
-    <<: *ops_manager_40_first
+    <<: *ops_manager_42_first
     <<: *kubernetes_environment_vanilla
-    custom_mdb_version: *mdb_40_latest
+    custom_mdb_version: *mdb_42_latest
     image_type: ubuntu
   tasks:
-  - name: e2e_mdb_vanilla_ubuntu_om40_task_group
+  - name: e2e_mdb_vanilla_ubuntu_om42_task_group
 
 - name: e2e_mdb_vanilla_ubuntu_om44
   display_name: "e2e_mdb_vanilla_ubuntu_om44"

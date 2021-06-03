@@ -99,7 +99,7 @@ deploy_test_app() {
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID-}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY:-}"
         "--set" "skipExecution=${SKIP_EXECUTION:-'false'}"
-        "--set" "baseUrl=${OM_BASE_URL:-http://ops-manager.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}"
+        "--set" "baseUrl=${OM_BASE_URL:-http://ops-manager-svc.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}"
         "--set" "apiKey=${OM_API_KEY:-}"
         "--set" "apiUser=${OM_USER:-admin}"
         "--set" "orgId=${OM_ORGID:-}"

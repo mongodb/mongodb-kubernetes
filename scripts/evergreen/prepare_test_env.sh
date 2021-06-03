@@ -65,6 +65,8 @@ deploy_cluster_cleaner() {
 ops_manager_namespace="${1:-}"
 ops_manager_version="${2:-}"
 node_port="${3:-}"
+ecr_registry="${4:-}"
+version_id="${5:-}"
 
 echo "Fixing AWS problems if any"
 fix_env
@@ -79,5 +81,5 @@ echo "Installing/Upgrading all CRDs"
 kubectl replace -f public/helm_chart/crds || kubectl apply -f public/helm_chart/crds
 
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then
-    ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}"
+    ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}" "${ecr_registry}" "${version_id}"
 fi

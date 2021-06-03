@@ -1,4 +1,4 @@
-{% extends "Dockerfile.appdb" %}
+{% extends "Dockerfile.template" %}
 
 {% set base_image = "ubuntu:16.04" %}
 {% set distro = "ubuntu" %}

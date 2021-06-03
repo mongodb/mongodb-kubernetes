@@ -46,7 +46,11 @@ ensure_ops_manager_k8s() {
     local ops_manager_namespace="${1}"
     local ops_manager_version="${2}"
     local node_port="${3}"
+    local ecr_registry="${4}"
+    local version_id="${5}"
 
+    local om_name="ops-manager"
+    
     if [ -z "${ops_manager_namespace}" ]; then
         error "ops_manager_namespace must be set!"
         exit 1
@@ -63,59 +67,35 @@ ensure_ops_manager_k8s() {
     echo "##### Installing Ops Manager ${ops_manager_version} (namespace ${ops_manager_namespace} into Kubernetes..."
 
     if _is_ops_manager_down "${ops_manager_namespace}"; then
-        echo "Ops Manager is not installed in this cluster. Doing it now."
-        echo "Run \"make -C docker/mongodb-enterprise-ops-manager-dev IMAGE_VERSION=${ops_manager_version} push\" to update Ops Manager image in ECR if necessary"
+
+        echo "Installing the operator in the OpsManager namespace"
+        helm template -f public/helm_chart/values.yaml \
+            --set namespace="${ops_manager_namespace}" \
+            --set registry.operator="${ecr_registry}/dev/ubuntu" \
+            --set operator.version="${version_id}" \
+            --set registry.initAppDb="${ecr_registry}/dev/ubuntu" \
+            --set registry.OpsManager="${ecr_registry}/dev/ubuntu" \
+            --set initAppDb.version="${version_id}" \
+            public/helm_chart > operator.yaml
+        OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
+
+        echo "Deleting old OpsManager Resources in case something is stuck"
+        kubectl delete opsmanagers.mongodb.com "$om_name" -n "${ops_manager_namespace}" --ignore-not-found=true
+        echo "Deleting AppDB PVC, if they exist"
+        kubectl delete pvc -l app=ops-manager-db-svc -n "${ops_manager_namespace}"
 
         echo "Installing Ops Manager ${ops_manager_version}"
+        kubectl apply -f scripts/evergreen/deployments/ops-manager-vanilla.yaml -n "${ops_manager_namespace}"
+        kubectl patch opsmanagers.mongodb.com "$om_name" --type=json -p='[{"op": "replace", "path" : "/spec/version", "value" : "'"${ops_manager_version}"'"}]' -n "${ops_manager_namespace}"
 
-        helm template -f scripts/evergreen/deployments/values-ops-manager.yaml \
-            --set namespace="${ops_manager_namespace}" \
-            --set opsManager.version="${ops_manager_version}" \
-            --set opsManager.host="ops-manager.${ops_manager_namespace}.svc.cluster.local" \
-            --set opsManager.nodePort="${node_port}" \
-            docker/mongodb-enterprise-ops-manager-dev/helm_chart > mongodb-enterprise-ops-manager.yaml
+        
+        kubectl apply -f operator.yaml -n "${ops_manager_namespace}"
+        rm operator.yaml
+        
 
-        echo
+        echo "Waiting for OpsManager to be ready"
+        until [[ $(kubectl get om "$om_name" -n "${ops_manager_namespace}" -o jsonpath='{.status.applicationDatabase.phase}') = "Running" && $(kubectl get om ops-manager  -n "${ops_manager_namespace}" -o jsonpath='{.status.opsManager.phase}') = "Running" ]]; do echo "OpsManager not yet ready, will retry in 20 seconds"; sleep 20; done
 
-        kubectl delete -f mongodb-enterprise-ops-manager.yaml || true
-        kubectl apply -f mongodb-enterprise-ops-manager.yaml
-
-        rm mongodb-enterprise-ops-manager.yaml
-
-        echo "Waiting until Statefulset for Ops Manager is running..."
-
-        local cmd
-        # shellcheck disable=SC2016
-        cmd='while [[ $(kubectl -n '${ops_manager_namespace}' get statefulset mongodb-enterprise-ops-manager -o jsonpath="{.status.currentReplicas}") != "1" ]]; do sleep 1; done'
-        timeout "1m" bash -c "${cmd}" || true
-
-        echo "Statefulset is ready, waiting for Ops Manager to start..."
-
-        # We can't communicate with Ops Manager if it is inside Kubernetes, so we just
-        # wait for this command to succeed.
-        # Note, that for OM check for "status.phase==Running" may not work - we need to check the container status
-        local cmd
-        cmd="while ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath=\"{.status.containerStatuses[0].ready}\" -n ${ops_manager_namespace} | grep -q \"true\"; do sleep 4; done"
-        timeout "10m" bash -c "${cmd}" || true
-
-        if ! kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${ops_manager_namespace}" | grep -q "true"; then
-            error "Ops Manager hasn't started!"
-            kubectl describe pod/mongodb-enterprise-ops-manager-0 -n "${ops_manager_namespace}"
-            exit 1
-        fi
-        echo "Pod is ready, waiting for the admin to get registered..."
-
-        local cmd
-        cmd="while ! kubectl -n ${ops_manager_namespace} exec mongodb-enterprise-ops-manager-0 ls \"/opt/mongodb/mms/env/.ops-manager-env\" &>/dev/null; do sleep 2; done"
-        timeout "4m" bash -c "${cmd}" || true
-
-        if ! kubectl -n "${ops_manager_namespace}" exec mongodb-enterprise-ops-manager-0 ls "/opt/mongodb/mms/env/.ops-manager-env" &>/dev/null; then
-            error "No env file found in Ops Manager!"
-            # todo print logs when OM image is fixed and rebuilt
-            # kubectl logs  -n operator-testing mongodb-enterprise-ops-manager-0
-
-            exit 1
-        fi
 
         # we try to open ports for both security groups - in kops and openshift clusters
         _ensure_vpc_rules "us-east-2" "nodes.e2e"
@@ -138,7 +118,7 @@ _print_om_endpoint() {
     else
         local node_port="${3}"
         local node_name
-        node_name=$(kubectl get pods/mongodb-enterprise-ops-manager-0 -n "${ops_manager_namespace}" -o wide | tail -n 1 | awk '{print $7}')
+        node_name=$(kubectl get pods/"$om_name"-0 -n "${ops_manager_namespace}" -o wide | tail -n 1 | awk '{print $7}')
         local external_ip
         external_ip="$(kubectl get nodes -o wide | grep "${node_name}" | awk '{print $7}')"
 
@@ -169,8 +149,8 @@ _ensure_vpc_rules() {
 # but parsing dates in bash is hard :( )
 _is_ops_manager_down() {
     ! kubectl get "namespace/${1}" &> /dev/null || \
-    ! kubectl get pod/mongodb-enterprise-ops-manager-0 -n "${1}" 2>/dev/null ||
-    kubectl get pod/mongodb-enterprise-ops-manager-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${1}" | grep -q "false"
+    ! kubectl get pod/"$om_name"-0 -n "${1}" 2>/dev/null ||
+    kubectl get pod/"$om_name"-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${1}" | grep -q "false"
 
 }
 

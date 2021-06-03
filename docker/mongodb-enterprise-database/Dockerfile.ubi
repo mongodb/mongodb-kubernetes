@@ -1,4 +1,4 @@
-{% extends "Dockerfile.appdb" %}
+{% extends "Dockerfile.template" %}
 
 {% set base_image = "registry.access.redhat.com/ubi8/ubi" %}
 {% set distro = "ubi" %}
