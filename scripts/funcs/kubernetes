@@ -77,7 +77,7 @@ ensure_ops_manager_k8s() {
             --set registry.OpsManager="${ecr_registry}/dev/ubuntu" \
             --set initAppDb.version="${version_id}" \
             public/helm_chart > operator.yaml
-        OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
+        PROJECT_NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
 
         echo "Deleting old OpsManager Resources in case something is stuck"
         kubectl delete opsmanagers.mongodb.com "$om_name" -n "${ops_manager_namespace}" --ignore-not-found=true
