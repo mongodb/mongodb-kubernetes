@@ -280,6 +280,8 @@ manifests: controller-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
 	# copy the CRDs to the public folder
 	cp config/crd/bases/* public/helm_chart/crds/
+	# do not publish the multi cluster CRD file yet
+	rm -f public/helm_chart/crds/mongodb.com_mongodbmultis.yaml
 
 
 # Run go fmt against code
