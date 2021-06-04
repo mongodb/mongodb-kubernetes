@@ -28,3 +28,8 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.6-ent
+
+  configuration:
+    mms.limits.maxGroupsPerOrg: "5000"
+    mms.limits.maxGroupsPerUser: "5000"
+    mms.limits.maxOrgsPerUser: "5000"
