@@ -1,5 +1,11 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
-<!-- Next release -->
+# MongoDB Enterprise Kubernetes Operator 1.11.1
+
+## Miscellaneous
+Ubuntu-based images are now based on Ubuntu 20.04 instead of Ubuntu 16.06
+
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
 
 ## MongoDB Resource
@@ -33,7 +39,7 @@
   * Ubi: quay.io/mongodb/mongodb-enterprise-init-database-ubi:1.0.3
   * Ubuntu: quay.io/mongodb/mongodb-enterprise-init-database:1.0.3
   
-<!-- Next release -->
+
 # MongoDB Enterprise Kubernetes Operator 1.10.1
 
 ## Kubernetes Operator
@@ -64,7 +70,6 @@
   * Added field `spec.security.tls.secretRef.prefix`. This property should be used to specify the prefix of the secret which contains custom tls certificates. 
 
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.10.0
 
 ## Kubernetes Operator

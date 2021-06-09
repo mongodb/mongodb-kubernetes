@@ -16,7 +16,7 @@ func init() {
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// kubebuilder:resource:shortName=mdbm
+// +kubebuilder:resource:shortName=mdbm
 // +kubebuilder:subresource:status
 type MongoDBMulti struct {
 	metav1.TypeMeta   `json:",inline"`
