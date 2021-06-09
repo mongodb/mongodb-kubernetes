@@ -70,10 +70,17 @@ def test_install_clusterwide_operator(operator_clusterwide: Operator):
 
 
 @pytest.mark.e2e_operator_clusterwide
-def test_configure_ops_manager_namespace(ops_manager_namespace: str):
+def test_configure_ops_manager_namespace(
+        ops_manager_namespace: str, operator_installation_config: Dict[str, str]
+):
     """ create a new namespace and configures all necessary service accounts there """
     yaml_file = helm_template(
-        helm_args={"namespace": ops_manager_namespace},
+        helm_args={
+            "namespace": ops_manager_namespace,
+            "registry.imagePullSecrets": operator_installation_config[
+                "registry.imagePullSecrets"
+            ],
+        },
         templates="templates/database-roles.yaml",
     )
     create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
@@ -94,9 +101,14 @@ def test_create_image_pull_secret_ops_manager_namespace(
 
 
 @pytest.mark.e2e_operator_clusterwide
-def test_configure_mdb_namespace(mdb_namespace: str):
+def test_configure_mdb_namespace(mdb_namespace: str,  operator_installation_config: Dict[str, str]):
     yaml_file = helm_template(
-        helm_args={"namespace": mdb_namespace},
+        helm_args={
+            "namespace": mdb_namespace,
+            "registry.imagePullSecrets": operator_installation_config[
+                "registry.imagePullSecrets"
+            ],
+        },
         templates="templates/database-roles.yaml",
     )
     create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)

@@ -2,6 +2,9 @@ from kubetester.kubetester import fixture as yaml_fixture, create_testing_namesp
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
+from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
+from kubetester.helm import helm_template
+from kubernetes import client
 from pytest import fixture, mark
 from kubetester import (
     create_service_account,
@@ -9,29 +12,23 @@ from kubetester import (
     create_secret,
     read_secret,
 )
-import yaml
+
 from typing import Dict
 
 
-def create_role(namespace: str) -> str:
-    with open(yaml_fixture("role.yaml")) as f:
-        role_dict = yaml.safe_load(f)
-
-    return create_object_from_dict(role_dict, namespace)
-
-
-def create_role_binding(namespace: str) -> str:
-
-    with open(yaml_fixture("rolebinding.yaml")) as f:
-        rolebinding_dict = yaml.safe_load(f)
-
-    rolebinding_dict["subjects"][0]["namespace"] = namespace
-    return create_object_from_dict(rolebinding_dict, namespace)
-
-
-def ops_manager(
-    namespace: str,
-) -> MongoDBOpsManager:
+def _prepare_om_namespace(
+    ops_manager_namespace: str, operator_installation_config: Dict[str, str]
+):
+    """ create a new namespace and configures all necessary service accounts there """
+    yaml_file = helm_template(
+        helm_args={
+            "namespace": ops_manager_namespace,
+            "registry.imagePullSecrets": operator_installation_config[
+                "registry.imagePullSecrets"
+            ],
+        },
+        templates="templates/database-roles.yaml",
+    )
 
     data = dict(
         Username="test-user",
@@ -40,28 +37,30 @@ def ops_manager(
         LastName="bar",
     )
 
-    create_service_account(namespace, "mongodb-enterprise-appdb"),
-    create_service_account(namespace, "mongodb-enterprise-ops-manager"),
-    create_secret(namespace=namespace, name="ops-manager-admin-secret", data=data),
-    create_role(namespace),
-    create_role_binding(namespace),
+    create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
+    create_secret(
+        namespace=ops_manager_namespace, name="ops-manager-admin-secret", data=data
+    ),
 
-    om = MongoDBOpsManager.from_yaml(
+
+def ops_manager(
+    namespace: str, operator_installation_config: Dict[str, str]
+) -> MongoDBOpsManager:
+    _prepare_om_namespace(namespace, operator_installation_config)
+    return MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
 
-    return om
-
 
 @fixture(scope="module")
-def om1() -> MongoDBOpsManager:
-    om = ops_manager("om-1")
+def om1(operator_installation_config: Dict[str, str]) -> MongoDBOpsManager:
+    om = ops_manager("om-1", operator_installation_config)
     return om.create()
 
 
 @fixture(scope="module")
-def om2() -> MongoDBOpsManager:
-    om = ops_manager("om-2")
+def om2(operator_installation_config: Dict[str, str]) -> MongoDBOpsManager:
+    om = ops_manager("om-2", operator_installation_config)
     return om.create()
 
 
