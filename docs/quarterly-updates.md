@@ -129,4 +129,10 @@ There are a few other dependencies that you might want to find to update:
 * [Cert-manager Helm Chart](../docker/mongodb-enterprise-tests/tests/conftest.py).
   Latest should be
   [here](https://artifacthub.io/packages/helm/microfunctions/cert-manager).
+
+## Tests Vendored Dependencies
+
+In `docker/mongodb-enterprise-tests/vendor` we will vendor testing dependencies
+that we suspect might become deprecated soon. Currently we have:
+
 * [LDAP Helm Chart](../docker/mongodb-enterprise-tests/tests/authentication/conftest.py).

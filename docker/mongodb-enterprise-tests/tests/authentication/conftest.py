@@ -2,7 +2,7 @@ from typing import List, Generator
 
 from kubetester import get_pod_when_ready
 from kubetester.certs import generate_cert
-from kubetester.helm import helm_install_from_chart, helm_uninstall
+from kubetester.helm import helm_install, helm_uninstall
 from kubetester.kubetester import KubernetesTester
 from kubetester.ldap import (
     create_user,
@@ -25,9 +25,6 @@ LDAP_PROTO_TLS = "ldaps"
 
 AUTOMATION_AGENT_NAME = "mms-automation-agent"
 
-OPENLDAP_NAME = "stable/openldap"
-OPENLDAP_VERSION = "1.2.4"
-
 
 def pytest_runtest_setup(item):
     """ This allows to automatically install the default Operator before running any test """
@@ -37,8 +34,16 @@ def pytest_runtest_setup(item):
 
 @fixture(scope="module")
 def openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
-    """Installs a OpenLDAP server and returns a reference to it."""
-    helm_install_from_chart(namespace, LDAP_NAME, OPENLDAP_NAME, OPENLDAP_VERSION)
+    """Installs a OpenLDAP server and returns a reference to it.
+
+    In order to do it, this fixture will install the vendored openldap Helm chart
+    located in `vendor/openldap` directory inside the `tests` container image.
+    """
+    helm_install(
+        LDAP_NAME,
+        helm_args={"namespace": namespace},
+        helm_chart_path="vendor/openldap"
+    )
 
     get_pod_when_ready(namespace, LDAP_POD_LABEL)
 
@@ -56,15 +61,22 @@ def openldap_cert(namespace: str, issuer: str) -> str:
 
 @fixture(scope="module")
 def openldap_tls(namespace: str, openldap_cert: str) -> Generator[OpenLDAP, None, None]:
-    """Installs an OpenLDAP server with TLS configured and returns a reference to it."""
+    """Installs an OpenLDAP server with TLS configured and returns a reference to it.
+
+    In order to do it, this fixture will install the vendored openldap Helm chart
+    located in `vendor/openldap` directory inside the `tests` container image.
+    """
     helm_args = {
         "tls.enabled": "true",
         "tls.secret": openldap_cert,
         # Do not require client certificates
         "env.LDAP_TLS_VERIFY_CLIENT": "never",
+        "namespace": namespace,
     }
-    helm_install_from_chart(
-        namespace, LDAP_NAME, OPENLDAP_NAME, OPENLDAP_VERSION, helm_args=helm_args
+    helm_install(
+        name=LDAP_NAME,
+        helm_chart_path="vendor/openldap",
+        helm_args=helm_args,
     )
 
     pod = get_pod_when_ready(namespace, LDAP_POD_LABEL)
