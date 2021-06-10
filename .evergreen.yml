@@ -55,10 +55,6 @@ variables:
     GOROOT: "/opt/golang/go1.15"
 
 parameters:
-- key: om_version
-  value: 4.4.6
-  description: Set Ops Manager version to publish
-
 - key: registry
   value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
   description: Development ECR registry
@@ -1660,7 +1656,7 @@ tasks:
     vars:
       image_name: database
 
-- name: build_ops_manager_ubuntu
+- name: build_om44_images
   patch_only: true
   commands:
   - func: clone
@@ -1668,9 +1664,9 @@ tasks:
   - func: pipeline
     vars:
       image_name: ops-manager
-      skip_tags: ubi,release
+      skip_tags: release
 
-- name: build_ops_manager_ubi
+- name: build_om42_images
   patch_only: true
   commands:
   - func: clone
@@ -1678,7 +1674,7 @@ tasks:
   - func: pipeline
     vars:
       image_name: ops-manager
-      skip_tags: ubuntu,release
+      skip_tags: release
 
 - name: publish_ops_manager
   patch_only: true
@@ -2332,6 +2328,8 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
+  - name: build_om42_images
+    variant: build_om42_images
   - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_test_image
@@ -2346,10 +2344,12 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
     test_mode: opsmanager
+
     custom_om_version: *ops_manager_42_latest
     custom_mdb_version: *mdb_42_latest
     custom_mdb_prev_version: *mdb_40_latest
     agent_version: *agent_version
+
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
@@ -2361,6 +2361,8 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
+  - name: build_om44_images
+    variant: build_om44_images
   - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_test_image
@@ -2375,10 +2377,12 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubuntu
     test_mode: opsmanager
+
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
     agent_version: *agent_version
+
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
@@ -2391,6 +2395,8 @@ buildvariants:
   run_on:
   - ubuntu1604-build
   depends_on:
+  - name: build_om44_images
+    variant: build_om44_images
   - name: build_operator_ubi
     variant: init_test_run
   - name: build_test_image
@@ -2408,10 +2414,13 @@ buildvariants:
     <<: *kubernetes_environment_kind
     image_type: ubi
     test_mode: opsmanager
+
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
     agent_version: *agent_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
@@ -2600,29 +2609,59 @@ buildvariants:
   tasks:
   - name: release_appdb
 
-# build OpsManager: to be launched independently of the operator build process (evergreen patch).
-# To perform the build, you can use the following `evergreen` command:
-#
-#     evergreen patch -v build_ops_manager_images -t all \
-#         --param om_version=4.6.7 \
-#         -y -f -d "Building Ops Manager"
-#
-- name: build_ops_manager_images
-  display_name: build_ops_manager_images
+- name: build_om44_images
+  display_name: build_om44_images
   run_on:
   - ubuntu1604-test
+  expansions:
+    om_version: *ops_manager_44_latest
   tasks:
-  - name: build_ops_manager_ubuntu
-  - name: build_ops_manager_ubi
+  - name: build_om44_images
 
-- name: publish_ops_manager_images
-  display_name: publish_ops_manager_images
+- name: build_om42_images
+  display_name: build_om42_images
+  run_on:
+  - ubuntu1604-test
+  expansions:
+    om_version: *ops_manager_42_latest
+  tasks:
+  - name: build_om42_images
+
+
+# To publish OM4.4 images:
+#
+# 1) Modify `variables.ops_manager_44_latest` to the version to be released
+# 2) Run
+#    evergreen patch -v publish_om44_images -t all -y -f -d "Releasing OM 4.4" -u --browse
+#
+- name: publish_om44_images
+  display_name: publish_om44_images
   run_on:
   - ubuntu1604-test
   depends_on:
-  - name: build_ops_manager_ubuntu
-    variant: build_ops_manager_images
-  - name: build_ops_manager_ubi
-    variant: build_ops_manager_images
+  - variant: e2e_om44_kind_ubuntu
+    name: '*'
+  - variant: e2e_om44_kind_ubi
+    name: '*'
+  expansions:
+    om_version: *ops_manager_44_latest
+  tasks:
+  - name: publish_ops_manager
+
+# To publish OM4.2 images:
+#
+# 1) Modify `variables.ops_manager_42_latest` to the version to be released
+# 2) Run
+#    evergreen patch -v publish_om42_images -t all -y -f -d "Releasing OM 4.2" -u --browse
+#
+- name: publish_om42_images
+  display_name: publish_om42_images
+  run_on:
+  - ubuntu1604-test
+  depends_on:
+  - variant: e2e_om42_kind_ubuntu
+    name: '*'
+  expansions:
+    om_version: *ops_manager_42_latest
   tasks:
   - name: publish_ops_manager

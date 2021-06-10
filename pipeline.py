@@ -505,7 +505,10 @@ def build_om_image(build_configuration: BuildConfiguration):
 
     # Make this a parameter for the Evergreen build
     # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
-    om_version = os.environ.get("om_version", "4.4.6")
+    om_version = os.environ.get("om_version")
+    if om_version is None:
+        raise ValueError("`om_version` should be defined.")
+
     om_download_url = find_om_url(om_version)
     args = dict(
         om_version=om_version,
