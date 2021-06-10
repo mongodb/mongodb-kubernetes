@@ -11,6 +11,7 @@ import (
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -372,4 +373,9 @@ func (m AppDBSpec) DataVolumeName() string {
 
 func (m AppDBSpec) LogsVolumeName() string {
 	return "logs"
+}
+
+func (m AppDBSpec) GetOwnerReferences() []metav1.OwnerReference {
+	// TODO CLOUDP-91630
+	return []metav1.OwnerReference{}
 }

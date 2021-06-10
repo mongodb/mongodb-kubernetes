@@ -1,5 +1,10 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
+<!-- Next release -->
 # MongoDB Enterprise Kubernetes Operator 1.11.1
+
+## MongoDB Resource
+* Bug Fixes
+  * If `spec.exposedExternally` is set to `false` after being set to `true`, the Operator will now delete the corresponding service
 
 ## Miscellaneous
 Ubuntu-based images are now based on Ubuntu 20.04 instead of Ubuntu 16.06
@@ -39,7 +44,6 @@ Ubuntu-based images are now based on Ubuntu 20.04 instead of Ubuntu 16.06
   * Ubi: quay.io/mongodb/mongodb-enterprise-init-database-ubi:1.0.3
   * Ubuntu: quay.io/mongodb/mongodb-enterprise-init-database:1.0.3
   
-
 # MongoDB Enterprise Kubernetes Operator 1.10.1
 
 ## Kubernetes Operator

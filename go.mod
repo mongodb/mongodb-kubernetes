@@ -5,8 +5,10 @@ module github.com/10gen/ops-manager-kubernetes
 require (
 	github.com/aws/aws-sdk-go v1.38.45
 	github.com/blang/semver v3.5.1+incompatible
+	github.com/docker/spdystream v0.0.0-20160310174837-449fdfce4d96 // indirect
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
-	github.com/evanphx/json-patch v4.9.0+incompatible
+	github.com/evanphx/json-patch v4.11.0+incompatible
+	github.com/go-kit/kit v0.10.0 // indirect
 	github.com/go-logr/logr v0.4.0
 	github.com/go-openapi/spec v0.19.8 // indirect
 	github.com/go-openapi/swag v0.19.9 // indirect
@@ -14,24 +16,25 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/imdario/mergo v0.3.12
 	github.com/mailru/easyjson v0.7.1 // indirect
-	github.com/mongodb/mongodb-kubernetes-operator v0.6.1-0.20210520153015-9cd074947197
+	github.com/mongodb/mongodb-kubernetes-operator v0.6.1-0.20210610074308-74047ef331ba
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.10.0
-	github.com/prometheus/common v0.25.0
+	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/common v0.26.0
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/objx v0.3.0
 	github.com/stretchr/testify v1.7.0
 	github.com/xdg/stringprep v1.0.3
-	go.uber.org/zap v1.16.0
+	go.uber.org/zap v1.17.0
 	golang.org/x/mod v0.4.0 // indirect
 	golang.org/x/tools v0.1.1-0.20210201201750-4d4ee958a9b7 // indirect
+	gotest.tools v2.2.0+incompatible // indirect
 	honnef.co/go/tools v0.0.1-2020.1.6 // indirect
-	k8s.io/api v0.20.4
-	k8s.io/apimachinery v0.21.0
-	k8s.io/client-go v0.20.4
-	k8s.io/code-generator v0.20.1
-	sigs.k8s.io/controller-runtime v0.8.3
+	k8s.io/api v0.21.1
+	k8s.io/apimachinery v0.21.1
+	k8s.io/client-go v0.21.1
+	k8s.io/code-generator v0.21.1
+	sigs.k8s.io/controller-runtime v0.9.0
 )
 
 go 1.15

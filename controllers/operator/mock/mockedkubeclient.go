@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -23,6 +24,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -165,6 +167,20 @@ func (c *MockedServiceClient) UpdateService(secret corev1.Service) error {
 // CreateService provides a thin wrapper and client.Client to create corev1.Service types
 func (c *MockedServiceClient) CreateService(s corev1.Service) error {
 	if err := c.client.Create(context.TODO(), &s); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteService provides a thin wrapper and client.Client to delete corev1.Service types
+func (c *MockedSecretClient) DeleteService(key client.ObjectKey) error {
+	s := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+	}
+	if err := c.client.Delete(context.TODO(), &s); err != nil {
 		return err
 	}
 	return nil
@@ -704,6 +720,13 @@ func (m *MockedManager) Elected() <-chan struct{} {
 
 func (m *MockedManager) GetLogger() logr.Logger {
 	return nil
+}
+
+func (m *MockedManager) GetControllerOptions() v1alpha1.ControllerConfigurationSpec {
+	var duration = time.Duration(0)
+	return v1alpha1.ControllerConfigurationSpec{
+		CacheSyncTimeout: &duration,
+	}
 }
 
 func ObjectKeyFromApiObject(obj interface{}) client.ObjectKey {

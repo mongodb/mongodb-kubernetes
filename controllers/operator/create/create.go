@@ -46,13 +46,14 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 		return err
 	}
 
-	if mdb.Spec.ExposedExternally {
-		namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
-		externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
-		return enterprisesvc.CreateOrUpdateService(client, externalService, log)
+	namespacedName = kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
+	if !mdb.Spec.ExposedExternally {
+		return service.DeleteServiceIfItExists(client, namespacedName)
 	}
 
-	return nil
+	externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
+	return enterprisesvc.CreateOrUpdateService(client, externalService, log)
+
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
