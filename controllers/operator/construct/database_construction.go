@@ -636,7 +636,7 @@ func databaseLivenessProbe() probes.Modification {
 func databaseReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
-		probes.WithFailureThreshold(240),
+		probes.WithFailureThreshold(4),
 		probes.WithInitialDelaySeconds(5),
 		probes.WithPeriodSeconds(5),
 	)

@@ -39,7 +39,7 @@ class TestUpgradeReplicaSetToMongoDB40(KubernetesTester):
       file: replica-set-scram-sha-1.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.0"}]'
       wait_until: in_running_state
-      timeout: 240
+      timeout: 400
     """
 
     def test_assert_connectivity(self):
