@@ -22,7 +22,7 @@ variables:
     usaf_database_version: "1.5.3"
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
-  - &ops_manager_44_latest 4.4.12
+  - &ops_manager_44_latest 4.4.13
   - &ops_manager_42_latest 4.2.24
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8
@@ -259,10 +259,25 @@ functions:
         - kube_environment_name
       binary: scripts/evergreen/setup_minikube.sh
 
+  setup_docker_datadir: &setup_docker_datadir
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      binary: scripts/evergreen/configure-docker-datadir.sh
+
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
   - *setup_aws
   - *configure_docker_auth
+  - *setup_docker_datadir
+
+  prune_docker_resources:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker system prune -a -f"
+
 
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication
@@ -2022,6 +2037,7 @@ task_groups:
   setup_group:
     - func: clone
     - func: download_kube_tools
+    - func: setup_building_host
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
@@ -2038,6 +2054,8 @@ task_groups:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
 
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
@@ -2047,6 +2065,7 @@ task_groups:
   setup_group:
     - func: clone
     - func: download_kube_tools
+    - func: setup_building_host
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
@@ -2082,12 +2101,15 @@ task_groups:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
 
 - name: e2e_ops_manager_kind_4_4_only_task_group
   max_hosts: 3
   setup_group:
     - func: clone
     - func: download_kube_tools
+    - func: setup_building_host
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
@@ -2101,6 +2123,8 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
 
 # This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
 # it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
@@ -2157,7 +2181,7 @@ buildvariants:
 - name: e2e_mdb_kind_ubuntu_cloudqa
   display_name: e2e_mdb_kind_ubuntu_cloudqa
   run_on:
-    - ubuntu1604-build
+    - ubuntu1804-large
   depends_on:
     - name: build_operator_ubuntu
       variant: init_test_run
@@ -2178,7 +2202,7 @@ buildvariants:
 #  patch_only: true
 #  display_name: e2e_mdb_kind_usaf_cloudqa
 #  run_on:
-#    - ubuntu1604-build
+#    - ubuntu1804-large
 #  depends_on:
 #    # Note: no images are built, they are expected to be there already
 #    # we should have
@@ -2207,7 +2231,7 @@ buildvariants:
     - name: prepare_cluster_vanilla
       variant: init_test_run
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   stepback: false
   expansions:
     <<: *ops_manager_42_first
@@ -2229,7 +2253,7 @@ buildvariants:
     - name: prepare_cluster_vanilla
       variant: init_test_run
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   stepback: false
   expansions:
     <<: *ops_manager_44_current
@@ -2249,7 +2273,7 @@ buildvariants:
     - name: build_test_image
       variant: init_test_run
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   stepback: false
   expansions:
     <<: *cloud_manager_qa
@@ -2277,7 +2301,7 @@ buildvariants:
     - name: prepare_cluster_vanilla_om
       variant: init_test_run
   run_on:
-    - ubuntu1604-test
+    - ubuntu1804-small
   stepback: false
   expansions:
     cluster_name: "e2e.om.mongokubernetes.com"
@@ -2307,7 +2331,7 @@ buildvariants:
     - name: build_init_appdb_images_ubi
       variant: init_test_run
   run_on:
-    - ubuntu1604-test
+    - ubuntu1804-small
   stepback: false
   expansions:
     <<: *kubernetes_environment_openshift_4
@@ -2326,7 +2350,7 @@ buildvariants:
 - name: e2e_om42_kind_ubuntu
   display_name: e2e_om42_kind_ubuntu
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-large
   depends_on:
   - name: build_om42_images
     variant: build_om42_images
@@ -2359,7 +2383,7 @@ buildvariants:
 - name: e2e_om44_kind_ubuntu
   display_name: e2e_om44_kind_ubuntu
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-large
   depends_on:
   - name: build_om44_images
     variant: build_om44_images
@@ -2393,7 +2417,7 @@ buildvariants:
 - name: e2e_om44_kind_ubi
   display_name: e2e_om44_kind_ubi
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-large
   depends_on:
   - name: build_om44_images
     variant: build_om44_images
@@ -2509,7 +2533,7 @@ buildvariants:
     - name: build_init_database_image_ubi
       variant: init_test_run
   run_on:
-    - ubuntu1604-test
+    - ubuntu1804-small
   expansions:
     include_tags: release
   tasks:
@@ -2529,7 +2553,7 @@ buildvariants:
 - name: init_test_run
   display_name: init_test_run
   run_on:
-    - ubuntu1604-test
+    - ubuntu1804-small
   stepback: false
   tasks:
     - name: build_operator_ubi
@@ -2553,7 +2577,7 @@ buildvariants:
 - name: prerelease_master_images
   display_name: prerelease_master_images
   run_on:
-    - ubuntu1604-test
+    - ubuntu1804-small
   depends_on:
     - name: build_operator_ubuntu
       variant: init_test_run
@@ -2569,7 +2593,7 @@ buildvariants:
 - name: go_unit_tests
   display_name: "go_unit_tests"
   run_on:
-    - ubuntu1604-test
+    - ubuntu1804-small
   stepback: false
   tasks:
     - name: "unit_task_group"
@@ -2580,7 +2604,7 @@ buildvariants:
   - name: build_operator_ubi
     variant: init_test_run
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   expansions:
     <<: *kubernetes_environment_kind
   tasks:
@@ -2596,7 +2620,7 @@ buildvariants:
 - name: build_and_push_database_images
   display_name: build_and_push_database_images
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-small
   tasks:
   - name: release_database
 
@@ -2605,14 +2629,14 @@ buildvariants:
 - name: build_and_push_appdb_images
   display_name: build_and_push_appdb_images
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-small
   tasks:
   - name: release_appdb
 
 - name: build_om44_images
   display_name: build_om44_images
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   expansions:
     om_version: *ops_manager_44_latest
   tasks:
@@ -2621,7 +2645,7 @@ buildvariants:
 - name: build_om42_images
   display_name: build_om42_images
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   expansions:
     om_version: *ops_manager_42_latest
   tasks:
@@ -2637,7 +2661,7 @@ buildvariants:
 - name: publish_om44_images
   display_name: publish_om44_images
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   depends_on:
   - variant: e2e_om44_kind_ubuntu
     name: '*'
@@ -2657,7 +2681,7 @@ buildvariants:
 - name: publish_om42_images
   display_name: publish_om42_images
   run_on:
-  - ubuntu1604-test
+  - ubuntu1804-small
   depends_on:
   - variant: e2e_om42_kind_ubuntu
     name: '*'

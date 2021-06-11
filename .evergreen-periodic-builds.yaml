@@ -185,7 +185,7 @@ buildvariants:
 - name: periodic_build
   display_name: periodic_build
   run_on:
-  - ubuntu1604-build
+  - ubuntu1804-small
   tasks:
   - periodic_build_operator
   - periodic_build_init_appdb
