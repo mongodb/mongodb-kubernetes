@@ -11,6 +11,9 @@ const (
 	// MongoDbReplicaSetController name of the ReplicaSet controller
 	MongoDbReplicaSetController = "mongodbreplicaset-controller"
 
+	//MongoDbMultiReplicaSetController name of the multi-cluster ReplicaSet controller
+	MongoDbMultiReplicaSetController = "mongodbmultireplicaset-controller"
+
 	// MongoDbShardedClusterController name of the ShardedCluster controller
 	MongoDbShardedClusterController = "mongodbshardedcluster-controller"
 
