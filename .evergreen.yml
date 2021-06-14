@@ -12,7 +12,7 @@ variables:
     ops_manager_namespace: "operator-testing-42-first"
     node_port: 30042
   - &ops_manager_44_current
-    ops_manager_version: "4.4.12"
+    ops_manager_version: "4.4.13"
     ops_manager_namespace: "operator-testing-44-current"
     node_port: 30044
   - &cloud_manager_qa
@@ -23,7 +23,7 @@ variables:
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
   - &ops_manager_44_latest 4.4.13
-  - &ops_manager_42_latest 4.2.24
+  - &ops_manager_42_latest 4.2.25
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20

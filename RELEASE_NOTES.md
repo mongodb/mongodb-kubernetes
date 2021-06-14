@@ -1,14 +1,16 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
-<!-- Next release -->
+<!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.11.1
 
 ## MongoDB Resource
 * Bug Fixes
   * If `spec.exposedExternally` is set to `false` after being set to `true`, the Operator will now delete the corresponding service
 
+## MongoDBOpsManager Resource
+* Ops Manager versions 4.4.13 and 4.2.25 are now supported.
+
 ## Miscellaneous
 Ubuntu-based images are now based on Ubuntu 20.04 instead of Ubuntu 16.06
-
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
