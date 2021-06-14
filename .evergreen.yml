@@ -82,7 +82,7 @@ functions:
         include_expansions_in_env:
         - workdir
         env:
-          <<: *go_options
+          <<: [ *go_options ]
         binary: scripts/evergreen/lint_code.sh
 
   "clone":
@@ -106,7 +106,7 @@ functions:
         include_expansions_in_env:
         - workdir
         env:
-          <<: *go_options
+          <<: [ *go_options ]
         command: make test
 
   python_venv: &python_venv
@@ -515,7 +515,7 @@ functions:
       - ${workdir}/bin
       - *go_bin
       env:
-        <<: *go_options
+        <<: [ *go_options ]
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
         operator_img: ${ecr_registry}/dev/ubi/mongodb-enterprise-operator:${version_id}
       include_expansions_in_env:
@@ -762,13 +762,13 @@ tasks:
     - func: download_kube_tools
     - func: setup_kubernetes_environment
       vars:
-        <<: *kubernetes_environment_vanilla
+        <<: [ *kubernetes_environment_vanilla ]
     - func: prepare_test_env
       vars:
-        <<: *ops_manager_44_current
+        <<: [ *ops_manager_44_current ]
     - func: prepare_test_env
       vars:
-        <<: *ops_manager_42_first
+        <<: [ *ops_manager_42_first ]
         
 
 - name: prepare_cluster_vanilla_om
@@ -779,7 +779,7 @@ tasks:
     - func: download_kube_tools
     - func: setup_kubernetes_environment
       vars:
-        <<: *kubernetes_environment_vanilla
+        <<: [ *kubernetes_environment_vanilla ]
         cluster_name: e2e.om.mongokubernetes.com
     - func: prepare_test_env
 
@@ -2190,8 +2190,7 @@ buildvariants:
     - name: build_test_image
       variant: init_test_run
   expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_kind
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
     custom_mdb_version: *mdb_44_latest
     image_type: ubuntu
   tasks:
@@ -2211,9 +2210,7 @@ buildvariants:
 #    - name: build_test_image
 #      variant: init_test_run
 #  expansions:
-#    <<: *cloud_manager_qa
-#    <<: *kubernetes_environment_kind
-#    <<: *usaf
+#    <<: [ *cloud_manager_qa, *kubernetes_environment_kind, *usaf ]
 #    custom_mdb_version: *mdb_44_latest
 #    image_type: usaf
 #  tasks:
@@ -2234,8 +2231,7 @@ buildvariants:
   - ubuntu1804-small
   stepback: false
   expansions:
-    <<: *ops_manager_42_first
-    <<: *kubernetes_environment_vanilla
+    <<: [ *ops_manager_42_first, *kubernetes_environment_vanilla ]
     custom_mdb_version: *mdb_42_latest
     image_type: ubuntu
   tasks:
@@ -2256,8 +2252,7 @@ buildvariants:
   - ubuntu1804-small
   stepback: false
   expansions:
-    <<: *ops_manager_44_current
-    <<: *kubernetes_environment_vanilla
+    <<: [ *ops_manager_44_current, *kubernetes_environment_vanilla ]
     custom_mdb_version: *mdb_44_latest
     image_type: ubuntu
   tasks:
@@ -2276,8 +2271,7 @@ buildvariants:
   - ubuntu1804-small
   stepback: false
   expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_openshift_4
+    <<: [ *cloud_manager_qa, *kubernetes_environment_openshift_4 ]
     custom_mdb_version: *mdb_44_latest
     image_type: ubi
   tasks:
@@ -2305,7 +2299,7 @@ buildvariants:
   stepback: false
   expansions:
     cluster_name: "e2e.om.mongokubernetes.com"
-    <<: *kubernetes_environment_vanilla
+    <<: [ *kubernetes_environment_vanilla ]
     test_mode: "opsmanager"
     image_type: ubuntu
     always_remove_testing_namespace: "true"
@@ -2334,7 +2328,7 @@ buildvariants:
     - ubuntu1804-small
   stepback: false
   expansions:
-    <<: *kubernetes_environment_openshift_4
+    <<: [ *kubernetes_environment_openshift_4 ]
     test_mode: opsmanager
     image_type: ubi
     always_remove_testing_namespace: "true"
@@ -2365,7 +2359,7 @@ buildvariants:
   - name: build_init_appdb_images_ubuntu
     variant: init_test_run
   expansions:
-    <<: *kubernetes_environment_kind
+    <<: [ *kubernetes_environment_kind ]
     image_type: ubuntu
     test_mode: opsmanager
 
@@ -2398,7 +2392,7 @@ buildvariants:
   - name: build_init_appdb_images_ubuntu
     variant: init_test_run
   expansions:
-    <<: *kubernetes_environment_kind
+    <<: [ *kubernetes_environment_kind ]
     image_type: ubuntu
     test_mode: opsmanager
 
@@ -2435,7 +2429,7 @@ buildvariants:
     # The ubi checks also run on kind because of memory problems on Openshift!
     # A few tests of these at any given time and the Nodes in the Openshift cluster
     # will run out of mem.
-    <<: *kubernetes_environment_kind
+    <<: [ *kubernetes_environment_kind ]
     image_type: ubi
     test_mode: opsmanager
 
@@ -2468,8 +2462,7 @@ buildvariants:
   - name: build_init_appdb_images_ubuntu
     variant: init_test_run
   expansions:
-    <<: *cloud_manager_qa
-    <<: *kubernetes_environment_kind
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
     image_type: ubuntu
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
@@ -2494,7 +2487,7 @@ buildvariants:
   - name: build_init_appdb_images_ubi
     variant: init_test_run
   expansions:
-    <<: *cloud_manager_qa
+    <<: [ *cloud_manager_qa ]
     kube_environment_name: *kubernetes_environment_minikube
     image_type: ubi
     custom_om_version: *ops_manager_44_latest
@@ -2606,7 +2599,7 @@ buildvariants:
   run_on:
   - ubuntu1804-small
   expansions:
-    <<: *kubernetes_environment_kind
+    <<: [ *kubernetes_environment_kind ]
   tasks:
   # CLOUDP-84081
   - name: operator-sdk-run-bundle
