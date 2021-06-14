@@ -7,7 +7,7 @@ import (
 	localruntime "runtime"
 	"strings"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -44,7 +44,7 @@ const (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(mdbv1.AddToScheme(scheme))
+	utilruntime.Must(apiv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
@@ -110,7 +110,7 @@ func main() {
 	setupWebhook(mgr, cfg, log)
 
 	// Setup Scheme for all resources
-	if err := mdbv1.AddToScheme(scheme); err != nil {
+	if err := apiv1.AddToScheme(scheme); err != nil {
 		log.Fatal(err)
 	}
 

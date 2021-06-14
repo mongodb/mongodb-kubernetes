@@ -5,10 +5,8 @@ module github.com/10gen/ops-manager-kubernetes
 require (
 	github.com/aws/aws-sdk-go v1.38.45
 	github.com/blang/semver v3.5.1+incompatible
-	github.com/docker/spdystream v0.0.0-20160310174837-449fdfce4d96 // indirect
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/evanphx/json-patch v4.11.0+incompatible
-	github.com/go-kit/kit v0.10.0 // indirect
 	github.com/go-logr/logr v0.4.0
 	github.com/go-openapi/spec v0.19.8 // indirect
 	github.com/go-openapi/swag v0.19.9 // indirect
@@ -28,8 +26,6 @@ require (
 	go.uber.org/zap v1.17.0
 	golang.org/x/mod v0.4.0 // indirect
 	golang.org/x/tools v0.1.1-0.20210201201750-4d4ee958a9b7 // indirect
-	gotest.tools v2.2.0+incompatible // indirect
-	honnef.co/go/tools v0.0.1-2020.1.6 // indirect
 	k8s.io/api v0.21.1
 	k8s.io/apimachinery v0.21.1
 	k8s.io/client-go v0.21.1
