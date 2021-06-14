@@ -149,7 +149,8 @@ def test_change_version_to_4_2_8(replica_set: MongoDB):
     replica_set["spec"]["version"] = "4.2.8-ent"
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_ldap_agent_auth

@@ -248,6 +248,7 @@ class TestMongoDbsVersionUpgrade:
         is enforced before MongoDB reconciliation (the OM reconciliation happened above will drop the 'agents.nextScheduledTime'
         counter)
         """
+        mdb.reload()
         mdb["spec"]["version"] = custom_mdb_version
 
         mdb.update()
