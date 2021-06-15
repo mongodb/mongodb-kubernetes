@@ -1,6 +1,13 @@
-from typing import Optional
+from typing import Optional, Dict
 
-from kubetester import MongoDB
+import time
+import jsonpatch
+
+
+import pytest
+from kubernetes import client
+from kubetester import MongoDB, wait_until
+
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
@@ -17,6 +24,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_s3_bucket,
 )
+
 
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
@@ -58,6 +66,14 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
     ).configure(ops_manager, "development")
 
     return resource.create()
+
+
+def service_exists(service_name: str, namespace: str) -> bool:
+    try:
+        client.CoreV1Api().read_namespaced_service(service_name, namespace)
+    except client.rest.ApiException:
+        return False
+    return True
 
 
 @mark.e2e_om_ops_manager_backup_light
@@ -124,6 +140,60 @@ class TestOpsManagerCreation:
         #         )
         #     ]
         # )
+
+    def test_enable_external_connectivity(
+        self, ops_manager: MongoDBOpsManager, namespace: str
+    ):
+        ops_manager.load()
+        ops_manager["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
+        ops_manager.update()
+
+        wait_until(
+            lambda: service_exists("om-backup-svc-ext", namespace),
+            timeout=90,
+            sleep_time=5,
+        )
+
+        service = client.CoreV1Api().read_namespaced_service(
+            "om-backup-svc-ext", namespace
+        )
+
+        # Tests that the service is created with both externalConnectivity and backup
+        # and that it contains the correct ports
+        assert service.spec.type == "LoadBalancer"
+        assert len(service.spec.ports) == 2
+        assert service.spec.ports[0].port == 8080
+        assert service.spec.ports[1].port == 25999
+
+    def test_disable_external_connectivity(
+        self, ops_manager: MongoDBOpsManager, namespace: str
+    ):
+
+        # We dont' have a nice way to delete fields from a resource specification
+        # in our test env, so we need to achieve it with specific uses of patches
+        body = {"op": "remove", "path": "/spec/externalConnectivity"}
+        patch = jsonpatch.JsonPatch([body])
+        om = client.CustomObjectsApi().get_namespaced_custom_object(
+            ops_manager.group,
+            ops_manager.version,
+            namespace,
+            ops_manager.plural,
+            ops_manager.name,
+        )
+        client.CustomObjectsApi().replace_namespaced_custom_object(
+            ops_manager.group,
+            ops_manager.version,
+            namespace,
+            ops_manager.plural,
+            ops_manager.name,
+            jsonpatch.apply_patch(om, patch),
+        )
+
+        wait_until(
+            lambda: not (service_exists("om-backup-svc-ext", namespace)),
+            timeout=90,
+            sleep_time=5,
+        )
 
 
 @mark.e2e_om_ops_manager_backup_light

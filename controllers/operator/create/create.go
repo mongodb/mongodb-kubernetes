@@ -124,11 +124,16 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 		return err
 	}
 
+	namespacedName = kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
 	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
 		svc := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
 		externalService = &svc
+	} else {
+		if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {
+			return err
+		}
+
 	}
 
 	// Need to create queryable backup service

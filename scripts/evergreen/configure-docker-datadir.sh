@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-
-set -Eeuo pipefail
+set -Eeou pipefail
 
 echo "Configuring Docker data directory"
 
