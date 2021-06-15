@@ -40,9 +40,7 @@ def openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
     located in `vendor/openldap` directory inside the `tests` container image.
     """
     helm_install(
-        LDAP_NAME,
-        helm_args={"namespace": namespace},
-        helm_chart_path="vendor/openldap"
+        LDAP_NAME, helm_args={"namespace": namespace}, helm_chart_path="vendor/openldap"
     )
 
     get_pod_when_ready(namespace, LDAP_POD_LABEL)
@@ -102,7 +100,10 @@ def ldap_mongodb_x509_agent_user(
     openldap: OpenLDAP, namespace: str, ca_path: str
 ) -> LDAPUser:
     organization_name = "cluster.local-agent"
-    user = LDAPUser(AUTOMATION_AGENT_NAME, LDAP_PASSWORD,)
+    user = LDAPUser(
+        AUTOMATION_AGENT_NAME,
+        LDAP_PASSWORD,
+    )
 
     ensure_organization(openldap, organization_name, ca_path=ca_path)
 

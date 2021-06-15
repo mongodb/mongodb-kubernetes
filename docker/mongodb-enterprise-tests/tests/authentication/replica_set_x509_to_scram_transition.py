@@ -129,7 +129,9 @@ class TestCreateScramSha256User(KubernetesTester):
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,
-            {"password": USER_PASSWORD,},
+            {
+                "password": USER_PASSWORD,
+            },
         )
         super().setup_class()
 

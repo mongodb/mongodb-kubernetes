@@ -44,13 +44,22 @@ def create_kmip_server(issuer: str, namespace: str) -> str:
                 name="kmip",
                 image="beergeek1679/pykmip:0.4.0",
                 image_pull_policy="IfNotPresent",
-                ports=[client.V1ContainerPort(container_port=5696, name="kmip",)],
+                ports=[
+                    client.V1ContainerPort(
+                        container_port=5696,
+                        name="kmip",
+                    )
+                ],
                 volume_mounts=[
                     client.V1VolumeMount(
-                        name="certs", mount_path="/data/pki", read_only=True,
+                        name="certs",
+                        mount_path="/data/pki",
+                        read_only=True,
                     ),
                     client.V1VolumeMount(
-                        name="config", mount_path="/etc/pykmip", read_only=True,
+                        name="config",
+                        mount_path="/etc/pykmip",
+                        read_only=True,
                     ),
                 ],
             )
@@ -58,7 +67,9 @@ def create_kmip_server(issuer: str, namespace: str) -> str:
         volumes=[
             client.V1Volume(
                 name="certs",
-                secret=client.V1SecretVolumeSource(secret_name=cert_secret_name,),
+                secret=client.V1SecretVolumeSource(
+                    secret_name=cert_secret_name,
+                ),
             ),
             client.V1Volume(
                 name="config",
@@ -118,4 +129,10 @@ def _create_kmip_config_map(namespace: str, name: str, config_dict: Dict) -> Non
     """
     equals_separated = [k + "=" + str(v) for (k, v) in config_dict.items()]
     config_file_contents = "[server]\n" + "\n".join(equals_separated)
-    create_configmap(namespace, name, {"server.conf": config_file_contents,})
+    create_configmap(
+        namespace,
+        name,
+        {
+            "server.conf": config_file_contents,
+        },
+    )

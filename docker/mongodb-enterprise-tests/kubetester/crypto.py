@@ -58,7 +58,8 @@ def request_certificate(
 ) -> client.V1beta1CertificateSigningRequest:
     request = client.V1beta1CertificateSigningRequest(
         spec=client.V1beta1CertificateSigningRequestSpec(
-            request=base64.b64encode(csr).decode(), usages=usages,
+            request=base64.b64encode(csr).decode(),
+            usages=usages,
         )
     )
     request.metadata = client.V1ObjectMeta()

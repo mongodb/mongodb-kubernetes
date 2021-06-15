@@ -9,6 +9,9 @@ Usage:
 """
 import sys
 from typing import List
+import requests
+import re
+import os
 
 import semver
 from git_diff import path_has_changes
@@ -78,7 +81,36 @@ def handle_init_image(
         )
 
 
-def main():
+def bump_community_operator_library_version():
+    quay_url = "https://quay.io/api/v1/repository/mongodb/mongodb-kubernetes-operator"
+    resp = requests.get(quay_url).json()
+    tags = list(resp["tags"].keys())
+    # sort the tags based on version
+    tags.sort(key=lambda tag: list(map(int, tag.split("."))))
+    latest_release = tags[-1]
+
+    print(
+        f"Ensuring go.mod contains the latest version of the Community Operator package: [{latest_release}]"
+    )
+
+    with open("go.mod", "r") as f:
+        go_mod_contents = f.read()
+
+    # update go mod with the new version
+    with open("go.mod", "w+") as f:
+        subbed = re.sub(
+            r"github.com/mongodb/mongodb-kubernetes-operator v.*$",
+            f"github.com/mongodb/mongodb-kubernetes-operator v{latest_release}",
+            go_mod_contents,
+            flags=re.MULTILINE,
+        )
+        f.write(subbed)
+
+    print("Running 'go mod download'")
+    os.system("go mod download")
+
+
+def main() -> int:
     current_operator_version = read_release_from_file(ReleaseObject.mongodb_operator)
     handle_operator_version()
     handle_init_image(
@@ -99,7 +131,7 @@ def main():
         "initOpsManager",
         current_operator_version,
     )
-
+    bump_community_operator_library_version()
     return 0
 
 

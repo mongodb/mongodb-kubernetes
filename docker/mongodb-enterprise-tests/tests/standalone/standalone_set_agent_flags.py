@@ -31,6 +31,8 @@ def test_standalone_has_agent_flags(standalone: MongoDB, namespace: str):
         "ls /var/log/mongodb-mms-automation/customLogFile* | wc -l",
     ]
     result = KubernetesTester.run_command_in_pod_container(
-        "my-standalone-0", namespace, cmd,
+        "my-standalone-0",
+        namespace,
+        cmd,
     )
     assert result != "0"

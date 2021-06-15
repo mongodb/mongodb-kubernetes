@@ -13,13 +13,14 @@ spec:
     kind: MongoDBMulti
     listKind: MongoDBMultiList
     plural: mongodbmultis
+    shortNames:
+    - mdbm
     singular: mongodbmulti
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: kubebuilder:resource:shortName=mdbm
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -442,10 +443,10 @@ spec:
                 - statusName
                 type: object
               clusterStatusList:
-                description: ClusterStatusList holds a list og clusterStatuses corresponsing
+                description: ClusterStatusList holds a list of clusterStatuses corresponding
                   to each cluster
                 properties:
-                  slusterStatuses:
+                  clusterStatuses:
                     items:
                       description: ClusterStatusItem is the mongodb multi-cluster
                         spec that is specific to a particular Kubernetes cluster,

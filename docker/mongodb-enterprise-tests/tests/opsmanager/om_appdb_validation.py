@@ -19,7 +19,8 @@ def test_wrong_appdb_version(namespace: str, custom_version: Optional[str]):
     om["spec"]["applicationDatabase"]["version"] = "3.6.12"
     om.set_version(custom_version)
     with pytest.raises(
-        ApiException, match=r"the version of Application Database must be .* 4.0",
+        ApiException,
+        match=r"the version of Application Database must be .* 4.0",
     ):
         om.create()
 

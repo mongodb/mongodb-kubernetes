@@ -35,6 +35,8 @@ def test_replica_set_has_agent_flags(replica_set: MongoDB, namespace: str):
     ]
     for i in range(3):
         result = KubernetesTester.run_command_in_pod_container(
-            f"replica-set-{i}", namespace, cmd,
+            f"replica-set-{i}",
+            namespace,
+            cmd,
         )
         assert result != "0"
