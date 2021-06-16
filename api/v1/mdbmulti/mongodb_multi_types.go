@@ -16,7 +16,7 @@ func init() {
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:shortName=mdbm
+// +kubebuilder:resource:path=mongodbmulti,scope=Namespaced,shortName=mdbm
 // +kubebuilder:subresource:status
 type MongoDBMulti struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -104,4 +104,8 @@ type MongoDBMultiSpec struct {
 	// +optional
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 	ClusterSpecList        ClusterSpecList              `json:"clusterSpecList,omitempty"`
+}
+
+func (m MongoDBMulti) GetPlural() string {
+	return "mongodbmulti"
 }

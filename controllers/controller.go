@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
@@ -13,9 +14,10 @@ import (
 var crdFuncMap map[string][]func(manager.Manager) error
 
 var (
-	mdb  = &mdbv1.MongoDB{}
-	mdbu = &user.MongoDBUser{}
-	om   = omv1.MongoDBOpsManager{}
+	mdb      = &mdbv1.MongoDB{}
+	mdbu     = &user.MongoDBUser{}
+	om       = omv1.MongoDBOpsManager{}
+	mdbmulti = &mdbmultiv1.MongoDBMulti{}
 )
 
 func init() {
@@ -39,6 +41,9 @@ func buildCrdFunctionMap() map[string][]func(manager.Manager) error {
 		strings.ToLower(om.GetPlural()): {
 			operator.AddOpsManagerController,
 			om.AddValidationToManager,
+		},
+		strings.ToLower(mdbmulti.GetPlural()): {
+			operator.AddMultiReplicaSetController,
 		},
 	}
 }

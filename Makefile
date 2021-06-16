@@ -281,7 +281,7 @@ manifests: controller-gen
 	# copy the CRDs to the public folder
 	cp config/crd/bases/* public/helm_chart/crds/
 	# do not publish the multi cluster CRD file yet
-	rm -f public/helm_chart/crds/mongodb.com_mongodbmultis.yaml
+	rm -f public/helm_chart/crds/mongodb.com_mongodbmulti.yaml
 
 
 # Run go fmt against code

@@ -35,7 +35,8 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-
+	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
+	log.Info("-> MultiReplicaSet.Reconcile")
 	return reconcile.Result{}, nil
 }
 
@@ -50,9 +51,9 @@ func AddMultiReplicaSetController(mgr manager.Manager) error {
 	}
 
 	// TODO: add events handler for MongoDBMulti CR
-	// eventHandler := MongoDBMultiResourceEventHandler{reconciler: reconciler}
+	eventHandler := MongoDBMultiResourceEventHandler{}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(&source.Kind{Type: &mdbmultiv1.MongoDBMulti{}}, nil, predicate.Funcs{})
+	err = c.Watch(&source.Kind{Type: &mdbmultiv1.MongoDBMulti{}}, eventHandler, predicate.Funcs{})
 	if err != nil {
 		return err
 	}
