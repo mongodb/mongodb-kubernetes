@@ -53,7 +53,7 @@ class TestOpsManagerCreation:
         )
 
     def test_om_status_2_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
         ops_manager.om_status().assert_empty_status_resources_not_ready()
 
     def test_appdb_3_reaches_running_phase_2(self, ops_manager: MongoDBOpsManager):

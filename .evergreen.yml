@@ -1719,6 +1719,7 @@ task_groups:
   setup_group:
     - func: clone
     - func: download_kube_tools
+    - func: setup_building_host
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
@@ -1835,6 +1836,8 @@ task_groups:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
 
 # This is the task group that contains all the tests run in the e2e_mdb_openshift_ubi_cloudqa build variant
 - name: e2e_mdb_openshift_ubi_cloudqa_task_group
