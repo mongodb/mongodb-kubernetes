@@ -73,6 +73,8 @@ updated with the latest operator version.
   to be updated, to reflect the correct `replaces` and `minKubeVersion`
   attributes.
 
+* Ensure the resources specified in manager.yaml match the templated values in our HELM chart.
+
 ```bash
 make bundle-push
 ```
