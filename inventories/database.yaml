@@ -51,11 +51,11 @@ images:
     - version
 
     output:
-    - dockerfile: docker/mongodb-enterprise-database/Dockerfile.ubi-$(inputs.params.version_id)
+    - dockerfile: $(functions.tempfile)
 
   - name: database-build-ubi
     task_type: docker_build
-    dockerfile: Dockerfile.ubi-$(inputs.params.version_id)
+    dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
     tags: ["ubi"]
 
     buildargs:
