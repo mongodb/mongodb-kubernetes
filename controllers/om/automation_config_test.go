@@ -51,8 +51,8 @@ func TestUntouchedFieldsAreNotDeleted(t *testing.T) {
 
 	// ensure values we specified are overridden
 	assert.Equal(t, auth["autoUser"], "some-user")
-	ssl := cast.ToStringMap(a.Deployment["ssl"])
-	assert.Equal(t, ssl["clientCertificateMode"], util.RequireClientCertificates)
+	tls := cast.ToStringMap(a.Deployment["tls"])
+	assert.Equal(t, tls["clientCertificateMode"], util.RequireClientCertificates)
 
 	// ensures fields in nested fields we don't know about are retained
 	scramSha256Creds := cast.ToStringMap(getUser(a.Deployment, 0)["scramSha256Creds"])
@@ -352,11 +352,11 @@ func TestNoAdditionalFieldsAreAddedToAgentSSL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ssl := cast.ToStringMap(ac.Deployment["ssl"])
-	assert.Contains(t, ssl, "clientCertificateMode")
+	tls := cast.ToStringMap(ac.Deployment["tls"])
+	assert.Contains(t, tls, "clientCertificateMode")
 
-	assert.NotContains(t, ssl, "autoPEMKeyFilePath")
-	assert.NotContains(t, ssl, "CAFilePath")
+	assert.NotContains(t, tls, "autoPEMKeyFilePath")
+	assert.NotContains(t, tls, "CAFilePath")
 }
 
 func TestCanResetAgentSSL(t *testing.T) {
@@ -371,10 +371,10 @@ func TestCanResetAgentSSL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ssl := cast.ToStringMap(ac.Deployment["ssl"])
-	assert.Equal(t, ssl["clientCertificateMode"], util.OptionalClientCertficates)
-	assert.Equal(t, ssl["autoPEMKeyFilePath"], util.AutomationAgentPemFilePath)
-	assert.Equal(t, ssl["CAFilePath"], util.CAFilePathInContainer)
+	tls := cast.ToStringMap(ac.Deployment["tls"])
+	assert.Equal(t, tls["clientCertificateMode"], util.OptionalClientCertficates)
+	assert.Equal(t, tls["autoPEMKeyFilePath"], util.AutomationAgentPemFilePath)
+	assert.Equal(t, tls["CAFilePath"], util.CAFilePathInContainer)
 
 	ac.AgentSSL = &AgentSSL{
 		CAFilePath:            util.MergoDelete,
@@ -386,10 +386,10 @@ func TestCanResetAgentSSL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ssl = cast.ToStringMap(ac.Deployment["ssl"])
-	assert.Equal(t, ssl["clientCertificateMode"], util.OptionalClientCertficates)
-	assert.NotContains(t, ssl, "autoPEMKeyFilePath")
-	assert.NotContains(t, ssl, "CAFilePath")
+	tls = cast.ToStringMap(ac.Deployment["tls"])
+	assert.Equal(t, tls["clientCertificateMode"], util.OptionalClientCertficates)
+	assert.NotContains(t, tls, "autoPEMKeyFilePath")
+	assert.NotContains(t, tls, "CAFilePath")
 }
 
 func TestVersionsAndBuildsRetained(t *testing.T) {

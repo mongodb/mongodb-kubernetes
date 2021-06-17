@@ -147,10 +147,10 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	expectedSSLConfig := map[string]interface{}{
 		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
-	assert.Equal(t, expectedSSLConfig, d["ssl"].(map[string]interface{}))
+	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]interface{}))
 
 	d.ConfigureTLS(&mdbv1.TLSConfig{})
-	assert.Empty(t, d["ssl"])
+	assert.Empty(t, d["tls"])
 }
 
 func TestTLSConfigurationWillBeDisabled(t *testing.T) {
@@ -426,12 +426,10 @@ func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
 	deployment, err := BuildDeploymentFromBytes(data)
 	assert.NoError(t, err)
 
-	assert.Contains(t, deployment, "ssl")
-	assert.NotContains(t, deployment, "tls")
+	assert.Contains(t, deployment, "tls")
 
 	for _, p := range deployment.getProcesses() {
-		assert.Contains(t, p.EnsureNetConfig(), "ssl")
-		assert.NotContains(t, p.EnsureNetConfig(), "tls")
+		assert.Contains(t, p.EnsureNetConfig(), "tls")
 	}
 }
 

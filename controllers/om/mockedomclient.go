@@ -512,8 +512,8 @@ func (oc *MockedOmConnection) GetProcesses() []Process {
 	return oc.deployment.getProcesses()
 }
 
-func (oc *MockedOmConnection) GetSSL() map[string]interface{} {
-	return oc.deployment.getSSL()
+func (oc *MockedOmConnection) GetTLS() map[string]interface{} {
+	return oc.deployment.getTLS()
 }
 
 func (oc *MockedOmConnection) CheckNumberOfUpdateRequests(t *testing.T, expected int) {

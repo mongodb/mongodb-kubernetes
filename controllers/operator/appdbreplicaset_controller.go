@@ -245,11 +245,6 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 		SetMongoDBVersion(rs.GetMongoDBVersion()).
 		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
 		SetPreviousAutomationConfig(existingAutomationConfig).
-		SetSSLConfig(
-			automationconfig.TLS{
-				CAFilePath:            appdbCAFilePath,
-				ClientCertificateMode: automationconfig.ClientCertificateModeOptional,
-			}).
 		SetTLSConfig(
 			automationconfig.TLS{
 				CAFilePath:            appdbCAFilePath,
@@ -278,12 +273,9 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 
 				certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, p.Name)
 
-				p.Args26.Set("net.ssl.mode", string(mdbv1.RequireSSLMode))
-				if p.Args26.Has("net.ssl.certificateKeyFile") {
-					p.Args26.Set("net.ssl.certificateKeyFile", certFile)
-				} else {
-					p.Args26.Set("net.ssl.PEMKeyFile", certFile)
-				}
+				p.Args26.Set("net.tls.mode", string(mdbv1.RequireTLSMode))
+
+				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 
 			}
 		}).Build()

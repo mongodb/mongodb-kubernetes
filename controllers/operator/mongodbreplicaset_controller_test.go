@@ -109,7 +109,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	assert.Equal(t, set.Spec, updatedSet.Spec)
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
+	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "tls")
 	connection.CheckNumberOfUpdateRequests(t, 4)
 }
 
@@ -125,13 +125,13 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	processes := om.CurrMockedConnection.GetProcesses()
 	assert.Len(t, processes, 3)
 	for _, v := range processes {
-		assert.NotNil(t, v.SSLConfig())
-		assert.Len(t, v.SSLConfig(), 2)
-		assert.Equal(t, util.PEMKeyFilePathInContainer, v.SSLConfig()["PEMKeyFile"])
-		assert.Equal(t, "requireSSL", v.SSLConfig()["mode"])
+		assert.NotNil(t, v.TLSConfig())
+		assert.Len(t, v.TLSConfig(), 2)
+		assert.Equal(t, util.PEMKeyFilePathInContainer, v.TLSConfig()["PEMKeyFile"])
+		assert.Equal(t, "requireTLS", v.TLSConfig()["mode"])
 	}
 
-	sslConfig := om.CurrMockedConnection.GetSSL()
+	sslConfig := om.CurrMockedConnection.GetTLS()
 	assert.Equal(t, util.CAFilePathInContainer, sslConfig["CAFilePath"])
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
 }

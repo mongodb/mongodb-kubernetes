@@ -34,12 +34,12 @@ func (a *AutomationConfig) Apply() error {
 		a.Deployment["auth"] = mergedAuth
 	}
 	// same applies for the ssl object and map
-	if _, ok := a.Deployment["ssl"]; ok {
-		mergedSsl, err := util.MergeWith(a.AgentSSL, a.Deployment["ssl"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+	if _, ok := a.Deployment["tls"]; ok {
+		mergedTLS, err := util.MergeWith(a.AgentSSL, a.Deployment["tls"].(map[string]interface{}), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
-		a.Deployment["ssl"] = mergedSsl
+		a.Deployment["tls"] = mergedTLS
 	}
 
 	if _, ok := a.Deployment["ldap"]; ok {
@@ -324,9 +324,9 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 		finalAutomationConfig.Auth = auth
 	}
 
-	sslMap, ok := deployment["ssl"]
+	tlsMap, ok := deployment["tls"]
 	if ok {
-		sslStr, err := json.Marshal(sslMap)
+		sslStr, err := json.Marshal(tlsMap)
 		if err != nil {
 			return nil, err
 		}

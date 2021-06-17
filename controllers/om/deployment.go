@@ -51,10 +51,10 @@ func init() {
 	gob.Register(ProcessTypeMongos)
 	gob.Register(mdbv1.MongoDBHorizonConfig{})
 
-	gob.Register(mdbv1.RequireSSLMode)
-	gob.Register(mdbv1.PreferSSLMode)
-	gob.Register(mdbv1.AllowSSLMode)
-	gob.Register(mdbv1.DisabledSSLMode)
+	gob.Register(mdbv1.RequireTLSMode)
+	gob.Register(mdbv1.PreferTLSMode)
+	gob.Register(mdbv1.AllowTLSMode)
+	gob.Register(mdbv1.DisabledTLSMode)
 	gob.Register([]mdbv1.MongoDbRole{})
 }
 
@@ -72,31 +72,8 @@ type Deployment map[string]interface{}
 // BuildDeploymentFromBytes
 func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 	deployment := Deployment{}
-	if err := json.Unmarshal(jsonBytes, &deployment); err != nil {
-		return nil, err
-	}
-	// hack: as OM may return either 'tls' or 'ssl' - we need to use the single field everywhere - let's use 'ssl'
-	// using 'tls' is fragile as older OMs throw error on unfamiliar field on PUT requests (for 'tls')
-	if ssl, ok := deployment["tls"]; ok {
-		mapDeepCopy, err := util.MapDeepCopy(ssl.(map[string]interface{}))
-		if err != nil {
-			return nil, err
-		}
-		deployment["ssl"] = mapDeepCopy
-		delete(deployment, "tls")
-	}
-	for _, p := range deployment.getProcesses() {
-		netConfig := p.EnsureNetConfig()
-		if ssl, ok := netConfig["tls"]; ok {
-			mapDeepCopy, err := util.MapDeepCopy(ssl.(map[string]interface{}))
-			if err != nil {
-				return nil, err
-			}
-			netConfig["ssl"] = mapDeepCopy
-			delete(netConfig, "tls")
-		}
-	}
-	return deployment, nil
+	err := json.Unmarshal(jsonBytes, &deployment)
+	return deployment, err
 }
 
 // NewDeployment
@@ -111,7 +88,7 @@ func NewDeployment() Deployment {
 	// these keys are required to exist for mergo to merge
 	// correctly
 	ans["auth"] = make(map[string]interface{})
-	ans["ssl"] = map[string]interface{}{
+	ans["tls"] = map[string]interface{}{
 		"clientCertificateMode": util.OptionalClientCertficates,
 		"CAFilePath":            util.CAFilePathInContainer,
 	}
@@ -121,30 +98,30 @@ func NewDeployment() Deployment {
 // TLSConfigurationWillBeDisabled checks that if applying this TLSConfig the Deployment
 // TLS configuration will go from Enabled -> Disabled.
 func (d Deployment) TLSConfigurationWillBeDisabled(tlsSpec *mdbv1.TLSConfig) bool {
-	sslIsCurrentlyEnabled := false
+	tlsIsCurrentlyEnabled := false
 
-	// To detect that SSL is enabled, it is sufficient to check for the
-	// d["ssl"]["CAFilePath"] attribute to have a value different than nil.
-	if ssl, ok := d["ssl"]; ok {
-		if caFilePath, ok := ssl.(map[string]interface{})["CAFilePath"]; ok {
+	// To detect that TLS is enabled, it is sufficient to check for the
+	// d["tls"]["CAFilePath"] attribute to have a value different than nil.
+	if tls, ok := d["tls"]; ok {
+		if caFilePath, ok := tls.(map[string]interface{})["CAFilePath"]; ok {
 			if caFilePath != nil {
-				sslIsCurrentlyEnabled = true
+				tlsIsCurrentlyEnabled = true
 			}
 		}
 	}
 
-	return sslIsCurrentlyEnabled && !tlsSpec.IsEnabled()
+	return tlsIsCurrentlyEnabled && !tlsSpec.IsEnabled()
 }
 
 // ConfigureTLS configures the deployment's TLS settings from the TLS
 // specification provided by the user in the mongodb resource spec.
 func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
 	if !tlsSpec.IsEnabled() {
-		delete(d, "ssl") // unset SSL config
+		delete(d, "tls") // unset TLS config
 		return
 	}
 
-	sslConfig := util.ReadOrCreateMap(d, "ssl")
+	tlsConfig := util.ReadOrCreateMap(d, "tls")
 	// ClientCertificateMode detects if Ops Manager requires client certification - may be there will be no harm
 	// setting this to "REQUIRED" always (need to check). Otherwise this should be configurable
 	// see OM configurations that affects this setting from AA side:
@@ -152,7 +129,7 @@ func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
 	//sslConfig["ClientCertificateMode"] = "OPTIONAL"
 	//sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
 
-	sslConfig["CAFilePath"] = util.CAFilePathInContainer
+	tlsConfig["CAFilePath"] = util.CAFilePathInContainer
 }
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
@@ -279,7 +256,7 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool) {
 					"sslTrustedServerCertificates": util.CAFilePathInContainer,
 				}
 
-				pemKeyFile := p.EnsureSSLConfig()["PEMKeyFile"]
+				pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
 				if pemKeyFile != nil {
 					additionalParams["sslClientCertificate"] = pemKeyFile.(string)
 				}
@@ -930,8 +907,8 @@ func (d Deployment) setMonitoringVersions(monitoring []interface{}) {
 func (d Deployment) setBackupVersions(backup []interface{}) {
 	d["backupVersions"] = backup
 }
-func (d Deployment) getSSL() map[string]interface{} {
-	return util.ReadOrCreateMap(d, "ssl")
+func (d Deployment) getTLS() map[string]interface{} {
+	return util.ReadOrCreateMap(d, "tls")
 }
 
 // findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from

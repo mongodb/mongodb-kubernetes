@@ -314,7 +314,7 @@
     "downloadBase": "/var/lib/mongodb-mms-automation",
     "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
   },
-  "ssl": {
+  "tls": {
     "CAFilePath": null,
     "CAFilePathWindows": null,
     "clientCertificateMode": "OPTIONAL"

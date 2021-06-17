@@ -3,6 +3,8 @@
 # MongoDB Enterprise Kubernetes Operator 1.11.1
 
 ## MongoDB Resource
+* Bug Fixes
+  * Fixes a bug when an user could only specify `net.ssl.mode` and not `net.tls.mode` in the `spec.additionalMongodConfig` field.
 * Changes
   * If `spec.exposedExternally` is set to `false` after being set to `true`, the Operator will now delete the corresponding service
 

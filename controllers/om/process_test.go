@@ -25,7 +25,7 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
 
-		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "ssl": map[string]interface{}{
+		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
 			"mode": "disabled",
 		}}
 		assert.Equal(t, expectedMap, process.EnsureNetConfig())
@@ -73,55 +73,55 @@ func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 func TestConfigureSSL_Process(t *testing.T) {
 	process := Process{}
 
-	process.ConfigureTLS(mdbv1.RequireSSLMode, "pem-file0")
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireSSLMode), "PEMKeyFile": "pem-file0"}, process.SSLConfig())
+	process.ConfigureTLS(mdbv1.RequireTLSMode, "pem-file0")
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireTLSMode), "PEMKeyFile": "pem-file0"}, process.TLSConfig())
 
 	process = Process{}
 	process.ConfigureTLS("", "pem-file1")
-	assert.Equal(t, map[string]interface{}{"mode": "", "PEMKeyFile": "pem-file1"}, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": "", "PEMKeyFile": "pem-file1"}, process.TLSConfig())
 
 	process = Process{}
-	process.ConfigureTLS(mdbv1.DisabledSSLMode, "pem-file2")
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
+	process.ConfigureTLS(mdbv1.DisabledTLSMode, "pem-file2")
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledTLSMode)}, process.TLSConfig())
 }
 
 func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
 	t.Run("When provided with certificateKeyFile attribute name, it is maintained", func(t *testing.T) {
 		process := Process{}
-		sslConfig := process.EnsureSSLConfig()
-		sslConfig["certificateKeyFile"] = "xxx"
-		process.ConfigureTLS(mdbv1.RequireSSLMode, "pem-file0")
-		assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireSSLMode), "certificateKeyFile": "pem-file0"}, process.SSLConfig())
+		tlsConfig := process.EnsureTLSConfig()
+		tlsConfig["certificateKeyFile"] = "xxx"
+		process.ConfigureTLS(mdbv1.RequireTLSMode, "pem-file0")
+		assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.RequireTLSMode), "certificateKeyFile": "pem-file0"}, process.TLSConfig())
 	})
 
 	t.Run("A non-defined mode keeps the certificateKeyFile attribute name", func(t *testing.T) {
 		process := Process{}
-		sslConfig := process.EnsureSSLConfig()
-		sslConfig["certificateKeyFile"] = "xxx"
+		tlsConfig := process.EnsureTLSConfig()
+		tlsConfig["certificateKeyFile"] = "xxx"
 		process.ConfigureTLS("", "pem-file1")
-		assert.Equal(t, map[string]interface{}{"mode": "", "certificateKeyFile": "pem-file1"}, process.SSLConfig())
+		assert.Equal(t, map[string]interface{}{"mode": "", "certificateKeyFile": "pem-file1"}, process.TLSConfig())
 	})
 
 	t.Run("If TLS is disabled, the certificateKeyFile attribute is deleted", func(t *testing.T) {
 		process := Process{}
-		sslConfig := process.EnsureSSLConfig()
-		sslConfig["certificateKeyFile"] = "xxx"
-		process.ConfigureTLS(mdbv1.DisabledSSLMode, "pem-file2")
-		assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
+		tlsConfig := process.EnsureTLSConfig()
+		tlsConfig["certificateKeyFile"] = "xxx"
+		process.ConfigureTLS(mdbv1.DisabledTLSMode, "pem-file2")
+		assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledTLSMode)}, process.TLSConfig())
 	})
 }
 
 func TestTlsConfig(t *testing.T) {
 	process := Process{}
-	process.ConfigureTLS(mdbv1.RequireSSLMode, "another-pem-file")
+	process.ConfigureTLS(mdbv1.RequireTLSMode, "another-pem-file")
 	process.Args()["tls"] = map[string]interface{}{
-		"mode":       "requireSSL",
+		"mode":       "requireTLS",
 		"PEMKeyFile": "another-pem-file",
 	}
 
-	tlsConfig := process.SSLConfig()
+	tlsConfig := process.TLSConfig()
 	assert.NotNil(t, tlsConfig)
-	assert.Equal(t, tlsConfig["mode"], "requireSSL")
+	assert.Equal(t, tlsConfig["mode"], "requireTLS")
 	assert.Equal(t, tlsConfig["PEMKeyFile"], "another-pem-file")
 }
 
@@ -140,42 +140,42 @@ func TestConfigureX509_Process(t *testing.T) {
 
 	process.ConfigureClusterAuthMode("") // should not update fields
 	assert.NotContains(t, process.security(), "clusterAuthMode")
-	assert.NotContains(t, process.SSLConfig(), "clusterFile")
+	assert.NotContains(t, process.TLSConfig(), "clusterFile")
 
 	process.ConfigureClusterAuthMode(util.X509) // should update fields if specified as x509
 	assert.Equal(t, "x509", process.security()["clusterAuthMode"])
-	assert.Equal(t, fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, process.Name()), process.SSLConfig()["clusterFile"])
+	assert.Equal(t, fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, process.Name()), process.TLSConfig()["clusterFile"])
 }
 
 func TestCreateMongodProcess_SSL(t *testing.T) {
-	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.PreferSSLMode))
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.PreferTLSMode))
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb)
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledSSLMode)}, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledTLSMode)}, process.TLSConfig())
 
 	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb)
 
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.PreferSSLMode),
-		"PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.PreferTLSMode),
+		"PEMKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
 }
 
 func TestCreateMongosProcess_SSL(t *testing.T) {
-	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.AllowSSLMode))
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.AllowTLSMode))
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
 
-	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.AllowSSLMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.SSLConfig())
+	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.AllowTLSMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
 }
 
 // TestMergeMongodProcess_SSL verifies that merging for the process SSL settings keeps the Operator "owned" properties
 // and doesn't overwrite the other Ops Manager initiated configuration
 func TestMergeMongodProcess_SSL(t *testing.T) {
-	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.RequireSSLMode))
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.RequireTLSMode))
 	operatorMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
 		SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
 
@@ -184,20 +184,20 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, operatorMdb)
 	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, omMdb)
-	omProcess.EnsureSSLConfig()["mode"] = "allowSSL"                      // this will be overridden
-	omProcess.EnsureSSLConfig()["PEMKeyFile"] = "/var/mongodb/server.pem" // this will be overridden
-	omProcess.EnsureSSLConfig()["sslOnNormalPorts"] = "true"              // this will be left as-is
-	omProcess.EnsureSSLConfig()["PEMKeyPassword"] = "qwerty"              // this will be left as-is
+	omProcess.EnsureTLSConfig()["mode"] = "allowTLS"                      // this will be overridden
+	omProcess.EnsureTLSConfig()["PEMKeyFile"] = "/var/mongodb/server.pem" // this will be overridden
+	omProcess.EnsureTLSConfig()["sslOnNormalPorts"] = "true"              // this will be left as-is
+	omProcess.EnsureTLSConfig()["PEMKeyPassword"] = "qwerty"              // this will be left as-is
 
 	omProcess.mergeFrom(operatorProcess)
 
 	expectedSSLConfig := map[string]interface{}{
-		"mode":             string(mdbv1.RequireSSLMode),
+		"mode":             string(mdbv1.RequireTLSMode),
 		"PEMKeyFile":       "/mongodb-automation/server.pem",
 		"sslOnNormalPorts": "true",
 		"PEMKeyPassword":   "qwerty",
 	}
-	assert.Equal(t, expectedSSLConfig, maputil.ReadMapValueAsInterface(omProcess, "args2_6", "net", "ssl"))
+	assert.Equal(t, expectedSSLConfig, maputil.ReadMapValueAsInterface(omProcess, "args2_6", "net", "tls"))
 }
 
 func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
@@ -214,7 +214,7 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 	expectedArgs := map[string]interface{}{
 		"net": map[string]interface{}{
 			"port": int32(27017),
-			"ssl": map[string]interface{}{
+			"tls": map[string]interface{}{
 				"mode": "disabled",
 			},
 		},

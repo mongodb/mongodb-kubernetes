@@ -7,10 +7,6 @@ stepback: true
 # Ops Manager image building & pushing takes a long time
 exec_timeout_secs: 4500
 variables:
-  - &ops_manager_42_first
-    ops_manager_version: "4.2.0"
-    ops_manager_namespace: "operator-testing-42-first"
-    node_port: 30042
   - &ops_manager_44_current
     ops_manager_version: "4.4.13"
     ops_manager_namespace: "operator-testing-44-current"
@@ -23,7 +19,6 @@ variables:
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
   - &ops_manager_44_latest 4.4.13
-  - &ops_manager_42_latest 4.2.25
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20
@@ -765,10 +760,7 @@ tasks:
         <<: [ *kubernetes_environment_vanilla ]
     - func: prepare_test_env
       vars:
-        <<: [ *ops_manager_44_current ]
-    - func: prepare_test_env
-      vars:
-        <<: [ *ops_manager_42_first ]
+        <<: *ops_manager_44_current
         
 
 - name: prepare_cluster_vanilla_om
@@ -1674,16 +1666,6 @@ tasks:
       image_name: ops-manager
       skip_tags: release
 
-- name: build_om42_images
-  patch_only: true
-  commands:
-  - func: clone
-  - func: setup_building_host
-  - func: pipeline
-    vars:
-      image_name: ops-manager
-      skip_tags: release
-
 - name: publish_ops_manager
   patch_only: true
   commands:
@@ -1876,53 +1858,6 @@ task_groups:
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
     - e2e_sharded_cluster_scram_sha_1_user_connectivity
     - e2e_sharded_cluster_scram_x509_ic_manual_certs
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om42 build variant
-- name: e2e_mdb_vanilla_ubuntu_om42_task_group
-  # These tests are run on the same kops cluster as om44 ones
-  max_hosts: 4
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
-    # "e2e_core_task_group"
-    - e2e_all_mongodb_resources_parallel
-    - e2e_multiple_cluster_failures
-    - e2e_replica_set_8_members
-    - e2e_replica_set_ent
-    - e2e_replica_set_custom_podspec
-    - e2e_replica_set_custom_sa
-    - e2e_replica_set_recovery
-    - e2e_replica_set_upgrade_downgrade
-    - e2e_replica_set_agent_flags
-    - e2e_sharded_cluster
-    - e2e_sharded_cluster_secret
-    - e2e_sharded_cluster_upgrade_downgrade
-    - e2e_sharded_cluster_custom_podspec
-    - e2e_sharded_cluster_agent_flags
-    - e2e_standalone_type_change_recovery
-    - e2e_standalone_upgrade_downgrade
-    - e2e_standalone_custom_podspec
-    - e2e_standalone_agent_flags
-    # "e2e_tls_task_group"
-    - e2e_replica_set_tls_allow
-    - e2e_replica_set_tls_prefer
-    - e2e_replica_set_tls_require_upgrade
-    - e2e_tls_rs_additional_certs
-    - e2e_tls_sc_additional_certs
-    - e2e_tls_sc_additional_certs_transition
-    - e2e_standalone_no_tls_no_status_is_set
-    # "e2e_mongodb_non_cloudqa_task_group"
-    - e2e_standalone_groups
-    - e2e_replica_set_groups
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2211,27 +2146,6 @@ buildvariants:
 #  tasks:
 #    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
 
-- name: e2e_mdb_vanilla_ubuntu_om42
-  display_name: "e2e_mdb_vanilla_ubuntu_om42"
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: prepare_cluster_vanilla
-      variant: init_test_run
-  run_on:
-  - ubuntu1804-small
-  stepback: false
-  expansions:
-    <<: [ *ops_manager_42_first, *kubernetes_environment_vanilla ]
-    custom_mdb_version: *mdb_42_latest
-    image_type: ubuntu
-  tasks:
-  - name: e2e_mdb_vanilla_ubuntu_om42_task_group
-
 - name: e2e_mdb_vanilla_ubuntu_om44
   display_name: "e2e_mdb_vanilla_ubuntu_om44"
   depends_on:
@@ -2273,100 +2187,6 @@ buildvariants:
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
 ## Ops Manager build variants
-
-- name: e2e_om42_vanilla_ubuntu
-  display_name: "e2e_om42_vanilla_ubuntu"
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_om_images_ubuntu
-      variant: init_test_run
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
-    - name: build_init_appdb_images_ubuntu
-      variant: init_test_run
-    - name: prepare_cluster_vanilla_om
-      variant: init_test_run
-  run_on:
-    - ubuntu1804-small
-  stepback: false
-  expansions:
-    cluster_name: "e2e.om.mongokubernetes.com"
-    <<: [ *kubernetes_environment_vanilla ]
-    test_mode: "opsmanager"
-    image_type: ubuntu
-    always_remove_testing_namespace: "true"
-    custom_om_version: *ops_manager_42_latest
-    custom_mdb_version: *mdb_42_latest
-    custom_mdb_prev_version: *mdb_40_latest
-    agent_version: *agent_version
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-    - name: e2e_ops_manager_task_group_safe
-
-- name: e2e_om42_openshift_ubi
-  display_name: e2e_om42_openshift_ubi
-  depends_on:
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
-  run_on:
-    - ubuntu1804-small
-  stepback: false
-  expansions:
-    <<: [ *kubernetes_environment_openshift_4 ]
-    test_mode: opsmanager
-    image_type: ubi
-    always_remove_testing_namespace: "true"
-    custom_om_version: *ops_manager_42_latest
-    custom_mdb_version: *mdb_42_latest
-    custom_mdb_prev_version: *mdb_40_latest
-    agent_version: *agent_version
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
-  tasks:
-    - name: e2e_ops_manager_task_group_safe
-
-# Isolated Ops Manager Tests for 4.2 version
-- name: e2e_om42_kind_ubuntu
-  display_name: e2e_om42_kind_ubuntu
-  run_on:
-  - ubuntu1804-large
-  depends_on:
-  - name: build_om42_images
-    variant: build_om42_images
-  - name: build_operator_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_init_appdb_images_ubuntu
-    variant: init_test_run
-  expansions:
-    <<: [ *kubernetes_environment_kind ]
-    image_type: ubuntu
-    test_mode: opsmanager
-
-    custom_om_version: *ops_manager_42_latest
-    custom_mdb_version: *mdb_42_latest
-    custom_mdb_prev_version: *mdb_40_latest
-    agent_version: *agent_version
-
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
 
 # Isolated Ops Manager Tests for 4.4 version
 - name: e2e_om44_kind_ubuntu
@@ -2630,15 +2450,6 @@ buildvariants:
   tasks:
   - name: build_om44_images
 
-- name: build_om42_images
-  display_name: build_om42_images
-  run_on:
-  - ubuntu1804-small
-  expansions:
-    om_version: *ops_manager_42_latest
-  tasks:
-  - name: build_om42_images
-
 
 # To publish OM4.4 images:
 #
@@ -2660,20 +2471,3 @@ buildvariants:
   tasks:
   - name: publish_ops_manager
 
-# To publish OM4.2 images:
-#
-# 1) Modify `variables.ops_manager_42_latest` to the version to be released
-# 2) Run
-#    evergreen patch -v publish_om42_images -t all -y -f -d "Releasing OM 4.2" -u --browse
-#
-- name: publish_om42_images
-  display_name: publish_om42_images
-  run_on:
-  - ubuntu1804-small
-  depends_on:
-  - variant: e2e_om42_kind_ubuntu
-    name: '*'
-  expansions:
-    om_version: *ops_manager_42_latest
-  tasks:
-  - name: publish_ops_manager

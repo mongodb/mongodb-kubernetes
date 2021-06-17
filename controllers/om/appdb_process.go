@@ -32,7 +32,7 @@ func NewMongodProcessAppDB(name, hostName string, appdb omv1.AppDBSpec) Process 
 
 		// Process for AppDB use the mounted cert in-place and are not required for the certs to be
 		// linked into a given location.
-		p.ConfigureTLS(mdbv1.RequireSSLMode, certFile)
+		p.ConfigureTLS(mdbv1.RequireTLSMode, certFile)
 	}
 
 	// default values for configurable values

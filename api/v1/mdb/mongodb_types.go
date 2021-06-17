@@ -34,7 +34,7 @@ type LogLevel string
 
 type ResourceType string
 
-type SSLMode string
+type TLSMode string
 
 type TransportSecurity string
 
@@ -49,14 +49,11 @@ const (
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
 
-	RequireSSLMode  SSLMode = "requireSSL"
-	PreferSSLMode   SSLMode = "preferSSL"
-	AllowSSLMode    SSLMode = "allowSSL"
-	DisabledSSLMode SSLMode = "disabled"
+	DisabledTLSMode TLSMode = "disabled"
 
-	RequireTLSMode SSLMode = "requireTLS"
-	PreferTLSMode  SSLMode = "preferTLS"
-	AllowTLSMode   SSLMode = "allowTLS"
+	RequireTLSMode TLSMode = "requireTLS"
+	PreferTLSMode  TLSMode = "preferTLS"
+	AllowTLSMode   TLSMode = "allowTLS"
 
 	DeploymentLinkIndex = 0
 
@@ -958,20 +955,26 @@ func NewMongoDbPodSpec() *MongoDbPodSpec {
 	return &MongoDbPodSpec{}
 }
 
-func (spec MongoDbSpec) GetTLSMode() SSLMode {
+func (spec MongoDbSpec) GetTLSMode() TLSMode {
 	if spec.Security == nil || !spec.Security.TLSConfig.IsEnabled() {
-		return DisabledSSLMode
+		return DisabledTLSMode
 	}
 
 	// spec.Security.TLSConfig.IsEnabled() is true -> requireSSLMode
 	if spec.AdditionalMongodConfig.Object == nil {
-		return RequireSSLMode
+		return RequireTLSMode
 	}
-	mode := maputil.ReadMapValueAsString(spec.AdditionalMongodConfig.Object, "net", "ssl", "mode")
+	mode := maputil.ReadMapValueAsString(spec.AdditionalMongodConfig.Object, "net", "tls", "mode")
+
 	if mode == "" {
-		return RequireSSLMode
+		mode = maputil.ReadMapValueAsString(spec.AdditionalMongodConfig.Object, "net", "ssl", "mode")
 	}
-	return validModeOrDefault(SSLMode(mode))
+
+	if mode == "" {
+		return RequireTLSMode
+	}
+
+	return TLSMode(mode)
 }
 
 // Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for
@@ -1006,23 +1009,6 @@ func (m MongoDbSpec) IsSecurityTLSConfigEnabled() bool {
 
 func (m MongoDbSpec) GetFeatureCompatibilityVersion() *string {
 	return m.FeatureCompatibilityVersion
-}
-
-// validModeOrDefault returns a valid mode for the Net.SSL.Mode string
-func validModeOrDefault(mode SSLMode) SSLMode {
-	if mode == "" {
-		return RequireSSLMode
-	}
-
-	if mode == RequireTLSMode {
-		mode = RequireSSLMode
-	} else if mode == PreferTLSMode {
-		mode = PreferSSLMode
-	} else if mode == AllowTLSMode {
-		mode = AllowSSLMode
-	}
-
-	return mode
 }
 
 func newConnectivity() *MongoDBConnectivity {

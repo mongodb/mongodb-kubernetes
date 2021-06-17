@@ -53,7 +53,7 @@ func TestCreateProcessWithTLSEnabled(t *testing.T) {
 	process := NewMongodProcessAppDB("tls-process-1", "tls-process-1.cluster.local", appdb)
 
 	pemKeyFile := "/var/lib/mongodb-automation/secrets/certs/tls-process-1-pem"
-	expectedMap := map[string]interface{}{"port": int32(27017), "ssl": map[string]interface{}{"mode": "requireSSL", "PEMKeyFile": pemKeyFile}}
+	expectedMap := map[string]interface{}{"port": int32(27017), "tls": map[string]interface{}{"mode": "requireTLS", "PEMKeyFile": pemKeyFile}}
 	args := process["args2_6"].(map[string]interface{})
 	net := args["net"]
 	assert.Equal(t, expectedMap, net)

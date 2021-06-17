@@ -67,7 +67,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "ssl")
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "tls")
 	connection.CheckNumberOfUpdateRequests(t, 1)
 	// we don't remove hosts from monitoring if there is no scale down
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
@@ -101,7 +101,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 
 	// the updated deployment should reflect that of a ShardedCluster with one fewer member
 	scWith3Members := DefaultClusterBuilder().SetShardCountStatus(3).SetShardCountSpec(3).Build()
-	connection.CheckDeployment(t, createDeploymentFromShardedCluster(scWith3Members), "auth", "ssl")
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(scWith3Members), "auth", "tls")
 
 	// No matter how many members we scale down by, we will only have one fewer each reconciliation
 	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 5)

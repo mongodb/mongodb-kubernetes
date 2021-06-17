@@ -229,19 +229,19 @@ func (p Process) EnsureNetConfig() map[string]interface{} {
 	return util.ReadOrCreateMap(p.Args(), "net")
 }
 
-// EnsureSSLConfig returns the SSL configuration map ("net.ssl"), creates an empty map if it didn't exist.
+// EnsureTLSConfig returns the TLS configuration map ("net.tls"), creates an empty map if it didn't exist.
 // Use this method if you intend to make updates to the map returned
-func (p Process) EnsureSSLConfig() map[string]interface{} {
+func (p Process) EnsureTLSConfig() map[string]interface{} {
 	netConfig := p.EnsureNetConfig()
-	return util.ReadOrCreateMap(netConfig, "ssl")
+	return util.ReadOrCreateMap(netConfig, "tls")
 }
 
-// SSLConfig returns the SSL configuration map ("net.ssl") or an empty map if it doesn't exist.
+// SSLConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
 // Use this method only to read values, not update
-func (p Process) SSLConfig() map[string]interface{} {
+func (p Process) TLSConfig() map[string]interface{} {
 	netConfig := p.EnsureNetConfig()
-	if _, ok := netConfig["ssl"]; ok {
-		return netConfig["ssl"].(map[string]interface{})
+	if _, ok := netConfig["tls"]; ok {
+		return netConfig["tls"].(map[string]interface{})
 	}
 
 	return make(map[string]interface{})
@@ -261,8 +261,8 @@ func (p Process) ConfigureClusterAuthMode(clusterAuthMode string) Process {
 }
 
 func (p Process) IsTLSEnabled() bool {
-	_, keyFile0 := p.SSLConfig()["PEMKeyFile"]
-	_, keyFile1 := p.SSLConfig()["certificateKeyFile"]
+	_, keyFile0 := p.TLSConfig()["PEMKeyFile"]
+	_, keyFile1 := p.TLSConfig()["certificateKeyFile"]
 
 	return keyFile0 || keyFile1
 }
@@ -338,27 +338,27 @@ func WithAdditionalMongodConfig(additionalConfig mdbv1.AdditionalMongodConfig) P
 
 // ConfigureTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
 // the value of "mode" to be an allowed ssl.mode from OM API perspective.
-func (p Process) ConfigureTLS(mode mdbv1.SSLMode, pemKeyFileLocation string) {
+func (p Process) ConfigureTLS(mode mdbv1.TLSMode, pemKeyFileLocation string) {
 	// Initializing SSL configuration if it's necessary
-	sslConfig := p.EnsureSSLConfig()
+	tlsConfig := p.EnsureTLSConfig()
 
-	sslConfig["mode"] = string(mode)
+	tlsConfig["mode"] = string(mode)
 
-	if mode == mdbv1.DisabledSSLMode {
+	if mode == mdbv1.DisabledTLSMode {
 		// If these attribute exists, it needs to be removed
 		// PEMKeyFile is older
 		// certificateKeyFile is the current one
-		if _, ok := sslConfig["certificateKeyFile"]; ok {
-			delete(sslConfig, "certificateKeyFile")
+		if _, ok := tlsConfig["certificateKeyFile"]; ok {
+			delete(tlsConfig, "certificateKeyFile")
 		}
-		if _, ok := sslConfig["PEMKeyFile"]; ok {
-			delete(sslConfig, "PEMKeyFile")
+		if _, ok := tlsConfig["PEMKeyFile"]; ok {
+			delete(tlsConfig, "PEMKeyFile")
 		}
 	} else {
-		if _, ok := sslConfig["certificateKeyFile"]; ok {
-			sslConfig["certificateKeyFile"] = pemKeyFileLocation
+		if _, ok := tlsConfig["certificateKeyFile"]; ok {
+			tlsConfig["certificateKeyFile"] = pemKeyFileLocation
 		} else {
-			sslConfig["PEMKeyFile"] = pemKeyFileLocation
+			tlsConfig["PEMKeyFile"] = pemKeyFileLocation
 		}
 	}
 }
@@ -406,22 +406,22 @@ func (p Process) mergeFrom(operatorProcess Process) {
 	maputil.MergeMaps(p, operatorProcess)
 
 	// Merge SSL configuration (update if it's specified - delete otherwise)
-	if mode, ok := operatorProcess.SSLConfig()["mode"]; ok {
-		for key, value := range operatorProcess.SSLConfig() {
-			p.EnsureSSLConfig()[key] = value
+	if mode, ok := operatorProcess.TLSConfig()["mode"]; ok {
+		for key, value := range operatorProcess.TLSConfig() {
+			p.EnsureTLSConfig()[key] = value
 		}
 		// if the mode is specified as disabled, providing "PEMKeyFile" is an invalid config
-		if mode == string(mdbv1.DisabledSSLMode) {
-			sslConfig := p.EnsureSSLConfig()
-			if _, ok := sslConfig["PEMKeyFile"]; ok {
-				delete(sslConfig, "PEMKeyFile")
+		if mode == string(mdbv1.DisabledTLSMode) {
+			tlsConfig := p.EnsureTLSConfig()
+			if _, ok := tlsConfig["PEMKeyFile"]; ok {
+				delete(tlsConfig, "PEMKeyFile")
 			}
-			if _, ok := sslConfig["certificateKeyFile"]; ok {
-				delete(sslConfig, "certificateKeyFile")
+			if _, ok := tlsConfig["certificateKeyFile"]; ok {
+				delete(tlsConfig, "certificateKeyFile")
 			}
 		}
 	} else {
-		delete(p.EnsureNetConfig(), "ssl")
+		delete(p.EnsureNetConfig(), "tls")
 	}
 }
 
@@ -456,7 +456,7 @@ func (s Process) setName(name string) Process {
 }
 
 func (p Process) setClusterFile(filePath string) Process {
-	p.EnsureSSLConfig()["clusterFile"] = filePath
+	p.EnsureTLSConfig()["clusterFile"] = filePath
 	return p
 }
 
