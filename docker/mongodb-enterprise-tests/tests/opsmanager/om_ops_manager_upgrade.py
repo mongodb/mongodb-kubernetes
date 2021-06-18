@@ -248,6 +248,16 @@ class TestMongoDbsVersionUpgrade:
         is enforced before MongoDB reconciliation (the OM reconciliation happened above will drop the 'agents.nextScheduledTime'
         counter)
         """
+
+        # TODO Remove this when making this a 4.4 to 5.0 upgrade test
+        # It is needed only for OM 4.2 to avoid sending both a net.tls.mode
+        # and a major/minor mdb upgrade
+        # See https://github.com/10gen/ops-manager-kubernetes/pull/1623 for context
+        mdb.reload()
+        mdb["spec"]["logLevel"] = "DEBUG"
+
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Running)
         mdb.reload()
         mdb["spec"]["version"] = custom_mdb_version
 
