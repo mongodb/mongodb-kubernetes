@@ -67,7 +67,7 @@ class TestOpsManagerCreation:
 
     def test_backup_1_pod_becomes_ready(self, ops_manager: MongoDBOpsManager):
         """ backup web server is up and running"""
-        ops_manager.wait_until_backup_pod_becomes_ready()
+        ops_manager.wait_until_backup_pods_become_ready()
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
@@ -274,7 +274,7 @@ class TestOpsManagerUpdate:
 
     def test_backup_1_pod_becomes_ready(self, ops_manager: MongoDBOpsManager):
         """ backup web server is up and running"""
-        ops_manager.wait_until_backup_pod_becomes_ready()
+        ops_manager.wait_until_backup_pods_become_ready()
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()

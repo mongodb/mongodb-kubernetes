@@ -11,6 +11,8 @@
 ## MongoDBOpsManager Resource
 * Changes
   * If `spec.externalConnectivity` is unset after being set, the Operator will now delete the corresponding service
+  * It is now possible to specify the number of backup daemon pods to deploy through the `spec.backup.members` field. The value defaults to 1 if not set.
+  
 * Ops Manager versions 4.4.13 and 4.2.25 are now supported.
 
 <!-- Past Releases -->

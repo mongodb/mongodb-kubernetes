@@ -50,7 +50,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 		opts.ServicePort = BackupDaemonServicePort
 		opts.ServiceName = opsManager.BackupServiceName()
 		opts.Name = opsManager.BackupStatefulSetName()
-		opts.Replicas = 1
+		opts.Replicas = opsManager.Spec.Backup.Members
 
 		if opsManager.Spec.Backup != nil {
 			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {

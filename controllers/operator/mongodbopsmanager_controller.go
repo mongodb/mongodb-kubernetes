@@ -338,17 +338,20 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
-	// If backup is not enabled, we check whether it is still configured in OM to update the statys.
+	// If backup is not enabled, we check whether it is still configured in OM to update the status.
 	if !opsManager.Spec.Backup.Enabled {
 		var backupStatus workflow.Status
 		backupStatus = workflow.OK()
 
-		_, err := omAdmin.ReadDaemonConfig(opsManager.BackupDaemonHostName(), util.PvcMountPathHeadDb)
-		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
-			backupStatus = workflow.Disabled()
+		for _, hostName := range opsManager.BackupDaemonHostNames() {
+			_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
+			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
+				backupStatus = workflow.Disabled()
+				break
+			}
 		}
 
-		_, err = r.updateStatus(opsManager, backupStatus, log, backupStatusPartOption)
+		_, err := r.updateStatus(opsManager, backupStatus, log, backupStatusPartOption)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -825,21 +828,23 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 		return workflow.OK()
 	}
 	// 1. Enabling Daemon Config if necessary
-	backupHostName := opsManager.BackupDaemonHostName()
-	_, err := omAdmin.ReadDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
-	if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
-		log.Infow("Backup Daemon is not configured, enabling it", "hostname", backupHostName, "headDB", util.PvcMountPathHeadDb)
-
-		err = omAdmin.CreateDaemonConfig(backupHostName, util.PvcMountPathHeadDb)
+	backupHostNames := opsManager.BackupDaemonHostNames()
+	for _, hostName := range backupHostNames {
+		_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
 		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
-			// Unfortunately by this time backup daemon may not have been started yet and we don't have proper
-			// mechanism to ensure this using readiness probe so we just retry
-			return workflow.Pending("BackupDaemon hasn't started yet")
+			log.Infow("Backup Daemons is not configured, enabling it", "hostname", hostName, "headDB", util.PvcMountPathHeadDb)
+
+			err = omAdmin.CreateDaemonConfig(hostName, util.PvcMountPathHeadDb)
+			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
+				// Unfortunately by this time backup daemon may not have been started yet and we don't have proper
+				// mechanism to ensure this using readiness probe so we just retry
+				return workflow.Pending("BackupDaemon hasn't started yet")
+			} else if err != nil {
+				return workflow.Failed(err.Error())
+			}
 		} else if err != nil {
 			return workflow.Failed(err.Error())
 		}
-	} else if err != nil {
-		return workflow.Failed(err.Error())
 	}
 
 	// 2. Oplog store configs

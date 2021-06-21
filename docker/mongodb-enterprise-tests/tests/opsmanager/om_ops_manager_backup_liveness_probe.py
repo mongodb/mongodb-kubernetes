@@ -116,7 +116,9 @@ class TestOpsManagerCreation:
     ):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
+        for pod_name in ops_manager.backup_daemon_pods_names():
+            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
+
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
 
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
@@ -130,7 +132,7 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
     corev1_client = client.CoreV1Api()
 
     backup_daemon_pod = corev1_client.read_namespaced_pod(
-        ops_manager.backup_daemon_pod_name(), ops_manager.namespace
+        ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
     )
 
     # ensure the pod has not yet been restarted.
@@ -139,7 +141,7 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
     # get the process id of the Backup Daemon.
     cmd = ["/opt/scripts/backup-daemon-liveness-probe.sh"]
     process_id = KubernetesTester.run_command_in_pod_container(
-        ops_manager.backup_daemon_pod_name(),
+        ops_manager.backup_daemon_pods_names()[0],
         ops_manager.namespace,
         cmd,
     )
@@ -148,7 +150,7 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
 
     # kill the process, resulting in the liveness probe terminating the backup daemon.
     result = KubernetesTester.run_command_in_pod_container(
-        ops_manager.backup_daemon_pod_name(),
+        ops_manager.backup_daemon_pods_names()[0],
         ops_manager.namespace,
         kill_cmd,
     )
@@ -159,7 +161,7 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
     def backup_daemon_container_has_restarted():
         try:
             pod = corev1_client.read_namespaced_pod(
-                ops_manager.backup_daemon_pod_name(), ops_manager.namespace
+                ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
             )
             return pod.status.container_statuses[0].restart_count > 0
         except Exception as e:
@@ -176,7 +178,7 @@ def test_backup_daemon_reaches_ready_state(ops_manager: MongoDBOpsManager):
     def backup_daemon_is_ready():
         try:
             pod = corev1_client.read_namespaced_pod(
-                ops_manager.backup_daemon_pod_name(), ops_manager.namespace
+                ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
             )
             return pod.status.container_statuses[0].ready
         except Exception as e:

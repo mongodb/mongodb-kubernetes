@@ -155,21 +155,27 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
         ]
 
-    def read_backup_pod(self) -> client.V1Pod:
-        return client.CoreV1Api().read_namespaced_pod(
-            self.backup_daemon_pod_name(), self.namespace
-        )
+    def read_backup_pods(self) -> List[client.V1Pod]:
+        return [
+            client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
+            for podname in get_pods(
+                self.name + "-backup-daemon-{}", self.get_backup_members_count()
+            )
+        ]
 
-    def wait_until_backup_pod_becomes_ready(self, timeout=300):
-        def backup_daemon_is_ready():
+    def wait_until_backup_pods_become_ready(self, timeout=300):
+        def backup_daemons_are_ready():
             try:
-                backup_pod = self.read_backup_pod()
-                return backup_pod.status.container_statuses[0].ready
+                backup_pods = self.read_backup_pods()
+                for backup_pod in backup_pods:
+                    if not backup_pod.status.container_statuses[0].ready:
+                        return False
+                return True
             except Exception as e:
                 print("Error checking if pod is ready: " + str(e))
                 return False
 
-        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=timeout)
+        KubernetesTester.wait_until(backup_daemons_are_ready, timeout=timeout)
 
     def read_gen_key_secret(self) -> client.V1Secret:
         return client.CoreV1Api().read_namespaced_secret(
@@ -298,6 +304,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_replicas(self) -> int:
         return self["spec"]["replicas"]
 
+    def get_backup_members_count(self) -> int:
+        if "backup" not in self["spec"] or "members" not in self["spec"]["backup"]:
+            return 1
+        return self["spec"]["backup"]["members"]
+
     def get_admin_secret_name(self) -> str:
         return self["spec"]["adminCredentials"]
 
@@ -330,8 +341,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def backup_daemon_name(self) -> str:
         return self.name + "-backup-daemon"
 
-    def backup_daemon_pod_name(self) -> str:
-        return self.backup_daemon_name() + "-0"
+    def backup_daemon_pods_names(self) -> List[str]:
+        return [
+            self.name + "-backup-daemon-" + str(item)
+            for item in range(self.get_backup_members_count())
+        ]
 
     def svc_name(self) -> str:
         return self.name + "-svc"

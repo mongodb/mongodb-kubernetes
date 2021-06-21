@@ -92,7 +92,7 @@ class TestOpsManagerCreation:
         Also the number of replicas doesn't depend on OM replicas. The backup daemon pod will become
         ready when the web server becomes available.
         """
-        ops_manager.wait_until_backup_pod_becomes_ready()
+        ops_manager.wait_until_backup_pods_become_ready()
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):

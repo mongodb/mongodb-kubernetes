@@ -194,6 +194,11 @@ type MongoDBOpsManagerBackup struct {
 	// Enabled indicates if Backups will be enabled for this Ops Manager.
 	Enabled bool `json:"enabled"`
 
+	// Members indicate the number of backup daemon pods to create.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Members int `json:"members,omitempty"`
+
 	// HeadDB specifies configuration options for the HeadDB
 	HeadDB    *mdbv1.PersistenceConfig `json:"headDB,omitempty"`
 	JVMParams []string                 `json:"jvmParameters,omitempty"`
@@ -325,6 +330,10 @@ func (m *MongoDBOpsManager) InitDefaultFields() {
 
 	if m.Spec.Backup == nil {
 		m.Spec.Backup = newBackup()
+	}
+
+	if m.Spec.Backup.Members == 0 {
+		m.Spec.Backup.Members = 1
 	}
 
 	m.Spec.AppDB.Security = ensureSecurityWithSCRAM(m.Spec.AppDB.Security)
@@ -557,9 +566,9 @@ func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
 	return names
 }
 
-func (m MongoDBOpsManager) BackupDaemonHostName() string {
-	_, podnames := util.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), 1)
-	return podnames[0]
+func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
+	_, podnames := util.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
+	return podnames
 }
 
 func (m MongoDBOpsManager) NamespacedName() types.NamespacedName {

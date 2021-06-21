@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_buildBackupDaemonStatefulSet(t *testing.T) {
+func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 	sts, err := BackupDaemonStatefulSet(omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om-backup-daemon", sts.ObjectMeta.Name)
@@ -40,4 +40,10 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"},
 		container.Lifecycle.PreStop.Exec.Command)
+}
+
+func TestMultipleBackupDaemons(t *testing.T) {
+	sts, err := BackupDaemonStatefulSet(omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").SetBackupMembers(3).Build())
+	assert.NoError(t, err)
+	assert.Equal(t, 3, int(*sts.Spec.Replicas))
 }

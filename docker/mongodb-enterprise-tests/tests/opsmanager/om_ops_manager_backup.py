@@ -114,6 +114,7 @@ def ops_manager(
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
+    resource["spec"]["backup"]["members"] = 2
 
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
@@ -243,8 +244,8 @@ class TestOpsManagerCreation:
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset()
             return (
-                stateful_set.status.ready_replicas == 1
-                and stateful_set.status.current_replicas == 1
+                stateful_set.status.ready_replicas == 2
+                and stateful_set.status.current_replicas == 2
             )
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
@@ -258,24 +259,27 @@ class TestOpsManagerCreation:
 
     def test_daemon_pvc(self, ops_manager: MongoDBOpsManager, namespace: str):
         """ Verifies the PVCs mounted to the pod """
-        pod = ops_manager.read_backup_pod()
-        claims = [
-            volume
-            for volume in pod.spec.volumes
-            if getattr(volume, "persistent_volume_claim")
-        ]
-        assert len(claims) == 1
-        claims.sort(key=attrgetter("name"))
+        pods = ops_manager.read_backup_pods()
+        idx = 0
+        for pod in pods:
+            claims = [
+                volume
+                for volume in pod.spec.volumes
+                if getattr(volume, "persistent_volume_claim")
+            ]
+            assert len(claims) == 1
+            claims.sort(key=attrgetter("name"))
 
-        default_sc = get_default_storage_class()
-        KubernetesTester.check_single_pvc(
-            namespace,
-            claims[0],
-            "head",
-            "head-{}-0".format(ops_manager.backup_daemon_name()),
-            "500M",
-            default_sc,
-        )
+            default_sc = get_default_storage_class()
+            KubernetesTester.check_single_pvc(
+                namespace,
+                claims[0],
+                "head",
+                "head-{}-{}".format(ops_manager.backup_daemon_name(), idx),
+                "500M",
+                default_sc,
+            )
+            idx += 1
 
     def test_backup_daemon_services_created(self, namespace):
         """ Backup creates two additional services for queryable backup """
@@ -287,7 +291,8 @@ class TestOpsManagerCreation:
     def test_om(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
+        for pod_name in ops_manager.backup_daemon_pods_names():
+            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
         # No oplog stores were created in Ops Manager by this time
         om_tester.assert_oplog_stores([])
         om_tester.assert_s3_stores([])
@@ -382,7 +387,9 @@ class TestBackupDatabasesAdded:
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
-        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
+
+        for pod_name in ops_manager.backup_daemon_pods_names():
+            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
 
         om_tester.assert_block_stores(
             [new_om_data_store(blockstore_replica_set, "blockStore1")]
@@ -414,9 +421,10 @@ class TestBackupDatabasesAdded:
         operator_installation_config: Dict[str, str],
     ):
         managed = operator_installation_config["managedSecurityContext"] == "true"
-        pod = ops_manager.read_backup_pod()
-        assert_pod_security_context(pod, managed)
-        assert_pod_container_security_context(pod.spec.containers[0], managed)
+        pods = ops_manager.read_backup_pods()
+        for pod in pods:
+            assert_pod_security_context(pod, managed)
+            assert_pod_container_security_context(pod.spec.containers[0], managed)
 
 
 @mark.e2e_om_ops_manager_backup
@@ -471,7 +479,8 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
-        om_tester.assert_daemon_enabled(ops_manager.backup_daemon_pod_name(), HEAD_PATH)
+        for pod_name in ops_manager.backup_daemon_pods_names():
+            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
 
         # block store has authentication enabled
         om_tester.assert_block_stores(
