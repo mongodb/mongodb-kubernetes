@@ -13,9 +13,6 @@
   * If `spec.externalConnectivity` is unset after being set, the Operator will now delete the corresponding service
 * Ops Manager versions 4.4.13 and 4.2.25 are now supported.
 
-## Miscellaneous
-Ubuntu-based images are now based on Ubuntu 20.04 instead of Ubuntu 16.06
-
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
 
