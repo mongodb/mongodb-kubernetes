@@ -1,9 +1,9 @@
 {% extends "Dockerfile.template" %}
 
-{% set base_image = "registry.access.redhat.com/ubi8/ubi" %}
+{% set base_image = "registry.access.redhat.com/ubi8/ubi-minimal" %}
 
 {% block packages %}
-RUN yum install --disableplugin=subscription-manager -y \
+RUN microdnf install --disableplugin=subscription-manager -y \
   cyrus-sasl \
   cyrus-sasl-gssapi \
   cyrus-sasl-plain \
@@ -15,6 +15,7 @@ RUN yum install --disableplugin=subscription-manager -y \
   net-snmp-agent-libs \
   openldap \
   openssl \
+  tar \
   rpm-libs \
   net-tools \
   procps-ng \
