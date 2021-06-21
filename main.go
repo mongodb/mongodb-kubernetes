@@ -9,10 +9,12 @@ import (
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -43,11 +45,16 @@ const (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(apiv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
+}
+
+// commandLineFlags struct holds the command line arguments passed to the operator deployment
+type commandLineFlags struct {
+	crdsToWatch    string
+	memberclusters []string
 }
 
 // crdsToWatch is a custom Value implementation which can be
@@ -63,12 +70,32 @@ func (c *crdsToWatch) String() string {
 	return strings.Join(*c, ",")
 }
 
-// getCrdsToWatchStr returns a comma separated list of strings which represent which CRDs should be watched
-func getCrdsToWatchStr() string {
+// memberClusters gets the name of all the member clusters where
+// the operator should deploy the MongoDB Replicaset.
+type memberClusters []string
+
+func (m *memberClusters) String() string {
+	return fmt.Sprintln(*m)
+}
+
+func (m *memberClusters) Set(s string) error {
+	*m = strings.Split(s, ",")
+	return nil
+}
+
+// parseCommandLineArgs parses the command line arguments passed in the operator deployment specs
+func parseCommandLineArgs() commandLineFlags {
 	crds := crdsToWatch{}
+	clusters := memberClusters{}
+
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
+	flag.Var(&clusters, "cluster-names", "The list of cluster names where the operator should deploy the mongoDB ReplicaSet")
 	flag.Parse()
-	return crds.String()
+
+	return commandLineFlags{
+		crdsToWatch:    crds.String(),
+		memberclusters: clusters,
+	}
 }
 
 func main() {
@@ -104,7 +131,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	log.Info("Registering Components.")
 
 	setupWebhook(mgr, cfg, log)
@@ -114,9 +140,36 @@ func main() {
 		log.Fatal(err)
 	}
 
+	commandLineFlags := parseCommandLineArgs()
+	crdsToWatch := commandLineFlags.crdsToWatch
+	memberClusterObjects := make([]cluster.Cluster, 0)
+
+	if multicluster.IsMultiClusterMode(crdsToWatch) {
+		memberClustersNames := commandLineFlags.memberclusters
+		log.Infof("Watching Member clusters: %s", memberClustersNames)
+		// get cluster clients for the member clusters
+		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames)
+		if err != nil {
+			// TODO: fatal out
+			log.Infof("This should fatal: %s", err)
+		}
+
+		// Add the cluster object to the manager corresponding to each member clusters.
+		for _, m := range memberClusterClients {
+			cluster, err := cluster.New(m)
+			if err != nil {
+				log.Fatal(err)
+			}
+			memberClusterObjects = append(memberClusterObjects, cluster)
+			if err = mgr.Add(cluster); err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
+
 	// Setup all Controllers
 	var registeredCRDs []string
-	if registeredCRDs, err = controllers.AddToManager(mgr, getCrdsToWatchStr()); err != nil {
+	if registeredCRDs, err = controllers.AddToManager(mgr, crdsToWatch, memberClusterObjects); err != nil {
 		log.Fatal(err)
 	}
 

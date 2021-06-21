@@ -16,7 +16,7 @@ func init() {
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:path=mongodbmulti,scope=Namespaced,shortName=mdbm
+// +kubebuilder:resource:path= mongodbmulti,scope=Namespaced,shortName=mdbm
 // +kubebuilder:subresource:status
 type MongoDBMulti struct {
 	metav1.TypeMeta   `json:",inline"`
