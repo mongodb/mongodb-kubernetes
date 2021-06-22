@@ -201,6 +201,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         data = self.read_appdb_generated_password_secret().data
         return KubernetesTester.decode_secret(data)["password"]
 
+    def read_appdb_agent_password_secret(self) -> client.V1Secret:
+        return client.CoreV1Api().read_namespaced_secret(
+            self.app_db_name() + "-agent-password", self.namespace
+        )
+
+    def read_appdb_agent_keyfile_secret(self) -> client.V1Secret:
+        return client.CoreV1Api().read_namespaced_secret(
+            self.app_db_name() + "-keyfile", self.namespace
+        )
+
     def create_admin_secret(
         self,
         user_name="jane.doe@example.com",

@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -630,4 +631,23 @@ func getPartsFromStatusOptions(options ...status.Option) []status.Part {
 		}
 	}
 	return parts
+}
+
+// AppDBConfigurable holds information needed to enable SCRAM-SHA
+// and combines AppDBSpec (includes SCRAM configuration)
+// and MongoDBOpsManager instance (used as the owner reference for the SCRAM related resources)
+type AppDBConfigurable struct {
+	AppDBSpec
+	OpsManager MongoDBOpsManager
+}
+
+// GetOwnerReferences returns the OwnerReferences pointing to the MongoDBOpsManager instance and used by SCRAM related resources.
+func (m AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
+	groupVersionKind := schema.GroupVersionKind{
+		Group:   GroupVersion.Group,
+		Version: GroupVersion.Version,
+		Kind:    m.OpsManager.Kind,
+	}
+	ownerReference := *metav1.NewControllerRef(&m.OpsManager, groupVersionKind)
+	return []metav1.OwnerReference{ownerReference}
 }

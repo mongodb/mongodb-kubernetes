@@ -212,11 +212,11 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.Mongo
 }
 
 func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
-
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
 	auth := automationconfig.Auth{}
-	if err := scram.Enable(&auth, r.client, rs); err != nil {
+	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: opsManager}
+	if err := scram.Enable(&auth, r.client, appDBConfigurable); err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
 	// the existing automation config is required as we compare it against what we build to determine
@@ -576,8 +576,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 		return workflow.Failed(err.Error())
 	}
 
-	config, err = r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log)
-	if err != nil {
+	if _, err = r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 

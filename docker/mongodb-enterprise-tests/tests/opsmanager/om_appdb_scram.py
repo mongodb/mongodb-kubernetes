@@ -75,6 +75,20 @@ class TestOpsManagerCreation:
         tester.assert_authoritative_set(False)
 
     @skip_if_local
+    def test_scram_secrets_exists_with_correct_owner_reference(
+        self, ops_manager: MongoDBOpsManager
+    ):
+        password_secret = ops_manager.read_appdb_agent_password_secret()
+        keyfile_secret = ops_manager.read_appdb_agent_keyfile_secret()
+        omUID = ops_manager.backing_obj["metadata"]["uid"]
+
+        assert len(password_secret.metadata.owner_references) == 1
+        assert password_secret.metadata.owner_references[0].uid == omUID
+
+        assert len(keyfile_secret.metadata.owner_references) == 1
+        assert keyfile_secret.metadata.owner_references[0].uid == omUID
+
+    @skip_if_local
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
         app_db_tester = ops_manager.get_appdb_tester()
 
