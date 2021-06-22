@@ -42,7 +42,7 @@ def ops_manager(
         },
         {
             "name": MONGOD_NAME,
-            "image": "registry.hub.docker.com/library/mongo:4.4.0",
+            "image": "docker.io/mongo:4.4.0",
         },
         {
             "name": MONITORING_AGENT_NAME,
@@ -79,7 +79,7 @@ def test_statefulset_spec_is_updated(ops_manager: MongoDBOpsManager):
     mongod_container = _get_container_by_name(MONGOD_NAME, containers)
 
     assert mongod_container is not None
-    assert mongod_container.image == "registry.hub.docker.com/library/mongo:4.4.0"
+    assert mongod_container.image == "docker.io/mongo:4.4.0"
 
     monitoring_container = _get_container_by_name(MONITORING_AGENT_NAME, containers)
 
