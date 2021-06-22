@@ -62,6 +62,8 @@ spec:
       value: {{ .Values.aws.accessKey}}
     - name: AWS_SECRET_ACCESS_KEY
       value: {{ .Values.aws.secretAccessKey}}
+    - name: MANAGED_SECURITY_CONTEXT
+      value: '{{ .Values.managedSecurityContext }}'
     - name: PYTHONUNBUFFERED
       value: 'true'
     - name: PYTHONWARNINGS

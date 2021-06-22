@@ -39,8 +39,8 @@ variables:
 
   - &kubernetes_environment_kind
     kube_environment_name: kind
-
-  - &kubernetes_environment_minikube minikube
+    # we can use kind to test ubi images, however we must disable managed security context
+    managed_security_context: "false"
 
   - &go_bin
     "/opt/golang/go1.15/bin"
@@ -241,19 +241,6 @@ functions:
         - kube_environment_name
       binary: scripts/evergreen/setup_kind.sh
 
-  # installs the Minikube binary (if necessary)
-  setup_minikube: &setup_minikube
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-      include_expansions_in_env:
-        - workdir
-        - kube_environment_name
-      binary: scripts/evergreen/setup_minikube.sh
-
   setup_docker_datadir: &setup_docker_datadir
     command: subprocess.exec
     type: setup
@@ -290,7 +277,6 @@ functions:
     - *setup_aws
 
     - *configure_docker_auth
-    - *setup_minikube
 
     - *setup_kind
 
@@ -869,12 +855,6 @@ tasks:
 - name: e2e_operator_upgrade_ops_manager
   tags: ["patch-run"]
   exec_timeout_secs: 2400
-  commands:
-    - func: "e2e_test"
-
-- name: e2e_operator_upgrade_appdb
-  tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
@@ -1978,7 +1958,6 @@ task_groups:
     - e2e_operator_upgrade_ops_manager
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
-    - e2e_operator_upgrade_appdb
     - e2e_operator_upgrade_appdb_tls
   teardown_task:
     - func: upload_e2e_logs
@@ -2125,6 +2104,7 @@ buildvariants:
     image_type: ubuntu
   tasks:
     - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+
 
 # Run with evergreen patch -p ops-manager-kubernetes -v e2e_mdb_kind_usaf_cloudqa -t all -f -y -u -d "Usaf CloudQA Run"
 #- name: e2e_mdb_kind_usaf_cloudqa
@@ -2286,31 +2266,31 @@ buildvariants:
   tasks:
   - name: e2e_operator_task_group
 
-- name: e2e_operator_minikube_ubi_cloudqa
-  display_name: e2e_operator_minikube_ubi_cloudqa
+- name: e2e_operator_kind_ubi_cloudqa
+  display_name: e2e_operator_kind_ubi_cloudqa
   run_on:
-  - ubuntu1804-large
+    - ubuntu1804-large
   depends_on:
-  - name: build_operator_ubi
-    variant: init_test_run
-  - name: build_init_database_image_ubi
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_appdb_images_ubi
-    variant: init_test_run
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
   expansions:
-    <<: [ *cloud_manager_qa ]
-    kube_environment_name: *kubernetes_environment_minikube
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
     image_type: ubi
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     agent_version: *agent_version
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
-  - name: e2e_operator_task_group
+    - name: e2e_operator_task_group
+
 
 ### End of build variants for E2E
 

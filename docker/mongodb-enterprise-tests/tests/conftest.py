@@ -58,6 +58,11 @@ def image_type() -> str:
 
 
 @fixture(scope="module")
+def managed_security_context() -> str:
+    return os.environ["MANAGED_SECURITY_CONTEXT"]
+
+
+@fixture(scope="module")
 def custom_operator_release_version() -> Optional[str]:
     return os.environ.get("CUSTOM_OPERATOR_RELEASE_VERSION")
 
@@ -212,6 +217,7 @@ def operator_deployment_name(image_type: str) -> str:
 def official_operator(
     namespace: str,
     image_type: str,
+    managed_security_context: str,
     operator_installation_config: Dict[str, str],
     custom_operator_release_version: Optional[str],
 ) -> Operator:
@@ -244,10 +250,15 @@ def official_operator(
         )
     )
     helm_options = []
+
+    # When running in Openshift "managedSecurityContext" will be true.
+    # When running in kind "managedSecurityContext" will be false, but still use the ubi images.
+
     helm_args = {
         "registry.imagePullSecrets": operator_installation_config[
             "registry.imagePullSecrets"
-        ]
+        ],
+        "managedSecurityContext": managed_security_context,
     }
     name = "mongodb-enterprise-operator"
 
@@ -257,21 +268,17 @@ def official_operator(
     helm_args["operator.operator_image_name"] = name
 
     # When testing the UBI image type we need to assume a few things
-    #
-    # 1. The testing cluster is Openshift or Minikube
+
+    # 1. The testing cluster is Openshift
     # 2. The operator name is "enterprise-operator" (instead of "mongodb-enterprise-operator")
     # 3. The "values.yaml" file is "values-openshift.yaml"
-    # 4. We set "managedSecurityContext" to true
-    #
+
     if image_type == "ubi":
         helm_options = [
             "--values",
             os.path.join(temp_dir, "helm_chart", "values-openshift.yaml"),
         ]
-        # on the other side we still need to manage the security context by ourselves
-        helm_args["managedSecurityContext"] = "true"
         helm_args["operator.operator_image_name"] = "enterprise-operator"
-        name = "enterprise-operator"
 
     return Operator(
         namespace=namespace,

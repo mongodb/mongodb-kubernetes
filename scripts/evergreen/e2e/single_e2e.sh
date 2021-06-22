@@ -96,8 +96,8 @@ deploy_test_app() {
         "--set" "taskName=${task_name}"
         "--set" "pytest.addopts=${pytest_addopts:-}"
         "--set" "tag=${version_id:-$latest}"
-        "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID-}"
-        "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY:-}"
+        "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
+        "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
         "--set" "skipExecution=${SKIP_EXECUTION:-'false'}"
         "--set" "baseUrl=${OM_BASE_URL:-http://ops-manager-svc.${OPS_MANAGER_NAMESPACE}.svc.cluster.local:8080}"
         "--set" "apiKey=${OM_API_KEY:-}"
@@ -105,6 +105,7 @@ deploy_test_app() {
         "--set" "orgId=${OM_ORGID:-}"
         "--set" "imageType=${IMAGE_TYPE}"
         "--set" "imagePullSecrets=image-registries-secret"
+        "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
 
     )
     if [[ -n "${custom_om_version:-}" ]]; then
