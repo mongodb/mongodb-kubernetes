@@ -48,5 +48,6 @@ production_notes/cmd/runtest/runtest
 production_notes/helm_charts/opsmanager/charts/
 multi_cluster/examples/secret_mirror/secret_mirror
 multi_cluster/examples/service_account/service_account
+multi_cluster/examples/service_account_using_go/service_account_using_go
 
 _.yaml
