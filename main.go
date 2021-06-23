@@ -70,15 +70,15 @@ func (c *crdsToWatch) String() string {
 	return strings.Join(*c, ",")
 }
 
-// memberClusters gets the name of all the member clusters where
+// memberClusterNames gets the name of all the member clusters where
 // the operator should deploy the MongoDB Replicaset.
-type memberClusters []string
+type memberClusterNames []string
 
-func (m *memberClusters) String() string {
+func (m *memberClusterNames) String() string {
 	return fmt.Sprintln(*m)
 }
 
-func (m *memberClusters) Set(s string) error {
+func (m *memberClusterNames) Set(s string) error {
 	*m = strings.Split(s, ",")
 	return nil
 }
@@ -86,15 +86,15 @@ func (m *memberClusters) Set(s string) error {
 // parseCommandLineArgs parses the command line arguments passed in the operator deployment specs
 func parseCommandLineArgs() commandLineFlags {
 	crds := crdsToWatch{}
-	clusters := memberClusters{}
+	clusterNames := memberClusterNames{}
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
-	flag.Var(&clusters, "cluster-names", "The list of cluster names where the operator should deploy the mongoDB ReplicaSet")
+	flag.Var(&clusterNames, "cluster-names", "The list of cluster names where the operator should deploy the mongoDB ReplicaSet")
 	flag.Parse()
 
 	return commandLineFlags{
 		crdsToWatch:    crds.String(),
-		memberclusters: clusters,
+		memberclusters: clusterNames,
 	}
 }
 
@@ -142,7 +142,9 @@ func main() {
 
 	commandLineFlags := parseCommandLineArgs()
 	crdsToWatch := commandLineFlags.crdsToWatch
-	memberClusterObjects := make([]cluster.Cluster, 0)
+
+	// memberClusterObjectsMap is a map of clusterName -> clusterObject
+	memberClusterObjectsMap := make(map[string]cluster.Cluster)
 
 	if multicluster.IsMultiClusterMode(crdsToWatch) {
 		memberClustersNames := commandLineFlags.memberclusters
@@ -155,12 +157,12 @@ func main() {
 		}
 
 		// Add the cluster object to the manager corresponding to each member clusters.
-		for _, m := range memberClusterClients {
-			cluster, err := cluster.New(m)
+		for k, v := range memberClusterClients {
+			cluster, err := cluster.New(v)
 			if err != nil {
 				log.Fatal(err)
 			}
-			memberClusterObjects = append(memberClusterObjects, cluster)
+			memberClusterObjectsMap[k] = cluster
 			if err = mgr.Add(cluster); err != nil {
 				log.Fatal(err)
 			}
@@ -169,7 +171,7 @@ func main() {
 
 	// Setup all Controllers
 	var registeredCRDs []string
-	if registeredCRDs, err = controllers.AddToManager(mgr, crdsToWatch, memberClusterObjects); err != nil {
+	if registeredCRDs, err = controllers.AddToManager(mgr, crdsToWatch, memberClusterObjectsMap); err != nil {
 		log.Fatal(err)
 	}
 

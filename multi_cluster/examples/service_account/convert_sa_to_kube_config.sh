@@ -3,7 +3,7 @@
 CLUSTER1="e2e.cluster1.mongokubernetes.com"
 CLUSTER2="e2e.cluster2.mongokubernetes.com"
 SERVER="https://api.${CLUSTER2}"
-NAMESPACE=chatton
+NAMESPACE=tmp
 SA_NAME="can-read-pods"
 #SA_NAME="cannot-read-pods"
 

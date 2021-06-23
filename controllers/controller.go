@@ -13,7 +13,7 @@ import (
 )
 
 var crdFuncMap map[string][]func(manager.Manager) error
-var crdMultiFuncMap map[string][]func(manager.Manager, []cluster.Cluster) error
+var crdMultiFuncMap map[string][]func(manager.Manager, map[string]cluster.Cluster) error
 
 var (
 	mdb      = &mdbv1.MongoDB{}
@@ -51,8 +51,8 @@ func buildCrdFunctionMap() map[string][]func(manager.Manager) error {
 // buildCrdFunctionMap create a map which maps the name of the Custom
 // Resource Definition to a function which adds the corresponding function
 // to a manager.Manager and slice of cluster objects for single multi cluster reconcilers
-func buildCrdMultiFunctionMap() map[string][]func(manager.Manager, []cluster.Cluster) error {
-	return map[string][]func(manager.Manager, []cluster.Cluster) error{
+func buildCrdMultiFunctionMap() map[string][]func(manager.Manager, map[string]cluster.Cluster) error {
+	return map[string][]func(manager.Manager, map[string]cluster.Cluster) error{
 		strings.ToLower(mdbmulti.GetPlural()): {
 			operator.AddMultiReplicaSetController,
 		},
@@ -74,10 +74,10 @@ func getCRDsToWatch(watchCRDStr string) []string {
 }
 
 // AddToManager adds all Controllers to the Manager
-func AddToManager(m manager.Manager, crdsToWatchStr string, c []cluster.Cluster) ([]string, error) {
+func AddToManager(m manager.Manager, crdsToWatchStr string, c map[string]cluster.Cluster) ([]string, error) {
 	crdsToWatch := getCRDsToWatch(crdsToWatchStr)
 	var addSingleToManagerFuncs []func(manager.Manager) error
-	var addMultiToManagerFuncs []func(manager.Manager, []cluster.Cluster) error
+	var addMultiToManagerFuncs []func(manager.Manager, map[string]cluster.Cluster) error
 
 	for _, ctr := range crdsToWatch {
 		addSingleToManagerFuncs = append(addSingleToManagerFuncs, crdFuncMap[strings.Trim(strings.ToLower(ctr), " ")]...)
