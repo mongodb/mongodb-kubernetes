@@ -1,6 +1,6 @@
 {% extends "Dockerfile.template" %}
 
-{% set base_image = "ubuntu:16.04" %}
+{% set base_image = "ubuntu:18.04" %}
 {% set distro = "ubuntu" %}
 
 {% block packages %}
@@ -8,12 +8,16 @@ RUN apt-get -qq update \
         && apt-get -y -qq install \
         curl \
         jq \
-        libcurl3 \
+        libcurl4 \
         libgssapi-krb5-2 \
         libkrb5-dbg \
         libldap-2.4-2 \
+        liblzma5 \
         libpcap0.8 \
         libsasl2-2 \
+        libsasl2-modules \
+        libsasl2-modules-gssapi-mit \
+        libwrap0 \
         lsb-release \
         openssl \
         snmp \

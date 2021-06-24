@@ -28,7 +28,7 @@ class TestReplicaSetWithTLSUpgradeCreation(KubernetesTester):
             "mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE
         )
         assert mdb["status"]["phase"] == "Running"
-        assert mdb["status"]["version"] == "4.0.0"
+        assert mdb["status"]["version"] == "4.0.1"
         assert mdb["status"]["members"] == 3
 
         # make sure the following attributes are set

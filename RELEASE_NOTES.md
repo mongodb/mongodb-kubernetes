@@ -12,10 +12,16 @@
 * Changes
   * If `spec.externalConnectivity` is unset after being set, the Operator will now delete the corresponding service
   * It is now possible to specify the number of backup daemon pods to deploy through the `spec.backup.members` field. The value defaults to 1 if not set.
-  
+
+
+## Miscellaneous
 * Ops Manager versions 4.4.13 and 4.2.25 are now supported.
-* Ubuntu based Ops Manager images after 4.4.13 will be based on Ubuntu 20.04 instead of Ubuntu 16.04
 * Ubuntu based operator images are now based on Ubuntu 20.04 instead of Ubuntu 16.04
+* Ubuntu based database images starting from 2.0.1 will be based on Ubuntu 18.04 instead of Ubuntu 16.04
+  **NOTE: MongoDB 4.0.0 does not support Ubuntu 18.04 - If you want to use MongoDB 4.0.0, stay on previously released images**
+* Ubuntu based Ops Manager images after 4.4.13 will be based on Ubuntu 20.04 instead of Ubuntu 16.04
+
+* Newly released ubi images for Operator, Ops Manager and Database will be based un ubi-minimal instead of ubi
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0

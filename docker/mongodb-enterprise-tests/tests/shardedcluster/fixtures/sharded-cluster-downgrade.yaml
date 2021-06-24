@@ -8,7 +8,7 @@ spec:
   mongodsPerShardCount: 1
   mongosCount: 1
   configServerCount: 1
-  version: 3.6.18
+  version: 3.6.20
   project: my-project
   credentials: my-credentials
 

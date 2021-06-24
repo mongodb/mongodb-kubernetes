@@ -16,7 +16,7 @@ def replica_set(namespace: str) -> MongoDB:
     resource["spec"]["agent"] = {
         "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
     }
-    resource["spec"]["version"] = "4.0.0"
+    resource["spec"]["version"] = "4.4.0"
 
     return resource.create()
 

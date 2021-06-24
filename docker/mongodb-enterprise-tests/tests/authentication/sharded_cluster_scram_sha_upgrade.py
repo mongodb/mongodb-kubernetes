@@ -39,7 +39,7 @@ class TestUpgradeShardedClusterToMongoDB40(KubernetesTester):
       takes a long time, and this step configures authentication multiple times
     update:
       file: sharded-cluster-scram-sha-1.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.0"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.1"}]'
       wait_until: in_running_state
     """
 

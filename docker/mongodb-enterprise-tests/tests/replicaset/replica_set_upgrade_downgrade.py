@@ -20,7 +20,7 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
-        mongod_tester.assert_version("3.6.17")
+        mongod_tester.assert_version("3.6.20")
 
 
 @pytest.mark.e2e_replica_set_upgrade_downgrade
@@ -55,4 +55,4 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
 
     def test_db_connectable(self):
         mongod_tester = ReplicaSetTester("my-replica-set-downgrade", 3)
-        mongod_tester.assert_version("3.6.17")
+        mongod_tester.assert_version("3.6.20")

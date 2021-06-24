@@ -46,7 +46,7 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-ubuntu-mongodb
+            - name: setting-up-ubuntu-mongodb-ubuntu1604
               image: curlimages/curl:latest
               command:
                 - curl
@@ -68,7 +68,7 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
-            - name: setting-up-ubuntu-mongodb-4-4
+            - name: setting-up-ubuntu-mongodb-4-4-ubuntu1604
               image: curlimages/curl:latest
               command:
                 - curl
@@ -76,6 +76,17 @@ spec:
                 - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1604-4.4.0.tgz
                 - -o
                 - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1604-4.4.0.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-ubuntu-mongodb-4-4-ubuntu1804
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1804-4.4.0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1804-4.4.0.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

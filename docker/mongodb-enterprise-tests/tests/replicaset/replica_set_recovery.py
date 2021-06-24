@@ -37,7 +37,7 @@ class TestReplicaSetRecoversFromBadState(KubernetesTester):
       Updates spec of replica set in a bad state and ensures it is updated to the running state correctly
     update:
       file: replica-set-invalid.yaml
-      patch: '[{"op":"replace","path":"/spec/version","value":"4.0.0"}]'
+      patch: '[{"op":"replace","path":"/spec/version","value":"4.0.1"}]'
       wait_until: in_running_state
       timeout: 240
     """
@@ -45,5 +45,5 @@ class TestReplicaSetRecoversFromBadState(KubernetesTester):
     def test_in_running_state(self):
         mrs = KubernetesTester.get_resource()
         status = mrs["status"]
-        assert status["version"] == "4.0.0"
+        assert status["version"] == "4.0.1"
         assert "message" not in status

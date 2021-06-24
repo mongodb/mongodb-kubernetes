@@ -36,7 +36,7 @@ OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
-MDB_3_6_VERSION = "3.6.19"
+MDB_3_6_VERSION = "3.6.20"
 
 
 def new_om_s3_store(
@@ -162,7 +162,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     if ops_manager.get_version().startswith("4.2"):
-        # enabling 3.6.19 to let enable scram-sha (OM until 4.4 understands scram-sha-1 only)
+        # enabling 3.6.20 to let enable scram-sha (OM until 4.4 understands scram-sha-1 only)
         resource["spec"]["version"] = MDB_3_6_VERSION
     else:
         resource["spec"]["version"] = custom_mdb_version

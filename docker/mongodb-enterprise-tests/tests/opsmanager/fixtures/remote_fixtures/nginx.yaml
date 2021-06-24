@@ -36,7 +36,7 @@ spec:
           volumeMounts:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
-        - name: setting-up-ubuntu-mongodb-4-4
+        - name: setting-up-ubuntu1604-mongodb-4-4
           image: curlimages/curl:latest
           command:
             - curl
@@ -47,7 +47,17 @@ spec:
           volumeMounts:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
-
+        - name: setting-up-ubuntu1804-mongodb-4-4
+          image: curlimages/curl:latest
+          command:
+            - curl
+            - -L
+            - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1804-4.4.0.tgz
+            - -o
+            - /mongodb-ops-manager/mongodb-releases/linux/mongodb-linux-x86_64-ubuntu1804-4.4.0.tgz
+          volumeMounts:
+            - name: mongodb-versions
+              mountPath: /mongodb-ops-manager/mongodb-releases/linux
         - name: setting-up-rhel-mongodb-4-4-ent
           image: curlimages/curl:latest
           command:
@@ -59,7 +69,7 @@ spec:
           volumeMounts:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux
-        - name: setting-up-ubuntu-mongodb-4-4-ent
+        - name: setting-up-ubuntu1604-mongodb-4-4-ent
           image: curlimages/curl:latest
           command:
             - curl
@@ -67,6 +77,17 @@ spec:
             - https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.4.0.tgz
             - -o
             - /mongodb-ops-manager/mongodb-releases/linux/mongodb-linux-x86_64-enterprise-ubuntu1604-4.4.0.tgz
+          volumeMounts:
+            - name: mongodb-versions
+              mountPath: /mongodb-ops-manager/mongodb-releases/linux
+        - name: setting-up-ubuntu1804-mongodb-4-4-ent
+          image: curlimages/curl:latest
+          command:
+            - curl
+            - -L
+            - https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1804-4.4.0.tgz
+            - -o
+            - /mongodb-ops-manager/mongodb-releases/linux/mongodb-linux-x86_64-enterprise-ubuntu1804-4.4.0.tgz
           volumeMounts:
             - name: mongodb-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/linux

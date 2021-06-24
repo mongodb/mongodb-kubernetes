@@ -12,7 +12,7 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
-MDB_3_6_VERSION = "3.6.19"
+MDB_3_6_VERSION = "3.6.20"
 
 
 @fixture(scope="module")

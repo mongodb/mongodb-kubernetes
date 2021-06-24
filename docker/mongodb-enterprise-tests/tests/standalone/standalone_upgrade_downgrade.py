@@ -18,7 +18,7 @@ class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
     @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
-        mongod_tester.assert_version("3.6.17")
+        mongod_tester.assert_version("3.6.20")
 
     def test_noop(self):
         assert True
@@ -61,7 +61,7 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
     @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
-        mongod_tester.assert_version("3.6.17")
+        mongod_tester.assert_version("3.6.20")
 
     def test_noop(self):
         assert True

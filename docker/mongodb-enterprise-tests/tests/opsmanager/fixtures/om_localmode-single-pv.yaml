@@ -24,8 +24,19 @@ spec:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
           initContainers:
-            - name: mongod-binaries-ubuntu-init-container
+            - name: mongod-binaries-ubuntu1604-init-container
               image: quay.io/mongodb/mongodb-enterprise-init-mongod-ubuntu1604:4.2.8
+              imagePullPolicy: Always
+              command:
+                - cp
+                - -a
+                - /binaries/.
+                - /mongodb-ops-manager/mongodb-releases/
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: mongod-binaries-ubuntu1804-init-container
+              image: quay.io/mongodb/mongodb-enterprise-init-mongod-ubuntu1804:4.2.8
               imagePullPolicy: Always
               command:
                 - cp

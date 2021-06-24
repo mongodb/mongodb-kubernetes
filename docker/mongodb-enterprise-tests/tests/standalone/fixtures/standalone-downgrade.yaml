@@ -3,7 +3,7 @@ kind: MongoDB
 metadata:
   name: my-standalone-downgrade
 spec:
-  version: 3.6.17
+  version: 3.6.20
   type: Standalone
   project: my-project
   credentials: my-credentials

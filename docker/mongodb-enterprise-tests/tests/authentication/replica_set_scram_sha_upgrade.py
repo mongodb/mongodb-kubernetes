@@ -37,7 +37,7 @@ class TestUpgradeReplicaSetToMongoDB40(KubernetesTester):
       the deployment should stay at MONGODB-CR and not upgrade to SCRAM-SHA-256
     update:
       file: replica-set-scram-sha-1.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.0"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.1"}]'
       wait_until: in_running_state
       timeout: 400
     """

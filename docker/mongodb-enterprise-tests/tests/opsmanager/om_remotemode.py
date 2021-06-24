@@ -74,19 +74,6 @@ def replica_set_ent(
     yield resource.create()
 
 
-@fixture(scope="module")
-def replica_set_ent(
-    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
-) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"),
-        namespace=namespace,
-        name="the-replica-set-ent",
-    ).configure(ops_manager, "my-other-replica-set")
-    resource["spec"]["version"] = custom_mdb_version + "-ent"
-    yield resource.create()
-
-
 @mark.e2e_om_remotemode
 def test_appdb(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
@@ -116,7 +103,7 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_remotemode
-def test_replica_sets_reache_running_phase(
+def test_replica_sets_reaches_running_phase(
     replica_set: MongoDB, replica_set_ent: MongoDB
 ):
     """ Doing this in parallel for faster success """
