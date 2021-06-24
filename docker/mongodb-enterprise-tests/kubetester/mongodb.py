@@ -373,8 +373,7 @@ def in_desired_state(
     if current_state is None:
         return False
 
-    # TODO remove the first condition after 1.8.1 is released (this is needed to make operator_upgrade tests work as 1.8.0 doesn't have 'observedGeneration')
-    if observed_generation is not None and current_generation != observed_generation:
+    if current_generation != observed_generation:
         # We shouldn't check the status further if the Operator hasn't started working on the new spec yet
         return False
 
