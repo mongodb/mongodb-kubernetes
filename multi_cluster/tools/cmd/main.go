@@ -7,6 +7,7 @@ import (
 	"github.com/ghodss/yaml"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -31,6 +32,7 @@ type flags struct {
 	centralCluster          string
 	memberClusterNamespace  string
 	centralClusterNamespace string
+	cleanup                 bool
 }
 
 var (
@@ -45,6 +47,7 @@ func parseFlags() (flags, error) {
 	flag.StringVar(&flags.centralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [required]")
 	flag.StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
 	flag.StringVar(&flags.centralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
+	flag.BoolVar(&flags.cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
 	flag.Parse()
 
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace) {
@@ -94,7 +97,6 @@ type KubeConfigUser struct {
 	Token string `json:"token"`
 }
 
-
 // multiClusterLabels the labels that will be applied to every resource created by this tool.
 func multiClusterLabels() map[string]string {
 	return map[string]string{
@@ -103,7 +105,7 @@ func multiClusterLabels() map[string]string {
 }
 
 func main() {
-	if err := createKubeConfigSecretInCentralCluster(getClient); err != nil {
+	if err := ensureMultiClusterResources(getClient); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -169,10 +171,153 @@ func getClient(context, kubeConfigPath string) (kubernetes.Interface, error) {
 	return clientset, nil
 }
 
-// createKubeConfigSecretInCentralCluster copies the ServiceAccount Secret tokens from the specified
+// performCleanup cleans up all of the resources that were created by this script in the past.
+func performCleanup(clientMap map[string]kubernetes.Interface, flags flags) error {
+	for _, cluster := range flags.memberClusters {
+		c := clientMap[cluster]
+		if err := cleanupClusterResources(c, cluster, flags.memberClusterNamespace); err != nil {
+			return fmt.Errorf("failed cleaning up cluster %s namespace %s: %s", cluster, flags.memberClusterNamespace, err)
+		}
+	}
+	c := clientMap[flags.centralCluster]
+	if err := cleanupClusterResources(c, flags.centralCluster, flags.centralClusterNamespace); err != nil {
+		return fmt.Errorf("failed cleaning up cluster %s namespace %s: %s", flags.centralCluster, flags.centralClusterNamespace, err)
+	}
+	return nil
+}
+
+// cleanupClusterResources cleans up all the resources created by this tool in a given namespace.
+func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namespace string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	errorChan := make(chan error)
+	done := make(chan struct{})
+
+	listOpts := metav1.ListOptions{
+		LabelSelector: "multi-cluster=true",
+	}
+
+	go func() {
+		// clean up secret
+		secretList, err := clientset.CoreV1().Secrets(namespace).List(ctx, listOpts)
+
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		for _, s := range secretList.Items {
+			fmt.Printf("Deleting Secret: %s in cluster %s\n", s.Name, clusterName)
+			if err := clientset.CoreV1().Secrets(namespace).Delete(ctx, s.Name, metav1.DeleteOptions{}); err != nil {
+				errorChan <- err
+				return
+			}
+		}
+
+		// clean up service accounts
+		serviceAccountList, err := clientset.CoreV1().ServiceAccounts(namespace).List(ctx, listOpts)
+
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		for _, sa := range serviceAccountList.Items {
+			fmt.Printf("Deleting ServiceAccount: %s in cluster %s\n", sa.Name, clusterName)
+			if err := clientset.CoreV1().ServiceAccounts(namespace).Delete(ctx, sa.Name, metav1.DeleteOptions{}); err != nil {
+				errorChan <- err
+				return
+			}
+		}
+
+		// clean up cluster roles
+		clusterRoleList, err := clientset.RbacV1().ClusterRoles().List(ctx, listOpts)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		for _, cr := range clusterRoleList.Items {
+			fmt.Printf("Deleting ClusterRole: %s in cluster %s\n", cr.Name, clusterName)
+			if err := clientset.RbacV1().ClusterRoles().Delete(ctx, cr.Name, metav1.DeleteOptions{}); err != nil {
+				errorChan <- err
+				return
+			}
+
+		}
+
+		// clean up cluster role bindings
+		clusterRoleBinding, err := clientset.RbacV1().ClusterRoleBindings().List(ctx, listOpts)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		for _, crb := range clusterRoleBinding.Items {
+			fmt.Printf("Deleting ClusterRoleBinding: %s in cluster %s\n", crb.Name, clusterName)
+			if err := clientset.RbacV1().ClusterRoleBindings().Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
+				errorChan <- err
+				return
+			}
+		}
+		done <- struct{}{}
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errorChan:
+		return err
+	case <-done:
+		return nil
+	}
+
+}
+
+// ensureNamespace creates the namespace with the given clientset. If an error occurs, it is sent to the given error channel.
+func ensureNamespace(ctx context.Context, clientSet kubernetes.Interface, nsName string, errorChan chan error) {
+	ns := corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   nsName,
+			Labels: multiClusterLabels(),
+		},
+	}
+	_, err := clientSet.CoreV1().Namespaces().Create(ctx, &ns, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		errorChan <- fmt.Errorf("failed to create namespace %s: %s", ns.Name, err)
+	}
+}
+
+// ensureAllClusterNamespacesExist makes sure the namespace we will be creating exists in all clusters.
+func ensureAllClusterNamespacesExist(clientSets map[string]kubernetes.Interface, f flags) error {
+	totalClusters := len(f.memberClusters) + 1
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(totalClusters*2)*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	errorChan := make(chan error)
+
+	go func() {
+		for _, clusterName := range f.memberClusters {
+			ensureNamespace(ctx, clientSets[clusterName], f.memberClusterNamespace, errorChan)
+		}
+		ensureNamespace(ctx, clientSets[f.centralCluster], f.centralClusterNamespace, errorChan)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errorChan:
+		return err
+	case <-done:
+		return nil
+	}
+}
+
+// ensureMultiClusterResources copies the ServiceAccount Secret tokens from the specified
 // member clusters, merges them into a KubeConfig file and creates a Secret in the central cluster
 // with the contents.
-func createKubeConfigSecretInCentralCluster(getClient func(context string, kubeConfigPath string) (kubernetes.Interface, error)) error {
+func ensureMultiClusterResources(getClient func(context string, kubeConfigPath string) (kubernetes.Interface, error)) error {
 	flags, err := parseFlags()
 	if err != nil {
 		return fmt.Errorf("error parsing flags: %s\n", err)
@@ -183,9 +328,21 @@ func createKubeConfigSecretInCentralCluster(getClient func(context string, kubeC
 		return fmt.Errorf("failed to create clientset map: %s", err)
 	}
 
+	if flags.cleanup {
+		if err := performCleanup(clientMap, flags); err != nil {
+			return fmt.Errorf("failed performing cleanup of resources: %s", err)
+		}
+	}
+
+	if err := ensureAllClusterNamespacesExist(clientMap, flags); err != nil {
+		return fmt.Errorf("failed ensuring namespaces: %s", err)
+	}
+	fmt.Println("Ensured namespaces exist in all clusters.")
+
 	if err := createServiceAccountsAndRoles(clientMap, flags); err != nil {
 		return fmt.Errorf("failed creating service accounts and roles in all clusters: %s", err)
 	}
+	fmt.Println("Ensured ServiceAccounts and Roles.")
 
 	secrets, err := getAllWorkerClusterServiceAccountSecretTokens(clientMap, flags)
 	if err != nil {
@@ -211,6 +368,16 @@ func createKubeConfigSecretInCentralCluster(getClient func(context string, kubeC
 		return fmt.Errorf("failed to get central cluster clientset: %s", err)
 	}
 
+	if err := createKubeConfigSecret(centralClusterClient, kubeConfigBytes, flags); err != nil {
+		return fmt.Errorf("failed creating KubeConfig secret: %s", err)
+	}
+
+	return nil
+}
+
+// createKubeConfigSecret creates the secret containing the KubeConfig file made from the various
+// service account tokens in the member clusters.
+func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfigBytes []byte, flags flags) error {
 	kubeConfigSecret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mongodb-enterprise-operator-multi-cluster-kubeconfig",
@@ -222,13 +389,37 @@ func createKubeConfigSecretInCentralCluster(getClient func(context string, kubeC
 		},
 	}
 
-	fmt.Printf("Creating KubeConfig secret %s/%s in cluster %s\n", flags.centralClusterNamespace, kubeConfigSecret.Name, flags.centralCluster)
-	_, err = centralClusterClient.CoreV1().Secrets(flags.centralClusterNamespace).Create(context.TODO(), &kubeConfigSecret, metav1.CreateOptions{})
+	done := make(chan struct{})
+	errorChan := make(chan error)
 
-	if err != nil {
-		return fmt.Errorf("failed to create secret in central cluster: %s", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		fmt.Printf("Creating KubeConfig secret %s/%s in cluster %s\n", flags.centralClusterNamespace, kubeConfigSecret.Name, flags.centralCluster)
+		_, err := centralClusterClient.CoreV1().Secrets(flags.centralClusterNamespace).Create(ctx, &kubeConfigSecret, metav1.CreateOptions{})
+		if !errors.IsAlreadyExists(err) && err != nil {
+			errorChan <- fmt.Errorf("failed creating secret: %s", err)
+			return
+		}
+		if errors.IsAlreadyExists(err) {
+			_, err = centralClusterClient.CoreV1().Secrets(flags.centralClusterNamespace).Update(ctx, &kubeConfigSecret, metav1.UpdateOptions{})
+			if err != nil {
+				errorChan <- fmt.Errorf("failed updating existing secret: %s", err)
+				return
+			}
+		}
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errorChan:
+		return err
+	case <-done:
+		return nil
 	}
-	return nil
 }
 
 // createServiceAccountsAndRoles creates the required ServiceAccounts in all member clusters.
@@ -250,19 +441,20 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 				},
 			}
 
-			if _, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{}); err != nil {
+			_, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
+			if !errors.IsAlreadyExists(err) && err != nil {
 				errorChan <- fmt.Errorf("error creating service account: %s", err)
 				return
 			}
 
-			role := rbacv1.ClusterRole{
+			clusterRole := rbacv1.ClusterRole{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "mongodb-enterprise-operator-multi-cluster-role",
+					Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole",
 					Labels: multiClusterLabels(),
 				},
 
 
-				// TODO: correctly specify the rules for the role.
+				// TODO: correctly specify the rules for the clusterRole.
 				Rules: []rbacv1.PolicyRule{
 					{
 						Verbs:     []string{"*"},
@@ -272,14 +464,15 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 				},
 			}
 
-			if _, err :=  c.RbacV1().ClusterRoles().Create(ctx, &role, metav1.CreateOptions{}); err != nil {
-				errorChan <- fmt.Errorf("error creating cluster role: %s", err)
+			_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
+			if !errors.IsAlreadyExists(err) && err != nil {
+				errorChan <- fmt.Errorf("error creating cluster clusterRole: %s", err)
 				return
 			}
 
 			clusterRoleBinding := rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "mongodb-enterprise-operator-multi-cluster-role-binding",
+					Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole-binding",
 					Labels: multiClusterLabels(),
 				},
 				Subjects: []rbacv1.Subject{
@@ -291,13 +484,13 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 				},
 				RoleRef: rbacv1.RoleRef{
 					Kind:     "ClusterRole",
-					Name:     role.Name,
+					Name:     clusterRole.Name,
 					APIGroup: "rbac.authorization.k8s.io",
 				},
 			}
-
-			if _, err := c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
-				errorChan <- fmt.Errorf("error creating cluster role binding: %s", err)
+			_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
+			if !errors.IsAlreadyExists(err) && err != nil {
+				errorChan <- fmt.Errorf("error creating cluster clusterRole binding: %s", err)
 				return
 			}
 		}
@@ -318,9 +511,11 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 				},
 			},
 		}
+
 		c := clientMap[f.centralCluster]
-		if _, err := c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{}); err != nil {
-			errorChan <- fmt.Errorf("error creating cluster role: %s", err)
+		_, err := c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
+		if !errors.IsAlreadyExists(err) && err != nil {
+			errorChan <- fmt.Errorf("error creating cluster clusterRole: %s", err)
 			return
 		}
 
@@ -343,8 +538,9 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 			},
 		}
 
-		if _, err := c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{}); err != nil {
-			errorChan <- fmt.Errorf("error creating cluster role binding: %s", err)
+		_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
+		if !errors.IsAlreadyExists(err) && err != nil {
+			errorChan <- fmt.Errorf("error creating cluster clusterRole binding: %s", err)
 			return
 		}
 
@@ -356,11 +552,11 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 			},
 		}
 
-		if _, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{}); err != nil {
+		_, err = c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
+		if !errors.IsAlreadyExists(err) && err != nil {
 			errorChan <- fmt.Errorf("error creating service account: %s", err)
 			return
 		}
-
 		finishedChan <- struct{}{}
 	}()
 
