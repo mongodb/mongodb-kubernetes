@@ -14,7 +14,8 @@
   * It is now possible to specify the number of backup daemon pods to deploy through the `spec.backup.members` field. The value defaults to 1 if not set.
   
 * Ops Manager versions 4.4.13 and 4.2.25 are now supported.
-* The Ubuntu based operator image is now based on Ubuntu 20.04 instead of Ubuntu 16.04
+* Ubuntu based Ops Manager images after 4.4.13 will be based on Ubuntu 20.04 instead of Ubuntu 16.04
+* Ubuntu based operator images are now based on Ubuntu 20.04 instead of Ubuntu 16.04
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
