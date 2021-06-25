@@ -5,7 +5,7 @@ import (
 	"io/ioutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	admissionv1beta "k8s.io/api/admissionregistration/v1beta1"
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,28 +57,28 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 // GetWebhookConfig constructs a Kubernetes configuration resource for the
 // validating admission webhook based on the name and namespace of the webhook
 // service.
-func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.ValidatingWebhookConfiguration {
+func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.ValidatingWebhookConfiguration {
 	caBytes, err := ioutil.ReadFile("/tmp/k8s-webhook-server/serving-certs/tls.crt")
 	if err != nil {
 		panic("could not read CA")
 	}
 
 	// need to make variables as one can't take the address of a constant
-	var scope admissionv1beta.ScopeType = admissionv1beta.NamespacedScope
-	var sideEffects admissionv1beta.SideEffectClass = admissionv1beta.SideEffectClassNone
-	var failurePolicy admissionv1beta.FailurePolicyType = admissionv1beta.Ignore
+	var scope admissionv1.ScopeType = admissionv1.NamespacedScope
+	var sideEffects admissionv1.SideEffectClass = admissionv1.SideEffectClassNone
+	var failurePolicy admissionv1.FailurePolicyType = admissionv1.Ignore
 	var port int32 = 443
 	dbPath := "/validate-mongodb-com-v1-mongodb"
 	omPath := "/validate-mongodb-com-v1-mongodbopsmanager"
-	return admissionv1beta.ValidatingWebhookConfiguration{
+	return admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "mdbpolicy.mongodb.com",
 		},
-		Webhooks: []admissionv1beta.ValidatingWebhook{
+		Webhooks: []admissionv1.ValidatingWebhook{
 			{
 				Name: "mdbpolicy.mongodb.com",
-				ClientConfig: admissionv1beta.WebhookClientConfig{
-					Service: &admissionv1beta.ServiceReference{
+				ClientConfig: admissionv1.WebhookClientConfig{
+					Service: &admissionv1.ServiceReference{
 						Name:      serviceLocation.Name,
 						Namespace: serviceLocation.Namespace,
 						Path:      &dbPath,
@@ -88,13 +88,13 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 					},
 					CABundle: caBytes,
 				},
-				Rules: []admissionv1beta.RuleWithOperations{
+				Rules: []admissionv1.RuleWithOperations{
 					{
-						Operations: []admissionv1beta.OperationType{
-							admissionv1beta.Create,
-							admissionv1beta.Update,
+						Operations: []admissionv1.OperationType{
+							admissionv1.Create,
+							admissionv1.Update,
 						},
-						Rule: admissionv1beta.Rule{
+						Rule: admissionv1.Rule{
 							APIGroups:   []string{"mongodb.com"},
 							APIVersions: []string{"*"},
 							Resources:   []string{"mongodb"},
@@ -102,13 +102,14 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 						},
 					},
 				},
-				SideEffects:   &sideEffects,
-				FailurePolicy: &failurePolicy,
+				AdmissionReviewVersions: []string{"v1"},
+				SideEffects:             &sideEffects,
+				FailurePolicy:           &failurePolicy,
 			},
 			{
 				Name: "ompolicy.mongodb.com",
-				ClientConfig: admissionv1beta.WebhookClientConfig{
-					Service: &admissionv1beta.ServiceReference{
+				ClientConfig: admissionv1.WebhookClientConfig{
+					Service: &admissionv1.ServiceReference{
 						Name:      serviceLocation.Name,
 						Namespace: serviceLocation.Namespace,
 						Path:      &omPath,
@@ -118,13 +119,13 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 					},
 					CABundle: caBytes,
 				},
-				Rules: []admissionv1beta.RuleWithOperations{
+				Rules: []admissionv1.RuleWithOperations{
 					{
-						Operations: []admissionv1beta.OperationType{
-							admissionv1beta.Create,
-							admissionv1beta.Update,
+						Operations: []admissionv1.OperationType{
+							admissionv1.Create,
+							admissionv1.Update,
 						},
-						Rule: admissionv1beta.Rule{
+						Rule: admissionv1.Rule{
 							APIGroups:   []string{"mongodb.com"},
 							APIVersions: []string{"*"},
 							Resources:   []string{"opsmanagers"},
@@ -132,8 +133,9 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1beta.Vali
 						},
 					},
 				},
-				SideEffects:   &sideEffects,
-				FailurePolicy: &failurePolicy,
+				AdmissionReviewVersions: []string{"v1"},
+				SideEffects:             &sideEffects,
+				FailurePolicy:           &failurePolicy,
 			},
 		},
 	}
