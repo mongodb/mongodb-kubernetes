@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/rest"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -102,7 +102,9 @@ func main() {
 	}
 	fmt.Println("successfully created client for central cluster")
 
-	mgr, err := manager.New(cfg1, manager.Options{})
+	mgr, err := manager.New(cfg1, manager.Options{
+		Namespace: os.Getenv("CENTRAL_CLUSTER_NAMESPACE"),
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -121,13 +123,17 @@ func main() {
 	}
 	fmt.Println("successfully created client for cluster2")
 
-	mirrorCluster, err := cluster.New(cfg2)
+	mirrorCluster, err := cluster.New(cfg2, func(options *cluster.Options) {
+		options.Namespace = os.Getenv("MEMBER_CLUSTER_NAMESPACE")
+	})
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("successfully created mirror cluster 1")
 
-	mirrorCluster1, err := cluster.New(cfg3)
+	mirrorCluster1, err := cluster.New(cfg3, func(options *cluster.Options) {
+		options.Namespace = os.Getenv("MEMBER_CLUSTER_NAMESPACE")
+	})
 	if err != nil {
 		panic(err)
 	}

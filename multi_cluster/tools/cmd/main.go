@@ -34,6 +34,7 @@ type flags struct {
 	memberClusterNamespace  string
 	centralClusterNamespace string
 	cleanup                 bool
+	clusterScoped           bool
 }
 
 var (
@@ -49,6 +50,7 @@ func parseFlags() (flags, error) {
 	flag.StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
 	flag.StringVar(&flags.centralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
 	flag.BoolVar(&flags.cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
+	flag.BoolVar(&flags.clusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
 	flag.Parse()
 
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace) {
@@ -238,6 +240,21 @@ func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namesp
 			}
 		}
 
+		// clean up roles
+		roleList, err := clientset.RbacV1().Roles(namespace).List(ctx, listOpts)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		for _, r := range roleList.Items {
+			fmt.Printf("Deleting Role: %s in cluster %s\n", r.Name, clusterName)
+			if err := clientset.RbacV1().Roles(namespace).Delete(ctx, r.Name, metav1.DeleteOptions{}); err != nil {
+				errorChan <- err
+				return
+			}
+		}
+
 		// clean up cluster roles
 		clusterRoleList, err := clientset.RbacV1().ClusterRoles().List(ctx, listOpts)
 		if err != nil {
@@ -251,17 +268,31 @@ func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namesp
 				errorChan <- err
 				return
 			}
-
 		}
 
-		// clean up cluster role bindings
-		clusterRoleBinding, err := clientset.RbacV1().ClusterRoleBindings().List(ctx, listOpts)
+		// clean up role bindings
+		roleBindings, err := clientset.RbacV1().RoleBindings(namespace).List(ctx, listOpts)
 		if err != nil {
 			errorChan <- err
 			return
 		}
 
-		for _, crb := range clusterRoleBinding.Items {
+		for _, crb := range roleBindings.Items {
+			fmt.Printf("Deleting RoleBinding: %s in cluster %s\n", crb.Name, clusterName)
+			if err := clientset.RbacV1().RoleBindings(namespace).Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
+				errorChan <- err
+				return
+			}
+		}
+
+		// clean up cluster role bindings
+		clusterRoleBindings, err := clientset.RbacV1().ClusterRoleBindings().List(ctx, listOpts)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+
+		for _, crb := range clusterRoleBindings.Items {
 			fmt.Printf("Deleting ClusterRoleBinding: %s in cluster %s\n", crb.Name, clusterName)
 			if err := clientset.RbacV1().ClusterRoleBindings().Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
 				errorChan <- err
@@ -409,6 +440,7 @@ func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfi
 			errorChan <- fmt.Errorf("failed creating secret: %s", err)
 			return
 		}
+
 		if errors.IsAlreadyExists(err) {
 			_, err = centralClusterClient.CoreV1().Secrets(flags.centralClusterNamespace).Update(ctx, &kubeConfigSecret, metav1.UpdateOptions{})
 			if err != nil {
@@ -429,13 +461,14 @@ func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfi
 	}
 }
 
-func buildClusterRole() rbacv1.ClusterRole {
-	return rbacv1.ClusterRole{
+func buildRole(namespace string) rbacv1.Role {
+	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole",
-			Labels: multiClusterLabels(),
+			Name:      "mongodb-enterprise-operator-multi-cluster-role",
+			Namespace: namespace,
+			Labels:    multiClusterLabels(),
 		},
-		// TODO: correctly specify the rules for the clusterRole.
+		// TODO: correctly specify the rules for the role.
 		Rules: []rbacv1.PolicyRule{
 			{
 				Verbs:     []string{"*"},
@@ -444,6 +477,126 @@ func buildClusterRole() rbacv1.ClusterRole {
 			},
 		},
 	}
+}
+
+func buildClusterRole() rbacv1.ClusterRole {
+	return rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "mongodb-enterprise-operator-multi-cluster-role",
+			Labels: multiClusterLabels(),
+		},
+		// TODO: correctly specify the rules for the cluster role.
+		Rules: []rbacv1.PolicyRule{
+			{
+				Verbs:     []string{"*"},
+				Resources: []string{"*"},
+				APIGroups: []string{"*"},
+			},
+		},
+	}
+}
+
+// buildRoleBinding creates the RoleBinding which binds the Role to the given ServiceAccount.
+func buildRoleBinding(role rbacv1.Role, serviceAccount string) rbacv1.RoleBinding {
+	return rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mongodb-enterprise-operator-multi-cluster-role-binding",
+			Labels:    multiClusterLabels(),
+			Namespace: role.Namespace,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      serviceAccount,
+				Namespace: role.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "Role",
+			Name:     role.Name,
+			APIGroup: "rbac.authorization.k8s.io",
+		},
+	}
+}
+
+// buildClusterRoleBinding creates the ClusterRoleBinding which binds the ClusterRole to the given ServiceAccount.
+func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, sa corev1.ServiceAccount) rbacv1.ClusterRoleBinding {
+	return rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "mongodb-enterprise-operator-multi-cluster-role-binding",
+			Labels: multiClusterLabels(),
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      sa.Name,
+				Namespace: sa.Namespace,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			Name:     clusterRole.Name,
+			APIGroup: "rbac.authorization.k8s.io",
+		},
+	}
+}
+
+// createMemberServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required
+// for the member clusters.
+func createMemberServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, f flags) error {
+	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.memberClusterNamespace, f.clusterScoped)
+}
+
+// createCentralClusterServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required
+// for the central cluster.
+func createCentralClusterServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, f flags) error {
+	// central cluster always uses Roles. Never Cluster Roles.
+	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.centralClusterNamespace, false)
+}
+
+// createServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required.
+func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, serviceAccountName, namespace string, clusterScoped bool) error {
+	sa := corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceAccountName,
+			Namespace: namespace,
+			Labels:    multiClusterLabels(),
+		},
+	}
+
+	_, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return fmt.Errorf("error creating service account: %s", err)
+	}
+
+	if !clusterScoped {
+		role := buildRole(sa.Namespace)
+		_, err = c.RbacV1().Roles(sa.Namespace).Create(ctx, &role, metav1.CreateOptions{})
+		if !errors.IsAlreadyExists(err) && err != nil {
+			return fmt.Errorf("error creating role: %s", err)
+		}
+
+		roleBinding := buildRoleBinding(role, sa.Name)
+		_, err = c.RbacV1().RoleBindings(sa.Namespace).Create(ctx, &roleBinding, metav1.CreateOptions{})
+		if !errors.IsAlreadyExists(err) && err != nil {
+			return fmt.Errorf("error creating role binding: %s", err)
+		}
+		return nil
+	}
+
+	// Create cluster roles instead if specified.
+	clusterRole := buildClusterRole()
+	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return fmt.Errorf("error creating cluster role: %s", err)
+	}
+
+	clusterRoleBinding := buildClusterRoleBinding(clusterRole, sa)
+	_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return fmt.Errorf("error creating cluster role binding: %s", err)
+	}
+	return nil
 }
 
 // createServiceAccountsAndRoles creates the required ServiceAccounts in all member clusters.
@@ -456,98 +609,15 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 	go func() {
 		for _, memberCluster := range f.memberClusters {
 			c := clientMap[memberCluster]
-
-			sa := corev1.ServiceAccount{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      f.serviceAccount,
-					Namespace: f.memberClusterNamespace,
-					Labels:    multiClusterLabels(),
-				},
-			}
-
-			_, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
-			if !errors.IsAlreadyExists(err) && err != nil {
-				errorChan <- fmt.Errorf("error creating service account: %s", err)
-				return
-			}
-
-			clusterRole := buildClusterRole()
-			_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
-			if !errors.IsAlreadyExists(err) && err != nil {
-				errorChan <- fmt.Errorf("error creating cluster clusterRole: %s", err)
-				return
-			}
-
-			clusterRoleBinding := rbacv1.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole-binding",
-					Labels: multiClusterLabels(),
-				},
-				Subjects: []rbacv1.Subject{
-					{
-						Kind:      "ServiceAccount",
-						Name:      f.serviceAccount,
-						Namespace: f.memberClusterNamespace,
-					},
-				},
-				RoleRef: rbacv1.RoleRef{
-					Kind:     "ClusterRole",
-					Name:     clusterRole.Name,
-					APIGroup: "rbac.authorization.k8s.io",
-				},
-			}
-			_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
-			if !errors.IsAlreadyExists(err) && err != nil {
-				errorChan <- fmt.Errorf("error creating cluster clusterRole binding: %s", err)
+			if err := createMemberServiceAccountAndRoles(ctx, c, f); err != nil {
+				errorChan <- err
 				return
 			}
 		}
 
-		// TODO: refactor role creation to avoid duplication
-		clusterRole := buildClusterRole()
 		c := clientMap[f.centralCluster]
-		_, err := c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
-		if !errors.IsAlreadyExists(err) && err != nil {
-			errorChan <- fmt.Errorf("error creating cluster clusterRole: %s", err)
-			return
-		}
-
-		clusterRoleBinding := rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   "mongodb-enterprise-operator-multi-cluster-role-binding",
-				Labels: multiClusterLabels(),
-			},
-			Subjects: []rbacv1.Subject{
-				{
-					Kind:      "ServiceAccount",
-					Name:      f.serviceAccount,
-					Namespace: f.centralClusterNamespace,
-				},
-			},
-			RoleRef: rbacv1.RoleRef{
-				Kind:     "ClusterRole",
-				Name:     clusterRole.Name,
-				APIGroup: "rbac.authorization.k8s.io",
-			},
-		}
-
-		_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
-		if !errors.IsAlreadyExists(err) && err != nil {
-			errorChan <- fmt.Errorf("error creating cluster clusterRole binding: %s", err)
-			return
-		}
-
-		sa := corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      f.serviceAccount,
-				Namespace: f.centralClusterNamespace,
-				Labels:    multiClusterLabels(),
-			},
-		}
-
-		_, err = c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
-		if !errors.IsAlreadyExists(err) && err != nil {
-			errorChan <- fmt.Errorf("error creating service account: %s", err)
+		if err := createCentralClusterServiceAccountAndRoles(ctx, c, f); err != nil {
+			errorChan <- err
 			return
 		}
 		finishedChan <- struct{}{}
