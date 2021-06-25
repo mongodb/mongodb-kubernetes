@@ -5,7 +5,7 @@
   },
   "mongodbOperator": "1.11.0",
   "initDatabaseVersion": "1.0.3",
-  "initOpsManagerVersion": "1.0.3",
+  "initOpsManagerVersion": "1.0.4",
   "initAppDbVersion": "1.0.7",
   "databaseImageVersion": "2.0.0",
   "readinessProbeVersion": "1.0.4",
