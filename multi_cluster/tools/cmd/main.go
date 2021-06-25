@@ -435,7 +435,6 @@ func buildClusterRole() rbacv1.ClusterRole {
 			Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole",
 			Labels: multiClusterLabels(),
 		},
-
 		// TODO: correctly specify the rules for the clusterRole.
 		Rules: []rbacv1.PolicyRule{
 			{
