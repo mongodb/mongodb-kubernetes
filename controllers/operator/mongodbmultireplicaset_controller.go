@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -46,15 +47,10 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // For testing remove this later
 func int32Ptr(i int32) *int32 { return &i }
 
-// Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
-// and what is in the MongoDbMultiReplicaSet.Spec
-func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
-	log.Info("-> MultiReplicaSet.Reconcile")
-	// create dummy statefulset in cluster2 based on the CR event creation in cluster1
-	sts := appsv1.StatefulSet{
+func getStatefulSet(n int) appsv1.StatefulSet {
+	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "demo-deployment",
+			Name:      fmt.Sprintf("demo-deployment-%d", n),
 			Namespace: "tmp",
 		},
 		Spec: appsv1.StatefulSetSpec{
@@ -88,8 +84,19 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			},
 		},
 	}
+}
 
+// Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
+// and what is in the MongoDbMultiReplicaSet.Spec
+func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
+	log.Info("-> MultiReplicaSet.Reconcile")
+	// create dummy statefulset in cluster2 based on the CR event creation in cluster1
+
+	count := 0
 	for k, v := range r.memberClusterClientsMap {
+		sts := getStatefulSet(count)
+		count += 1
 		if err := v.Create(context.TODO(), &sts); err != nil {
 			log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", k, err)
 			// TODO: re-enqueue here

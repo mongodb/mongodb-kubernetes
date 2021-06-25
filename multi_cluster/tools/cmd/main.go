@@ -4,6 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"github.com/ghodss/yaml"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -12,10 +17,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 // This tool handles the creation of ServiceAccounts and roles across multiple clusters.
@@ -105,7 +106,13 @@ func multiClusterLabels() map[string]string {
 }
 
 func main() {
-	if err := ensureMultiClusterResources(getClient); err != nil {
+	flags, err := parseFlags()
+	if err != nil {
+		fmt.Printf("error parsing flags: %s\n", err)
+		os.Exit(1)
+	}
+
+	if err := ensureMultiClusterResources(flags, getKubernetesClient); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -122,7 +129,7 @@ func anyAreEmpty(values ...string) bool {
 }
 
 // createClientMap crates a map of all MultiClusterClient for every member cluster, and the operator cluster.
-func createClientMap(memberClusters []string, operatorCluster, kubeConfigPath string) (map[string]kubernetes.Interface, error) {
+func createClientMap(memberClusters []string, operatorCluster, kubeConfigPath string, getClient func(clusterName string, kubeConfigPath string) (kubernetes.Interface, error)) (map[string]kubernetes.Interface, error) {
 	clientMap := map[string]kubernetes.Interface{}
 	for _, c := range memberClusters {
 		clientset, err := getClient(c, kubeConfigPath)
@@ -149,9 +156,9 @@ func loadKubeConfigFilePath() string {
 	return filepath.Join(homedir.HomeDir(), ".kube", "config")
 }
 
-// getClient returns a kubernetes.Clientset using the given context from the
+// getKubernetesClient returns a kubernetes.Clientset using the given context from the
 // specified KubeConfig filepath.
-func getClient(context, kubeConfigPath string) (kubernetes.Interface, error) {
+func getKubernetesClient(context, kubeConfigPath string) (kubernetes.Interface, error) {
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
 		&clientcmd.ConfigOverrides{
@@ -317,15 +324,16 @@ func ensureAllClusterNamespacesExist(clientSets map[string]kubernetes.Interface,
 // ensureMultiClusterResources copies the ServiceAccount Secret tokens from the specified
 // member clusters, merges them into a KubeConfig file and creates a Secret in the central cluster
 // with the contents.
-func ensureMultiClusterResources(getClient func(context string, kubeConfigPath string) (kubernetes.Interface, error)) error {
-	flags, err := parseFlags()
-	if err != nil {
-		return fmt.Errorf("error parsing flags: %s\n", err)
-	}
-
-	clientMap, err := createClientMap(flags.memberClusters, flags.centralCluster, loadKubeConfigFilePath())
+func ensureMultiClusterResources(flags flags, getClient func(clusterName, kubeConfigPath string) (kubernetes.Interface, error)) error {
+	clientMap, err := createClientMap(flags.memberClusters, flags.centralCluster, loadKubeConfigFilePath(), getClient)
 	if err != nil {
 		return fmt.Errorf("failed to create clientset map: %s", err)
+	}
+
+	if flags.cleanup {
+		if err := performCleanup(clientMap, flags); err != nil {
+			return fmt.Errorf("failed performing cleanup of resources: %s", err)
+		}
 	}
 
 	if flags.cleanup {
@@ -391,7 +399,6 @@ func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfi
 
 	done := make(chan struct{})
 	errorChan := make(chan error)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -422,6 +429,24 @@ func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfi
 	}
 }
 
+func buildClusterRole() rbacv1.ClusterRole {
+	return rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole",
+			Labels: multiClusterLabels(),
+		},
+
+		// TODO: correctly specify the rules for the clusterRole.
+		Rules: []rbacv1.PolicyRule{
+			{
+				Verbs:     []string{"*"},
+				Resources: []string{"*"},
+				APIGroups: []string{"*"},
+			},
+		},
+	}
+}
+
 // createServiceAccountsAndRoles creates the required ServiceAccounts in all member clusters.
 func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f flags) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(len(f.memberClusters)*2)*time.Second)
@@ -447,23 +472,7 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 				return
 			}
 
-			clusterRole := rbacv1.ClusterRole{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   "mongodb-enterprise-operator-multi-cluster-clusterRole",
-					Labels: multiClusterLabels(),
-				},
-
-
-				// TODO: correctly specify the rules for the clusterRole.
-				Rules: []rbacv1.PolicyRule{
-					{
-						Verbs:     []string{"*"},
-						Resources: []string{"*"},
-						APIGroups: []string{"*"},
-					},
-				},
-			}
-
+			clusterRole := buildClusterRole()
 			_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
 			if !errors.IsAlreadyExists(err) && err != nil {
 				errorChan <- fmt.Errorf("error creating cluster clusterRole: %s", err)
@@ -496,22 +505,7 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 		}
 
 		// TODO: refactor role creation to avoid duplication
-		clusterRole := rbacv1.ClusterRole{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   "mongodb-enterprise-operator-multi-cluster-role",
-				Labels: multiClusterLabels(),
-			},
-
-			// TODO: correctly specify the rules for the role.
-			Rules: []rbacv1.PolicyRule{
-				{
-					Verbs:     []string{"*"},
-					Resources: []string{"*"},
-					APIGroups: []string{"*"},
-				},
-			},
-		}
-
+		clusterRole := buildClusterRole()
 		c := clientMap[f.centralCluster]
 		_, err := c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
 		if !errors.IsAlreadyExists(err) && err != nil {
@@ -619,19 +613,20 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 func getAllWorkerClusterServiceAccountSecretTokens(clientSetMap map[string]kubernetes.Interface, flags flags) (map[string]corev1.Secret, error) {
 	allSecrets := map[string]corev1.Secret{}
 
-	for clusterName, lister := range clientSetMap {
-		sas, err := getServiceAccountsWithTimeout(lister, flags.memberClusterNamespace)
+	for _, cluster := range flags.memberClusters {
+		c := clientSetMap[cluster]
+		sas, err := getServiceAccountsWithTimeout(c, flags.memberClusterNamespace)
 		if err != nil {
 			return nil, fmt.Errorf("failed getting service accounts: %s", err)
 		}
 
 		for _, sa := range sas {
 			if sa.Name == flags.serviceAccount {
-				token, err := getServiceAccountTokenWithTimeout(lister, sa)
+				token, err := getServiceAccountTokenWithTimeout(c, sa)
 				if err != nil {
 					return nil, fmt.Errorf("failed getting service account token: %s", err)
 				}
-				allSecrets[clusterName] = token
+				allSecrets[cluster] = token
 			}
 		}
 	}
