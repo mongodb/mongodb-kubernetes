@@ -104,7 +104,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
-	r.RegisterWatchedResources(rs.ObjectKey(), rs.Spec.GetProject(), rs.Spec.Credentials)
+	r.RegisterWatchedMongodbResources(rs.ObjectKey(), rs.Spec.GetProject(), rs.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
 	if !reconcileResult.IsOK() {
@@ -383,6 +383,8 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 	if err := r.clearProjectAuthenticationSettings(conn, rs, processNames, log); err != nil {
 		return err
 	}
+
+	r.RemoveMongodbWatchedResources(rs.ObjectKey())
 
 	log.Info("Removed replica set from Ops Manager!")
 	return nil

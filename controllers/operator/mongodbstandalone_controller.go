@@ -133,7 +133,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
-	r.RegisterWatchedResources(s.ObjectKey(), s.Spec.GetProject(), s.Spec.Credentials)
+	r.RegisterWatchedMongodbResources(s.ObjectKey(), s.Spec.GetProject(), s.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, s, log)
 	if !reconcileResult.IsOK() {
@@ -297,6 +297,9 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 	if err := r.clearProjectAuthenticationSettings(conn, s, processNames, log); err != nil {
 		return err
 	}
+
+	r.RemoveMongodbWatchedResources(s.ObjectKey())
+
 	log.Info("Removed standalone from Ops Manager!")
 	return nil
 }

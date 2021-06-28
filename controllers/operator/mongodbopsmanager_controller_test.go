@@ -80,6 +80,29 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	assert.NotContains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
 }
 
+func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
+	resourceName := "oplog1"
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.Backup.Enabled = true
+	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: resourceName}}}
+
+	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
+
+	key := watch.Object{
+		ResourceType: watch.MongoDB,
+		Resource:     types.NamespacedName{Name: resourceName, Namespace: testOm.Namespace},
+	}
+
+	// om watches oplog MDB resource
+	assert.Contains(t, reconciler.WatchedResources, key)
+	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
+
+	// watched resources list is cleared when CR is deleted
+	reconciler.delete(&testOm, zap.S())
+	assert.Zero(t, len(reconciler.WatchedResources))
+}
+
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	reconciler, client, initializer, admin := defaultTestOmReconciler(t, testOm)

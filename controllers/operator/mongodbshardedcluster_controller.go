@@ -153,7 +153,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
-	r.RegisterWatchedResources(sc.ObjectKey(), sc.Spec.GetProject(), sc.Spec.Credentials)
+	r.RegisterWatchedMongodbResources(sc.ObjectKey(), sc.Spec.GetProject(), sc.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
 	if !reconcileResult.IsOK() {
@@ -424,6 +424,8 @@ func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.Sugare
 	if err := r.clearProjectAuthenticationSettings(conn, sc, processNames, log); err != nil {
 		return err
 	}
+
+	r.RemoveMongodbWatchedResources(sc.ObjectKey())
 
 	log.Info("Removed sharded cluster from Ops Manager!")
 

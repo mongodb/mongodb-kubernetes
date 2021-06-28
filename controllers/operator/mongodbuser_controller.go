@@ -133,6 +133,8 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 		return err
 	}
 
+	r.RemoveAllDependentWatchedResources(user.Namespace, kube.ObjectKeyFromApiObject(user))
+
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
 		return nil

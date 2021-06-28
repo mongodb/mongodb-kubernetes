@@ -39,7 +39,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -467,7 +466,9 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to the Ops Manager resources
-	if err = c.Watch(&source.Kind{Type: &omv1.MongoDBOpsManager{}}, &handler.EnqueueRequestForObject{}, watch.PredicatesForOpsManager()); err != nil {
+	eventHandler := MongoDBOpsManagerEventHandler{reconciler: reconciler}
+
+	if err = c.Watch(&source.Kind{Type: &omv1.MongoDBOpsManager{}}, &eventHandler, watch.PredicatesForOpsManager()); err != nil {
 		return err
 	}
 
@@ -1280,4 +1281,13 @@ func omSupportsScramSha256(omSpec omv1.MongoDBOpsManagerSpec) bool {
 		return false
 	}
 	return v1.GTE(v2)
+}
+
+// delete cleans up Ops Manager related resources on CR removal.
+func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) {
+	opsManager := obj.(*omv1.MongoDBOpsManager)
+
+	r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
+
+	log.Info("Cleaned up Ops Manager related resources.")
 }

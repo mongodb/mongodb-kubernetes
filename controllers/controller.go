@@ -48,7 +48,7 @@ func buildCrdFunctionMap() map[string][]func(manager.Manager) error {
 	}
 }
 
-// buildCrdFunctionMap create a map which maps the name of the Custom
+// buildCrdMultiFunctionMap create a map which maps the name of the Custom
 // Resource Definition to a function which adds the corresponding function
 // to a manager.Manager and slice of cluster objects for single multi cluster reconcilers
 func buildCrdMultiFunctionMap() map[string][]func(manager.Manager, map[string]cluster.Cluster) error {
