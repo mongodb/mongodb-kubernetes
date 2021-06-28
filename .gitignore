@@ -1,6 +1,5 @@
 .dir-locals.el
 .idea/
-/docker/node-mongo-app/node_modules/
 
 /pkg/client
 /vendor/

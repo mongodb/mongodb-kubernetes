@@ -79,12 +79,6 @@ set on "Deployment" page
 If you don't see a "green" replica set in Ops Manager then you need to check [troubleshooting](docs/troubleshooting.md) 
 page for steps that should be taken to diagnose the problem.
 
-
-## Check database connectivity
-
-Read this [page](docs/check_database.md) to see how to build and deploy a small nodejjs application to check connectivity 
-for created database
-
 ## Development
 
 ### Getting started
