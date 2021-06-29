@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-ops-manager
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-appdb
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - patch
+      - delete
+      - get
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-appdb
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-appdb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-enterprise-appdb
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-enterprise-appdb
+---  
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-ops-manager
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: ops-manager-external
+spec:
+  replicas: 1
+  version: 4.4.14
+  adminCredentials: ops-manager-admin-secret
+  externalConnectivity:
+    type: LoadBalancer
+  backup:
+    enabled: false  
+  applicationDatabase:
+    members: 3
+    version: 4.2.6-ent

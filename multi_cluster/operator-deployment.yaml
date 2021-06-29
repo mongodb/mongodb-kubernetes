@@ -26,6 +26,7 @@ spec:
       containers:
       - args:
         - -watch-resource=mongodbmulti
+        - -watch-resource=opsmanagers
         - -cluster-names=e2e.cluster1.mongokubernetes.com,e2e.cluster2.mongokubernetes.com
         command:
         - /usr/local/bin/mongodb-enterprise-operator
