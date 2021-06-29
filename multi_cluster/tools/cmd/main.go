@@ -41,6 +41,11 @@ var (
 	memberClusters string
 )
 
+const (
+	kubeConfigSecretName = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
+	kubeConfigSecretKey  = "kubeconfig"
+)
+
 // parseFlags returns a struct containing all of the flags provided by the user.
 func parseFlags() (flags, error) {
 	flags := flags{}
@@ -208,7 +213,7 @@ func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namesp
 	}
 
 	go func() {
-		// clean up secret
+		// clean up secrets
 		secretList, err := clientset.CoreV1().Secrets(namespace).List(ctx, listOpts)
 
 		if err != nil {
@@ -216,11 +221,13 @@ func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namesp
 			return
 		}
 
-		for _, s := range secretList.Items {
-			fmt.Printf("Deleting Secret: %s in cluster %s\n", s.Name, clusterName)
-			if err := clientset.CoreV1().Secrets(namespace).Delete(ctx, s.Name, metav1.DeleteOptions{}); err != nil {
-				errorChan <- err
-				return
+		if secretList != nil {
+			for _, s := range secretList.Items {
+				fmt.Printf("Deleting Secret: %s in cluster %s\n", s.Name, clusterName)
+				if err := clientset.CoreV1().Secrets(namespace).Delete(ctx, s.Name, metav1.DeleteOptions{}); err != nil {
+					errorChan <- err
+					return
+				}
 			}
 		}
 
@@ -232,11 +239,13 @@ func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namesp
 			return
 		}
 
-		for _, sa := range serviceAccountList.Items {
-			fmt.Printf("Deleting ServiceAccount: %s in cluster %s\n", sa.Name, clusterName)
-			if err := clientset.CoreV1().ServiceAccounts(namespace).Delete(ctx, sa.Name, metav1.DeleteOptions{}); err != nil {
-				errorChan <- err
-				return
+		if serviceAccountList != nil {
+			for _, sa := range serviceAccountList.Items {
+				fmt.Printf("Deleting ServiceAccount: %s in cluster %s\n", sa.Name, clusterName)
+				if err := clientset.CoreV1().ServiceAccounts(namespace).Delete(ctx, sa.Name, metav1.DeleteOptions{}); err != nil {
+					errorChan <- err
+					return
+				}
 			}
 		}
 
@@ -255,50 +264,74 @@ func cleanupClusterResources(clientset kubernetes.Interface, clusterName, namesp
 			}
 		}
 
-		// clean up cluster roles
-		clusterRoleList, err := clientset.RbacV1().ClusterRoles().List(ctx, listOpts)
+		// clean up roles
+		roles, err := clientset.RbacV1().Roles(namespace).List(ctx, listOpts)
 		if err != nil {
 			errorChan <- err
 			return
 		}
 
-		for _, cr := range clusterRoleList.Items {
-			fmt.Printf("Deleting ClusterRole: %s in cluster %s\n", cr.Name, clusterName)
-			if err := clientset.RbacV1().ClusterRoles().Delete(ctx, cr.Name, metav1.DeleteOptions{}); err != nil {
-				errorChan <- err
-				return
+		if roles != nil {
+			for _, r := range roles.Items {
+				fmt.Printf("Deleting Role: %s in cluster %s\n", r.Name, clusterName)
+				if err := clientset.RbacV1().Roles(namespace).Delete(ctx, r.Name, metav1.DeleteOptions{}); err != nil {
+					errorChan <- err
+					return
+				}
 			}
 		}
 
 		// clean up role bindings
 		roleBindings, err := clientset.RbacV1().RoleBindings(namespace).List(ctx, listOpts)
-		if err != nil {
+		if !errors.IsNotFound(err) && err != nil {
 			errorChan <- err
 			return
 		}
 
-		for _, crb := range roleBindings.Items {
-			fmt.Printf("Deleting RoleBinding: %s in cluster %s\n", crb.Name, clusterName)
-			if err := clientset.RbacV1().RoleBindings(namespace).Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
-				errorChan <- err
-				return
+		if roleBindings != nil {
+			for _, crb := range roleBindings.Items {
+				fmt.Printf("Deleting RoleBinding: %s in cluster %s\n", crb.Name, clusterName)
+				if err := clientset.RbacV1().RoleBindings(namespace).Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
+					errorChan <- err
+					return
+				}
 			}
 		}
 
 		// clean up cluster role bindings
 		clusterRoleBindings, err := clientset.RbacV1().ClusterRoleBindings().List(ctx, listOpts)
-		if err != nil {
+		if !errors.IsNotFound(err) && err != nil {
 			errorChan <- err
 			return
 		}
 
-		for _, crb := range clusterRoleBindings.Items {
-			fmt.Printf("Deleting ClusterRoleBinding: %s in cluster %s\n", crb.Name, clusterName)
-			if err := clientset.RbacV1().ClusterRoleBindings().Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
-				errorChan <- err
-				return
+		if clusterRoleBindings != nil {
+			for _, crb := range clusterRoleBindings.Items {
+				fmt.Printf("Deleting ClusterRoleBinding: %s in cluster %s\n", crb.Name, clusterName)
+				if err := clientset.RbacV1().ClusterRoleBindings().Delete(ctx, crb.Name, metav1.DeleteOptions{}); err != nil {
+					errorChan <- err
+					return
+				}
 			}
 		}
+
+		// clean up cluster roles
+		clusterRoles, err := clientset.RbacV1().ClusterRoles().List(ctx, listOpts)
+		if !errors.IsNotFound(err) && err != nil {
+			errorChan <- err
+			return
+		}
+
+		if clusterRoles != nil {
+			for _, cr := range clusterRoles.Items {
+				fmt.Printf("Deleting ClusterRole: %s in cluster %s\n", cr.Name, clusterName)
+				if err := clientset.RbacV1().ClusterRoles().Delete(ctx, cr.Name, metav1.DeleteOptions{}); err != nil {
+					errorChan <- err
+					return
+				}
+			}
+		}
+
 		done <- struct{}{}
 	}()
 	select {
@@ -367,12 +400,6 @@ func ensureMultiClusterResources(flags flags, getClient func(clusterName, kubeCo
 		}
 	}
 
-	if flags.cleanup {
-		if err := performCleanup(clientMap, flags); err != nil {
-			return fmt.Errorf("failed performing cleanup of resources: %s", err)
-		}
-	}
-
 	if err := ensureAllClusterNamespacesExist(clientMap, flags); err != nil {
 		return fmt.Errorf("failed ensuring namespaces: %s", err)
 	}
@@ -392,7 +419,7 @@ func ensureMultiClusterResources(flags flags, getClient func(clusterName, kubeCo
 		return fmt.Errorf("required %d serviceaccount tokens but found only %d\n", len(flags.memberClusters), len(secrets))
 	}
 
-	kubeConfig, err := createKubeConfigFromServiceAccountTokens(secrets, flags.memberClusterNamespace)
+	kubeConfig, err := createKubeConfigFromServiceAccountTokens(secrets, flags)
 	if err != nil {
 		return fmt.Errorf("failed to create kube config from service account tokens: %s", err)
 	}
@@ -419,12 +446,12 @@ func ensureMultiClusterResources(flags flags, getClient func(clusterName, kubeCo
 func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfigBytes []byte, flags flags) error {
 	kubeConfigSecret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mongodb-enterprise-operator-multi-cluster-kubeconfig",
+			Name:      kubeConfigSecretName,
 			Namespace: flags.centralClusterNamespace,
 			Labels:    multiClusterLabels(),
 		},
 		Data: map[string][]byte{
-			"kubeconfig": kubeConfigBytes,
+			kubeConfigSecretKey: kubeConfigBytes,
 		},
 	}
 
@@ -611,10 +638,8 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 			c := clientMap[memberCluster]
 			if err := createMemberServiceAccountAndRoles(ctx, c, f); err != nil {
 				errorChan <- err
-				return
 			}
 		}
-
 		c := clientMap[f.centralCluster]
 		if err := createCentralClusterServiceAccountAndRoles(ctx, c, f); err != nil {
 			errorChan <- err
@@ -634,12 +659,14 @@ func createServiceAccountsAndRoles(clientMap map[string]kubernetes.Interface, f 
 }
 
 // createKubeConfigFromServiceAccountTokens builds up a KubeConfig from the ServiceAccount tokens provided.
-func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]corev1.Secret, memberClusterNamespace string) (KubeConfigFile, error) {
+func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]corev1.Secret, flags flags) (KubeConfigFile, error) {
 	config := &KubeConfigFile{
 		Kind:       "Config",
 		ApiVersion: "v1",
 	}
-	for clusterName, tokenSecret := range serviceAccountTokens {
+
+	for _, clusterName := range flags.memberClusters {
+		tokenSecret := serviceAccountTokens[clusterName]
 		ca, ok := tokenSecret.Data["ca.crt"]
 		if !ok {
 			return KubeConfigFile{}, fmt.Errorf("key 'ca.crt' missing from token secret %s", tokenSecret.Name)
@@ -662,7 +689,7 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 			Name: clusterName,
 			Context: KubeConfigContext{
 				Cluster:   clusterName,
-				Namespace: memberClusterNamespace,
+				Namespace: flags.memberClusterNamespace,
 				User:      clusterName,
 			},
 		})
