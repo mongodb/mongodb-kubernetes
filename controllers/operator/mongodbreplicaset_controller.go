@@ -79,10 +79,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
-	mutex := r.GetMutex(request.NamespacedName)
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}

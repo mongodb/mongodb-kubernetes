@@ -70,10 +70,6 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
 
-	mutex := r.GetMutex(request.NamespacedName)
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	reconcileResult, err := r.prepareResourceForReconciliation(request, sc, log)
 	if reconcileResult != nil {
 		return *reconcileResult, err

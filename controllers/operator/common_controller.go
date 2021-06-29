@@ -90,12 +90,6 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 	}
 }
 
-// GetMutex creates or reuses the relevant mutex for resource
-func (c *ReconcileCommonController) GetMutex(resourceName types.NamespacedName) *sync.Mutex {
-	mutex, _ := c.reconcileLocks.LoadOrStore(resourceName, &sync.Mutex{})
-	return mutex.(*sync.Mutex)
-}
-
 func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
 	d, err := conn.ReadDeployment()
 	if err != nil {

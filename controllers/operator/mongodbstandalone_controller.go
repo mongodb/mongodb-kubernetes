@@ -108,10 +108,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
-	mutex := r.GetMutex(request.NamespacedName)
-	mutex.Lock()
-	defer mutex.Unlock()
-
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); reconcileResult != nil {
 		return *reconcileResult, err
 	}
