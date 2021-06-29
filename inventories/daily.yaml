@@ -1,6 +1,6 @@
 vars:
   quay_registry: quay.io/mongodb/<image-name-quay>
-  rh_registry: scan.connect.redhat.com/ospid-<ospid>/<image-name-th>
+  # rh_registry: scan.connect.redhat.com/ospid-<ospid>/<image-name-th>
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
 
 images:
@@ -25,10 +25,10 @@ images:
         tag: $(inputs.params.release_version)
       - registry: $(inputs.params.quay_registry)-ubi
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-      - registry: $(inputs.params.rh_registry)
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.rh_registry)
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      # - registry: $(inputs.params.rh_registry)
+      #   tag: $(inputs.params.release_version)
+      # - registry: $(inputs.params.rh_registry)
+      #   tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
 
     - name: build-ubuntu
       task_type: docker_build
