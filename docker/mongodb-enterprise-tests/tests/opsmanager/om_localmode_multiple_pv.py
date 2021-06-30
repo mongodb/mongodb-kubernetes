@@ -27,7 +27,8 @@ def replica_set(
     ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-for-om.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 2
@@ -99,6 +100,7 @@ class TestOpsManagerRestarted:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_can_scale_replica_set(self, replica_set: MongoDB):
+        replica_set.load()
         replica_set["spec"]["members"] = 4
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=200)
