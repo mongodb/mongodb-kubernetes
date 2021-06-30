@@ -3,6 +3,7 @@
 import os
 
 from pytest import fixture
+from kubetester.opsmanager import MongoDBOpsManager
 
 
 def pytest_runtest_setup(item):
@@ -31,3 +32,15 @@ def ensure_ent_version(mdb_version: str) -> str:
     if "-ent" not in mdb_version:
         return mdb_version + "-ent"
     return mdb_version
+
+
+@fixture(scope="module")
+def gen_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
+    secret = ops_manager.read_gen_key_secret()
+    return secret.metadata.resource_version
+
+
+@fixture(scope="module")
+def admin_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
+    secret = ops_manager.read_api_key_secret()
+    return secret.metadata.resource_version

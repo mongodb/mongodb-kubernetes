@@ -13,11 +13,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 
-gen_key_resource_version = None
-admin_key_resource_version = None
 OM_CURRENT_VERSION = "4.2.13"
 MDB_CURRENT_VERSION = "4.2.1-ent"
-
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of minor OM version upgrade (4.2 -> 4.4) agents are expected to be upgraded
@@ -46,7 +43,6 @@ def mdb(ops_manager: MongoDBOpsManager) -> MongoDB:
     resource.configure(ops_manager, "development")
     return resource.create()
 
-
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerCreation:
     """
@@ -60,21 +56,15 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
-        global gen_key_resource_version
         secret = ops_manager.read_gen_key_secret()
         data = secret.data
         assert "gen.key" in data
-        # saving the resource version for later checks against updates
-        gen_key_resource_version = secret.metadata.resource_version
 
     def test_admin_key_secret(self, ops_manager: MongoDBOpsManager):
-        global admin_key_resource_version
         secret = ops_manager.read_api_key_secret()
         data = secret.data
         assert "publicApiKey" in data
         assert "user" in data
-        # saving the resource version for later checks against updates
-        admin_key_resource_version = secret.metadata.resource_version
 
     def test_backup_not_enabled(self, ops_manager: MongoDBOpsManager):
         """ Backup is deliberately disabled so no statefulset should be created"""
@@ -151,7 +141,12 @@ class TestOpsManagerConfigurationChange:
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
-    def test_keys_not_modified(self, ops_manager: MongoDBOpsManager):
+    def test_keys_not_modified(
+        self,
+        ops_manager: MongoDBOpsManager,
+        gen_key_resource_version: str,
+        admin_key_resource_version: str,
+    ):
         """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
         gen_key_secret = ops_manager.read_gen_key_secret()
         api_key_secret = ops_manager.read_api_key_secret()
@@ -330,7 +325,9 @@ class TestOpsManagerRemoved:
         with pytest.raises(ApiException):
             ops_manager.read_api_key_secret()
 
-    def test_gen_key_not_removed(self, ops_manager: MongoDBOpsManager):
+    def test_gen_key_not_removed(
+        self, ops_manager: MongoDBOpsManager, gen_key_resource_version: str
+    ):
         """The gen key must not be removed - this is for situations when the appdb is persistent -
         so PVs may survive removal"""
         gen_key_secret = ops_manager.read_gen_key_secret()

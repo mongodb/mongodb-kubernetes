@@ -9,9 +9,6 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 
-gen_key_resource_version = None
-admin_key_resource_version = None
-
 
 # Important - you need to ensure that OM and Appdb images are build and pushed into your current docker registry before
 # running tests locally - use "make om-image" and "make appdb" to do this
@@ -44,21 +41,15 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
-        global gen_key_resource_version
         secret = ops_manager.read_gen_key_secret()
         data = secret.data
         assert "gen.key" in data
-        # saving the resource version for later checks against updates
-        gen_key_resource_version = secret.metadata.resource_version
 
     def test_admin_key_secret(self, ops_manager: MongoDBOpsManager):
-        global admin_key_resource_version
         secret = ops_manager.read_api_key_secret()
         data = secret.data
         assert "publicApiKey" in data
         assert "user" in data
-        # saving the resource version for later checks against updates
-        admin_key_resource_version = secret.metadata.resource_version
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 3
@@ -93,7 +84,12 @@ class TestOpsManagerAppDbScaleUp:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_keys_not_touched(self, ops_manager: MongoDBOpsManager):
+    def test_keys_not_touched(
+        self,
+        ops_manager: MongoDBOpsManager,
+        gen_key_resource_version: str,
+        admin_key_resource_version: str,
+    ):
         """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
         gen_key_secret = ops_manager.read_gen_key_secret()
         api_key_secret = ops_manager.read_api_key_secret()
