@@ -76,6 +76,7 @@ type MongoDBMultiStatus struct {
 	BackupStatus      *mdbv1.BackupStatus `json:"backup,omitempty"`
 	Version           string              `json:"version"`
 	Link              string              `json:"link,omitempty"`
+	Warnings          []status.Warning    `json:"warnings,omitempty"`
 }
 
 type MongoDBMultiSpec struct {
@@ -88,6 +89,12 @@ type MongoDBMultiSpec struct {
 	ClusterDomain        string `json:"clusterDomain,omitempty"`
 	mdbv1.ConnectionSpec `json:",inline"`
 	Persistent           *bool `json:"persistent,omitempty"`
+	// In few service mesh options for ex: Istio, by default we would need to duplicate the
+	// service objects created per pod in all the clusters to enable DNS resolution. Users can
+	// however configure their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
+	// enabled in which case the operator doesn't need to create the service objects per cluster. This options tells the operator
+	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
+	DuplicateServiceObjects *bool `json:"duplicateServiceObjects,omitempty"`
 	// +kubebuilder:validation:Enum=ReplicaSet
 	// +kubebuilder:validation:Required
 	ResourceType mdbv1.ResourceType `json:"type"`
@@ -109,3 +116,17 @@ type MongoDBMultiSpec struct {
 func (m MongoDBMulti) GetPlural() string {
 	return "mongodbmulti"
 }
+
+func (m *MongoDBMulti) GetStatus(...status.Option) interface{} {
+	return m.Status
+}
+
+func (m *MongoDBMulti) GetStatusPath(...status.Option) string {
+	return "/status"
+}
+
+func (m *MongoDBMulti) SetWarnings(warnings []status.Warning, _ ...status.Option) {
+	m.Status.Warnings = warnings
+}
+
+func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {}

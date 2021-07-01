@@ -28,7 +28,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -75,18 +74,13 @@ type ReconcileCommonController struct {
 	// that reads objects from the cache and writes to the apiserver
 	client kubernetesClient.Client
 	scheme *runtime.Scheme
-	// this map keeps the locks for the resources the current controller is responsible for
-	// This allows to serialize processing logic (edit and removal) and necessary because
-	// we don't use reconciliation queue for removal operations
-	reconcileLocks sync.Map
 }
 
 func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(mgr.GetClient())
 	return &ReconcileCommonController{
-		client:         newClient,
-		scheme:         mgr.GetScheme(),
-		reconcileLocks: sync.Map{},
+		client: newClient,
+		scheme: mgr.GetScheme(),
 	}
 }
 
@@ -243,8 +237,6 @@ func (c *ReconcileCommonController) patchStatusLegacy(resource v1.CustomResource
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
-// Note the logic: any reconcileAppDB result different from nil should be considered as "terminal" and will stop reconciliation
-// right away (the pointer will be empty). Otherwise the pointer 'resource' will always reference the existing resource
 func (c *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {

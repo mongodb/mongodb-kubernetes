@@ -197,6 +197,17 @@ spec:
               credentials:
                 description: Name of the Secret holding credentials information
                 type: string
+              duplicateServiceObjects:
+                description: 'In few service mesh options for ex: Istio, by default
+                  we would need to duplicate the service objects created per pod in
+                  all the clusters to enable DNS resolution. Users can however configure
+                  their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
+                  enabled in which case the operator doesn''t need to create the service
+                  objects per cluster. This options tells the operator whether it
+                  should create the service objects in all the clusters or not. By
+                  default, if not specified the operator would create the duplicate
+                  svc objects.'
+                type: boolean
               featureCompatibilityVersion:
                 type: string
               logLevel:
@@ -509,6 +520,10 @@ spec:
                 type: string
               version:
                 type: string
+              warnings:
+                items:
+                  type: string
+                type: array
             required:
             - version
             type: object
