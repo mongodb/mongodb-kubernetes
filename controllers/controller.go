@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"strings"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -8,7 +9,6 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 

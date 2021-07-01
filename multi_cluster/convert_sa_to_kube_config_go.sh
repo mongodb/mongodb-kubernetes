@@ -23,7 +23,7 @@ kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mo
 kubectl --context ${CENTRAL_CLUSTER} apply -f operator-deployment.yaml --namespace ${OPERATOR_NAMESPACE}
 
 # deploy the CR
-kubectl --context ${CENTRAL_CLUSTER} apply -f ./multi-cluster-CR.yaml
+kubectl --context ${CENTRAL_CLUSTER} apply -f ./multi-cluster-CR.yaml --namespace ${OPERATOR_NAMESPACE}
 
 # create OM admin secret
 kubectl create secret generic ops-manager-admin-secret  --from-literal=Username="user.name@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="User" --from-literal=LastName="Name"

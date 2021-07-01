@@ -110,7 +110,10 @@ type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
-	ClusterSpecList        ClusterSpecList              `json:"clusterSpecList,omitempty"`
+
+	// Namespace is the namespace that the created resources are deployed to in the member clusters.
+	Namespace       string          `json:"namespace"`
+	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
 }
 
 func (m MongoDBMulti) GetPlural() string {

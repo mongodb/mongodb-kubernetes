@@ -185,6 +185,11 @@ func (in *MongoDBMultiSpec) DeepCopyInto(out *MongoDBMultiSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.DuplicateServiceObjects != nil {
+		in, out := &in.DuplicateServiceObjects, &out.DuplicateServiceObjects
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Security != nil {
 		in, out := &in.Security, &out.Security
 		*out = new(mdb.Security)
@@ -222,6 +227,11 @@ func (in *MongoDBMultiStatus) DeepCopyInto(out *MongoDBMultiStatus) {
 		in, out := &in.BackupStatus, &out.BackupStatus
 		*out = new(mdb.BackupStatus)
 		**out = **in
+	}
+	if in.Warnings != nil {
+		in, out := &in.Warnings, &out.Warnings
+		*out = make([]status.Warning, len(*in))
+		copy(*out, *in)
 	}
 }
 

@@ -162,6 +162,7 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
+			log.Infof("Adding cluster %s to cluster map.", k)
 			memberClusterObjectsMap[k] = cluster
 			if err = mgr.Add(cluster); err != nil {
 				log.Fatal(err)

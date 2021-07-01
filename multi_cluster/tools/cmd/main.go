@@ -685,11 +685,16 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 			},
 		})
 
+		ns := flags.memberClusterNamespace
+		if flags.clusterScoped {
+			ns = ""
+		}
+
 		config.Contexts = append(config.Contexts, KubeConfigContextItem{
 			Name: clusterName,
 			Context: KubeConfigContext{
 				Cluster:   clusterName,
-				Namespace: flags.memberClusterNamespace,
+				Namespace: ns,
 				User:      clusterName,
 			},
 		})
