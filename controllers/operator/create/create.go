@@ -7,7 +7,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	enterprisesvc "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -41,7 +40,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
+	err = service.CreateOrUpdateService(client, internalService)
 	if err != nil {
 		return err
 	}
@@ -52,7 +51,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	}
 
 	externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
-	return enterprisesvc.CreateOrUpdateService(client, externalService, log)
+	return service.CreateOrUpdateService(client, externalService)
 
 }
 
@@ -71,7 +70,7 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOp
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	return enterprisesvc.CreateOrUpdateService(client, internalService, log)
+	return service.CreateOrUpdateService(client, internalService)
 }
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
@@ -99,7 +98,7 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.Mo
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
+	err = service.CreateOrUpdateService(client, internalService)
 	return false, err
 }
 
@@ -119,7 +118,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = enterprisesvc.CreateOrUpdateService(client, internalService, log)
+	err = service.CreateOrUpdateService(client, internalService)
 	if err != nil {
 		return err
 	}
@@ -149,13 +148,13 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	}
 
 	if externalService != nil {
-		if err := enterprisesvc.CreateOrUpdateService(client, *externalService, log); err != nil {
+		if err := service.CreateOrUpdateService(client, *externalService); err != nil {
 			return err
 		}
 	}
 
 	if backupService != nil {
-		if err := enterprisesvc.CreateOrUpdateService(client, *backupService, log); err != nil {
+		if err := service.CreateOrUpdateService(client, *backupService); err != nil {
 			return err
 		}
 	}
