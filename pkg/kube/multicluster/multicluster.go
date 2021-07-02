@@ -2,6 +2,8 @@ package multicluster
 
 import (
 	"fmt"
+	"github.com/ghodss/yaml"
+	"io/ioutil"
 	"strings"
 
 	restclient "k8s.io/client-go/rest"
@@ -43,8 +45,41 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 	return clusterClientsMap, nil
 }
 
+// LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
+func LoadKubeConfigFile() (KubeConfigFile, error) {
+	kubeConfigBytes, err := ioutil.ReadFile(kubeConfigPath)
+	if err != nil {
+		return KubeConfigFile{}, err
+	}
+
+	kubeConfig := KubeConfigFile{}
+	if err := yaml.Unmarshal(kubeConfigBytes, &kubeConfig); err != nil {
+		return KubeConfigFile{}, err
+	}
+	return kubeConfig, nil
+}
+
 // IsMultiClusterMode checks if the operator is running in multi-cluster mode.
 // In multi-cluster mode the operator is passsed the name of the CRD in command line arguments.
 func IsMultiClusterMode(crdsToWatch string) bool {
 	return strings.Contains(crdsToWatch, "mongodbmulti")
+}
+
+// KubeConfigFile represents the contents of a KubeConfig file.
+type KubeConfigFile struct {
+	Contexts []KubeConfigContextItem `json:"contexts"`
+}
+type KubeConfigContextItem struct {
+	Name    string            `json:"name"`
+	Context KubeConfigContext `json:"context"`
+}
+
+type KubeConfigContext struct {
+	Cluster   string `json:"cluster"`
+	Namespace string `json:"namespace"`
+}
+
+// GetMemberClusterNamespace returns the namespace that will be used for all member clusters.
+func (k KubeConfigFile) GetMemberClusterNamespace() string {
+	return k.Contexts[0].Context.Namespace
 }

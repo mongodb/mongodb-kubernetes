@@ -156,9 +156,16 @@ func main() {
 			log.Infof("This should fatal: %s", err)
 		}
 
+		kubeConfig, err := multicluster.LoadKubeConfigFile()
+		if err != nil {
+			log.Fatal("failed reading KubeConfig file: %s", err)
+		}
+
 		// Add the cluster object to the manager corresponding to each member clusters.
 		for k, v := range memberClusterClients {
-			cluster, err := cluster.New(v)
+			cluster, err := cluster.New(v, func(options *cluster.Options) {
+				options.Namespace = kubeConfig.GetMemberClusterNamespace()
+			})
 			if err != nil {
 				log.Fatal(err)
 			}

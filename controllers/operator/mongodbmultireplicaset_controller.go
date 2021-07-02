@@ -85,6 +85,13 @@ func getStatefulSet(mdbm mdbmultiv1.MongoDBMulti, ns string) appsv1.StatefulSet 
 			},
 			ServiceName: mdbm.Name + "-svc",
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":               mdbm.Name + "-svc",
+						"controller":        "mongodb-enterprise-operator",
+						"pod-anti-affinity": mdbm.Name,
+					},
+				},
 				Spec: corev1.PodSpec{
 					Affinity: &corev1.Affinity{
 						PodAntiAffinity: &corev1.PodAntiAffinity{
