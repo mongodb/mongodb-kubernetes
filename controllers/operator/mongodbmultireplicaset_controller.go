@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
@@ -19,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
@@ -352,14 +354,22 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	// TODO: add events handler for MongoDBMulti CR
 	//eventHandler := MongoDBMultiResourceEventHandler{}
 
-	_, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).
+	ctrl, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).
 		Build(reconciler)
-	// Watches(&source.Kind{Type: &mdbmultiv1.MongoDBMulti{}}, eventHandler).
-	// WithEventFilter(predicate.Funcs{})
-
 	if err != nil {
 		return err
 	}
+
+	// set up watch for Statefulset for each of the memberclusters
+	for k, v := range memberClustersMap {
+		err := ctrl.Watch(source.NewKindWithCache(&appsv1.StatefulSet{}, v.GetCache()), nil)
+		if err != nil {
+			return fmt.Errorf("Failed to set Watch on member cluster: %s, err: %v", k, err)
+		}
+	}
+
+	// Watches(&source.Kind{Type: &mdbmultiv1.MongoDBMulti{}}, eventHandler).
+	// WithEventFilter(predicate.Funcs{})
 
 	// c, err := controller.New(util.MongoDbMultiReplicaSetController, mgr, controller.Options{Reconciler: reconciler})
 	// if err != nil {
