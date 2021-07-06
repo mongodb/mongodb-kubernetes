@@ -16,8 +16,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
@@ -795,18 +793,6 @@ func clusterDomainOrDefault(clusterDomain string) string {
 	}
 
 	return clusterDomain
-}
-
-func readProjectConfigAndCredentials(client kubernetesClient.Client, mdb mdbv1.MongoDB) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	projectConfig, err := project.ReadProjectConfig(client, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
-	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
-	}
-	credsConfig, err := project.ReadCredentials(client, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials))
-	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading Credentials secret: %s", err)
-	}
-	return projectConfig, credsConfig, nil
 }
 
 // newPodVars initializes a PodEnvVars instance based on the values of the provided Ops Manager connection, project config

@@ -60,3 +60,14 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.2.6-ent
+  configuration:
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

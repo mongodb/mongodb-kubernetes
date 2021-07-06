@@ -2,6 +2,9 @@ package project
 
 import (
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
@@ -10,6 +13,30 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"go.uber.org/zap"
 )
+
+// Reader returns the name of a ConfigMap which contains Ops Manager project details.
+// and the name of a secret containing project credentials.
+type Reader interface {
+	metav1.Object
+	GetProjectConfigMapName() string
+	GetProjectConfigMapNamespace() string
+	GetCredentialsSecretName() string
+	GetCredentialsSecretNamespace() string
+}
+
+// ReadConfigAndCredentials returns the ProjectConfig and Credentials for a given resource which are
+// used to communicate with Ops Manager.
+func ReadConfigAndCredentials(client kubernetesClient.Client, reader Reader) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+	projectConfig, err := ReadProjectConfig(client, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
+	if err != nil {
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
+	}
+	credsConfig, err := ReadCredentials(client, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()))
+	if err != nil {
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading Credentials secret: %s", err)
+	}
+	return projectConfig, credsConfig, nil
+}
 
 /*
 Communication with groups is tricky.

@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
@@ -120,7 +121,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *s)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, s)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
@@ -254,7 +255,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *s)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, s)
 	if err != nil {
 		return err
 	}

@@ -23,17 +23,17 @@ Use spec.podSpec.podTemplate.spec.containers[].resources instead.`
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (mdb *MongoDB) ValidateCreate() error {
-	return mdb.ProcessValidationsOnReconcile(nil)
+func (m *MongoDB) ValidateCreate() error {
+	return m.ProcessValidationsOnReconcile(nil)
 }
 
-func (mdb *MongoDB) ValidateUpdate(old runtime.Object) error {
-	return mdb.ProcessValidationsOnReconcile(old.(*MongoDB))
+func (m *MongoDB) ValidateUpdate(old runtime.Object) error {
+	return m.ProcessValidationsOnReconcile(old.(*MongoDB))
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (mdb *MongoDB) ValidateDelete() error {
+func (m *MongoDB) ValidateDelete() error {
 	return nil
 }
 

@@ -26,6 +26,22 @@ type MongoDBMulti struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
+func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
+	return m.Spec.Namespace
+}
+
+func (m MongoDBMulti) GetCredentialsSecretNamespace() string {
+	return m.Spec.Namespace
+}
+
+func (m MongoDBMulti) GetProjectConfigMapName() string {
+	return m.Spec.OpsManagerConfig.ConfigMapRef.Name
+}
+
+func (m MongoDBMulti) GetCredentialsSecretName() string {
+	return m.Spec.Credentials
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBMultiList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -114,6 +130,8 @@ type MongoDBMultiSpec struct {
 	// Namespace is the namespace that the created resources are deployed to in the member clusters.
 	Namespace       string          `json:"namespace"`
 	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
+
+	OpsManagerConfig mdbv1.PrivateCloudConfig `json:"opsManager"`
 }
 
 func (m MongoDBMulti) GetPlural() string {

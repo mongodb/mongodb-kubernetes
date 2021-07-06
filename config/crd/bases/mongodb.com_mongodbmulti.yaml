@@ -218,6 +218,10 @@ spec:
                 - ERROR
                 - FATAL
                 type: string
+              namespace:
+                description: Namespace is the namespace that the created resources
+                  are deployed to in the member clusters.
+                type: string
               opsManager:
                 properties:
                   configMapRef:
@@ -441,6 +445,8 @@ spec:
                 type: string
             required:
             - credentials
+            - namespace
+            - opsManager
             - type
             - version
             type: object

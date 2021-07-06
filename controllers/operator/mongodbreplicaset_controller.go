@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 
@@ -91,7 +92,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *rs)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
@@ -337,7 +338,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *rs)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs)
 	if err != nil {
 		return err
 	}

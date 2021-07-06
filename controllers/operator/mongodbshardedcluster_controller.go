@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 
@@ -140,7 +141,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *sc)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
@@ -366,7 +367,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := readProjectConfigAndCredentials(r.client, *sc)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc)
 	if err != nil {
 		return err
 	}

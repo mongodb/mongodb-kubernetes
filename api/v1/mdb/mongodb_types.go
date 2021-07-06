@@ -80,15 +80,31 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
-func (mdb *MongoDB) GetSecurity() *Security {
-	if mdb.Spec.Security == nil {
-		mdb.Spec.Security = &Security{}
-	}
-	return mdb.Spec.Security
+func (m *MongoDB) GetProjectConfigMapNamespace() string {
+	return m.GetNamespace()
 }
 
-func (mdb MongoDB) AddValidationToManager(m manager.Manager) error {
-	return ctrl.NewWebhookManagedBy(m).For(&mdb).Complete()
+func (m *MongoDB) GetCredentialsSecretNamespace() string {
+	return m.GetNamespace()
+}
+
+func (m *MongoDB) GetProjectConfigMapName() string {
+	return m.Spec.GetProject()
+}
+
+func (m *MongoDB) GetCredentialsSecretName() string {
+	return m.Spec.Credentials
+}
+
+func (m *MongoDB) GetSecurity() *Security {
+	if m.Spec.Security == nil {
+		m.Spec.Security = &Security{}
+	}
+	return m.Spec.Security
+}
+
+func (m MongoDB) AddValidationToManager(mgr manager.Manager) error {
+	return ctrl.NewWebhookManagedBy(mgr).For(&m).Complete()
 }
 
 // +kubebuilder:object:generate=false
