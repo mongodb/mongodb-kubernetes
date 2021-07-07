@@ -211,6 +211,15 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self.app_db_name() + "-keyfile", self.namespace
         )
 
+    def read_appdb_connection_url(self) -> str:
+        secret = client.CoreV1Api().read_namespaced_secret(
+            self.get_appdb_connection_url_secret_name(), self.namespace
+        )
+        return KubernetesTester.decode_secret(secret.data)["connectionString"]
+
+    def read_appdb_members_from_connection_url_secret(self) -> str:
+        return re.findall(r"[@,]([^@,\/]+)", self.read_appdb_connection_url())
+
     def create_admin_secret(
         self,
         user_name="jane.doe@example.com",

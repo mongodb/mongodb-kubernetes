@@ -51,6 +51,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 		opts.ServiceName = opsManager.BackupServiceName()
 		opts.Name = opsManager.BackupStatefulSetName()
 		opts.Replicas = opsManager.Spec.Backup.Members
+		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
 
 		if opsManager.Spec.Backup != nil {
 			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {
@@ -74,6 +75,10 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 	defaultConfig := mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
 	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
+
+	// configure the AppDB Connection String volume from a secret
+	mmsMongoUriVolume, mmsMongoUriMount := buildMmsMongoUriVolume(opts)
+
 	return statefulset.Apply(
 		backupAndOpsManagerSharedConfiguration(opts),
 		statefulset.WithVolumeClaim(util.PvcNameHeadDb, pvc),
@@ -81,12 +86,13 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 			podtemplatespec.Apply(
 				// 70 minutes for Backup Damon (internal timeout is 65 minutes, see CLOUDP-61849)
 				podtemplatespec.WithTerminationGracePeriodSeconds(4200),
+				podtemplatespec.WithVolume(mmsMongoUriVolume),
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						container.WithName(util.BackupDaemonContainerName),
 						container.WithEnvs(backupDaemonEnvVars()...),
 						container.WithLifecycle(buildBackupDaemonLifecycle()),
-						container.WithVolumeMounts([]corev1.VolumeMount{headDbMount}),
+						container.WithVolumeMounts([]corev1.VolumeMount{headDbMount, mmsMongoUriMount}),
 						container.WithLivenessProbe(buildBackupDaemonLivenessProbe()),
 						container.WithReadinessProbe(buildBackupDaemonReadinessProbe()),
 					),

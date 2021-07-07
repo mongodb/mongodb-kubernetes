@@ -51,6 +51,9 @@ class TestOpsManagerCreation:
         assert "publicApiKey" in data
         assert "user" in data
 
+    def test_appdb_connection_url_secret(self, ops_manager: MongoDBOpsManager):
+        assert len(ops_manager.read_appdb_members_from_connection_url_secret()) == 3
+
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
@@ -96,6 +99,9 @@ class TestOpsManagerAppDbScaleUp:
 
         assert gen_key_secret.metadata.resource_version == gen_key_resource_version
         assert api_key_secret.metadata.resource_version == admin_key_resource_version
+
+    def test_appdb_connection_url_secret(self, ops_manager: MongoDBOpsManager):
+        assert len(ops_manager.read_appdb_members_from_connection_url_secret()) == 5
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_members() == 5

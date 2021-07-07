@@ -30,7 +30,7 @@ func TestEditMmsConfiguration_UpdateConfFile_BackupDaemon(t *testing.T) {
 	assert.Equal(t, updatedContent[7], "JAVA_DAEMON_OPTS=\"${JAVA_DAEMON_OPTS} -Xmx4000m -Xms4000m\"")
 }
 
-func TestEditMmsConfiguration_UpdatePropertiesFile(t *testing.T) {
+func TestEditMmsConfiguration_GetOmPropertiesFromEnvVars(t *testing.T) {
 	val := fmt.Sprintf("test%d", rand.Intn(1000))
 	key := "OM_PROP_test_edit_mms_configuration_get_om_props"
 	_ = os.Setenv(key, val)
@@ -39,12 +39,12 @@ func TestEditMmsConfiguration_UpdatePropertiesFile(t *testing.T) {
 	_ = os.Unsetenv(key)
 }
 
-func TestEditMmsConfiguration_GetOmPropertiesFromEnvVars(t *testing.T) {
-	_ = os.Setenv("OM_PROP_mms_test_prop", "somethingNew")
-	_ = os.Setenv("OM_PROP_mms_test_prop_new", "400")
-
+func TestEditMmsConfiguration_UpdatePropertiesFile(t *testing.T) {
+	newProperties := map[string]string{
+		"mms.test.prop":     "somethingNew",
+		"mms.test.prop.new": "400"}
 	propFile := _createTestPropertiesFile()
-	err := updatePropertiesFile(propFile)
+	err := updatePropertiesFile(propFile, newProperties)
 	assert.NoError(t, err)
 
 	updatedContent := _readLinesFromFile(propFile)

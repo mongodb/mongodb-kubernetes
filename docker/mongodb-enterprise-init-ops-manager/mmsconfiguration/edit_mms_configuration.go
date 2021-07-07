@@ -15,6 +15,13 @@ const (
 	commentPrefix            = "#"
 	propOverwriteFmt         = "%s=\"${%s} %s\""
 	backupDaemon             = "BACKUP_DAEMON"
+	// keep in sync with AppDBConnectionStringPath constant from "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct" package.
+	// currently we cannot reference code from outside of docker/mongodb-enterprise-init-ops-manager
+	// because this folder is set as the docker build context (configured in inventories/init_om.yaml)
+	appDbConnectionStringPath     = "/mongodb-ops-manager/.mongodb-mms-connection-string"
+	appDbConnectionStringFilePath = appDbConnectionStringPath + "/connectionString"
+	// keep in sync with MmsMongoUri constant from github.com/10gen/ops-manager-kubernetes/pkg/util
+	appDbUriKey = "mongo.mongoUri"
 )
 
 func updateConfFile(confFile string) error {
@@ -38,14 +45,19 @@ func updateConfFile(confFile string) error {
 	return err
 }
 
-func updatePropertiesFile(propertiesFile string) error {
+func getMmsProperties() (map[string]string, error) {
 	newProperties := getOmPropertiesFromEnvVars()
 
-	// If there are no exported mms properties, we can stop here
-	if len(newProperties) == 0 {
-		return nil
+	appDbConnectionString, err := ioutil.ReadFile(appDbConnectionStringFilePath)
+	if err != nil {
+		return nil, err
 	}
+	newProperties[appDbUriKey] = string(appDbConnectionString)
 
+	return newProperties, nil
+}
+
+func updatePropertiesFile(propertiesFile string, newProperties map[string]string) error {
 	lines, err := readLinesFromFile(propertiesFile)
 	if err != nil {
 		return err
@@ -146,7 +158,13 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	if err := updatePropertiesFile(propertiesFile); err != nil {
+
+	newProperties, err := getMmsProperties()
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	if err := updatePropertiesFile(propertiesFile, newProperties); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

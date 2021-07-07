@@ -168,6 +168,14 @@ class TestOpsManagerCreation:
                     "read_only": True,
                 },
                 {
+                    "name": "mongodb-uri",
+                    "mount_path": "/mongodb-ops-manager/.mongodb-mms-connection-string",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                },
+                {
                     "name": "ops-manager-scripts",
                     "mount_path": "/opt/scripts",
                     "sub_path": None,
@@ -195,7 +203,7 @@ class TestOpsManagerCreation:
         )
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
-        assert len(sts.spec.template.spec.volumes) == 3
+        assert len(sts.spec.template.spec.volumes) == 4
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()

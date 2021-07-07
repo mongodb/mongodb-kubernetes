@@ -10,7 +10,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -125,7 +124,6 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		expectedVars := []corev1.EnvVar{
 			{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
 			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
-			env.FromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m -DDAEMON.DEBUG.PORT=8090"},
 		}
@@ -158,7 +156,6 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		sts, err := OpsManagerStatefulSet(om)
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
-			env.FromSecret("OM_PROP_mongo_mongoUri", om.AppDBMongoConnectionStringSecretName(), "connectionString"),
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m -DDAEMON.DEBUG.PORT=8090"},
 		}
@@ -175,6 +172,22 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"},
 		sts.Spec.Template.Spec.Containers[0].Command)
+}
+
+func Test_buildOpsManagerStatefulSet_Secrets(t *testing.T) {
+	opsManager := omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build()
+	sts, err := OpsManagerStatefulSet(opsManager)
+	assert.NoError(t, err)
+
+	expectedSecretVolumeNames := []string{"test-om-gen-key", opsManager.AppDBMongoConnectionStringSecretName()}
+	actualSecretVolumeNames := []string{}
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		if v.Secret != nil {
+			actualSecretVolumeNames = append(actualSecretVolumeNames, v.Secret.SecretName)
+		}
+	}
+
+	assert.Equal(t, expectedSecretVolumeNames, actualSecretVolumeNames)
 }
 
 // TestOpsManagerPodTemplate_MergePodTemplate checks the custom pod template provided by the user.

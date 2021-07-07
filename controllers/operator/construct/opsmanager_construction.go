@@ -35,6 +35,7 @@ type OpsManagerStatefulSetOptions struct {
 	OwnerReference            []metav1.OwnerReference
 	HTTPSCertSecretName       string
 	AppDBTlsCAConfigMapName   string
+	AppDBConnectionSecretName string
 	AppDBConnectionStringHash string
 	EnvVars                   []corev1.EnvVar
 	Version                   string
@@ -109,6 +110,7 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 		opts.Replicas = opsManager.Spec.Replicas
 		opts.Name = opsManager.Name
 		opts.StatefulSetSpecOverride = stsSpec
+		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
 
 		for _, additionalOpt := range additionalOpts {
 			additionalOpt(&opts)
@@ -162,7 +164,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	genKeyVolume := statefulset.CreateVolumeFromSecret("gen-key", fmt.Sprintf("%s-gen-key", opts.OwnerName))
 	genKeyVolumeMount := corev1.VolumeMount{
-		Name:      "gen-key",
+		Name:      genKeyVolume.Name,
 		ReadOnly:  true,
 		MountPath: util.GenKeyPath,
 	}
@@ -188,6 +190,10 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 		})
 	}
 
+	// configure the AppDB Connection String volume from a secret
+	mmsMongoUriVolume, mmsMongoUriVolumeMount := buildMmsMongoUriVolume(opts)
+	omVolumeMounts = append(omVolumeMounts, mmsMongoUriVolumeMount)
+
 	labels := defaultPodLabels(opts.ServiceName, opts.Name)
 	return statefulset.Apply(
 		statefulset.WithLabels(labels),
@@ -203,6 +209,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				appDbTLSConfigMapVolumeFunc,
 				podtemplatespec.WithVolume(omScriptsVolume),
 				podtemplatespec.WithVolume(genKeyVolume),
+				podtemplatespec.WithVolume(mmsMongoUriVolume),
 				podtemplatespec.WithAnnotations(map[string]string{
 					"connectionStringHash": opts.AppDBConnectionStringHash,
 				}),
@@ -346,7 +353,5 @@ func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar 
 			Name: omv1.ConvertNameToEnvVarFormat(name), Value: value,
 		})
 	}
-	// Configure the AppDB Connection String property from a secret
-	envVars = append(envVars, env.FromSecret(omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri), m.AppDBMongoConnectionStringSecretName(), util.AppDbConnectionStringKey))
 	return envVars
 }

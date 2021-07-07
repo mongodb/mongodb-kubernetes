@@ -34,6 +34,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
+	operatorConstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -299,21 +300,17 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
 	assert.NoError(t, err)
 
-	envs := sts.Spec.Template.Spec.Containers[0].Env
-	var uriEnv corev1.EnvVar
-	for _, e := range envs {
-		if e.Name == omv1.ConvertNameToEnvVarFormat(util.MmsMongoUri) {
-			uriEnv = e
+	var uriVol corev1.Volume
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		if v.Name == operatorConstruct.AppDBConnectionStringVolume {
+			uriVol = v
 			break
 		}
 	}
-	assert.NotEmpty(t, uriEnv.Name, "MmsMongoUri env var should have been present!")
-
-	assert.NotNil(t, uriEnv.ValueFrom)
-	assert.NotNil(t, uriEnv.ValueFrom.SecretKeyRef)
-	assert.Equal(t, uriEnv.ValueFrom.SecretKeyRef.Name, testOm.AppDBMongoConnectionStringSecretName())
-	assert.Equal(t, uriEnv.ValueFrom.SecretKeyRef.Key, util.AppDbConnectionStringKey)
-	assert.Empty(t, uriEnv.Value, "if ValueFrom is specified, you cannot also specify 'Value'")
+	assert.NotEmpty(t, uriVol.Name, "MmsMongoUri volume should have been present!")
+	assert.NotNil(t, uriVol.VolumeSource)
+	assert.NotNil(t, uriVol.VolumeSource.Secret)
+	assert.Equal(t, uriVol.VolumeSource.Secret.SecretName, testOm.AppDBMongoConnectionStringSecretName())
 }
 
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package

@@ -5,12 +5,14 @@ import pytest
 from pytest import fixture
 from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME
 
+from kubernetes import client
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 
-MONGO_URI_ENV_NAME = "OM_PROP_mongo_mongoUri"
+MONGO_URI_VOLUME_MOUNT_NAME = "mongodb-uri"
+MONGO_URI_VOLUME_MOUNT_PATH = "/mongodb-ops-manager/.mongodb-mms-connection-string"
 
 
 @fixture(scope="module")
@@ -109,14 +111,12 @@ def test_backup_pod_template_was_annotated(ops_manager: MongoDBOpsManager):
 def test_connection_string_is_configured_securely(ops_manager: MongoDBOpsManager):
     sts = ops_manager.read_statefulset()
     om_container = sts.spec.template.spec.containers[0]
-    connection_string_env = [
-        env for env in om_container.env if env.name == MONGO_URI_ENV_NAME
+    volume_mounts: list[client.V1VolumeMount] = om_container.volume_mounts
+
+    connection_string_volume_mount = [
+        vm for vm in volume_mounts if vm.name == MONGO_URI_VOLUME_MOUNT_NAME
     ][0]
-    assert (
-        connection_string_env.value_from.secret_key_ref.name
-        == ops_manager.get_appdb_connection_url_secret_name()
-    )
-    assert connection_string_env.value_from.secret_key_ref.key == "connectionString"
+    assert connection_string_volume_mount.mount_path == MONGO_URI_VOLUME_MOUNT_PATH
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
