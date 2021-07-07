@@ -5,7 +5,7 @@ metadata:
   name: ops-manager-backup
 spec:
   replicas: 1
-  version: 4.4.14
+  version: 4.4.15
   adminCredentials: ops-manager-admin-secret
 
   # optional. Enabled by default

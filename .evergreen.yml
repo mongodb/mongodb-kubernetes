@@ -8,7 +8,7 @@ stepback: true
 exec_timeout_secs: 4500
 variables:
   - &ops_manager_44_current
-    ops_manager_version: "4.4.14"
+    ops_manager_version: "4.4.15"
     ops_manager_namespace: "operator-testing-44-current"
     node_port: 30044
   - &cloud_manager_qa
@@ -17,8 +17,7 @@ variables:
     usaf_operator_version: "1.7.1"
     usaf_database_version: "1.5.3"
 
-    # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
-  - &ops_manager_44_latest 4.4.14
+  - &ops_manager_44_latest 4.4.15
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20

@@ -51,7 +51,7 @@ metadata:
   name: ops-manager-external
 spec:
   replicas: 1
-  version: 4.4.14
+  version: 4.4.15
   adminCredentials: ops-manager-admin-secret
   externalConnectivity:
     type: LoadBalancer

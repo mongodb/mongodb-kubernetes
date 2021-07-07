@@ -188,7 +188,7 @@ def custom_mdb_version() -> str:
 def custom_version() -> str:
     """Returns a CUSTOM_OM_VERSION for OM.
     Defaults to 4.4+ (for development)"""
-    return os.getenv("CUSTOM_OM_VERSION", "4.4.14")
+    return os.getenv("CUSTOM_OM_VERSION", "4.4.15")
 
 
 @fixture(scope="module")
