@@ -5,7 +5,7 @@ metadata:
   name: ops-manager-localmode
 spec:
   replicas: 1
-  version: 4.4.1
+  version: 4.4.14
   adminCredentials: ops-manager-admin-secret
 
   # Local Mode must be configured so Ops Manger does not download any binaries from
@@ -29,11 +29,11 @@ spec:
 
           initContainers:
           - name: mongod-binaries-rhel70-init-container
-            image: quay.io/mongodb/mongodb-enterprise-init-mongod-ubuntu1604:4.2.8
+            image: quay.io/mongodb/mongodb-enterprise-init-mongod-rhel80:4.4.4
             command:
             - cp
             - -a
-            - /binaries/*
+            - /binaries/.
             - /mongodb-ops-manager/mongodb-releases/
             volumeMounts:
              - name: mongodb-versions
