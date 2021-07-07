@@ -749,7 +749,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	_, err = secret.ReadStringData(r.client, adminKeySecretName)
 
 	if apiErrors.IsNotFound(err) {
-		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), user)
+		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), opsManager.Spec.Version, user)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
 			// by modifying the credentials secret
@@ -757,11 +757,11 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 		}
 
 		// Recreate an admin key secret in the Operator namespace if the user was created
-		if apiKey != "" {
+		if apiKey.PublicKey != "" {
 			log.Infof("Created an admin user %s with GLOBAL_ADMIN role", user.Username)
 
 			// The structure matches the structure of a credentials secret used by normal mongodb resources
-			secretData := map[string]string{util.OmPublicApiKey: apiKey, util.OmUser: user.Username}
+			secretData := map[string]string{util.OmPublicApiKey: apiKey.PrivateKey, util.OmUser: apiKey.PublicKey}
 
 			if err = r.client.DeleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
 				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
@@ -797,6 +797,8 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			// Each "read-after-write" operation needs some timeout after write unfortunately :(
 			// https://github.com/kubernetes-sigs/controller-runtime/issues/343#issuecomment-468402446
 			time.Sleep(time.Duration(env.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
+		} else {
+			log.Debug("Ops Manager did not return a valid User object.")
 		}
 	}
 
@@ -1255,14 +1257,14 @@ func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, us
 	return workflow.OK()
 }
 
-func newUserFromSecret(data map[string]string) (*api.User, error) {
+func newUserFromSecret(data map[string]string) (api.User, error) {
 	// validate
 	for _, v := range []string{"Username", "Password", "FirstName", "LastName"} {
 		if _, ok := data[v]; !ok {
-			return nil, fmt.Errorf("%s property is missing in the admin secret", v)
+			return api.User{}, fmt.Errorf("%s property is missing in the admin secret", v)
 		}
 	}
-	user := &api.User{Username: data["Username"],
+	user := api.User{Username: data["Username"],
 		Password:  data["Password"],
 		FirstName: data["FirstName"],
 		LastName:  data["LastName"],

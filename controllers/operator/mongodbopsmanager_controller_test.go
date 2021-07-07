@@ -570,28 +570,30 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 }
 
 type MockedInitializer struct {
-	currentUsers     []*api.User
+	currentUsers     []api.User
 	expectedAPIError *apierror.Error
 	expectedOmURL    string
 	t                *testing.T
 	numberOfCalls    int
 }
 
-func (o *MockedInitializer) TryCreateUser(omUrl string, user *api.User) (string, error) {
+func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user api.User) (api.OpsManagerKeyPair, error) {
 	o.numberOfCalls++
 	assert.Equal(o.t, o.expectedOmURL, omUrl)
 
 	if o.expectedAPIError != nil {
-		return "", o.expectedAPIError
+		return api.OpsManagerKeyPair{}, o.expectedAPIError
 	}
 	// OM logic: any number of users is created. But we cannot of course create the user with the same name
 	for _, v := range o.currentUsers {
 		if v.Username == user.Username {
-			return "", apierror.NewErrorWithCode(apierror.UserAlreadyExists)
+			return api.OpsManagerKeyPair{}, apierror.NewErrorWithCode(apierror.UserAlreadyExists)
 		}
 	}
 	o.currentUsers = append(o.currentUsers, user)
 
-	// let's use username as a public api key for simplicity
-	return user.Username + "-key", nil
+	return api.OpsManagerKeyPair{
+		PublicKey:  user.Username,
+		PrivateKey: user.Username + "-key",
+	}, nil
 }

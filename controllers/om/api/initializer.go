@@ -4,6 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+
+	"net/url"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	"github.com/blang/semver"
 )
 
 // This is a separate om functionality needed for OM controller
@@ -19,7 +24,7 @@ const KubernetesNetMask = "100.96.0.0%2F16"
 type Initializer interface {
 	// TryCreateUser makes the call to Ops Manager to create the first admin user. Returns the public API key or an
 	// error if the user already exists for example
-	TryCreateUser(omUrl string, user *User) (string, error)
+	TryCreateUser(omUrl string, omVersion string, user User) (OpsManagerKeyPair, error)
 }
 
 // DefaultInitializer is the "production" implementation of 'Initializer'. Seems we don't need to keep any state
@@ -34,20 +39,37 @@ type User struct {
 	LastName  string `json:"lastName"`
 }
 
-// UserKeys is a json struct corresponding to mms 'ApiAppUserAndApiKeyView' object
+// UserKeys is a json struct corresponding to mms 'ApiAppUserAndApiKeyView'
+// object
 type UserKeys struct {
 	ApiKey string `json:"apiKey"`
 }
 
-// TryCreateUser makes the call to the special OM endpoint '/unauth/users' which creates the GLOBAL_ADMIN user and
-// generates public API token. This endpoint returns 409 (Conflict) if the user already exists. Note, that unfortunately
-// we cannot ensure the user created is a GLOBAL_ADMIN as if second call to the API is made with another username - the
-// user will be created but without GLOBAL_ADMIN permissions. This potentially may result in non-admin API secret if
-// the admin removes the API secret and renames the username in the user secret. Though this scenario is almost impossible
-func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, error) {
+// ResultProgrammaticAPIKey struct that deserializes to the result of
+// calling `unauth/users` Ops Manager endpoint.
+type ResultProgrammaticAPIKey struct {
+	ProgrammaticAPIKey OpsManagerKeyPair `json:"programmaticApiKey"`
+}
+
+// OpsManagerKeyPair convenient type we use to fetch credentials from different
+// versions of Ops Manager API.
+type OpsManagerKeyPair struct {
+	PrivateKey string `json:"privateKey"`
+	PublicKey  string `json:"publicKey"`
+}
+
+// TryCreateUser makes the call to the special OM endpoint '/unauth/users' which
+// creates a GLOBAL_ADMIN user and generates public API token.
+//
+// If the endpoint has been called already and a user already exist, then it
+// will return HTTP-409.
+//
+// If this endpoint is called once again with a different `username` the user
+// will be created but with no `GLOBAL_ADMIN` role.
+func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user User) (OpsManagerKeyPair, error) {
 	buffer, err := serializeToBuffer(user)
 	if err != nil {
-		return "", err
+		return OpsManagerKeyPair{}, err
 	}
 
 	// As of now, there is no HTTPS context that we pass to the operator, so we'll skip
@@ -55,14 +77,15 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 	// and we should trust it.
 	client, err := NewHTTPClient(OptionSkipVerify)
 	if err != nil {
-		return "", err
+		return OpsManagerKeyPair{}, err
 	}
 	// dev note: we are doing many similar things that 'http.go' does - though we cannot reuse that now as current
 	// request is not a digest one
-	resp, err := client.Post(omUrl+"/api/public/v1.0/unauth/users?pretty=true&whitelist=0.0.0.0%2F1&whitelist=128.0.0.0%2F1", "application/json; charset=UTF-8", buffer)
+	endpoint := buildOMUnauthEndpoint(omUrl)
+	resp, err := client.Post(endpoint, "application/json; charset=UTF-8", buffer)
 
 	if err != nil {
-		return "", fmt.Errorf("Error sending POST request to %s: %v", omUrl, err)
+		return OpsManagerKeyPair{}, fmt.Errorf("Error sending POST request to %s: %v", omUrl, err)
 	}
 
 	var body []byte
@@ -70,18 +93,80 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, user *User) (string, er
 		defer resp.Body.Close()
 		body, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)
+			return OpsManagerKeyPair{}, fmt.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)
 		}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiError := parseAPIError(resp.StatusCode, "post", omUrl, body)
-		return "", apiError
+		return OpsManagerKeyPair{}, apiError
 	}
 
-	u := &UserKeys{}
-	if err = json.Unmarshal(body, u); err != nil {
-		return "", err
+	return fetchOMCredentialsFromResponse(body, omVersion, user)
+}
+
+// buildOMUnauthEndpoint returns a string pointing at the unauth/users endpoint
+// needed to create the first global owner user.
+func buildOMUnauthEndpoint(baseUrl string) string {
+	u, err := url.Parse(baseUrl)
+	if err != nil {
+		panic(fmt.Sprintf("Could not parse %s as a url", baseUrl))
 	}
-	return u.ApiKey, nil
+
+	q := u.Query()
+	q.Add("whitelist", "0.0.0.0/1")
+	q.Add("whitelist", "128.0.0.0/1")
+	q.Add("pretty", "true")
+
+	u.Path = "/api/public/v1.0/unauth/users"
+	u.RawQuery = q.Encode()
+
+	return u.String()
+}
+
+// fetchOMCredentialsFromResponse returns a `OpsManagerKeyPair` which consist of
+// a public and private parts.
+//
+// This function deserializes the result of calling the `unauth/users` endpoint
+// and returns a generic credentials object that can work for both 5.0 and
+// pre-5.0 OM versions.
+//
+// One important detail about the returned value is that in the old-style user
+// APIs, the entry called `PublicAPIKey` corresponds to `PrivateAPIKey` in
+// programmatic key, and `Username` corresponds to `PublicAPIKey`.
+func fetchOMCredentialsFromResponse(body []byte, omVersion string, user User) (OpsManagerKeyPair, error) {
+	version, err := versionutil.StringToSemverVersion(omVersion)
+	if err != nil {
+		return OpsManagerKeyPair{}, err
+	}
+
+	if semver.MustParseRange(">=5.0.0")(version) {
+		// Ops Manager 5.0.0+ returns a Programmatic API Key
+		apiKey := &ResultProgrammaticAPIKey{}
+		if err := json.Unmarshal(body, apiKey); err != nil {
+			return OpsManagerKeyPair{}, err
+		}
+
+		if apiKey.ProgrammaticAPIKey.PrivateKey != "" && apiKey.ProgrammaticAPIKey.PublicKey != "" {
+			return apiKey.ProgrammaticAPIKey, nil
+		}
+
+		return OpsManagerKeyPair{}, fmt.Errorf("Could not fetch credentials from Ops Manager")
+	}
+
+	// OpsManager up to 4.4.x return a user API key
+	u := &UserKeys{}
+	if err := json.Unmarshal(body, u); err != nil {
+		return OpsManagerKeyPair{}, err
+	}
+
+	if u.ApiKey == "" {
+		return OpsManagerKeyPair{}, fmt.Errorf("Could not find a Global API key from Ops Manager")
+	}
+
+	return OpsManagerKeyPair{
+		PublicKey:  user.Username,
+		PrivateKey: u.ApiKey,
+	}, nil
+
 }
