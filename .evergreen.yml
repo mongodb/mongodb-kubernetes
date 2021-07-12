@@ -737,6 +737,7 @@ tasks:
   depends_on:
   - name: build_operator_ubuntu
   - name: build_init_appdb_images_ubuntu
+  - name: build_init_om_images_ubuntu
   commands:
     - func: clone
     - func: download_kube_tools

@@ -75,6 +75,8 @@ ensure_ops_manager_k8s() {
             --set operator.version="${version_id}" \
             --set registry.initAppDb="${ecr_registry}/dev/ubuntu" \
             --set registry.OpsManager="${ecr_registry}/dev/ubuntu" \
+            --set registry.initOpsManager="${ecr_registry}/dev/ubuntu" \
+            --set initOpsManager.version="${version_id}" \
             --set initAppDb.version="${version_id}" \
             public/helm_chart > operator.yaml
         PROJECT_NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
