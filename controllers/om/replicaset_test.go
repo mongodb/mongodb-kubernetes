@@ -14,7 +14,7 @@ func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
 	mdb.InitDefaults()
 	var processes []Process = make([]Process, 3)
 	for i := range processes {
-		proc := NewMongodProcess("my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), mdbv1.AdditionalMongodConfig{Object: nil}, &mdb)
+		proc := NewMongodProcess("my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), mdbv1.AdditionalMongodConfig{Object: nil}, &mdb.Spec)
 		processes[i] = proc
 		replicaSetWithProcesses.addMember(proc)
 	}

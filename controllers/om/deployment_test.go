@@ -63,7 +63,7 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	newProcess := NewMongodProcess("foo", "bar", mdbv1.AdditionalMongodConfig{Object: nil}, mdbv1.NewStandaloneBuilder().Build())
+	newProcess := NewMongodProcess("foo", "bar", mdbv1.AdditionalMongodConfig{Object: nil}, &mdbv1.NewStandaloneBuilder().Build().Spec)
 
 	d.getProcesses()[0]["processType"] = ProcessTypeMongos                 // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
@@ -675,7 +675,7 @@ func createMongosProcesses(num int, name, clusterName string) []Process {
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", defaultMongoDBVersioned("3.6.3"))
+		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"))
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -746,6 +746,7 @@ func mergeStandalone(d Deployment, s Process) Process {
 	return s
 }
 
-func defaultMongoDBVersioned(version string) *mdbv1.MongoDB {
-	return mdbv1.NewReplicaSetBuilder().SetVersion(version).Build()
+func defaultMongoDBVersioned(version string) mdbv1.DbSpec {
+	spec := mdbv1.NewReplicaSetBuilder().SetVersion(version).Build().Spec
+	return &spec
 }

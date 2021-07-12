@@ -21,7 +21,7 @@ func init() {
 func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetVersion("4.0.0").Build()
 	set := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
-	processes := CreateMongodProcesses(set, util.DatabaseContainerName, rs)
+	processes := CreateMongodProcesses(set, util.DatabaseContainerName, &rs.Spec)
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {
@@ -32,7 +32,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	rs.Spec.PodSpec = &mdbv1.NewPodSpecWrapperBuilder().SetMemory("3G").Build().MongoDbPodSpec
 
 	set = construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
-	processes = CreateMongodProcesses(set, util.DatabaseContainerName, rs)
+	processes = CreateMongodProcesses(set, util.DatabaseContainerName, &rs.Spec)
 
 	assert.Len(t, processes, 3)
 	for _, p := range processes {

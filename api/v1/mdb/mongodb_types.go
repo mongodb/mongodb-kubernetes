@@ -80,6 +80,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (m *MongoDB) GetSpec() DbSpec {
+	return &m.Spec
+}
+
 func (m *MongoDB) GetProjectConfigMapNamespace() string {
 	return m.GetNamespace()
 }
@@ -116,6 +120,9 @@ type DbSpec interface {
 	GetResourceType() ResourceType
 	IsSecurityTLSConfigEnabled() bool
 	GetFeatureCompatibilityVersion() *string
+	GetTLSMode() TLSMode
+	GetHorizonConfig() []MongoDBHorizonConfig
+	GetAdditionalMongodConfig() AdditionalMongodConfig
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -212,6 +219,14 @@ type MongoDbSpec struct {
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
+func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
+	return s.Connectivity.ReplicaSetHorizons
+}
+
+func (s *MongoDbSpec) GetAdditionalMongodConfig() AdditionalMongodConfig {
+	return s.AdditionalMongodConfig
+}
+
 // Backup contains configuration options for configuring
 // backup for this MongoDB resource
 type Backup struct {
@@ -257,10 +272,6 @@ func (m *MongoDB) DesiredReplicas() int {
 
 func (m *MongoDB) CurrentReplicas() int {
 	return m.Status.Members
-}
-
-func (m *MongoDB) GetSpec() MongoDbSpec {
-	return m.Spec
 }
 
 // StatefulSetConfiguration holds the optional custom StatefulSet
@@ -813,7 +824,7 @@ func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[
 		statefulsetName = m.MongosRsName()
 	}
 
-	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.Spec, connectionParams)
+	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.GetSpec(), connectionParams)
 }
 
 func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {

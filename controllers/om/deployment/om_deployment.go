@@ -16,7 +16,7 @@ func CreateFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	sts := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
 	d := om.NewDeployment()
 	d.MergeReplicaSet(
-		replicaset.BuildFromStatefulSet(sts, rs),
+		replicaset.BuildFromStatefulSet(sts, rs.GetSpec()),
 		nil,
 	)
 	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetTLSConfig().IsEnabled())

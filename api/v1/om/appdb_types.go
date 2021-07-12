@@ -66,6 +66,18 @@ type AppDBSpec struct {
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }
 
+func (m *AppDBSpec) GetTLSMode() mdbv1.TLSMode {
+	return m.GetTLSMode()
+}
+
+func (m *AppDBSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
+	return nil // no horizon support for AppDB currently
+}
+
+func (m *AppDBSpec) GetAdditionalMongodConfig() mdbv1.AdditionalMongodConfig {
+	return m.AdditionalMongodConfig
+}
+
 // GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret
 // which contains the Automation Agent's password.
 func (m AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
@@ -356,7 +368,7 @@ func (a AppDBSpec) GetTlsCertificatesSecretName() string {
 
 // ConnectionURL returns the connection url to the AppDB
 func (m AppDBSpec) ConnectionURL(userName, password string, connectionParams map[string]string) string {
-	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, m, connectionParams)
+	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, &m, connectionParams)
 }
 
 func (m AppDBSpec) GetName() string {

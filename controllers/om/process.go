@@ -94,29 +94,29 @@ func NewProcessFromInterface(i interface{}) Process {
 }
 
 // NewMongosProcess
-func NewMongosProcess(name, hostName string, resource *mdbv1.MongoDB) Process {
+func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongos),
-		WithAdditionalMongodConfig(resource.Spec.MongosSpec.GetAdditionalMongodConfig()),
-		WithResourceSpec(resource.Spec),
+		WithAdditionalMongodConfig(additionalMongodConfig),
+		WithResourceSpec(spec),
 	)
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
-	p.ConfigureTLS(resource.Spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
+	p.ConfigureTLS(spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
 	return p
 }
 
 // NewMongodProcess
-func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, resource *mdbv1.MongoDB) Process {
+func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
 		WithAdditionalMongodConfig(additionalConfig),
-		WithResourceSpec(resource.Spec),
+		WithResourceSpec(spec),
 	)
 
 	// default values for configurable values
@@ -124,7 +124,7 @@ func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMo
 	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
 	// for all types of logs
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
-	p.ConfigureTLS(resource.Spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
+	p.ConfigureTLS(spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
 
 	return p
 }
@@ -152,7 +152,7 @@ func (p Process) SetDbPath(dbPath string) Process {
 
 // DbPath returns the DbPath for this process.
 func (p Process) DbPath() string {
-	return readMapValueAsString(p.Args(), "storage", "dbPath")
+	return maputil.ReadMapValueAsString(p.Args(), "storage", "dbPath")
 }
 
 // SetWiredTigerCache
@@ -170,7 +170,7 @@ func (p Process) SetWiredTigerCache(cacheSizeGb float32) Process {
 
 // WiredTigerCache returns wired tiger cache as pointer as it may be absent
 func (s Process) WiredTigerCache() *float32 {
-	value := readMapValueAsInterface(s.Args(), "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
+	value := maputil.ReadMapValueAsInterface(s.Args(), "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
 	if value == nil {
 		return nil
 	}
@@ -188,7 +188,7 @@ func (s Process) SetLogPath(logPath string) Process {
 
 // LogPath
 func (s Process) LogPath() string {
-	return readMapValueAsString(s.Args(), "systemLog", "path")
+	return maputil.ReadMapValueAsString(s.Args(), "systemLog", "path")
 }
 
 // Args returns the "args" attribute in the form of a map, creates if it doesn't exist
@@ -313,9 +313,9 @@ func WithResourceSpec(resourceSpec mdbv1.DbSpec) ProcessOption {
 func WithName(name string) ProcessOption {
 	return func(process Process) {
 		process["name"] = name
-
 	}
 }
+
 func WithHostname(hostname string) ProcessOption {
 	return func(process Process) {
 		process["hostname"] = hostname
@@ -425,31 +425,6 @@ func (p Process) mergeFrom(operatorProcess Process) {
 	}
 }
 
-// Deprecated: TODO remove in favor of `maputil`
-func readMapValueAsInterface(m map[string]interface{}, keys ...string) interface{} {
-	currentMap := m
-	for i, k := range keys {
-		if _, ok := currentMap[k]; !ok {
-			return nil
-		}
-		if i == len(keys)-1 {
-			return currentMap[k]
-		}
-		currentMap = currentMap[k].(map[string]interface{})
-	}
-	return nil
-}
-
-// Deprecated: TODO remove in favor of `maputil`
-func readMapValueAsString(m map[string]interface{}, keys ...string) string {
-	res := readMapValueAsInterface(m, keys...)
-
-	if res == nil {
-		return ""
-	}
-	return res.(string)
-}
-
 func (s Process) setName(name string) Process {
 	s["name"] = name
 	return s
@@ -477,7 +452,7 @@ func (s Process) setReplicaSetName(rsName string) Process {
 }
 
 func (s Process) replicaSetName() string {
-	return readMapValueAsString(s.Args(), "replication", "replSetName")
+	return maputil.ReadMapValueAsString(s.Args(), "replication", "replSetName")
 }
 
 func (p Process) security() map[string]interface{} {

@@ -13,8 +13,8 @@ import (
 
 func TestCreateMongodProcess(t *testing.T) {
 	t.Run("Create Mongod", func(t *testing.T) {
-		mdb := defaultMongoDBVersioned("4.0.5")
-		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb.Spec.AdditionalMongodConfig, mdb)
+		spec := defaultMongoDBVersioned("4.0.5")
+		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", spec.GetAdditionalMongodConfig(), spec)
 
 		assert.Equal(t, "trinity", process.Name())
 		assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
@@ -36,7 +36,7 @@ func TestCreateMongodProcess(t *testing.T) {
 			AddOption("storage.dbPath", "/some/other/data") // this will be overridden
 		rs := mdbv1.NewReplicaSetBuilder().SetAdditionalConfig(config).Build()
 
-		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", rs.Spec.AdditionalMongodConfig, rs)
+		process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", rs.Spec.AdditionalMongodConfig, rs.GetSpec())
 
 		assert.Equal(t, "inMemory", maputil.ReadMapValueAsInterface(process.Args(), "storage", "engine"))
 		assert.Equal(t, 500, maputil.ReadMapValueAsInterface(process.Args(), "setParameter", "connPoolMaxConnsPerHost"))
@@ -66,7 +66,7 @@ func TestCreateMongodProcess_featureCompatibilityVersion(t *testing.T) {
 	assert.Equal(t, "", process.FeatureCompatibilityVersion())
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("4.2.1").SetFCVersion("4.0").Build()
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb)
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb.GetSpec())
 	assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 }
 
@@ -136,7 +136,7 @@ func TestConfigureX509_Process(t *testing.T) {
 			},
 		},
 	}
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb)
+	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb.GetSpec())
 
 	process.ConfigureClusterAuthMode("") // should not update fields
 	assert.NotContains(t, process.security(), "clusterAuthMode")
@@ -151,13 +151,13 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.PreferTLSMode))
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb)
+	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb.GetSpec())
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.DisabledTLSMode)}, process.TLSConfig())
 
 	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb)
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb.GetSpec())
 
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.PreferTLSMode),
 		"PEMKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
@@ -167,7 +167,7 @@ func TestCreateMongosProcess_SSL(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(mdbv1.AllowTLSMode))
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
-	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdb)
+	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", additionalConfig, mdb.GetSpec())
 
 	assert.Equal(t, map[string]interface{}{"mode": string(mdbv1.AllowTLSMode), "PEMKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
 }
@@ -182,8 +182,8 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 	omMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
 		SetAdditionalConfig(mdbv1.NewEmptyAdditionalMongodConfig()).Build()
 
-	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, operatorMdb)
-	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, omMdb)
+	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, operatorMdb.GetSpec())
+	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, omMdb.GetSpec())
 	omProcess.EnsureTLSConfig()["mode"] = "allowTLS"                      // this will be overridden
 	omProcess.EnsureTLSConfig()["PEMKeyFile"] = "/var/mongodb/server.pem" // this will be overridden
 	omProcess.EnsureTLSConfig()["sslOnNormalPorts"] = "true"              // this will be left as-is
@@ -203,11 +203,11 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 	omMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(
 		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.cacheSizeGB", 3)).Build()
-	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", omMdb.Spec.AdditionalMongodConfig, omMdb)
+	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", omMdb.Spec.AdditionalMongodConfig, omMdb.GetSpec())
 
 	operatorMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(
 		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.directoryForIndexes", "/some/dir")).Build()
-	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb.Spec.AdditionalMongodConfig, operatorMdb)
+	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb.Spec.AdditionalMongodConfig, operatorMdb.GetSpec())
 
 	omProcess.mergeFrom(operatorProcess)
 

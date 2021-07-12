@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"math"
 	"regexp"
 
@@ -561,7 +562,7 @@ func (d Deployment) GetRoles() []mdbv1.MongoDbRole {
 // 'automationConfig/updateAgentVersions' endpoint is called the first time
 func (d Deployment) GetAgentVersion() string {
 	agentVersionMap := util.ReadOrCreateMap(d, "agentVersion")
-	return readMapValueAsString(agentVersionMap, "name")
+	return maputil.ReadMapValueAsString(agentVersionMap, "name")
 }
 
 // Debug

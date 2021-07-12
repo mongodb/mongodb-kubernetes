@@ -18,7 +18,7 @@ import (
 // - after this all the Operator/OpsManager methods dealing with 'mongodb.MongoDB' can be switched to this new interface
 
 // NewMongodProcess
-func NewMongodProcessAppDB(name, hostName string, appdb omv1.AppDBSpec) Process {
+func NewMongodProcessAppDB(name, hostName string, appdb *omv1.AppDBSpec) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),

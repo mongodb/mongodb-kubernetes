@@ -719,7 +719,7 @@ func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Proc
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb)
+		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdbv1.AdditionalMongodConfig{}, mdb.GetSpec())
 	}
 
 	return processes
@@ -746,7 +746,7 @@ func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMong
 	wiredTigerCache := wiredtiger.CalculateCache(set, util.DatabaseContainerName, mdb.Spec.GetMongoDBVersion())
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, mdb)
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, &mdb.Spec)
 		if wiredTigerCache != nil {
 			processes[idx].SetWiredTigerCache(*wiredTigerCache)
 		}

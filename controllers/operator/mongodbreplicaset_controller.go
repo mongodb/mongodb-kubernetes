@@ -253,7 +253,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		updatedMembers = int(*set.Spec.Replicas)
 	}
 
-	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs, updatedMembers)
+	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), updatedMembers)
 	processNames := replicaSet.GetProcessNames()
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, log)
@@ -324,7 +324,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 
 			// configure as much agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
-			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs, membersNumberBefore)
+			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), membersNumberBefore)
 			d.MergeReplicaSet(replicaSet, nil)
 
 			return nil

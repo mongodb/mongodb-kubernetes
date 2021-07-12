@@ -29,14 +29,6 @@ func ReadMapValueAsString(m map[string]interface{}, keys ...string) string {
 	return res.(string)
 }
 
-func ReadMapValueAsFloat64(m map[string]interface{}, keys ...string) float64 {
-	res := ReadMapValueAsInterface(m, keys...)
-	if res == nil {
-		return 0
-	}
-	return res.(float64)
-}
-
 func ReadMapValueAsInt(m map[string]interface{}, keys ...string) int {
 	res := ReadMapValueAsInterface(m, keys...)
 	if res == nil {
