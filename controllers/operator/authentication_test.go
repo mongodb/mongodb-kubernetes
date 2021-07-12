@@ -22,6 +22,8 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
@@ -34,6 +36,7 @@ import (
 	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
@@ -862,4 +865,84 @@ func createConfigMap(t *testing.T, client kubernetesClient.Client) {
 
 	err := client.CreateConfigMap(configMap())
 	assert.NoError(t, err)
+}
+
+func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		EnableAuth().
+		EnableX509().
+		Build()
+
+	manager := mock.NewManager(rs)
+	client := manager.Client
+
+	addKubernetesTlsResources(client, rs)
+
+	//Replace the secret with an empty one
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-cert", rs.Name),
+			Namespace: mock.TestNamespace,
+		},
+	}
+
+	_ = client.Update(context.TODO(), secret)
+
+	err := certs.VerifyCertificatesForStatefulSet(client, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs))
+	for i := 0; i < rs.Spec.Members; i++ {
+		expectedErrorMessage := fmt.Sprintf("the secret %s-cert does not contain the expected key %s-%d-pem", rs.Name, rs.Name, i)
+		assert.Contains(t, err.Error(), expectedErrorMessage)
+	}
+}
+
+func TestInvalidPEM_CertificateIsNotComplete(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		EnableAuth().
+		EnableX509().
+		Build()
+
+	manager := mock.NewManager(rs)
+	client := manager.Client
+
+	addKubernetesTlsResources(client, rs)
+
+	secret := &corev1.Secret{}
+
+	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
+
+	// Delete certificate for member 0 so that certificate is not complete
+	secret.Data["temple-0-pem"] = []byte{}
+
+	_ = client.Update(context.TODO(), secret)
+
+	err := certs.VerifyCertificatesForStatefulSet(client, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs))
+	assert.Contains(t, err.Error(), "the certificate is not complete")
+}
+
+func Test_NoAdditionalDomainsPresent(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		EnableAuth().
+		EnableX509().
+		Build()
+
+	// The default secret we create does not contain additional domains so it will not be valid for this RS
+	rs.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"foo"}
+
+	manager := mock.NewManager(rs)
+	client := manager.Client
+
+	addKubernetesTlsResources(client, rs)
+
+	secret := &corev1.Secret{}
+
+	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
+
+	err := certs.VerifyCertificatesForStatefulSet(client, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs))
+	for i := 0; i < rs.Spec.Members; i++ {
+		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
+		assert.Contains(t, err.Error(), expectedErrorMessage)
+	}
 }

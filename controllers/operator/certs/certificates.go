@@ -12,6 +12,8 @@ import (
 	"net/url"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/hashicorp/go-multierror"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"go.uber.org/zap"
 
@@ -177,22 +179,23 @@ func CSRHasRequiredDomains(csr *certsv1.CertificateSigningRequest, domains []str
 // VerifyCertificatesForStatefulSet returns the number of certificates created by the operator which are not ready (approved and issued).
 // If all the certificates and keys required for the MongoDB resource exist in the secret with name `secretName`.
 // Note: the generation of certificates by the operator is now a deprecated feature to be used in test environments only.
-func VerifyCertificatesForStatefulSet(secretGetter secret.Getter, secretName string, opts Options) int {
+func VerifyCertificatesForStatefulSet(secretGetter secret.Getter, secretName string, opts Options) error {
 	s, err := secretGetter.GetSecret(kube.ObjectKey(opts.Namespace, secretName))
 	if err != nil {
-		return opts.Replicas
+		return err
 	}
 
-	certsNotReady := 0
+	var errs error
+
 	for i, pod := range getPodNames(opts) {
 		pem := fmt.Sprintf("%s-pem", pod)
 		additionalDomains := GetAdditionalCertDomainsForMember(opts, i)
-		if !isValidPemSecret(s, pem, additionalDomains) {
-			certsNotReady++
+		if err := validatePemSecret(s, pem, additionalDomains); err != nil {
+			errs = multierror.Append(errs, err)
 		}
 	}
 
-	return certsNotReady
+	return errs
 }
 
 // getPodNames returns the pod names based on the Cert Options provided.
@@ -225,29 +228,29 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 	return hostnames
 }
 
-// isValidPemSecret returns true if the given Secret contains a parsable certificate and contains all required domains.
-func isValidPemSecret(secret corev1.Secret, key string, additionalDomains []string) bool {
+// validatePemSecret returns true if the given Secret contains a parsable certificate and contains all required domains.
+func validatePemSecret(secret corev1.Secret, key string, additionalDomains []string) error {
 	data, ok := secret.Data[key]
 	if !ok {
-		return false
+		return fmt.Errorf("the secret %s does not contain the expected key %s\n", secret.Name, key)
 	}
 
 	pemFile := enterprisepem.NewFileFromData(data)
 	if !pemFile.IsComplete() {
-		return false
+		return fmt.Errorf("the certificate is not complete\n")
 	}
 
 	cert, err := pemFile.ParseCertificate()
 	if err != nil {
-		return false
+		return fmt.Errorf("can't parse certificate: %s\n", err)
 	}
 
 	for _, domain := range additionalDomains {
 		if !stringutil.Contains(cert.DNSNames, domain) {
-			return false
+			return fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
 		}
 	}
-	return true
+	return nil
 }
 
 // ValidateCertificates verifies the Secret containing the certificates and the keys is valid.
@@ -266,21 +269,21 @@ func ValidateCertificates(secretGetter secret.Getter, name, namespace string) er
 }
 
 // VerifyClientCertificatesForAgents returns the number of agent certs that are not yet ready.
-func VerifyClientCertificatesForAgents(secretGetter secret.Getter, namespace string) int {
+func VerifyClientCertificatesForAgents(secretGetter secret.Getter, namespace string) error {
 	s, err := secretGetter.GetSecret(kube.ObjectKey(namespace, util.AgentSecretName))
 	if err != nil {
-		return NumAgents
+		return err
 	}
 
-	certsNotReady := 0
+	var errs error
 	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
 		additionalDomains := []string{} // agents have no additional domains
-		if !isValidPemSecret(s, agentSecretKey, additionalDomains) {
-			certsNotReady++
+		if err := validatePemSecret(s, agentSecretKey, additionalDomains); err != nil {
+			errs = multierror.Append(errs, err)
 		}
 	}
 
-	return certsNotReady
+	return errs
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the
@@ -306,12 +309,8 @@ func validateSelfManagedSSLCertsForStatefulSet(client kubernetesClient.Client, s
 	// already populated with the certs and keys for this deployment.
 	// Because of the async nature of Kubernetes, this object might not be ready yet,
 	// in which case, we'll keep reconciling until the object is created and is correct.
-	if notReadyCerts := VerifyCertificatesForStatefulSet(client, secretName, opts); notReadyCerts > 0 {
-		return workflow.Failed("The secret object '%s' does not contain all the certificates needed."+
-			"Required: %d, contains: %d", secretName,
-			opts.Replicas,
-			opts.Replicas-notReadyCerts,
-		)
+	if err := VerifyCertificatesForStatefulSet(client, secretName, opts); err != nil {
+		return workflow.Failed("The secret object '%s' does not contain all the valid certificates needed: %s", secretName, err)
 	}
 
 	if err := ValidateCertificates(client, secretName, opts.Namespace); err != nil {
@@ -331,7 +330,7 @@ func ensureOperatorManagedSSLCertsForStatefulSet(client kubernetesClient.Client,
 		return workflow.Failed(err.Error())
 	}
 
-	if notReadyCerts := VerifyCertificatesForStatefulSet(client, secretName, opts); notReadyCerts > 0 {
+	if err := VerifyCertificatesForStatefulSet(client, secretName, opts); err != nil {
 		// If the Kube CA and the operator are responsible for the certificates to be
 		// ready and correctly stored in the secret object, and this secret is not "complete"
 		// we'll go through the process of creating the CSR, wait for certs approval and then

@@ -322,12 +322,8 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 		// already populated with the certs and keys for this deployment.
 		// Because of the async nature of Kubernetes, this object might not be ready yet,
 		// in which case, we'll keep reconciling until the object is created and is correct.
-		if notReadyCerts := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); notReadyCerts > 0 {
-			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed."+
-				"Required: %d, contains: %d", secretName,
-				opts.Replicas,
-				opts.Replicas-notReadyCerts,
-			)
+		if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
+			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err)
 		}
 
 		// Validates that the secret is valid
@@ -341,7 +337,7 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 			return false, err
 		}
 
-		if notReadyCerts := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); notReadyCerts > 0 {
+		if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
 			// If the Kube CA and the operator are responsible for the certificates to be
 			// ready and correctly stored in the secret object, and this secret is not "complete"
 			// we'll go through the process of creating the CSR, wait for certs approval and then
@@ -406,9 +402,9 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 //ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
 func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
 	certsNeedApproval := false
-	if missing := certs.VerifyClientCertificatesForAgents(r.client, namespace); missing > 0 {
+	if err := certs.VerifyClientCertificatesForAgents(r.client, namespace); err != nil {
 		if useCustomCA {
-			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates. Missing %d certificates", util.AgentSecretName, missing)
+			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates: %s", util.AgentSecretName, err)
 		}
 
 		pemFiles := enterprisepem.NewCollection()
