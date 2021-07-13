@@ -84,10 +84,10 @@ class TestOpsManagerCreation:
     def test_liveness_probe_is_configured(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
         liveness_probe = backup_sts.spec.template.spec.containers[0].liveness_probe
-        assert liveness_probe.period_seconds == 5
-        assert liveness_probe.initial_delay_seconds == 1
+        assert liveness_probe.period_seconds == 30
+        assert liveness_probe.initial_delay_seconds == 10
         assert liveness_probe.success_threshold == 1
-        assert liveness_probe.failure_threshold == 5
+        assert liveness_probe.failure_threshold == 10
 
     def test_oplog_mdb_created(
         self,

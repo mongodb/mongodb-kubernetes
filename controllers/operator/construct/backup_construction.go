@@ -138,10 +138,10 @@ func buildBackupDaemonReadinessProbe() probes.Modification {
 func buildBackupDaemonLivenessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{backupDaemonLivenessProbeCommand}),
-		probes.WithFailureThreshold(5),
-		probes.WithInitialDelaySeconds(1),
+		probes.WithFailureThreshold(10),
+		probes.WithInitialDelaySeconds(10),
 		probes.WithSuccessThreshold(1),
-		probes.WithPeriodSeconds(5),
+		probes.WithPeriodSeconds(30),
 		probes.WithTimeoutSeconds(5),
 	)
 }

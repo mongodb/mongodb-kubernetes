@@ -120,6 +120,9 @@ deploy_test_app() {
         # The test needs to test MongoDB of a previous version
         helm_params+=("--set" "customOmMdbPrevVersion=${custom_mdb_prev_version}")
     fi
+    if [[ -n "${custom_appdb_version:-}" ]]; then
+        helm_params+=("--set" "customAppDbVersion=${custom_appdb_version}")
+    fi
 
     if [[ -n "${GITHUB_TOKEN_READ:-}" ]]; then
         helm_params+=("--set" "githubToken=${GITHUB_TOKEN_READ}")

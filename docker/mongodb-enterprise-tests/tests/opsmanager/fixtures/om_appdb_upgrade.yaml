@@ -9,7 +9,7 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.0.20-ent
+    version: 4.4.0-ent
     persistent: true
     additionalMongodConfig:
       operationProfiling:

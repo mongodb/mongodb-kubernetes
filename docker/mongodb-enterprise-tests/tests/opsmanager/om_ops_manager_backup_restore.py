@@ -44,6 +44,7 @@ def ops_manager(
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+    resource.allow_mdb_rc_versions()
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     return resource.create()
@@ -240,6 +241,8 @@ class TestBackupRestorePIT:
         raise AssertionError("The data hasn't been restored in 2 minutes!")
 
 
+# Remove this skip with CLOUDP-94707
+@mark.usefixtures("skip_if_om5")
 @mark.e2e_om_ops_manager_backup_restore
 class TestBackupRestoreFromSnapshot:
     """ This part tests the restore to the snapshot built once the backup has been enabled. """

@@ -13,8 +13,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 
-OM_CURRENT_VERSION = "4.2.13"
-MDB_CURRENT_VERSION = "4.2.1-ent"
+OM_CURRENT_VERSION = "4.4.15"
+MDB_CURRENT_VERSION = "4.4.0-ent"
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of minor OM version upgrade (4.2 -> 4.4) agents are expected to be upgraded
@@ -23,9 +23,10 @@ MDB_CURRENT_VERSION = "4.2.1-ent"
 
 @fixture(scope="module")
 def ops_manager(namespace) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
+    resource.allow_mdb_rc_versions()
     resource.set_version(OM_CURRENT_VERSION)
     resource.set_appdb_version(MDB_CURRENT_VERSION)
 
@@ -50,10 +51,10 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
         # Monitoring
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=50)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
         secret = ops_manager.read_gen_key_secret()
@@ -103,6 +104,8 @@ class TestOpsManagerCreation:
         )
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
+        ops_manager.reload()
+
         assert ops_manager.appdb_status().get_observed_generation() == 1
         assert ops_manager.om_status().get_observed_generation() == 1
         assert ops_manager.backup_status().get_observed_generation() == 1
@@ -121,7 +124,7 @@ class TestOpsManagerWithMongoDB:
         mdb["spec"]["members"] = 4
 
         mdb.update()
-        mdb.assert_reaches_phase(Phase.Running)
+        mdb.assert_reaches_phase(Phase.Running, timeout=900)
         mdb.assert_connectivity()
         assert mdb.get_status_members() == 4
 
@@ -134,7 +137,7 @@ class TestOpsManagerConfigurationChange:
     endpoints in Ops Manager, so we can then check if the changes were propagated to OM
     """
 
-    def test_scale_app_db_up(self, ops_manager: MongoDBOpsManager):
+    def test_restart_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
         ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
@@ -167,6 +170,8 @@ class TestOpsManagerConfigurationChange:
             pass
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
+        ops_manager.reload()
+
         assert ops_manager.appdb_status().get_observed_generation() == 2
         assert ops_manager.om_status().get_observed_generation() == 2
         assert ops_manager.backup_status().get_observed_generation() == 2
@@ -192,6 +197,7 @@ class TestOpsManagerVersionUpgrade:
         custom_appdb_version: str,
     ):
         ops_manager.load()
+        ops_manager.prepare_upgrade_to_om5(custom_version)
         ops_manager.set_version(custom_version)
         ops_manager.set_appdb_version(custom_appdb_version)
 
@@ -243,21 +249,15 @@ class TestMongoDbsVersionUpgrade:
         is enforced before MongoDB reconciliation (the OM reconciliation happened above will drop the 'agents.nextScheduledTime'
         counter)
         """
+        # Because OM was not in running phase, this resource, mdb, was also not in
+        # running phase. We will wait for it to come back before applying any changes.
+        mdb.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
 
-        # TODO Remove this when making this a 4.4 to 5.0 upgrade test
-        # It is needed only for OM 4.2 to avoid sending both a net.tls.mode
-        # and a major/minor mdb upgrade
-        # See https://github.com/10gen/ops-manager-kubernetes/pull/1623 for context
-        mdb.reload()
-        mdb["spec"]["logLevel"] = "DEBUG"
-
-        mdb.update()
-        mdb.assert_reaches_phase(Phase.Running)
         mdb.reload()
         mdb["spec"]["version"] = custom_mdb_version
-
         mdb.update()
-        mdb.assert_reaches_phase(Phase.Running)
+
+        mdb.assert_reaches_phase(Phase.Running, timeout=900)
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)
 

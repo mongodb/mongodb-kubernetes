@@ -82,6 +82,10 @@ spec:
     - name: CUSTOM_MDB_PREV_VERSION
       value: {{ .Values.customOmMdbPrevVersion }}
     {{ end }}
+    {{ if .Values.customAppDbVersion }}
+    - name: CUSTOM_APPDB_VERSION
+      value: {{ .Values.customAppDbVersion }}
+    {{ end }}
     {{ if .Values.imageType }}
     - name: IMAGE_TYPE
       value: {{ .Values.imageType }}

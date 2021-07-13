@@ -32,7 +32,7 @@ operator:
 ## Database
 database:
   name: mongodb-enterprise-database
-  version: 2.0.0
+  version: 2.0.1
 
 initDatabase:
   name: mongodb-enterprise-init-database

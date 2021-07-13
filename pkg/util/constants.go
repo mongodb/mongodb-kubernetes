@@ -181,7 +181,7 @@ const (
 	MmsJvmParamEnvVar          = "CUSTOM_JAVA_MMS_UI_OPTS"
 	BackupDaemonJvmParamEnvVar = "CUSTOM_JAVA_DAEMON_OPTS"
 	GenKeyPath                 = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion            = "4.4"
+	LatestOmVersion            = "5.0"
 	AppDBAutomationConfigKey   = "cluster-config.json"
 	DefaultAppDbPasswordKey    = "password"
 	AppDbConnectionStringKey   = "connectionString"

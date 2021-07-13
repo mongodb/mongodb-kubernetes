@@ -19,6 +19,8 @@ def ops_manager(
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+    resource.allow_mdb_rc_versions()
+
     return resource.create()
 
 
@@ -32,6 +34,7 @@ def replica_set(
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 2
+
     yield resource.create()
 
 

@@ -2,7 +2,7 @@
 
 import os
 
-from pytest import fixture
+from pytest import fixture, skip
 from kubetester.opsmanager import MongoDBOpsManager
 
 
@@ -24,8 +24,9 @@ def custom_mdb_prev_version() -> str:
 def custom_appdb_version() -> str:
     """Returns a CUSTOM_APPDB_VERSION for AppDB to be created/upgraded to for testing,
     defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)"""
-    # Defaulting to 4.2.8-ent if not specified as we didn't release all possible images yet
-    return os.getenv("CUSTOM_APPDB_VERSION", "4.2.8-ent")
+
+    # Defaulting to 4.4.0-ent if not specified as we didn't release all possible images yet
+    return os.getenv("CUSTOM_APPDB_VERSION", "4.4.0-ent")
 
 
 def ensure_ent_version(mdb_version: str) -> str:
@@ -44,3 +45,13 @@ def gen_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
 def admin_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
     secret = ops_manager.read_api_key_secret()
     return secret.metadata.resource_version
+
+
+@fixture
+def skip_if_om5(custom_version: str):
+    """
+    When including this fixture on a test, the test will be skipped,
+    if the "custom_version" is set to OM5.0
+    """
+    if custom_version.startswith("5."):
+        raise skip("Skipping on OM5.0 tests")

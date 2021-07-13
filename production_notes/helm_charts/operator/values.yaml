@@ -33,7 +33,7 @@ registry:
 
   database:
     Image: quay.io/mongodb/mongodb-enterprise-database
-    Tag: 2.0.0
+    Tag: 2.0.1
 
   databaseInit:
     Image: quay.io/mongodb/mongodb-enterprise-init-database

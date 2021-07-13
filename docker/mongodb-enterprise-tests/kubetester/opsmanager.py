@@ -5,14 +5,20 @@ import os
 import re
 from typing import List, Optional, Dict, Callable
 from base64 import b64decode
+
+import requests
+from requests.auth import HTTPDigestAuth
+
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
+
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts
 from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state, MongoDB, get_pods
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester, OMContext
+from kubetester import read_secret
 
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
@@ -306,6 +312,67 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Sets a specific `version` if set. If `version` is None, then skip."""
         if version is not None:
             self["spec"]["version"] = version
+
+    def update_key_to_programmatic(self):
+        """
+        Attempts to create a Programmatic API Key to be used after updating to
+        newer OM5, which don't support old-style API Key.
+        """
+
+        url = self.om_status().get_url()
+        whitelist_endpoint = f"{url}/api/public/v1.0/admin/whitelist"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        whitelist_entries = [
+            {"cidrBlock": "0.0.0.0/1", "description": "first block"},
+            {"cidrBlock": "128.0.0.0/1", "description": "second block"},
+        ]
+
+        secret_name = self.api_key_secret(self.namespace)
+        current_creds = read_secret(self.namespace, secret_name)
+        user = current_creds['user']
+        password = current_creds['publicApiKey']
+        auth=HTTPDigestAuth(user, password)
+
+        for entry in whitelist_entries:
+            response = requests.post(whitelist_endpoint, json=entry, headers=headers, auth=auth)
+            assert response.status_code == 200
+
+        data = {
+            "desc": "Creating a programmatic API key before updating to 5.0.0",
+            "roles": ["GLOBAL_OWNER"]
+        }
+
+        endpoint = f"{url}/api/public/v1.0/admin/apiKeys"
+        response = requests.post(endpoint, json=data, headers=headers, auth=auth)
+        response_data = response.json()
+        if "privateKey" not in response_data:
+            assert response_data == {}
+
+        new_creds = {
+            "publicApiKey": response_data["privateKey"],
+            "user": response_data["publicKey"],
+        }
+
+        KubernetesTester.update_secret(self.namespace, secret_name, new_creds)
+
+    def prepare_upgrade_to_om5(self, version: str):
+        if version.startswith("5.0"):
+            self.update_key_to_programmatic()
+
+    def allow_mdb_rc_versions(self):
+        """
+        Sets configurations parameters for OM to be able to download RC versions.
+        """
+
+        if "configuration" not in self["spec"]:
+            self["spec"]["configuration"] = {}
+
+        self["spec"]["configuration"]["mms.featureFlag.automation.mongoDevelopmentVersions"] = "enabled"
+        self["spec"]["configuration"]["mongodb.release.autoDownload.rc"] = "true"
+        self["spec"]["configuration"]["mongodb.release.autoDownload.development"] = "true"
 
     def set_appdb_version(self, version: str):
         self["spec"]["applicationDatabase"]["version"] = version

@@ -6,6 +6,7 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+	"github.com/blang/semver"
 )
 
 type S3ConfigResponse struct {
@@ -95,8 +96,9 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Buc
 	}
 
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
-	if err == nil && version.Major == 4 && version.Minor == 4 {
-		// Attributes that are only available in 4.4 version of Ops Manager.
+	requiresDisableProxyS3, _ := semver.Make("4.4")
+	if err == nil && version.GTE(requiresDisableProxyS3) {
+		// Attributes that are only available in 4.4+ version of Ops Manager.
 		config.DisableProxyS3 = util.BooleanRef(false)
 		config.S3RegionOverride = new(string)
 	}

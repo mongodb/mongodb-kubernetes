@@ -12,8 +12,7 @@ from pytest import fixture
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-OM_CURRENT_VERSION = "4.2.13"
-
+OM_CURRENT_VERSION = "4.4.10"
 
 # Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
 # creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
@@ -121,6 +120,11 @@ class TestOpsManagerVersionUpgrade:
         # Adding fixture just to start background tester
         _ = background_tester
         ops_manager.load()
+
+        # If required, update operator's API key to programmatic type.
+        ops_manager.prepare_upgrade_to_om5(custom_version)
+        # If running OM5 tests, this will update from 4.4.10 to OM5 one
+        # If running OM4 tests, this will update from 4.4.10 to latest OM4
         ops_manager.set_version(custom_version)
 
         ops_manager.update()

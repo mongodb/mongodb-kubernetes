@@ -57,6 +57,7 @@ def ops_manager(
     )
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
+    om.allow_mdb_rc_versions()
 
     return om.create()
 
