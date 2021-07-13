@@ -54,7 +54,8 @@ functions:
   - command: subprocess.exec
     type: setup
     params:
-      command: "docker login scan.connect.redhat.com -u unused -p ${project_id}"
+      # Note: we add || true to keep going if RH connect is failing for some maintenance/temporary error
+      command: "docker login scan.connect.redhat.com -u unused -p ${project_id} || true"
 
 
   pipeline:
