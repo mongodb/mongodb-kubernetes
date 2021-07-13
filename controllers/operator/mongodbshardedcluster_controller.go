@@ -719,7 +719,7 @@ func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB) []om.Proc
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdbv1.AdditionalMongodConfig{}, mdb.GetSpec())
+		processes[idx] = om.NewMongosProcess(names[idx], hostname, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec())
 	}
 
 	return processes
