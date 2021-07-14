@@ -1,6 +1,6 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
-# MongoDB Enterprise Kubernetes Operator 1.11.1
+# MongoDB Enterprise Kubernetes Operator 1.12.0
 
 ## MongoDB Resource
 * Bug Fixes
@@ -15,13 +15,17 @@
 
 
 ## Miscellaneous
-* Ops Manager versions 4.4.13 and 4.2.25 are now supported.
+* Ops Manager versions 4.4.13, 4.4.14, 4.4.15 and 4.2.25 are now supported
+* Ops Manager version 5.0.0 is now supported
 * Ubuntu based operator images are now based on Ubuntu 20.04 instead of Ubuntu 16.04
 * Ubuntu based database images starting from 2.0.1 will be based on Ubuntu 18.04 instead of Ubuntu 16.04
   **NOTE: MongoDB 4.0.0 does not support Ubuntu 18.04 - If you want to use MongoDB 4.0.0, stay on previously released images**
 * Ubuntu based Ops Manager images after 4.4.13 will be based on Ubuntu 20.04 instead of Ubuntu 16.04
 
 * Newly released ubi images for Operator, Ops Manager and Database will be based un ubi-minimal instead of ubi
+## Notes before upgrading to OpsManager 5.0.0
+* Before upgrading OpsManager to version 5.0.0 make sure the Operator is using a [programmatic API key](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-operator-credentials/#create-k8s-credentials). This is only required when the OpsManager instance is managed by the Operator.
+* You will find a small tutorial on how to do this in [upgrading-to-ops-manager-5.md](docs/upgrading-to-ops-manager-5.md) document.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
