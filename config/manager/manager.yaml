@@ -74,7 +74,7 @@ spec:
         - name: INIT_APPDB_VERSION
           value: 1.0.6
         - name: AGENT_IMAGE
-          value: quay.io/mongodb/mongodb-agent:10.29.0.6830-1
+          value: quay.io/mongodb/mongodb-agent:11.0.5.6963-1
         - name: MONGODB_IMAGE
           value: mongodb-enterprise-appdb-database
         - name: MONGODB_REPO_URL
