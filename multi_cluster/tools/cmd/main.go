@@ -82,7 +82,7 @@ type KubeConfigClusterItem struct {
 
 type KubeConfigCluster struct {
 	CertificateAuthorityData []byte `json:"certificate-authority-data"`
-	Service                  string `json:"server"`
+	Server                   string `json:"server"`
 }
 
 type KubeConfigContextItem struct {
@@ -681,7 +681,7 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 			Name: clusterName,
 			Cluster: KubeConfigCluster{
 				CertificateAuthorityData: ca,
-				Service:                  fmt.Sprintf("https://api.%s", clusterName),
+				Server:                   fmt.Sprintf("https://api.%s", clusterName),
 			},
 		})
 

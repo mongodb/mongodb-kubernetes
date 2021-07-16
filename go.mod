@@ -25,8 +25,10 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.17.0
-	golang.org/x/mod v0.4.0 // indirect
-	golang.org/x/tools v0.1.1-0.20210201201750-4d4ee958a9b7 // indirect
+	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
+	golang.org/x/oauth2 v0.0.0-20210402161424-2e8d93401602 // indirect
+	golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c // indirect
+	golang.org/x/tools v0.1.2 // indirect
 	k8s.io/api v0.21.1
 	k8s.io/apimachinery v0.21.2
 	k8s.io/client-go v0.21.1

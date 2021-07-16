@@ -78,6 +78,16 @@ func WaitForRsAgentsToRegisterReplicasSpecified(set appsv1.StatefulSet, members 
 	return nil
 }
 
+// WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster waits for the specified agents to registry with Ops Manager.
+func WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
+	if !waitUntilRegistered(omConnection, log, hostnames...) {
+		return errors.New("Some agents failed to register or the Operator is using the wrong host names for the pods. " +
+			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
+			"name ('cluster.local') ")
+	}
+	return nil
+}
+
 // waitUntilRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
 func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, agentHostnames ...string) bool {

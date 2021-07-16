@@ -32,7 +32,7 @@ spec:
         - /usr/local/bin/mongodb-enterprise-operator
         env:
         - name: OPERATOR_ENV
-          value: prod
+          value: dev
         - name: WATCH_NAMESPACE
           valueFrom:
             fieldRef:

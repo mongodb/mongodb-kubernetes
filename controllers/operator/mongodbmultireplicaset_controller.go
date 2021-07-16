@@ -3,25 +3,25 @@ package operator
 import (
 	"context"
 	"fmt"
-	appsv1 "k8s.io/api/apps/v1"
-
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
@@ -50,6 +50,21 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 	}
 }
 
+func copySecret(fromClient secret.Getter, toClient secret.GetUpdateCreator, sourceSecretNsName, destNsName types.NamespacedName) error {
+	s, err := fromClient.GetSecret(sourceSecretNsName)
+	if err != nil {
+		return err
+	}
+
+	secretCopy := secret.Builder().
+		SetName(destNsName.Name).
+		SetNamespace(destNsName.Namespace).
+		SetByteData(s.Data).
+		Build()
+
+	return secret.CreateOrUpdate(toClient, secretCopy)
+}
+
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
@@ -63,33 +78,54 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return *reconcileResult, err
 	}
 
-	log = log.With("MemberCluster Namespace", mrs.Spec.Namespace)
-	for k, v := range r.memberClusterClientsMap {
-		projectConfig, credsConfig, err := project.ReadConfigAndCredentials(v, &mrs)
-		if err != nil {
-			log.Errorf("error reading project config and credentials: %s", err)
-			return reconcile.Result{}, err
-		}
-
-		conn, err := connection.PrepareOpsManagerConnection(v, projectConfig, credsConfig, r.omConnectionFactory, mrs.Spec.Namespace, log)
-		if err != nil {
-			log.Errorf("error establishing connection to Ops Manager: %s", err)
-			return reconcile.Result{}, err
-		}
-
-		sts := construct.MultiClusterStatefulSet(mrs, conn)
-		if err := v.Create(context.TODO(), &sts); err != nil {
-			if !errors.IsAlreadyExists(err) {
-				log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", k, err)
-				return reconcile.Result{}, err
-			}
-		}
-		log.Infof("Successfully created StatefulSet in cluster: %s", k)
+	// read Ops Manager configuration from the same namespace as the operator.
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs)
+	if err != nil {
+		log.Errorf("error reading project config and credentials: %s", err)
+		return reconcile.Result{}, err
 	}
 
-	err := r.reconcileServices(log, mrs)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	if err != nil {
+		log.Errorf("error establishing connection to Ops Manager: %s", err)
+		return reconcile.Result{}, err
+	}
+
+	log = log.With("MemberCluster Namespace", mrs.Spec.Namespace)
+
+	for i, item := range mrs.GetOrderedClusterSpecList() {
+		client := r.memberClusterClientsMap[item.ClusterName]
+		// copy the agent api key to the member cluster.
+		err := copySecret(r.client, client,
+			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
+			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Spec.Namespace},
+		)
+
+		if err != nil {
+			log.Errorf(err.Error())
+			return reconcile.Result{}, err
+		}
+
+		for num := 0; num < item.Members; num++ {
+			sts := construct.MultiClusterStatefulSet(mrs, i, num, conn)
+			if err := client.Create(context.TODO(), &sts); err != nil {
+				if !errors.IsAlreadyExists(err) {
+					log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
+					return reconcile.Result{}, err
+				}
+			}
+			log.Infof("Successfully created StatefulSet in cluster: %s", item.ClusterName)
+		}
+	}
+
+	err = r.reconcileServices(log, mrs)
 	if err != nil {
 		log.Error(err)
+		return reconcile.Result{}, err
+	}
+
+	if err := updateOmDeploymentRs(conn, mrs, log); err != nil {
+		log.Errorf(err.Error())
 		return reconcile.Result{}, err
 	}
 
@@ -97,22 +133,77 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	return reconcile.Result{}, nil
 }
 
-func getServiceSpec(replicasetName, namespace string, a, b int) *corev1.Service {
-	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%d-%d", replicasetName, a, b),
-			Namespace: namespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{
-					Port: 8080,
-				},
-			},
-			Selector:  nil,
-			ClusterIP: "",
-		},
+func getMultiClusterAgentHostnames(mrs mdbmultiv1.MongoDBMulti) []string {
+	hostnames := make([]string, 0)
+	for i, spec := range mrs.GetOrderedClusterSpecList() {
+		for j := 0; j < spec.Members; j++ {
+			hostnames = append(hostnames, mrs.GetHostname(j, i))
+		}
 	}
+	return hostnames
+}
+
+// TODO: duplicated function from process package, remove/refactor
+func createMongodProcessesWithLimit(mrs mdbmultiv1.MongoDBMulti) []om.Process {
+	hostnames := getMultiClusterAgentHostnames(mrs)
+	processes := make([]om.Process, len(hostnames))
+
+	for idx := range hostnames {
+		processes[idx] = om.NewMongodProcessMulti(fmt.Sprintf("%s-%d", mrs.Name, idx), hostnames[idx], mrs.Spec.Version)
+	}
+
+	return processes
+}
+
+// updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
+// to automation agents in containers
+func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+
+	hostnames := getMultiClusterAgentHostnames(mrs)
+	err := agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
+	if err != nil {
+		return err
+	}
+
+	processes := createMongodProcessesWithLimit(mrs)
+	rs := om.NewReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes)
+
+	err = conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			d.MergeReplicaSet(rs, log)
+			d.AddMonitoringAndBackup(log, false)
+			return nil
+		},
+		log,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), log); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func getService(mrs mdbmultiv1.MongoDBMulti, stsNum, clusterNum int) corev1.Service {
+	labels := map[string]string{
+		"app": mrs.GetServiceName(stsNum, clusterNum),
+		"controller": "mongodb-enterprise-operator",
+	}
+
+	return service.Builder().
+		SetName(mrs.GetServiceName(stsNum, clusterNum)).
+		SetNamespace(mrs.Spec.Namespace).
+		SetPort(27017).
+		SetPortName("mongodb").
+		SetSelector(labels).
+		SetLabels(labels).
+		SetClusterIP("None").
+		SetPublishNotReadyAddresses(true).
+		Build()
 }
 
 // reconcileServices make sure that we have a service object corresponding to each statefulset pod
@@ -124,10 +215,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 
 		// iterate over each cluster and create service object corresponding to each of the pods in the multi-cluster RS.
 		for k, v := range r.memberClusterClientsMap {
-			for i, e := range mrs.Spec.ClusterSpecList.ClusterSpecs {
+			for i, e := range mrs.GetOrderedClusterSpecList() {
 				for n := 0; n < e.Members; n++ {
-					svc := getServiceSpec(mrs.Name, mrs.Spec.Namespace, i, n)
-					err := v.Create(context.TODO(), svc)
+					svc := getService(mrs, n, i)
+					err := service.CreateOrUpdateService(v, svc)
 
 					if err != nil && !errors.IsAlreadyExists(err) {
 						return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, k, err)
@@ -139,12 +230,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		return nil
 	}
 	// create non-duplicate service objects
-	for i, e := range mrs.Spec.ClusterSpecList.ClusterSpecs {
+	for i, e := range mrs.GetOrderedClusterSpecList() {
 		client := r.memberClusterClientsMap[e.ClusterName]
 		for n := 0; n < e.Members; n++ {
-			svc := getServiceSpec(mrs.Name, mrs.Spec.Namespace, i, n)
-
-			err := client.Create(context.TODO(), svc)
+			svc := getService(mrs, n, i)
+			err := service.CreateOrUpdateService(client, svc)
 			if err != nil && !errors.IsAlreadyExists(err) {
 				return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, e.ClusterName, err)
 			}
@@ -162,19 +252,19 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	// TODO: add events handler for MongoDBMulti CR
 	//eventHandler := MongoDBMultiResourceEventHandler{}
 
-	ctrl, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).
+	_, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).
 		Build(reconciler)
 	if err != nil {
 		return err
 	}
 
 	// set up watch for Statefulset for each of the memberclusters
-	for k, v := range memberClustersMap {
-		err := ctrl.Watch(source.NewKindWithCache(&appsv1.StatefulSet{}, v.GetCache()), nil)
-		if err != nil {
-			return fmt.Errorf("Failed to set Watch on member cluster: %s, err: %v", k, err)
-		}
-	}
+	//for k, v := range memberClustersMap {
+	//	err := ctrl.Watch(source.NewKindWithCache(&appsv1.StatefulSet{}, v.GetCache()), nil)
+	//	if err != nil {
+	//		return fmt.Errorf("Failed to set Watch on member cluster: %s, err: %v", k, err)
+	//	}
+	//}
 
 	// Watches(&source.Kind{Type: &mdbmultiv1.MongoDBMulti{}}, eventHandler).
 	// WithEventFilter(predicate.Funcs{})
@@ -192,6 +282,6 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 
 	// TODO: add watch predicates for other objects like sts/secrets/configmaps while we implement the reconcile
 	// logic for those objects
-	zap.S().Infof("Registered controller %s", util.MongoDbReplicaSetController)
+	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
 	return err
 }

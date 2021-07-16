@@ -185,7 +185,7 @@ func TestCreateKubeConfig_IsComposedOf_ServiceAccountTokens_InAllClusters(t *tes
 		assert.NoError(t, err)
 		assert.Contains(t, string(expectedCaBytes), flags.memberClusters[i])
 		assert.Equal(t, 0, bytes.Compare(expectedCaBytes, kubeConfigCluster.Cluster.CertificateAuthorityData), "CA should be read from Service Account token Secret.")
-		assert.Equal(t, fmt.Sprintf("https://api.%s", flags.memberClusters[i]), kubeConfigCluster.Cluster.Service, "Server should be correctly configured based on cluster name.")
+		assert.Equal(t, fmt.Sprintf("https://api.%s", flags.memberClusters[i]), kubeConfigCluster.Cluster.Server, "Server should be correctly configured based on cluster name.")
 	}
 
 	for i, user := range kubeConfig.Users {

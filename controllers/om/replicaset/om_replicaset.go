@@ -30,6 +30,7 @@ func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpe
 	return rsWithProcesses
 }
 
+
 // BuildAppDBFromStatefulSet builds replica set that will represent the AppDB
 // based on the StatefulSet and AppDB provided.
 func BuildAppDBFromStatefulSet(set appsv1.StatefulSet, mdb omv1.AppDBSpec) om.ReplicaSetWithProcesses {

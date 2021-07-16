@@ -129,6 +129,25 @@ func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMo
 	return p
 }
 
+// TODO: duplicated that needs to be refactored/removed
+func NewMongodProcessMulti(name, hostName, version string) Process {
+	p := createProcess(
+		WithName(name),
+		WithHostname(hostName),
+		WithProcessType(ProcessTypeMongod),
+		WithAdditionalMongodConfig(mdbv1.AdditionalMongodConfig{}),
+	)
+	p["version"] = version
+	p["authSchemaVersion"] = CalculateAuthSchemaVersion(version)
+	p["featureCompatibilityVersion"] = calculateFeatureCompatibilityVersion(version)
+	// default values for configurable values
+	p.SetDbPath("/data")
+	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
+	// for all types of logs
+	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
+	return p
+}
+
 // DeepCopy
 func (s Process) DeepCopy() (Process, error) {
 	return util.MapDeepCopy(s)

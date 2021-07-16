@@ -3,6 +3,7 @@ apiVersion: mongodb.com/v1
 kind: MongoDBMulti
 metadata:
   name: multi-replica-set
+  namespace: operator-ns
 spec:
   version: 4.4.0-ent
   type: ReplicaSet
@@ -12,10 +13,10 @@ spec:
   opsManager:
     configMapRef:
       name: my-project
-  namespace: <set-me>
+  namespace: chatton
   clusterSpecList:
     clusterSpecs:
       - clusterName: e2e.cluster1.mongokubernetes.com
-        members: 2
-      - clusterName: e2e.cluster2.mongokubernetes.com
-        members: 1
+        members: 3
+#      - clusterName: e2e.cluster2.mongokubernetes.com
+#        members: 1

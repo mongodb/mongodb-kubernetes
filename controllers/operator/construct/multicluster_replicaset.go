@@ -17,30 +17,31 @@ func int64Ptr(i int64) *int64                                              { ret
 func boolPtr(b bool) *bool                                                 { return &b }
 func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { return &s }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, conn om.Connection) appsv1.StatefulSet {
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, n int, conn om.Connection) appsv1.StatefulSet {
+	svcName := mdbm.GetServiceName(n, clusterNum)
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      mdbm.Name,
+			Name:      fmt.Sprintf("%s-%d-%d", mdbm.Name, n, clusterNum),
 			Namespace: mdbm.Spec.Namespace,
 			Labels: map[string]string{
-				"app":     mdbm.Name + "-svc",
-				"manager": "mongodb-enterprise-operator",
+				"app":     svcName,
+				"controller": "mongodb-enterprise-operator",
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: int32Ptr(1),
+			Replicas:    int32Ptr(1),
+			ServiceName: svcName,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app":               mdbm.Name + "-svc",
+					"app":               svcName,
 					"controller":        "mongodb-enterprise-operator",
 					"pod-anti-affinity": mdbm.Name,
 				},
 			},
-			ServiceName: mdbm.Name + "-svc",
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"app":               mdbm.Name + "-svc",
+						"app":               svcName,
 						"controller":        "mongodb-enterprise-operator",
 						"pod-anti-affinity": mdbm.Name,
 					},
@@ -141,7 +142,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, conn om.Connection) a
 								},
 								{
 									Name:  "AGENT_FLAGS",
-									Value: "-logFile,/var/log/mongodb-mms-automation/automation-agent.log,",
+									Value: "-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,",
 								},
 								{
 									Name:  "BASE_URL",

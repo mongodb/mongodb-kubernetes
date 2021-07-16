@@ -1,10 +1,12 @@
 package mdbmulti
 
 import (
+	"fmt"
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sort"
 )
 
 func init() {
@@ -26,12 +28,24 @@ type MongoDBMulti struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
+func (m MongoDBMulti) GetServiceName(stsNumber, clusterNum int) string {
+	return fmt.Sprintf("%s-%d-%d-svc", m.Name, stsNumber, clusterNum)
+}
+
+func (m MongoDBMulti) GetPodName(stsNumber, clusterNum int) string {
+	return fmt.Sprintf("%s-%d-%d-0", m.Name, stsNumber, clusterNum)
+}
+
+func (m MongoDBMulti) GetHostname(stsNumber, clusterNum int) string {
+	return fmt.Sprintf("%s.%s.%s.svc.cluster.local", m.GetPodName(stsNumber, clusterNum), m.GetServiceName(stsNumber, clusterNum), m.Spec.Namespace)
+}
+
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
-	return m.Spec.Namespace
+	return m.Namespace
 }
 
 func (m MongoDBMulti) GetCredentialsSecretNamespace() string {
-	return m.Spec.Namespace
+	return m.Namespace
 }
 
 func (m MongoDBMulti) GetProjectConfigMapName() string {
@@ -49,9 +63,26 @@ type MongoDBMultiList struct {
 	Items           []MongoDBMulti `json:"items"`
 }
 
+func (m MongoDBMulti) GetClusterSpecByName(clusterName string) *ClusterSpecItem {
+	for _, csi := range m.Spec.ClusterSpecList.ClusterSpecs {
+		if csi.ClusterName == clusterName {
+			return &csi
+		}
+	}
+	return nil
+}
+
 // ClusterSpecList holds a list with a clusterSpec corresponding to each cluster
 type ClusterSpecList struct {
 	ClusterSpecs []ClusterSpecItem `json:"clusterSpecs,omitempty"`
+}
+
+func (m *MongoDBMulti) GetOrderedClusterSpecList() []ClusterSpecItem {
+	clusterSpecs := m.Spec.ClusterSpecList.ClusterSpecs
+	sort.SliceStable(clusterSpecs, func(i, j int) bool {
+		return clusterSpecs[i].ClusterName < clusterSpecs[j].ClusterName
+	})
+	return clusterSpecs
 }
 
 // ClusterSpecItem is the mongodb multi-cluster spec that is specific to a
