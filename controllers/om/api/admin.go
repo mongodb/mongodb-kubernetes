@@ -55,6 +55,9 @@ type Admin interface {
 
 	// DeleteBlockStoreConfig removes the Block store by its ID
 	DeleteBlockStoreConfig(id string) error
+
+	// ReadFileSystemStoreConfig reads the FileSystemSnapshot sotre by its ID
+	ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error)
 }
 
 // AdminProvider is a function which returns an instance of Admin interface initialized with connection parameters.
@@ -192,6 +195,20 @@ func (a *DefaultOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
 
 func (a *DefaultOmAdmin) DeleteS3Config(id string) error {
 	return a.delete("admin/backup/snapshot/s3Configs/%s", id)
+}
+
+func (a *DefaultOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error) {
+	res, err := a.get("admin/backup/snapshot/fileSystemConfigs/")
+	if err != nil {
+		return nil, err
+	}
+
+	dataStoreConfigResponse := &backup.DataStoreConfigResponse{}
+	if err = json.Unmarshal(res, dataStoreConfigResponse); err != nil {
+		return nil, apierror.New(err)
+	}
+
+	return dataStoreConfigResponse.DataStoreConfigs, nil
 }
 
 //********************************** Private methods *******************************************************************

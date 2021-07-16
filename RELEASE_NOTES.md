@@ -1,5 +1,9 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.12.1
+
+## MongoDBOpsManager Resource
+* Operator will report status of FileSystemSnaphot store names configured under `spec.backup.fileSystemStores` in OM CR. The FS however needs to be manually configured.
 # MongoDB Enterprise Kubernetes Operator 1.12.0
 
 ## MongoDB Resource

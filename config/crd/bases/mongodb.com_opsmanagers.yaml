@@ -496,6 +496,15 @@ spec:
                     description: Enabled indicates if Backups will be enabled for
                       this Ops Manager.
                     type: boolean
+                  fileSystemStores:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
                   headDB:
                     description: HeadDB specifies configuration options for the HeadDB
                     properties:

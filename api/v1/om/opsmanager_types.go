@@ -208,6 +208,7 @@ type MongoDBOpsManagerBackup struct {
 	OplogStoreConfigs        []DataStoreConfig               `json:"opLogStores,omitempty"`
 	BlockStoreConfigs        []DataStoreConfig               `json:"blockStores,omitempty"`
 	S3Configs                []S3Config                      `json:"s3Stores,omitempty"`
+	FileSystemStoreConfigs   []FileSystemStoreConfig         `json:"fileSystemStores,omitempty"`
 	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
@@ -233,6 +234,10 @@ type BackupStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
 	Warnings      []status.Warning `json:"warnings,omitempty"`
+}
+
+type FileSystemStoreConfig struct {
+	Name string `json:"name"`
 }
 
 // DataStoreConfig is the description of the config used to reference to database. Reused by Oplog and Block stores

@@ -112,11 +112,24 @@ func projectNameIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult 
 	return v1.ValidationSuccess()
 }
 
+// onlyFileSystemStoreIsEnabled checks if only FileSystemSnapshotStore is configured and not S3Store/Blockstore
+func onlyFileSystemStoreIsEnabled(bp MongoDBOpsManagerBackup) bool {
+	if len(bp.BlockStoreConfigs) == 0 && len(bp.S3Configs) == 0 && len(bp.FileSystemStoreConfigs) > 0 {
+		return true
+	}
+	return false
+}
+
 // s3StoreMongodbUserSpecifiedNoMongoResource checks that 'mongodbResourceRef' is provided if 'mongodbUserRef' is configured
 func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if !os.Backup.Enabled || len(os.Backup.S3Configs) == 0 {
 		return v1.ValidationSuccess()
 	}
+
+	if onlyFileSystemStoreIsEnabled(*os.Backup) {
+		return v1.ValidationSuccess()
+	}
+
 	for _, config := range os.Backup.S3Configs {
 		if config.MongoDBUserRef != nil && config.MongoDBResourceRef == nil {
 			return v1.OpsManagerResourceValidationError(

@@ -830,6 +830,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
+
 	// 1. Enabling Daemon Config if necessary
 	backupHostNames := opsManager.BackupDaemonHostNames()
 	for _, hostName := range backupHostNames {
@@ -859,8 +860,10 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 	// 4. Block store configs
 	status = status.Merge(r.ensureBlockStoresInOpsManager(opsManager, omAdmin, log))
 
-	if len(opsManager.Spec.Backup.S3Configs) == 0 && len(opsManager.Spec.Backup.BlockStoreConfigs) == 0 {
-		return status.Merge(workflow.Invalid("Either S3 or Blockstore Snapshot configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending))
+	// 4. FileSystem store configs
+	status = status.Merge(r.ensureFileSystemStoreConfigurationInOpsManager(opsManager, omAdmin, log))
+	if len(opsManager.Spec.Backup.S3Configs) == 0 && len(opsManager.Spec.Backup.BlockStoreConfigs) == 0 && len(opsManager.Spec.Backup.FileSystemStoreConfigs) == 0 {
+		return status.Merge(workflow.Invalid("Either S3 or Blockstore or FileSystem Snapshot configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending))
 	}
 
 	return status
@@ -1066,6 +1069,33 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 	}
 
 	return s3Creds, nil
+}
+
+// ensureFileSystemStoreConfigurationInOpsManage makes sure that the FileSystem snapshot stores specified in the
+// MongoDB CR are configured correctly in OpsManager.
+func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
+	opsManagefsStoreConfigs, err := omAdmin.ReadFileSystemStoreConfigs()
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	fsStoreNames := make(map[string]struct{})
+	for _, e := range opsManager.Spec.Backup.FileSystemStoreConfigs {
+		fsStoreNames[e.Name] = struct{}{}
+	}
+	// count the number of FS snapshots configured in OM and match them with the one in CR.
+	countFS := 0
+
+	for _, e := range opsManagefsStoreConfigs {
+		if _, ok := fsStoreNames[e.Id]; ok {
+			countFS++
+		}
+	}
+
+	if countFS != len(opsManager.Spec.Backup.FileSystemStoreConfigs) {
+		return workflow.Failed("Not all fileSystem snapshots have been configured in OM.")
+	}
+	return workflow.OK()
 }
 
 // shouldUseAppDb accepts an S3Config and returns true if the AppDB should be used

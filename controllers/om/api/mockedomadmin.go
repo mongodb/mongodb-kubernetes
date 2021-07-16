@@ -26,10 +26,11 @@ type MockedOmAdmin struct {
 	User         string
 	PublicAPIKey string
 
-	daemonConfigs     []backup.DaemonConfig
-	s3Configs         map[string]backup.S3Config
-	oplogConfigs      map[string]backup.DataStoreConfig
-	blockStoreConfigs map[string]backup.DataStoreConfig
+	daemonConfigs          []backup.DaemonConfig
+	s3Configs              map[string]backup.S3Config
+	oplogConfigs           map[string]backup.DataStoreConfig
+	blockStoreConfigs      map[string]backup.DataStoreConfig
+	fileSystemStoreConfigs map[string]backup.DataStoreConfig
 }
 
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
@@ -161,4 +162,12 @@ func (a *MockedOmAdmin) DeleteBlockStoreConfig(id string) error {
 	}
 	delete(a.blockStoreConfigs, id)
 	return nil
+}
+
+func (a *MockedOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error) {
+	allConfigs := make([]backup.DataStoreConfig, len(a.blockStoreConfigs))
+	for _, v := range a.fileSystemStoreConfigs {
+		allConfigs = append(allConfigs, v)
+	}
+	return allConfigs, nil
 }
