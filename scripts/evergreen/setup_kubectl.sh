@@ -4,8 +4,8 @@ set -Eeou pipefail
 bindir="${workdir:?}/bin"
 mkdir -p "${bindir}"
 
-echo "Downloading kubectl v1.15.11"
-curl -s -LO https://storage.googleapis.com/kubernetes-release/release/v1.15.11/bin/linux/amd64/kubectl
+echo "Downloading latest kubectl"
+curl -s --retry 3 -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 chmod +x kubectl
 echo "kubectl version --client"
 ./kubectl version --client
