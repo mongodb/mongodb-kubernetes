@@ -181,7 +181,7 @@ run_tests() {
         kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f
     else
         output_filename="logs/test_app.log"
-        operator_filename="logs/operator.log"
+        operator_filename="logs/0_operator.log"
 
         # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have

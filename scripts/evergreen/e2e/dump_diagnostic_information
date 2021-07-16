@@ -2,7 +2,7 @@
 
 ## We need to make sure this script does not fail if one of
 ## the kubectl commands fails.
-set -Eou
+set +e
 
 # shellcheck disable=SC1091
 source scripts/funcs/printing
@@ -24,111 +24,167 @@ dump_all () {
 }
 
 dump_objects() {
-    local objects=$1
+    local object=$1
     local msg=$2
     local namespace=${3}
     local action=${4:-get -o yaml}
 
-    if ! kubectl get "${objects}" -n "${namespace}" &> /dev/null; then
+    if [ "$(kubectl get "${object}" --no-headers -o name -n "${namespace}" | wc -l)" = "0" ]; then
+        # if no objects of this type, return
         return
     fi
 
     header "${msg}"
     # shellcheck disable=SC2086
-    kubectl -n "${namespace}" ${action} "${objects}"
+    kubectl -n "${namespace}" ${action} "${object}" 2> /dev/null
 }
 
-dump_namespace() {
-
+# get_operator_managed_pods returns a list of names of the Pods that are managed
+# by the Operator.
+get_operator_managed_pods() {
     local namespace=${1}
+    kubectl get pods --namespace "${namespace}" --selector=controller=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name"
+}
+
+is_mdb_resource_pod() {
+    local pod="${1}"
+    local namespace="${2}"
+
+    kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null
+}
+
+# dump_pod_logs dumps agent and mongodb logs.
+dump_pod_logs() {
+    local pod="${1}"
+    local namespace="${2}"
+
+    if is_mdb_resource_pod "${pod}" "${namespace}"; then
+        # for MDB resource Pods, we dump the log files
+        echo "Writing agent and mongodb logs for pod ${pod} to logs"
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent-verbose.log" &> /dev/null
+        tail -n 500 "logs/${pod}-agent-verbose.log" > "logs/${pod}-agent.log" || true
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null || true
+        # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
+        kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${pod}-launcher.log"
+    else
+        # for new-style Pods (multiple containers), we get the stdouts of each container
+        for container in $(kubectl get pods -n "${namespace}" "$pod" -o jsonpath='{.spec.containers[*].name}'); do
+            echo "Writing log file for pod ${pod} - container ${container} to logs/${pod}-${container}.log"
+            kubectl logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}.log"
+        done
+    fi
+
+    if kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${pod}-agent-stderr.log" &> /dev/null
+    fi
+}
+
+# dump_pod_readiness_state dumps readiness and agent-health-status files.
+dump_pod_readiness_state() {
+    local pod="${1}"
+    local namespace="${2}"
+
+    # kubectl cp won't create any files if the file doesn't exist in the container
+    agent_health_status="logs/${pod}-agent-health-status.json"
+    kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
+    ([[ -f "${agent_health_status}" ]] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}")
+
+    kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${pod}-readiness.log" &> /dev/null
+}
+
+# dump_pod_config dumps mongod configuration and cluster-config.
+dump_pod_config() {
+    local pod="${1}"
+    local namespace="${2}"
+
+    # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
+    pod_cluster_config="logs/${pod}-cluster-config.json"
+    kubectl cp "${namespace}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null
+    ([[ -f "${pod_cluster_config}" ]] && jq < "logs/${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}")
+
+    # Mongodb Configuration
+    kubectl cp "${namespace}/${pod}:data/automation-mongod.conf" "logs/${pod}-automation-mongod.conf" &> /dev/null
+}
+
+dump_configmaps() {
+    kubectl -n "${namespace}" get configmaps -o yaml > logs/z_configmaps.txt
+}
+
+decode_secret() {
+    local secret=${1}
+    local namespace=${2}
+
+    kubectl get secret "${secret}" -o json -n "${namespace}" | jq -r '.data | with_entries(.value |= @base64d)' 2> /dev/null
+}
+
+dump_secrets() {
+    local namespace="${1}"
+
+    for secret in $(kubectl get secrets -n "${namespace}" --no-headers | grep -v service-account-token | grep -v dockerconfigjson | awk '{ print $1 }'); do
+        decode_secret "${secret}" "${namespace}" > "logs/z_secret_${secret}.txt"
+    done
+}
+
+# dump_pods writes logs for each relevant Pod in the namespace: agent, mongodb
+# logs, etc.
+dump_pods() {
+    local namespace="${1}"
+
+    pods=$(get_operator_managed_pods "${namespace}")
+    for pod in ${pods}; do
+        dump_pod_logs "${pod}" "${namespace}"
+        dump_pod_readiness_state "${pod}" "${namespace}"
+        dump_pod_config "${pod}" "${namespace}"
+
+        kubectl describe "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-describe.txt"
+        kubectl logs "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-logs.txt"
+    done
+}
+
+# dump_diagnostics writes only the *most important information* for debugging
+# tests, no more. Ideally the diagnostics file is as small as possible. Avoid
+# high density of information; the main objective of this file is to direct you
+# to a place where to find your problem, not to tell you what the problem is.
+dump_diagnostics() {
+    local namespace="${1}"
+
+    dump_objects mongodb "MongoDB Resources" "${namespace}"
+    dump_objects mongodbusers "MongoDBUser Resources" "${namespace}"
+    dump_objects opsmanagers "MongoDBOpsManager Resources" "${namespace}"
+
+    header "All namespace resources"
+    kubectl get all -n "${namespace}"
+}
+
+# dump_namespace dumps a namespace, diagnostics, logs and generic Kubernetes
+# resources.
+dump_namespace() {
+    local namespace=${1}
+
+    # do not fail for any reason
+    set +e
 
     # 1. Dump diagnostic information
     # gathers the information about K8s objects and writes it to the file which will be attached to Evergreen job
     mkdir -p logs
 
-    dump_file="logs/diagnostics.txt"
+    # 2. Write diagnostics file
+    dump_diagnostics "${namespace}" > logs/0_diagnostics.txt
 
-    # In some edge cases there can be multiple namespaces to print - ideally would be great to have
-    # 'namespace1/diagnostics.txt', 'namespace2/diagnostics.txt' but evergreen doesn't support nested layout for files
-    # shellcheck disable=SC2129
-    {
-        echo
-        echo "#####################################################################################################"
-        echo "##       NAMESPACE: ${namespace}"
-        echo "#####################################################################################################"
-    } >> "$dump_file"
+    # 3. Print Pod logs
+    dump_pods "${namespace}"
 
+    # 4. Print other Kubernetes resources
+    dump_configmaps "${namespace}"
+    dump_secrets "${namespace}"
 
-    {
-        dump_objects "mdb" "MongoDB Resources" "${namespace}"
-        dump_objects "mdbu" "MongoDBUser Resources" "${namespace}"
-        dump_objects "om" "MongoDBOpsManager Resources" "${namespace}"
-    } >> "$dump_file"
+    dump_objects pvc "Persistent Volume Claims" "${namespace}" > logs/z_persistent_volume_claims.txt
+    dump_objects sts "StatefulSets" "${namespace}" describe > logs/z_statefulsets.txt
+    dump_objects sts "StatefulSets Yaml" "${namespace}" >> logs/z_statefulsets.txt
+    dump_objects serviceaccounts "ServiceAccounts" "${namespace}" > logs/z_service_accounts.txt
+    dump_objects validatingwebhookconfigurations "Validating Webhook Configurations" "${namespace}" > logs/z_validatingwebhookconfigurations.txt
+    dump_objects certificates.cert-manager.io "Cert-manager certificates" "${namespace}"  2> /dev/null > logs/z_certificates_certmanager.txt
 
-    {
-        header "All namespace objects"
-        kubectl get all -n "${namespace}"
-        dump_objects "pvc" "Persistent Volume Claims" "${namespace}"
-        dump_objects "sts" "StatefulSets" "${namespace}" describe
-        dump_objects "sts" "StatefulSets Yaml" "${namespace}"
-        dump_objects "serviceaccounts" "ServiceAccounts" "${namespace}"
-        dump_objects "validatingwebhookconfigurations" "Validating Webhook Configurations" "${namespace}"
-    } >> "$dump_file"
-
-    dump_objects certificates.cert-manager.io "Cert-manager certificates" "${namespace}" >> "${dump_file}"
-
-    {
-        header "All test/namespace CSR";
-        kubectl get csr -o wide | grep "${namespace}" || true ;
-        echo "Cluster currently has $(kubectl get csr -o name | wc -l) certificates"
-    } >> "$dump_file"
-
-    {
-        # shellcheck disable=SC2046
-        kubectl describe $(kubectl get crd -o name | grep mongodb.com) > logs/crd.log
-    }
-
-    for pod in $(kubectl get pods -n "${namespace}" -o name); do
-        header "$pod" >> "$dump_file"
-        # in general describe produces shorter output than "get -o yaml" and seems it is enough to diagnose the problem
-        kubectl describe "${pod}" -n "${namespace}"  >> "$dump_file" || true
-    done
-
-    # 2. Pods logs
-    i=1
-    if ! kubectl get pods -n "${namespace}" 2>&1 | grep -q "No resources found"; then
-        for pod in $(kubectl get pods -n "${namespace}"  -o name | cut -d "/" -f 2 | grep -v "operator-"); do
-            if kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null; then
-                echo "Writing agent and mongodb logs for pod ${pod} to logs"
-                kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent-verbose.log" &> /dev/null || true
-                tail -n 500 "logs/${pod}-agent-verbose.log" > "logs/${pod}-agent.log" || true
-                kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null || true
-                # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
-                kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' > "logs/${pod}-launcher.log" || true
-            else
-                for container in $(kubectl get pods -n "${namespace}" "$pod" -o jsonpath='{.spec.containers[*].name}'); do
-                    echo "Writing log file for pod ${pod} - container ${container} to logs/${pod}-${container}.log"
-                    kubectl logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}.log" || true;
-                done
-            fi
-            if kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
-                kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${pod}-agent-stderr.log" &> /dev/null || true
-            fi
-
-            # kubectl cp won't create any files if the file doesn't exist in the container
-            agent_health_status="logs/${pod}-agent-health-status.json"
-            kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null || true
-            ([[ -f "${agent_health_status}" ]] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}") || true
-
-            # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
-            pod_cluster_config="logs/${pod}-cluster-config.json"
-            kubectl cp "${namespace}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null || true
-            ([[ -f "${pod_cluster_config}" ]] && jq < "logs/${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}") || true
-
-            kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${pod}-readiness.log" &> /dev/null || true
-            kubectl cp "${namespace}/${pod}:data/automation-mongod.conf" "logs/${pod}-automation-mongod.conf" &> /dev/null || true
-            ((i++))
-        done
-    fi
-    echo "logs for ${i} pods were written."
+    # shellcheck disable=SC2046
+    kubectl describe $(kubectl get crd -o name | grep mongodb.com) > logs/z_mongodb_crds.log
 }
