@@ -1,19 +1,20 @@
 import datetime
-
 import time
 from typing import Optional
+
 from kubetester import MongoDB
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import mark, fixture
+from pymongo.errors import ServerSelectionTimeoutError
+from pytest import fixture, mark
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
-    create_aws_secret,
     S3_SECRET_NAME,
+    create_aws_secret,
     create_s3_bucket,
 )
 
@@ -111,7 +112,7 @@ def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
 @mark.e2e_om_ops_manager_backup_restore
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        """ creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required. """
+        """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -161,7 +162,7 @@ class TestBackupForMongodb:
 
 @mark.e2e_om_ops_manager_backup_restore
 class TestBackupRestorePIT:
-    """ This part checks the work of PIT restore. """
+    """This part checks the work of PIT restore."""
 
     def test_mdbs_change_data(
         self, mdb_prev_test_collection, mdb_latest_test_collection
@@ -215,6 +216,12 @@ class TestBackupRestorePIT:
                 return
             except AssertionError:
                 pass
+            except ServerSelectionTimeoutError:
+                # The mongodb driver complains with `No replica set members
+                # match selector "Primary()",` This could be related with DNS
+                # not being functional, or the database going through a
+                # re-election process. Let's give it another chance to succeed.
+                pass
             except Exception as e:
                 # We ignore Exception as there is usually a blip in connection (backup restore
                 # results in reelection or whatever)
@@ -245,12 +252,12 @@ class TestBackupRestorePIT:
 @mark.usefixtures("skip_if_om5")
 @mark.e2e_om_ops_manager_backup_restore
 class TestBackupRestoreFromSnapshot:
-    """ This part tests the restore to the snapshot built once the backup has been enabled. """
+    """This part tests the restore to the snapshot built once the backup has been enabled."""
 
     def test_mdbs_change_data(
         self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
-        """ Changes the MDB documents to check that restore rollbacks this change later """
+        """Changes the MDB documents to check that restore rollbacks this change later"""
         mdb_prev_test_collection.delete_many({})
         mdb_prev_test_collection.insert_one({"foo": "bar"})
 
@@ -269,7 +276,7 @@ class TestBackupRestoreFromSnapshot:
     def test_data_got_restored(
         self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
-        """ The data in the db has been restored to the initial"""
+        """The data in the db has been restored to the initial"""
         records = list(mdb_prev_test_collection.find())
         assert records == [TEST_DATA]
 
@@ -278,7 +285,7 @@ class TestBackupRestoreFromSnapshot:
 
 
 def time_to_millis(date_time) -> int:
-    """ https://stackoverflow.com/a/11111177/614239"""
+    """https://stackoverflow.com/a/11111177/614239"""
     epoch = datetime.datetime.utcfromtimestamp(0)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis

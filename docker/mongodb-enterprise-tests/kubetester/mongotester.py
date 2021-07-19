@@ -40,7 +40,7 @@ class MongoTester:
         self.client = pymongo.MongoClient(connection_string, **options)
 
     def assert_connectivity(self, attempts: int = 5):
-        """ Trivial check to make sure mongod is alive """
+        """Trivial check to make sure mongod is alive"""
         assert attempts > 0
         while True:
             attempts -= 1
@@ -277,7 +277,7 @@ class ReplicaSetTester(MongoTester):
     def assert_connectivity(
         self, wait_for=60, check_every=5, with_srv=False, attempts: int = 5
     ):
-        """ For replica sets in addition to is_master() we need to make sure all replicas are up """
+        """For replica sets in addition to is_master() we need to make sure all replicas are up"""
         super().assert_connectivity(attempts=attempts)
 
         if self.replicas_count == 1:
@@ -381,7 +381,7 @@ class BackgroundHealthChecker(threading.Thread):
         self.health_function = health_function
         self.health_function_params = health_function_params
         self.wait_sec = wait_sec
-        self.allowed_sequental_failures = allowed_sequential_failures
+        self.allowed_sequential_failures = allowed_sequential_failures
         self.exception_number = 0
         self.last_exception = None
         self.daemon = True
@@ -408,11 +408,33 @@ class BackgroundHealthChecker(threading.Thread):
     def stop(self):
         self._stop_event.set()
 
-    def assert_healthiness(self):
+    def assert_healthiness(self, allowed_rate_of_failure: Optional[float] = None):
+        """
+
+        `allowed_rate_of_failure` allows you to define a rate of allowed failures,
+        instead of the default, absolute amount of failures.
+
+        `allowed_rate_of_failure` is a number between 0 and 1 that desribes a "percentage"
+        of tolerated failures.
+
+        For instance, the following values:
+
+        - 0.1 -- means that 10% of the requests might fail, before
+                 failing the tests.
+        - 0.9 -- 90% of checks are allowed to fail.
+        - 0.0 -- very strict: no checks are allowed to fail.
+        - 1.0 -- very relaxed: all checks can fail.
+
+        """
         print("\nlongest consecutive failures: {}".format(self.max_consecutive_failure))
         print("total exceptions count: {}".format(self.exception_number))
         print("total checks number: {}".format(self.number_of_runs))
-        assert self.max_consecutive_failure <= self.allowed_sequental_failures
+
+        allowed_failures = self.allowed_sequential_failures
+        if allowed_rate_of_failure is not None:
+            allowed_failures = self.number_of_runs * allowed_rate_of_failure
+
+        assert self.max_consecutive_failure <= allowed_failures
         assert self.number_of_runs > 0
 
 
@@ -485,13 +507,13 @@ def build_mongodb_uri(hosts, srv: bool = False) -> str:
 
 
 def generate_single_json():
-    """ Generates a json with two fields. String field contains random characters and has length 100 characters. """
+    """Generates a json with two fields. String field contains random characters and has length 100 characters."""
     random_str = "".join([random.choice(string.ascii_lowercase) for _ in range(100)])
     return {"description": random_str, "type": random.uniform(1, 10)}
 
 
 def db_namespace(collection):
-    """ https://docs.mongodb.com/manual/reference/glossary/#term-namespace """
+    """https://docs.mongodb.com/manual/reference/glossary/#term-namespace"""
     return "{}.{}".format(TEST_DB, collection)
 
 

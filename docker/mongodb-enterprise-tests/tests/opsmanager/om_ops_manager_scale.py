@@ -139,7 +139,9 @@ class TestOpsManagerVersionUpgrade:
 
     @skip_if_local
     def test_om_has_been_up_during_upgrade(self, background_tester: OMBackgroundTester):
-        background_tester.assert_healthiness()
+
+        # 10% of the requests are allowed to fail
+        background_tester.assert_healthiness(allowed_rate_of_failure=0.1)
 
 
 @pytest.mark.e2e_om_ops_manager_scale
@@ -174,7 +176,7 @@ class TestOpsManagerScaleUp:
         om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
 
         # checking the background thread to make sure the OM was ok during scale up
-        background_tester.assert_healthiness()
+        background_tester.assert_healthiness(allowed_rate_of_failure=0.1)
 
 
 @pytest.mark.e2e_om_ops_manager_scale
@@ -211,4 +213,4 @@ class TestOpsManagerScaleDown:
         om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
 
         # OM was ok during scale down
-        background_tester.assert_healthiness()
+        background_tester.assert_healthiness(allowed_rate_of_failure=0.1)

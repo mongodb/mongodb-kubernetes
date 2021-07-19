@@ -29,7 +29,7 @@ skip_if_cloud_manager = pytest.mark.skipif(
 
 
 class BackupStatus(str, Enum):
-    """ Enum for backup statuses in Ops Manager. Note that 'str' is inherited to fix json serialization issues """
+    """Enum for backup statuses in Ops Manager. Note that 'str' is inherited to fix json serialization issues"""
 
     STARTED = "STARTED"
     STOPPED = "STOPPED"
@@ -93,7 +93,7 @@ class OMTester(object):
         return self.api_create_restore_job_from_snapshot(cluster_id, snapshot_id)["id"]
 
     def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120):
-        """ creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
+        """creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
         cluster_id = self.get_backup_cluster_id()
 
         while retry > 0:
@@ -112,7 +112,7 @@ class OMTester(object):
     def wait_until_backup_snapshots_are_ready(
         self, expected_count: int, timeout: int = 1500
     ):
-        """ waits until at least 'expected_count' backup snapshots is in complete state"""
+        """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
         cluster_id = self.get_backup_cluster_id()
 
@@ -143,7 +143,7 @@ class OMTester(object):
         )
 
     def wait_until_restore_job_is_ready(self, job_id: str, timeout: int = 1500):
-        """ waits until there's one finished restore job in the project"""
+        """waits until there's one finished restore job in the project"""
         start_time = time.time()
         cluster_id = self.get_backup_cluster_id()
 
@@ -185,7 +185,7 @@ class OMTester(object):
             self.do_assert_healthiness(pod_fqdn)
 
     def assert_version(self, version: str):
-        """ makes the request to a random API url to get headers """
+        """makes the request to a random API url to get headers"""
         response = self.om_request("get", "/orgs")
         assert (
             f"versionString={version}" in response.headers["X-MongoDB-Service-Version"]
@@ -251,19 +251,19 @@ class OMTester(object):
                 assert expected[key] == existing[key]
 
     def assert_oplog_stores(self, expected_oplog_stores: List):
-        """ verifies that the list of oplog store configs in OM is equal to the expected one"""
+        """verifies that the list of oplog store configs in OM is equal to the expected one"""
         self._assert_stores(
             expected_oplog_stores, "/admin/backup/oplog/mongoConfigs", "oplog"
         )
 
     def assert_block_stores(self, expected_block_stores: List):
-        """ verifies that the list of oplog store configs in OM is equal to the expected one"""
+        """verifies that the list of oplog store configs in OM is equal to the expected one"""
         self._assert_stores(
             expected_block_stores, "/admin/backup/snapshot/mongoConfigs", "blockstore"
         )
 
     def assert_s3_stores(self, expected_s3_stores: List):
-        """ verifies that the list of s3 store configs in OM is equal to the expected one"""
+        """verifies that the list of s3 store configs in OM is equal to the expected one"""
         self._assert_stores(
             expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3"
         )
@@ -412,7 +412,7 @@ class OMTester(object):
         ).json()["results"]
 
     def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
-        """ Creates a restore job that reverts a mongodb cluster to some time defined by 'pit_milliseconds' """
+        """Creates a restore job that reverts a mongodb cluster to some time defined by 'pit_milliseconds'"""
         data = self._restore_job_payload(cluster_id)
         data["pointInTimeUTCMillis"] = pit_milliseconds
         return self.om_request(
@@ -424,7 +424,7 @@ class OMTester(object):
     def api_create_restore_job_from_snapshot(
         self, cluster_id: str, snapshot_id: str
     ) -> Dict:
-        """ Creates a restore job that uses an existing snapshot as the source """
+        """Creates a restore job that uses an existing snapshot as the source"""
         data = self._restore_job_payload(cluster_id)
         data["snapshotId"] = snapshot_id
         # Strange API: the create request returns the list of jobs consisting only of one job just created
@@ -460,9 +460,15 @@ class OMTester(object):
 
 
 class OMBackgroundTester(BackgroundHealthChecker):
-    """Note, that it may return sporadic 500 when the appdb is being restarted, we won't fail because of this so checking
-    only for 'allowed_sequental_failures' failures. In practice having 'allowed_sequental_failures' should work as
-     failures are very rare (1-2 per appdb upgrade) but let's be safe to avoid e2e flakiness."""
+    """
+
+    Note, that it may return sporadic 500 when the appdb is being restarted, we
+    won't fail because of this so checking only for
+    'allowed_sequential_failures' failures. In practice having
+    'allowed_sequential_failures' should work as failures are very rare (1-2 per
+    appdb upgrade) but let's be safe to avoid e2e flakiness.
+
+    """
 
     def __init__(
         self,
