@@ -95,9 +95,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-5.0.0-rc6.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-5.0.0.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-5.0.0-rc6.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-5.0.0.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
@@ -106,9 +106,9 @@ spec:
               command:
                 - curl
                 - -L
-                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1804-5.0.0-rc6.tgz
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1804-5.0.0.tgz
                 - -o
-                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1804-5.0.0-rc6.tgz
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1804-5.0.0.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

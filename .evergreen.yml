@@ -26,7 +26,7 @@ variables:
   # Latest MDB release as of today. Update this to latest `rc`s or GA version when
   # it is released.
   # https://opsmanager.mongodb.com/static/version_manifest/5.0.json
-  - &mdb_50_latest 5.0.0-rc6
+  - &mdb_50_latest 5.0.0
 
   - &mdb_44_latest 4.4.0
   - &mdb_42_latest 4.2.8

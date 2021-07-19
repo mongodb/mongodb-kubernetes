@@ -465,10 +465,6 @@ def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[s
                         if package["name"] == "tar.gz":
                             return package["download_link"]
 
-    # When released, OM5 should be fetched from `releases`.
-    if om_version == "5.0.0":
-        # This is the final OM5 package.
-        return "https://s3.amazonaws.com/mongodb-mms-build-onprem/10cf46c744564e2cb3e61e5b777f7820f586aef8/mongodb-mms-5.0.0.100.20210710T1827Z-1.x86_64.tar.gz"
 
     raise ValueError("Version {} not found".format(om_version))
 
