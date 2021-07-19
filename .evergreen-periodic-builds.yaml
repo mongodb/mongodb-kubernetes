@@ -55,7 +55,8 @@ functions:
     type: setup
     params:
       # Note: we add || true to keep going if RH connect is failing for some maintenance/temporary error
-      command: "docker login scan.connect.redhat.com -u unused -p ${project_id} || true"
+      # We need to wrap the command in `sh -c 'command'` otherwise we can't use || operator
+      command: "sh -c 'docker login scan.connect.redhat.com -u unused -p ${project_id} || true'"
 
 
   pipeline:
