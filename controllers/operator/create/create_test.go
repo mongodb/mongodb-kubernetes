@@ -99,3 +99,46 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	_, err = client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-backup"))
 	assert.Error(t, err, "The Backup Service should have been created")
 }
+
+func TestBackupServiceCreated_ClusterIP(t *testing.T) {
+	externalServiceDisabled, externalServiceEnabled := false, true
+
+	testOm := omv1.NewOpsManagerBuilderDefault().
+		SetName("test-om").
+		SetAppDBPassword("my-secret", "password").
+		SetBackup(omv1.MongoDBOpsManagerBackup{
+			Enabled:                true,
+			ExternalServiceEnabled: &externalServiceDisabled,
+		}).AddConfiguration("brs.queryable.proxyPort", "1234").
+		Build()
+
+	sts, err := construct.OpsManagerStatefulSet(testOm)
+	assert.NoError(t, err)
+
+	client := mock.NewClient()
+	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	assert.NoError(t, err)
+
+	backupSvc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-backup"))
+	assert.NoError(t, err)
+	assert.Equal(t, backupSvc.Spec.Type, corev1.ServiceTypeClusterIP)
+
+	testOm = omv1.NewOpsManagerBuilderDefault().
+		SetName("test-om").
+		SetAppDBPassword("my-secret", "password").
+		SetBackup(omv1.MongoDBOpsManagerBackup{
+			Enabled:                true,
+			ExternalServiceEnabled: &externalServiceEnabled,
+		}).AddConfiguration("brs.queryable.proxyPort", "1234").
+		Build()
+
+	sts, err = construct.OpsManagerStatefulSet(testOm)
+	assert.NoError(t, err)
+
+	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	assert.NoError(t, err)
+
+	backupSvc, err = client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-backup"))
+	assert.NoError(t, err)
+	assert.Equal(t, backupSvc.Spec.Type, corev1.ServiceTypeLoadBalancer)
+}

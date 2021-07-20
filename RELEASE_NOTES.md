@@ -4,6 +4,7 @@
 
 ## MongoDBOpsManager Resource
 * Operator will report status of FileSystemSnaphot store names configured under `spec.backup.fileSystemStores` in OM CR. The FS however needs to be manually configured.
+* It is now possible to disable creation of "LoadBalancer" Type service for queryable backup by setting `spec.backup.externalServiceEnabled` to `false` in OM CR. By default, the operator would create the LoadBalancer type service object.
 # MongoDB Enterprise Kubernetes Operator 1.12.0
 
 ## MongoDB Resource

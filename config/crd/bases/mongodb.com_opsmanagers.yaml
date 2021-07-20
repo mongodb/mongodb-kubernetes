@@ -496,6 +496,8 @@ spec:
                     description: Enabled indicates if Backups will be enabled for
                       this Ops Manager.
                     type: boolean
+                  externalServiceEnabled:
+                    type: boolean
                   fileSystemStores:
                     items:
                       properties:

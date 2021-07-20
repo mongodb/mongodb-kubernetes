@@ -193,7 +193,8 @@ type MongoDBOpsManagerServiceDefinition struct {
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
 type MongoDBOpsManagerBackup struct {
 	// Enabled indicates if Backups will be enabled for this Ops Manager.
-	Enabled bool `json:"enabled"`
+	Enabled                bool  `json:"enabled"`
+	ExternalServiceEnabled *bool `json:"externalServiceEnabled,omitempty"`
 
 	// Members indicate the number of backup daemon pods to create.
 	// +optional

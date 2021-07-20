@@ -186,7 +186,13 @@ func buildBackupService(opsManager omv1.MongoDBOpsManager, serviceName string) (
 
 	// Otherwise create a new service
 	namespacedName := kube.ObjectKey(opsManager.Namespace, serviceName)
-	svc := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+
+	serviceType := corev1.ServiceTypeClusterIP
+	if opsManager.Spec.Backup.ExternalServiceEnabled == nil || *opsManager.Spec.Backup.ExternalServiceEnabled {
+		serviceType = corev1.ServiceTypeLoadBalancer
+	}
+
+	svc := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: serviceType})
 	return &svc, nil
 }
 
