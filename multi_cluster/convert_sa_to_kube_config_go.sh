@@ -37,7 +37,7 @@ kubectl --context ${CENTRAL_CLUSTER} apply -f ./multi-cluster-CR.yaml --namespac
 kubectl create secret generic ops-manager-admin-secret  --from-literal=Username="user.name@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="User" --from-literal=LastName="Name"
 
 # deploy OM in central cluster
-kubectl --context ${CENTRAL_CLUSTER} apply -f ./om.yaml --namespace ${OPERATOR_NAMESPACE}
+# kubectl --context ${CENTRAL_CLUSTER} apply -f ./om.yaml --namespace ${OPERATOR_NAMESPACE}
 
 kubectl  --context ${CLUSTER1} --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
 kubectl  --context ${CLUSTER1} --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found

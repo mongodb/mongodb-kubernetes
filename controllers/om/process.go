@@ -140,6 +140,8 @@ func NewMongodProcessMulti(name, hostName, version string) Process {
 	p["version"] = version
 	p["authSchemaVersion"] = CalculateAuthSchemaVersion(version)
 	p["featureCompatibilityVersion"] = calculateFeatureCompatibilityVersion(version)
+	p["alias"] = hostName
+
 	// default values for configurable values
 	p.SetDbPath("/data")
 	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point

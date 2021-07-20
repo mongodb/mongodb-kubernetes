@@ -50,19 +50,19 @@ spec:
         - name: INIT_DATABASE_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-init-database
         - name: INIT_DATABASE_VERSION
-          value: 1.0.3
+          value: 1.0.4
         - name: DATABASE_VERSION
-          value: 2.0.0
+          value: 2.0.1
         - name: OPS_MANAGER_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-ops-manager
         - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-init-ops-manager
         - name: INIT_OPS_MANAGER_VERSION
-          value: 1.0.3
+          value: 1.0.5
         - name: INIT_APPDB_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-init-appdb
         - name: INIT_APPDB_VERSION
-          value: 1.0.7
+          value: 1.0.8
         - name: OPS_MANAGER_IMAGE_PULL_POLICY
           value: Always
         - name: AGENT_IMAGE
@@ -71,7 +71,7 @@ spec:
           value: mongodb-enterprise-appdb-database
         - name: MONGODB_REPO_URL
           value: quay.io/mongodb
-        image: 268558157000.dkr.ecr.us-east-1.amazonaws.com/chatton/ubi/mongodb-enterprise-operator:latest
+        image: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-operator:latest
         imagePullPolicy: Always
         name: mongodb-enterprise-operator
         volumeMounts:

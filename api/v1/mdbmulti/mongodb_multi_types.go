@@ -2,11 +2,12 @@ package mdbmulti
 
 import (
 	"fmt"
+	"sort"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sort"
 )
 
 func init() {
@@ -37,7 +38,7 @@ func (m MongoDBMulti) GetPodName(stsNumber, clusterNum int) string {
 }
 
 func (m MongoDBMulti) GetHostname(stsNumber, clusterNum int) string {
-	return fmt.Sprintf("%s.%s.%s.svc.cluster.local", m.GetPodName(stsNumber, clusterNum), m.GetServiceName(stsNumber, clusterNum), m.Spec.Namespace)
+	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(stsNumber, clusterNum), m.Spec.Namespace)
 }
 
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
