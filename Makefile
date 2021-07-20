@@ -341,7 +341,7 @@ bundle: manifests kustomize
 
 .PHONY: bundle-annotated
 bundle-annotated: bundle
-	echo 'LABEL com.redhat.openshift.versions="v4.6,v4.7"' >> bundle.Dockerfile
+	echo 'LABEL com.redhat.openshift.versions="v4.6-v4.7"' >> bundle.Dockerfile
 	echo 'LABEL com.redhat.delivery.backport=false' >> bundle.Dockerfile
 	echo 'LABEL com.redhat.delivery.operator.bundle=true' >> bundle.Dockerfile
 	mv bundle.Dockerfile ./bundle/$(VERSION)/bundle.Dockerfile
@@ -350,7 +350,7 @@ bundle-annotated: bundle
 # Build the bundle image.
 .PHONY: bundle-build
 bundle-build:
-	docker build $(EXPIRES) -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
+	docker build $(EXPIRES) -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) ./bundle
 
 
 .PHONY: bundle-push

@@ -97,7 +97,7 @@ point to Quay.io and not to the RedHat Connect catalog.
 ### If you do this the first time
 Fork the following repo into your own:
 
-    https://github.com/operator-framework/community-operators/tree/master/upstream-community-operators
+    https://github.com/k8s-operatorhub/community-operators
 
 Make sure you clone the *fork* and not *upstream*.
 
