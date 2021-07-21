@@ -6,6 +6,7 @@ import (
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
@@ -91,11 +92,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, err
 	}
 
-	if err := updateOmDeploymentRs(conn, mrs, log); err != nil {
-		log.Errorf(err.Error())
-		return reconcile.Result{}, err
-	}
-
 	log = log.With("MemberCluster Namespace", mrs.Spec.Namespace)
 
 	for i, item := range mrs.GetOrderedClusterSpecList() {
@@ -129,6 +125,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, err
 	}
 
+	if err := updateOmDeploymentRs(conn, mrs, log); err != nil {
+		log.Errorf(err.Error())
+		return reconcile.Result{}, err
+	}
+
 	log.Infow("Successfully finished reconcilliation", "MultiReplicaSetSpec", mrs.Spec)
 	return reconcile.Result{}, nil
 }
@@ -137,7 +138,7 @@ func getMultiClusterAgentHostnames(mrs mdbmultiv1.MongoDBMulti) []string {
 	hostnames := make([]string, 0)
 	for i, spec := range mrs.GetOrderedClusterSpecList() {
 		for j := 0; j < spec.Members; j++ {
-			hostnames = append(hostnames, mrs.GetHostname(j, i))
+			hostnames = append(hostnames, mrs.GetServiceFQDN(j, i))
 		}
 	}
 	return hostnames
@@ -159,16 +160,16 @@ func createMongodProcessesWithLimit(mrs mdbmultiv1.MongoDBMulti) []om.Process {
 // to automation agents in containers
 func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
 
-	// hostnames := getMultiClusterAgentHostnames(mrs)
-	// err := agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
-	// if err != nil {
-	// 	return err
-	// }
+	hostnames := getMultiClusterAgentHostnames(mrs)
+	err := agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
+	if err != nil {
+		return err
+	}
 
 	processes := createMongodProcessesWithLimit(mrs)
 	rs := om.NewReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes)
 
-	err := conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, log)
 			d.AddMonitoringAndBackup(log, false)

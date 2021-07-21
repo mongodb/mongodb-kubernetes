@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -17,14 +18,16 @@ func int64Ptr(i int64) *int64                                              { ret
 func boolPtr(b bool) *bool                                                 { return &b }
 func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { return &s }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, n int, conn om.Connection) appsv1.StatefulSet {
-	svcName := mdbm.GetServiceName(n, clusterNum)
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNumber int, conn om.Connection) appsv1.StatefulSet {
+	svcName := mdbm.GetServiceName(stsNumber, clusterNum)
+	hostname := mdbm.GetServiceFQDN(stsNumber, clusterNum)
+
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%d-%d", mdbm.Name, n, clusterNum),
+			Name:      fmt.Sprintf("%s-%d-%d", mdbm.Name, stsNumber, clusterNum),
 			Namespace: mdbm.Spec.Namespace,
 			Labels: map[string]string{
-				"app":     svcName,
+				"app":        svcName,
 				"controller": "mongodb-enterprise-operator",
 			},
 		},
@@ -142,7 +145,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, n int
 								},
 								{
 									Name:  "AGENT_FLAGS",
-									Value: "-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,",
+									Value: fmt.Sprintf("-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,-overrideLocalHost,%s,", hostname),
 								},
 								{
 									Name:  "BASE_URL",

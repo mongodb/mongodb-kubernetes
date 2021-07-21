@@ -37,7 +37,7 @@ func (m MongoDBMulti) GetPodName(stsNumber, clusterNum int) string {
 	return fmt.Sprintf("%s-%d-%d-0", m.Name, stsNumber, clusterNum)
 }
 
-func (m MongoDBMulti) GetHostname(stsNumber, clusterNum int) string {
+func (m MongoDBMulti) GetServiceFQDN(stsNumber, clusterNum int) string {
 	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(stsNumber, clusterNum), m.Spec.Namespace)
 }
 
