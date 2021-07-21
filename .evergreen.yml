@@ -2,6 +2,8 @@ ignore:
   - "*.md"
   - "public/support/*"
   - "public/samples/*"
+  - "**/ubi/Dockerfile"
+  - "**/ubuntu/Dockerfile"
 stepback: true
 
 # Ops Manager image building & pushing takes a long time
