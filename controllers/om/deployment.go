@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"math"
 	"regexp"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -270,6 +271,14 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool) {
 		}
 	}
 	d.setMonitoringVersions(monitoringVersions)
+}
+
+func (d Deployment) AddAgentVersionConfig() {
+	agentVersionConfig := map[string]string{
+		"name":         "10.27.1.6801-1",
+		"directoryUrl": "https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/qa/",
+	}
+	d["agentVersion"] = agentVersionConfig
 }
 
 // RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the

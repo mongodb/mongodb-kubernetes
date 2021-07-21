@@ -172,6 +172,7 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, log)
 			d.AddMonitoringAndBackup(log, false)
+			d.AddAgentVersionConfig()
 			return nil
 		},
 		log,
