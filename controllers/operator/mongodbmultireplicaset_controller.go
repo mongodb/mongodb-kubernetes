@@ -183,9 +183,9 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 		return err
 	}
 
-	// if err := om.WaitForReadyState(conn, rs.GetProcessNames(), log); err != nil {
-	// 	return err
-	// }
+	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), log); err != nil {
+		return err
+	}
 
 	return nil
 }
