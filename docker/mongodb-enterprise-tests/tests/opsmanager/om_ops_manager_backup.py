@@ -290,7 +290,9 @@ class TestOpsManagerCreation:
         # services on it. Let's make sure we only count those that we care of.
         # For now we allow this test to fail, because it is too broad to be significant
         # and it is easy to break it.
-        backup_services = [s for s in services if s.metadata.name.startswith("om-backup")]
+        backup_services = [
+            s for s in services if s.metadata.name.startswith("om-backup")
+        ]
 
         assert len(backup_services) >= 4
 
@@ -462,6 +464,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         )
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
+        ops_manager.load()
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
             "name": blockstore_user.name
         }
