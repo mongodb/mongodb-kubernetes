@@ -20,7 +20,6 @@ func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { ret
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNumber int, conn om.Connection) appsv1.StatefulSet {
 	svcName := mdbm.GetServiceName(stsNumber, clusterNum)
-	hostname := mdbm.GetServiceFQDN(stsNumber, clusterNum)
 
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -130,6 +129,10 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNu
 									MountPath: "/opt/scripts",
 									ReadOnly:  true,
 								},
+								{
+									Name:      "hostname-override",
+									MountPath: "/opt/scripts/config",
+								},
 							},
 							Env: []corev1.EnvVar{
 								{
@@ -145,7 +148,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNu
 								},
 								{
 									Name:  "AGENT_FLAGS",
-									Value: fmt.Sprintf("-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,-overrideLocalHost,%s,", hostname),
+									Value: fmt.Sprintf("-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,"),
 								},
 								{
 									Name:  "BASE_URL",
@@ -158,6 +161,10 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNu
 								{
 									Name:  "USER_LOGIN",
 									Value: conn.User(),
+								},
+								{
+									Name:  "MULTI_CLUSTER_MODE",
+									Value: "true",
 								},
 							},
 						},
@@ -173,12 +180,20 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNu
 								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
 						},
+						{
+							Name: "hostname-override",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "hostname-override"},
+								},
+							},
+						},
 					},
 					TerminationGracePeriodSeconds: int64Ptr(600),
 					InitContainers: []corev1.Container{
 						{
 							Name:            "mongodb-enterprise-init-database",
-							Image:           "quay.io/mongodb/mongodb-enterprise-init-database:1.0.3",
+							Image:           "268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-init-database:latest",
 							ImagePullPolicy: corev1.PullAlways,
 							SecurityContext: &corev1.SecurityContext{
 								RunAsUser:    int64Ptr(2000),
@@ -188,6 +203,10 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNu
 								{
 									Name:      "database-scripts",
 									MountPath: "/opt/scripts",
+								},
+								{
+									Name:      "hostname-override",
+									MountPath: "/opt/scripts/config",
 								},
 							},
 						},

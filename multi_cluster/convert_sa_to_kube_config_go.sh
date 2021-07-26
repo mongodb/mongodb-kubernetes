@@ -17,8 +17,8 @@ kubectl --context ${CLUSTER2} delete sts --all --namespace ${NAMESPACE} --ignore
 
 go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2} -central-cluster ${CENTRAL_CLUSTER} -member-cluster-namespace ${NAMESPACE} -central-cluster-namespace ${OPERATOR_NAMESPACE} -cleanup # -cluster-scoped
 
-#kubectl --context ${CLUSTER1} label ns ${NAMESPACE} istio-injection=enabled
-#kubectl --context ${CLUSTER2} label ns ${NAMESPACE} istio-injection=enabled
+kubectl --context ${CLUSTER1} label ns ${NAMESPACE} istio-injection=enabled
+kubectl --context ${CLUSTER2} label ns ${NAMESPACE} istio-injection=enabled
 
 # deploy the MDB CRD in central cluster -- OM reconciler watches it
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodb.yaml

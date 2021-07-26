@@ -13,11 +13,13 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -120,6 +122,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	err = r.reconcileServices(log, mrs)
+	if err != nil {
+		log.Error(err)
+		return reconcile.Result{}, err
+	}
+
+	// create configmap with the hostnameoverride
+	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
 	if err != nil {
 		log.Error(err)
 		return reconcile.Result{}, err
@@ -242,6 +251,43 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 			}
 			log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
 		}
+	}
+	return nil
+}
+
+func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, members int) corev1.ConfigMap {
+	data := make(map[string]string)
+
+	for n := 0; n < members; n++ {
+		key := fmt.Sprintf("%s.%s.%s.svc.cluster.local", mrs.GetPodName(n, clusterNum), mrs.GetServiceName(n, clusterNum), mrs.Spec.Namespace)
+		value := fmt.Sprintf("%s.%s.svc.cluster.local", mrs.GetServiceName(n, clusterNum), mrs.Spec.Namespace)
+		data[key] = value
+	}
+
+	cm := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "hostname-override",
+			Namespace: mrs.Spec.Namespace,
+			Labels: map[string]string{
+				"controller": "mongodb-enterprise-operator",
+			},
+		},
+		Data: data,
+	}
+	return cm
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti) error {
+	for i, e := range mrs.GetOrderedClusterSpecList() {
+		client := r.memberClusterClientsMap[e.ClusterName]
+		cm := getHostnameOverrideConfigMap(mrs, i, e.Members)
+
+		err := configmap.CreateOrUpdate(client, cm)
+		if err != nil && !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create configmap: %s in cluster: %s, err: %v", cm.Name, e.ClusterName, err)
+		}
+		log.Infof("Successfully ensured configmap: %s in cluster: %s", cm.Name, e.ClusterName)
+
 	}
 	return nil
 }
