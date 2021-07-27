@@ -109,16 +109,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return reconcile.Result{}, err
 		}
 
-		for num := 0; num < item.Members; num++ {
-			sts := construct.MultiClusterStatefulSet(mrs, i, num, conn)
-			if err := client.Create(context.TODO(), &sts); err != nil {
-				if !errors.IsAlreadyExists(err) {
-					log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
-					return reconcile.Result{}, err
-				}
+		sts := construct.MultiClusterStatefulSet(mrs, i, item.Members, conn)
+		if err := client.Create(context.TODO(), &sts); err != nil {
+			if !errors.IsAlreadyExists(err) {
+				log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
+				return reconcile.Result{}, err
 			}
-			log.Infof("Successfully created StatefulSet in cluster: %s", item.ClusterName)
 		}
+		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
 	}
 
 	err = r.reconcileServices(log, mrs)
@@ -145,9 +143,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 func getMultiClusterAgentHostnames(mrs mdbmultiv1.MongoDBMulti) []string {
 	hostnames := make([]string, 0)
-	for i, spec := range mrs.GetOrderedClusterSpecList() {
-		for j := 0; j < spec.Members; j++ {
-			hostnames = append(hostnames, mrs.GetServiceFQDN(j, i))
+	for clusterNum, spec := range mrs.GetOrderedClusterSpecList() {
+		for podNum := 0; podNum < spec.Members; podNum++ {
+			hostnames = append(hostnames, mrs.GetServiceFQDN(clusterNum, podNum))
 		}
 	}
 	return hostnames
@@ -199,14 +197,14 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 	return nil
 }
 
-func getService(mrs mdbmultiv1.MongoDBMulti, stsNum, clusterNum int) corev1.Service {
+func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Service {
 	labels := map[string]string{
-		"app":        mrs.GetServiceName(stsNum, clusterNum),
-		"controller": "mongodb-enterprise-operator",
+		"statefulset.kubernetes.io/pod-name": mrs.GetPodName(clusterNum, podNum),
+		"controller":                         "mongodb-enterprise-operator",
 	}
 
 	return service.Builder().
-		SetName(mrs.GetServiceName(stsNum, clusterNum)).
+		SetName(mrs.GetServiceName(clusterNum, podNum)).
 		SetNamespace(mrs.Spec.Namespace).
 		SetPort(27017).
 		SetPortName("mongodb").
@@ -223,12 +221,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 	// by default we would create the duplicate services
 	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
 	if shouldCreateDuplicates {
-
 		// iterate over each cluster and create service object corresponding to each of the pods in the multi-cluster RS.
 		for k, v := range r.memberClusterClientsMap {
-			for i, e := range mrs.GetOrderedClusterSpecList() {
-				for n := 0; n < e.Members; n++ {
-					svc := getService(mrs, n, i)
+			for clusterNum, e := range mrs.GetOrderedClusterSpecList() {
+				for podNum := 0; podNum < e.Members; podNum++ {
+					svc := getService(mrs, clusterNum, podNum)
 					err := service.CreateOrUpdateService(v, svc)
 
 					if err != nil && !errors.IsAlreadyExists(err) {
@@ -241,10 +238,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		return nil
 	}
 	// create non-duplicate service objects
-	for i, e := range mrs.GetOrderedClusterSpecList() {
+	for clusterNum, e := range mrs.GetOrderedClusterSpecList() {
 		client := r.memberClusterClientsMap[e.ClusterName]
-		for n := 0; n < e.Members; n++ {
-			svc := getService(mrs, n, i)
+		for podNum := 0; podNum < e.Members; podNum++ {
+			svc := getService(mrs, clusterNum, podNum)
 			err := service.CreateOrUpdateService(client, svc)
 			if err != nil && !errors.IsAlreadyExists(err) {
 				return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, e.ClusterName, err)
@@ -258,9 +255,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, members int) corev1.ConfigMap {
 	data := make(map[string]string)
 
-	for n := 0; n < members; n++ {
-		key := fmt.Sprintf("%s.%s.%s.svc.cluster.local", mrs.GetPodName(n, clusterNum), mrs.GetServiceName(n, clusterNum), mrs.Spec.Namespace)
-		value := fmt.Sprintf("%s.%s.svc.cluster.local", mrs.GetServiceName(n, clusterNum), mrs.Spec.Namespace)
+	for podNum := 0; podNum < members; podNum++ {
+		key := fmt.Sprintf("%s", mrs.GetPodName(clusterNum, podNum))
+		value := fmt.Sprintf("%s.%s.svc.cluster.local", mrs.GetServiceName(clusterNum, podNum), mrs.Spec.Namespace)
 		data[key] = value
 	}
 

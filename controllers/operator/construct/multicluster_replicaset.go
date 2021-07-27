@@ -18,24 +18,20 @@ func int64Ptr(i int64) *int64                                              { ret
 func boolPtr(b bool) *bool                                                 { return &b }
 func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { return &s }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNumber int, conn om.Connection) appsv1.StatefulSet {
-	svcName := mdbm.GetServiceName(stsNumber, clusterNum)
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) appsv1.StatefulSet {
 
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%d-%d", mdbm.Name, stsNumber, clusterNum),
+			Name:      fmt.Sprintf("%s-%d", mdbm.Name, clusterNum),
 			Namespace: mdbm.Spec.Namespace,
 			Labels: map[string]string{
-				"app":        svcName,
 				"controller": "mongodb-enterprise-operator",
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:    int32Ptr(1),
-			ServiceName: svcName,
+			Replicas: int32Ptr(int32(memberCount)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app":               svcName,
 					"controller":        "mongodb-enterprise-operator",
 					"pod-anti-affinity": mdbm.Name,
 				},
@@ -43,7 +39,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, stsNu
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"app":               svcName,
 						"controller":        "mongodb-enterprise-operator",
 						"pod-anti-affinity": mdbm.Name,
 					},

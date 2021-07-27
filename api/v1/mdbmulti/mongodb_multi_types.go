@@ -29,16 +29,16 @@ type MongoDBMulti struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
-func (m MongoDBMulti) GetServiceName(stsNumber, clusterNum int) string {
-	return fmt.Sprintf("%s-%d-%d-svc", m.Name, stsNumber, clusterNum)
+func (m MongoDBMulti) GetServiceName(clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-%d-%d-svc", m.Name, clusterNum, podNum)
 }
 
-func (m MongoDBMulti) GetPodName(stsNumber, clusterNum int) string {
-	return fmt.Sprintf("%s-%d-%d-0", m.Name, stsNumber, clusterNum)
+func (m MongoDBMulti) GetPodName(clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-%d-%d", m.Name, clusterNum, podNum)
 }
 
-func (m MongoDBMulti) GetServiceFQDN(stsNumber, clusterNum int) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(stsNumber, clusterNum), m.Spec.Namespace)
+func (m MongoDBMulti) GetServiceFQDN(clusterNum, podNum int) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(clusterNum, podNum), m.Spec.Namespace)
 }
 
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
