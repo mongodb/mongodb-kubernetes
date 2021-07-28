@@ -50,3 +50,6 @@ multi_cluster/examples/service_account/service_account
 multi_cluster/examples/service_account_using_go/service_account_using_go
 
 _.yaml
+
+# name of binary that is built for the e2e tests
+multi-cluster-kube-config-creator

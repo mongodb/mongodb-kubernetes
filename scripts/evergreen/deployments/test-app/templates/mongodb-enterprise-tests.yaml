@@ -37,7 +37,17 @@ spec:
   serviceAccountName: operator-tests-service-account
   restartPolicy: Never
   terminationGracePeriodSeconds: 0
-
+  {{ if .Values.multiCluster }}
+  volumes:
+    - name: kube-config-volume
+      secret:
+        defaultMode: 420
+        secretName: test-pod-kubeconfig
+    - name: multi-cluster-config
+      secret:
+        defaultMode: 420
+        secretName: test-pod-multi-cluster-config
+  {{ end }}
   containers:
   - name: mongodb-enterprise-operator-tests
     env:
@@ -70,6 +80,8 @@ spec:
       value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
     - name: POD_NAME
       value: 'mongodb-enterprise-operator-testing-pod'
+    - name: KUBECONFIG
+      value: /etc/config/kubeconfig
     {{ if .Values.customOmVersion }}
     - name: CUSTOM_OM_VERSION
       value: {{ .Values.customOmVersion }}
@@ -99,3 +111,10 @@ spec:
     command: ["pytest"]
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
     imagePullPolicy: Always
+    {{ if .Values.multiCluster }}
+    volumeMounts:
+      - mountPath: /etc/config
+        name: kube-config-volume
+      - mountPath: /etc/multicluster
+        name: multi-cluster-config
+    {{ end }}

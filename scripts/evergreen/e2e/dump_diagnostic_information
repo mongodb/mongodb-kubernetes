@@ -11,6 +11,11 @@ source scripts/funcs/printing
 dump_all () {
     [[ "${MODE-}" = "dev" ]] && return
 
+    # TODO: provide a cleaner way of handling this. For now we run the same command with kubectl configured
+    # with a different context.
+    local original_context="$(kubectl config current-context)"
+    kubectl config use-context ${1:-original_context} &> /dev/null
+
     # The dump process usually happens for a single namespace (the one the test and the operator are installed to)
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
     # In this case the python test app may create the test namespace and add necessary labels and annotations so they
@@ -21,6 +26,8 @@ dump_all () {
             dump_namespace "${ns}"
         fi
     done
+
+    kubectl config use-context "${original_context}" &> /dev/null
 }
 
 dump_objects() {
@@ -139,6 +146,9 @@ dump_pods() {
         kubectl describe "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-describe.txt"
         kubectl logs "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-logs.txt"
     done
+
+    operator_pod=$(kubectl get pod -n ${namespace} -l app.kubernetes.io/name=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name")
+    kubectl describe "pod/${operator_pod}" -n "${namespace}" > "logs/z_${operator_pod}-pod-describe.txt"
 }
 
 # dump_diagnostics writes only the *most important information* for debugging
@@ -179,6 +189,8 @@ dump_namespace() {
     dump_secrets "${namespace}"
 
     dump_objects pvc "Persistent Volume Claims" "${namespace}" > logs/z_persistent_volume_claims.txt
+    dump_objects deploy "Deployments" "${namespace}" > logs/z_deployments.txt
+    dump_objects deploy "Deployments" "${namespace}" "describe" > logs/z_deployments_describe.txt
     dump_objects sts "StatefulSets" "${namespace}" describe > logs/z_statefulsets.txt
     dump_objects sts "StatefulSets Yaml" "${namespace}" >> logs/z_statefulsets.txt
     dump_objects serviceaccounts "ServiceAccounts" "${namespace}" > logs/z_service_accounts.txt

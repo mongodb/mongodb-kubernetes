@@ -82,10 +82,13 @@ rules:
   - mongodbusers
   - opsmanagers
   - opsmanagers/finalizers
+  - mongodbmulti
+  - mongodbmulti/finalizers
 {{- if .Values.subresourceEnabled }}
   - mongodb/status
   - mongodbusers/status
   - opsmanagers/status
+  - mongodbmulti/status
 {{- end }}
   verbs:
   - "*"

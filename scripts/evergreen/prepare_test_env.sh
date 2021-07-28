@@ -78,6 +78,9 @@ echo "Installing/Upgrading all CRDs"
 # so we apply the CRDs. The next run the `kubectl replace` will succeed.
 kubectl replace -f public/helm_chart/crds || kubectl apply -f public/helm_chart/crds
 
+# TODO: remove special case
+kubectl replace -f config/crd/bases/mongodb.com_mongodbmulti.yaml || kubectl apply -f config/crd/bases/mongodb.com_mongodbmulti.yaml
+
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then
     ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}" "${ecr_registry:-}" "${version_id:-}"
 fi

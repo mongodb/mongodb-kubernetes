@@ -36,6 +36,7 @@ class Operator(object):
         helm_chart_path: Optional[str] = "helm_chart",
         name: Optional[str] = "mongodb-enterprise-operator",
         enable_webhook_check: bool = True,
+        api_client: Optional[client.api_client.ApiClient] = None
     ):
         if helm_args is None:
             helm_args = {}
@@ -49,6 +50,7 @@ class Operator(object):
         self.helm_chart_path = helm_chart_path
         self.name = name
         self.enable_webhook_check = enable_webhook_check
+        self.api_client = api_client
 
     def install_from_template(self):
         """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
@@ -94,11 +96,11 @@ class Operator(object):
 
     def delete_operator_deployment(self):
         """ Deletes the Operator deployment from K8s cluster. """
-        client.AppsV1Api().delete_namespaced_deployment(self.name, self.namespace)
+        client.AppsV1Api(api_client=self.api_client).delete_namespaced_deployment(self.name, self.namespace)
 
     def list_operator_pods(self) -> List[V1Pod]:
         pods = (
-            client.CoreV1Api()
+            client.CoreV1Api(api_client=self.api_client)
             .list_namespaced_pod(
                 self.namespace,
                 label_selector="app.kubernetes.io/name={}".format(self.name),
@@ -108,7 +110,7 @@ class Operator(object):
         return pods
 
     def read_deployment(self) -> V1Deployment:
-        return client.AppsV1Api().read_namespaced_deployment(self.name, self.namespace)
+        return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
     def assert_is_running(self):
         """Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get

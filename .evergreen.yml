@@ -50,6 +50,12 @@ variables:
   - &kubernetes_environment_vanilla
     kube_environment_name: vanilla
 
+    # Multi Cluster Environment
+  - &kubernetes_environment_multi_cluster
+    kube_environment_name: multi
+    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com"
+    central_cluster: e2e.operator.mongokubernetes.com
+
   - &kubernetes_environment_kind
     kube_environment_name: kind
     # we can use kind to test ubi images, however we must disable managed security context
@@ -102,6 +108,19 @@ functions:
       type: setup
       params:
         directory: src/github.com/10gen/ops-manager-kubernetes
+
+  build_multi_cluster_binary:
+  - command: subprocess.exec
+    type: setup
+    params:
+      add_to_path:
+        - *go_bin
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+        - workdir
+      env:
+        <<: [ *go_options ]
+      binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
 
   test_operator:
     - command: subprocess.exec
@@ -273,7 +292,6 @@ functions:
     params:
       command: "docker system prune -a -f"
 
-
   # the task configures the set of tools necessary for any task working with K8 cluster:
   # installs kubectl, jq, kind (if necessary), configures docker authentication
   download_kube_tools:
@@ -313,6 +331,8 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       include_expansions_in_env:
       - cluster_name
+      - central_cluster
+      - member_clusters
       - kube_environment_name
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_secret
@@ -437,6 +457,8 @@ functions:
           - usaf_operator_version
           - usaf_database_version
           - agent_version
+          - central_cluster
+          - member_clusters
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -460,6 +482,7 @@ functions:
           TEST_MODE: ${test_mode}
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
           IMAGE_TYPE: ${image_type}
+          KUBE_ENVIRONMENT_NAME: ${kube_environment_name}
 
         binary: scripts/evergreen/e2e/e2e.sh
 
@@ -661,6 +684,7 @@ tasks:
   commands:
   - func: clone
   - func: setup_building_host
+  - func: build_multi_cluster_binary
   - func: pipeline
     vars:
       image_name: test
@@ -762,7 +786,7 @@ tasks:
     - func: prepare_test_env
       vars:
         <<: *ops_manager_44_current
-        
+
 
 - name: prepare_cluster_vanilla_om
   exec_timeout_secs: 600
@@ -1625,6 +1649,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_replica_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: release_appdb
   patch_only: true
   commands:
@@ -1982,6 +2012,25 @@ task_groups:
     - func: prune_docker_resources
 
 
+- name: e2e_multi_cluster_task_group
+  max_hosts: 2
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_multi_cluster_replica_set
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+
+
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
 # including the cluster-wide resources changing. Uses Cloud-qa.
 - name: e2e_ops_manager_kind_only_task_group
@@ -2328,6 +2377,25 @@ buildvariants:
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group
+
+# Multi Cluster build variants
+- name: e2e_multi_cluster
+  display_name: e2e_multi_cluster
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
+    image_type: ubuntu
+  tasks:
+    - name: e2e_multi_cluster_task_group
+
 
 ## Operator tests build variants
 

@@ -10,6 +10,18 @@ if [ -f "${context_config}" ]; then
     exit 1
 fi
 
+if  [ "${kube_environment_name}" = "vanilla" ] || [ "${kube_environment_name}" = "multi" ]; then
+    export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key:?}"
+    export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret:?}"
+    export AWS_DEFAULT_REGION="${mms_eng_test_aws_region:?}"
+    export KOPS_STATE_STORE=s3://kube-om-state-store
+
+    echo "Downloading kops"
+    curl -s -L https://github.com/kubernetes/kops/releases/download/v1.19.1/kops-linux-amd64 -o kops
+    chmod +x kops
+    mv kops "${bindir}"
+fi
+
 if [ "${kube_environment_name}" = "openshift_4" ]; then
     echo "Downloading OC & setting up Openshift 4 cluster"
     OC_PKG=oc-linux.tar.gz
@@ -27,16 +39,6 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
     else
         export CLUSTER=e2e.mongokubernetes.com
     fi
-
-    export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key:?}"
-    export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret:?}"
-    export AWS_DEFAULT_REGION="${mms_eng_test_aws_region:?}"
-    export KOPS_STATE_STORE=s3://kube-om-state-store
-
-    echo "Downloading kops"
-    curl -s -L https://github.com/kubernetes/kops/releases/download/v1.19.1/kops-linux-amd64 -o kops
-    chmod +x kops
-    mv kops "${bindir}"
 
     if ! kops get clusters | grep -q $CLUSTER; then
         echo "Cluster $CLUSTER not found, exiting..."
@@ -58,6 +60,17 @@ elif [ "${kube_environment_name}" = "kind" ]; then
 elif [[ "${kube_environment_name}" = "minikube" ]]; then
     echo "Starting Minikube"
     minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=50g &> /dev/null
+    mv "${HOME}"/.kube/config "${context_config}"
+elif [[ "${kube_environment_name}" = "multi" ]]; then
+
+    # TODO: ensure that the clusters exist and are configured correctly.
+
+    kops export kubecfg "${central_cluster}" --admin=87600h
+    # configure kube config with all member clusters
+    for member_cluster in ${member_clusters}; do
+      kops export kubecfg "${member_cluster}" --admin=87600h
+    done
+
     mv "${HOME}"/.kube/config "${context_config}"
 else
     echo "kube_environment_name not recognized"

@@ -68,8 +68,20 @@ echo "This task is allowed to run for ${timeout_sec} seconds"
 TEST_RESULTS=0
 timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
 
-# Dump all the information we can from this namespace
-dump_all || true
+# Dump information from all clusters.
+# TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
+if [[ "${kube_environment_name}" = "multi" ]]; then
+    echo "Dumping diagnostics for context ${central_cluster}"
+    dump_all "${central_cluster}" || true
+
+    for member_cluster in ${member_clusters}; do
+      echo "Dumping diagnostics for context ${member_cluster}"
+      dump_all "${member_cluster}" || true
+    done
+else
+    # Dump all the information we can from this namespace
+    dump_all || true
+fi
 
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     # Mark namespace as failed to be cleaned later

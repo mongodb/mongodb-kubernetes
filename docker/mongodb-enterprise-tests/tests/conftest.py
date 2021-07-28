@@ -1,7 +1,7 @@
 import logging
 import os
+import subprocess
 import tempfile
-import time
 from typing import Optional, Dict
 
 from urllib3.util.retry import Retry
@@ -24,6 +24,10 @@ try:
 except Exception:
     kubernetes.config.load_incluster_config()
 
+
+KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
+MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
+CENTRAL_CLUSTER_NAME = "e2e.operator.mongokubernetes.com"
 
 @fixture(scope="module")
 def namespace() -> str:
@@ -206,6 +210,27 @@ def default_operator(
 
 
 @fixture(scope="module")
+def central_cluster_client(cluster_clients: Dict[str, kubernetes.client.api_client.ApiClient]) -> kubernetes.client.api_client.ApiClient:
+    return cluster_clients[CENTRAL_CLUSTER_NAME]
+
+
+@fixture(scope="module")
+def multi_cluster_operator(
+        namespace: str,
+        operator_installation_config: Dict[str, str],
+        central_cluster_client: kubernetes.client.api_client.ApiClient,
+) -> Operator:
+    # ensure we install the operator in the central cluster.
+    os.environ["HELM_KUBECONTEXT"] = CENTRAL_CLUSTER_NAME
+    return Operator(
+        namespace=namespace,
+        helm_args=operator_installation_config,
+        api_client=central_cluster_client,
+        enable_webhook_check=False,
+    ).upgrade(install=True)
+
+
+@fixture(scope="module")
 def operator_deployment_name(image_type: str) -> str:
     if image_type == "ubi":
         return "enterprise-operator"
@@ -334,3 +359,50 @@ def fetch_latest_released_operator_version() -> str:
     response.raise_for_status()
 
     return response.json()["tag_name"]
+
+
+def _read_multi_cluster_config_value(value: str) -> str:
+    filepath = f"{MULTI_CLUSTER_CONFIG_DIR}/{value}"
+    if not os.path.isfile(filepath):
+        raise ValueError(f"{filepath} does not exist!")
+    with open(filepath, "r") as f:
+        return f.read()
+
+
+def _get_client_for_cluster(cluster_name: str) -> kubernetes.client.api_client.ApiClient:
+    token = _read_multi_cluster_config_value(cluster_name)
+    if not token:
+        raise ValueError(f"No token found for cluster {cluster_name}")
+
+    kubernetes.config.load_kube_config(
+        context=cluster_name, config_file=KUBECONFIG_FILEPATH
+    )
+    configuration = kubernetes.client.Configuration()
+    configuration.host = f"https://api.{cluster_name}"
+    configuration.verify_ssl = False
+    configuration.api_key = {"authorization": f"Bearer {token}"}
+    return kubernetes.client.api_client.ApiClient(configuration=configuration)
+
+
+@fixture(scope="module")
+def cluster_clients(namespace: str) -> Dict[str, kubernetes.client.api_client.ApiClient]:
+    central_cluster = _read_multi_cluster_config_value("central_cluster")
+    member_clusters = [_read_multi_cluster_config_value("member_cluster_1"), _read_multi_cluster_config_value("member_cluster_2")]
+    member_clusters_str = ",".join(member_clusters)
+    subprocess.call(
+        [
+            "multi-cluster-kube-config-creator",
+            "-member-clusters",
+            member_clusters_str,
+            "-central-cluster",
+            central_cluster,
+            "-member-cluster-namespace",
+            namespace,
+            "-central-cluster-namespace",
+            namespace,
+            "-cleanup",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return {c: _get_client_for_cluster(c) for c in [central_cluster] + member_clusters}

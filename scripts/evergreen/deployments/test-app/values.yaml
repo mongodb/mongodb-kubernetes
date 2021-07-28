@@ -23,3 +23,6 @@ skipExecution: 'false'
 # Set this when the ECR registry is not accessible from the testing cluster.
 # A Secret with type kubernetes.io/dockerconfigjson needs to exist.
 imagePullSecrets:
+
+# Set this to "true" to configure the test pod for running a multi cluster test.
+multiCluster: ""

@@ -70,6 +70,10 @@ prepare_operator_config_map() {
       config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database")
     fi
 
+    if [[ "${kube_environment_name}" = "multi" ]]; then
+       comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
+       config+=("--from-literal" "multiCluster.clusters={${comma_separated_list}}")
+    fi
 
     if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
       config+=("--from-literal useRunningOperator=true")
@@ -81,6 +85,71 @@ prepare_operator_config_map() {
     ! kubectl get configmap operator-installation-config -n "${PROJECT_NAMESPACE}" && \
           fatal "Failed to create ConfigMap operator-installation-config"
 
+}
+
+ensure_test_namespace(){
+    local context=${1}
+    kubectl create ns --context "${context}"  ${PROJECT_NAMESPACE}  || true
+    kubectl label ns "${PROJECT_NAMESPACE}" --context "${context}" "evg=task" || true
+    kubectl annotate ns "${PROJECT_NAMESPACE}" --context "${context}" "evg/task=https://evergreen.mongodb.com/task/${task_id}"
+}
+
+configure_multi_cluster_environment(){
+    echo "Running a multi cluster test, configuring e2e roles in all clusters and kubeconfig secret."
+
+    echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
+    kubectl create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}"
+
+
+    local helm_template_file=$(mktemp)
+
+    helm_params=(
+        "--set" "namespace=${PROJECT_NAMESPACE}"
+        "--set" "imagePullSecrets=image-registries-secret"
+    )
+
+    helm template "scripts/evergreen/deployments/multi-cluster-roles" "${helm_params[@]}" > "${helm_template_file}" || exit 1
+
+    echo "Ensuring namespaces"
+
+    ensure_test_namespace "${central_cluster}"
+    for member_cluster in ${member_clusters}; do
+      ensure_test_namespace "${member_cluster}"
+    done
+
+    echo "Creating required roles and service accounts."
+    kubectl --context "${central_cluster}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
+    for member_cluster in ${member_clusters}; do
+      kubectl --context "${member_cluster}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
+    done
+
+    rm "${helm_template_file}"
+
+    # wait some time for service account token secrets to appear.
+    sleep 3
+
+    local service_account_name="operator-tests-multi-cluster-service-account"
+    local secret_name="$(kubectl --context  "${central_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
+    local central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
+    echo "Creating Multi Cluster configuration secret"
+
+    configuration_params=(
+      "--from-literal=${central_cluster}=${central_cluster_token}"
+      "--from-literal=central_cluster=${central_cluster}"
+    )
+
+    INDEX=1
+    for member_cluster in ${member_clusters}; do
+      secret_name="$(kubectl --context  "${member_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
+      local member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
+      configuration_params+=(
+         "--from-literal=${member_cluster}=${member_cluster_token}"
+         "--from-literal=member_cluster_${INDEX}=${member_cluster}"
+      )
+      let "INDEX++"
+    done
+
+    kubectl create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}"
 }
 
 deploy_test_app() {
@@ -108,6 +177,11 @@ deploy_test_app() {
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
 
     )
+
+    if [[ ${kube_environment_name} = "multi" ]]; then
+        helm_params+=("--set" "multiCluster=true")
+    fi
+
     if [[ -n "${custom_om_version:-}" ]]; then
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${custom_om_version}")
@@ -169,6 +243,10 @@ run_tests() {
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
     prepare_operator_config_map
+
+    if [[ "${kube_environment_name}" = "multi" ]]; then
+      configure_multi_cluster_environment
+    fi
 
     deploy_test_app
 

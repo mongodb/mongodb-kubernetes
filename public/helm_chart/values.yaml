@@ -75,6 +75,10 @@ registry:
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
+multiCluster:
+  clusters: []
+  kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+
 # Set this to true if the operator will require Kubernetes CA
 # infrastructure to generate TLS certificates.
 needsCAInfrastructure: true
