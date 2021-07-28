@@ -120,6 +120,7 @@ type ClusterStatusItem struct {
 }
 
 type MongoDBMultiStatus struct {
+	Status            status.Common       `json:",inline"`
 	ClusterStatusList ClusterStatusList   `json:"clusterStatusList,omitempty"`
 	BackupStatus      *mdbv1.BackupStatus `json:"backup,omitempty"`
 	Version           string              `json:"version"`

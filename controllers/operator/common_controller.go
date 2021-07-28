@@ -30,7 +30,6 @@ import (
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -152,15 +151,7 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResource
 		if err := c.ensureStatusSubresourceExists(resource, options...); err != nil {
 			return err
 		}
-		err = c.client.Status().Patch(context.TODO(), resource, patch)
-	}
-
-	if err != nil {
-		if apiErrors.IsNotFound(err) || apiErrors.IsForbidden(err) {
-			zap.S().Debugf("Patching the status subresource is not supported - will patch the whole object (error: %s)", err)
-			return c.patchStatusLegacy(resource, patch)
-		}
-		return err
+		c.client.Status().Patch(context.TODO(), resource, patch)
 	}
 
 	return nil
@@ -200,40 +191,6 @@ func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.Cu
 	return nil
 }
 
-// patchStatusLegacy performs status update if the subresources endpoint is not supported
-// TODO Remove when we stop supporting Openshift 3.11 and K8s 1.11
-func (c *ReconcileCommonController) patchStatusLegacy(resource v1.CustomResourceReadWriter, patch client.Patch) error {
-	err := c.client.Patch(context.TODO(), resource, patch)
-	if err != nil {
-		zap.S().Debugf("Failed to apply patch to the status - the field may not exist, we'll add it (error: %s)", err)
-		// The replace for status fails if 'status' field doesn't exist may result
-		// in "the server rejected our request due to an error in our request" or
-		// "jsonpatch replace operation does not apply: doc is missing key: /status"
-		// the fix is to first create the 'status' field and the second to patch it
-		// Note, that this is quite safe to do as will happen only once for the very first reconciliation of the custom resource
-		// see https://github.com/mongodb/mongodb-enterprise-kubernetes/issues/99
-		// see https://stackoverflow.com/questions/57480205/error-while-applying-json-patch-to-kubernetes-custom-resource
-		emptyPatchPayload := []patchValue{{
-			Op:    "add",
-			Path:  "/status",
-			Value: omv1.MongoDBOpsManagerStatus{},
-		}}
-		data, err := json.Marshal(emptyPatchPayload)
-		if err != nil {
-			return err
-		}
-		emptyPatch := client.RawPatch(types.JSONPatchType, data)
-		err = c.client.Patch(context.TODO(), resource, emptyPatch)
-		if err != nil {
-			return err
-		}
-		zap.S().Debugf("Added status field, patching it now")
-		// Second patch will perform the normal operation
-		return c.client.Patch(context.TODO(), resource, patch)
-	}
-	return nil
-}
-
 // getResource populates the provided runtime.Object with some additional error handling
 func (c *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
@@ -254,20 +211,20 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 // prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcileAppDB.Status' and error
 // If the 'reconcileAppDB.Status' pointer is not nil - the client is expected to finish processing
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
-	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
+	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
 	if result, err := c.getResource(request, resource, log); result != nil {
-		return result, err
+		return *result, err
 	}
 
 	result, err := c.updateStatus(resource, workflow.Reconciling(), log)
 	if err != nil {
-		return &result, err
+		return result, err
 	}
 
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
 	resource.SetWarnings([]status.Warning{})
 
-	return nil, nil
+	return reconcile.Result{}, nil
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.

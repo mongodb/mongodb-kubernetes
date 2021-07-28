@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
@@ -80,8 +81,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != nil {
-		return *reconcileResult, err
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != (reconcile.Result{}) {
+		return reconcileResult, err
 	}
 
 	log.Info("-> ReplicaSet.Reconcile")

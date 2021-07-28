@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
@@ -109,8 +110,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); reconcileResult != nil {
-		return *reconcileResult, err
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); reconcileResult != (reconcile.Result{}) {
+		return reconcileResult, err
 	}
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {

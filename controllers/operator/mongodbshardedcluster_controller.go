@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -72,8 +73,8 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 	sc := &mdbv1.MongoDB{}
 
 	reconcileResult, err := r.prepareResourceForReconciliation(request, sc, log)
-	if reconcileResult != nil {
-		return *reconcileResult, err
+	if reconcileResult != (reconcile.Result{}) {
+		return reconcileResult, err
 	}
 
 	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {

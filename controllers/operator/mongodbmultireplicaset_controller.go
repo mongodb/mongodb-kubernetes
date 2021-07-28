@@ -3,8 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -78,39 +76,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	// Fetch the MongoDBMulti instance
 	mrs := mdbmultiv1.MongoDBMulti{}
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, &mrs, log); reconcileResult != nil {
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, &mrs, log); reconcileResult != (reconcile.Result{}) {
 		log.Errorf("error preparing resource for reconciliation: %s", err)
-		return *reconcileResult, err
+		return reconcileResult, err
 	}
 
-	// FIXME: failed on update because this value was nil
-	mrs.Spec.Agent.StartupParameters = map[string]string{}
-
-	finalizerName := "mongodbmulti/finalizers"
-	if mrs.ObjectMeta.DeletionTimestamp != nil {
-		// resource is being deleted.
-		if controllerutil.ContainsFinalizer(&mrs, finalizerName) {
-			if err := handleDeletion(mrs, log); err != nil {
-				log.Errorf("Error cleaning up dependant resources: %s", err)
-				return reconcile.Result{}, err
-			}
-			// remove our finalizer from the list and update it.
-			controllerutil.RemoveFinalizer(&mrs, finalizerName)
-			if err := r.client.Update(ctx, &mrs); err != nil {
-				return reconcile.Result{}, err
-			}
-			log.Infof("Successfully cleaned up dependant resources for resource %s", request.NamespacedName)
-		}
-		return reconcile.Result{}, nil
-	}
-
-	if !controllerutil.ContainsFinalizer(&mrs, finalizerName) {
-		controllerutil.AddFinalizer(&mrs, finalizerName)
-		if err := r.client.Update(ctx, &mrs); err != nil {
-			log.Errorf("Error setting finalizer: %s", err)
-			return reconcile.Result{}, err
-		}
-	}
 	// read Ops Manager configuration from the same namespace as the operator.
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs)
 	if err != nil {
@@ -169,11 +139,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log.Infow("Successfully finished reconcilliation", "MultiReplicaSetSpec", mrs.Spec)
 	return reconcile.Result{}, nil
-}
-
-func handleDeletion(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
-	log.Infof("TODO: Handling deletion for resource %s", kube.ObjectKey(mrs.Namespace, mrs.Name))
-	return nil
 }
 
 func getMultiClusterAgentHostnames(mrs mdbmultiv1.MongoDBMulti) []string {
