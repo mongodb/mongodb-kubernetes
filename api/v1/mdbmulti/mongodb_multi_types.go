@@ -39,7 +39,7 @@ func (m MongoDBMulti) GetPodName(clusterNum, podNum int) string {
 }
 
 func (m MongoDBMulti) GetServiceFQDN(clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(clusterNum, podNum), m.Spec.Namespace)
+	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(clusterNum, podNum), m.Namespace)
 }
 
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
@@ -161,8 +161,6 @@ type MongoDBMultiSpec struct {
 	// +optional
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 
-	// Namespace is the namespace that the created resources are deployed to in the member clusters.
-	Namespace       string          `json:"namespace"`
 	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
 
 	OpsManagerConfig mdbv1.PrivateCloudConfig `json:"opsManager"`

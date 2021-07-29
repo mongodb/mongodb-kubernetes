@@ -98,14 +98,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, err
 	}
 
-	log = log.With("MemberCluster Namespace", mrs.Spec.Namespace)
+	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
 	for i, item := range mrs.GetOrderedClusterSpecList() {
 		client := r.memberClusterClientsMap[item.ClusterName]
 		// copy the agent api key to the member cluster.
 		err := copySecret(r.client, client,
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
-			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Spec.Namespace},
+			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
 		)
 
 		if err != nil {
@@ -209,7 +209,7 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 
 	return service.Builder().
 		SetName(mrs.GetServiceName(clusterNum, podNum)).
-		SetNamespace(mrs.Spec.Namespace).
+		SetNamespace(mrs.Namespace).
 		SetPort(27017).
 		SetPortName("mongodb").
 		SetSelector(labels).
@@ -261,14 +261,14 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 
 	for podNum := 0; podNum < members; podNum++ {
 		key := fmt.Sprintf("%s", mrs.GetPodName(clusterNum, podNum))
-		value := fmt.Sprintf("%s.%s.svc.cluster.local", mrs.GetServiceName(clusterNum, podNum), mrs.Spec.Namespace)
+		value := fmt.Sprintf("%s.%s.svc.cluster.local", mrs.GetServiceName(clusterNum, podNum), mrs.Namespace)
 		data[key] = value
 	}
 
 	cm := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "hostname-override",
-			Namespace: mrs.Spec.Namespace,
+			Namespace: mrs.Namespace,
 			Labels: map[string]string{
 				"controller": "mongodb-enterprise-operator",
 			},

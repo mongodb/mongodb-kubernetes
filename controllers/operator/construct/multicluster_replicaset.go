@@ -23,7 +23,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%d", mdbm.Name, clusterNum),
-			Namespace: mdbm.Spec.Namespace,
+			Namespace: mdbm.Namespace,
 			Labels: map[string]string{
 				"controller": "mongodb-enterprise-operator",
 			},
