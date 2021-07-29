@@ -43,14 +43,17 @@ fix_env() {
 }
 
 deploy_cluster_cleaner() {
-    ops_manager_namespace="${1}"
-    cleaner_namespace="cluster-cleaner"
-    if ! kubectl get "ns/${cleaner_namespace=}" &> /dev/null ; then
-        kubectl create namespace "${cleaner_namespace=}"
+    local current_context="$(kubectl config current-context)"
+    local ops_manager_namespace="${1}"
+    local context="${2:-$current_context}"
+    local cleaner_namespace="cluster-cleaner"
+
+    if ! kubectl --context "${context}" get "ns/${cleaner_namespace=}" &> /dev/null ; then
+        kubectl --context "${context}" create namespace "${cleaner_namespace=}"
     fi
 
     if [[ -n "${ops_manager_namespace}" ]]; then
-        kubectl create namespace "${ops_manager_namespace}" || true
+        kubectl --context "${context}" create namespace "${ops_manager_namespace}" || true
     fi
 
     helm template docker/cluster-cleaner \
@@ -58,7 +61,7 @@ deploy_cluster_cleaner() {
          --set namespace="${ops_manager_namespace}" \
          --set cleanerNamespace=cluster-cleaner \
          > cluster-cleaner.yaml
-    kubectl apply -f cluster-cleaner.yaml
+    kubectl --context "${context}" apply -f cluster-cleaner.yaml
     rm cluster-cleaner.yaml
 }
 
@@ -70,7 +73,15 @@ echo "Fixing AWS problems if any"
 fix_env
 
 echo "Deploying cluster-cleaner"
-deploy_cluster_cleaner "${ops_manager_namespace}"
+
+if [[ "${kube_environment_name}" = "multi" ]]; then
+    deploy_cluster_cleaner "${ops_manager_namespace}" "${central_cluster}"
+    for member_cluster in ${member_clusters}; do
+        deploy_cluster_cleaner "${ops_manager_namespace}" "${member_cluster}"
+    done
+else
+    deploy_cluster_cleaner "${ops_manager_namespace}"
+fi
 
 echo "Installing/Upgrading all CRDs"
 # Both replace and apply are required. If there are no CRDs on this cluster
@@ -78,8 +89,9 @@ echo "Installing/Upgrading all CRDs"
 # so we apply the CRDs. The next run the `kubectl replace` will succeed.
 kubectl replace -f public/helm_chart/crds || kubectl apply -f public/helm_chart/crds
 
-# TODO: remove special case
-kubectl replace -f config/crd/bases/mongodb.com_mongodbmulti.yaml || kubectl apply -f config/crd/bases/mongodb.com_mongodbmulti.yaml
+if [[ "${kube_environment_name}" = "multi" ]]; then
+    kubectl apply --context "${central_cluster}" -f config/crd/bases/mongodb.com_mongodbmulti.yaml
+fi
 
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then
     ensure_ops_manager_k8s "${ops_manager_namespace}" "${ops_manager_version}" "${node_port}" "${ecr_registry:-}" "${version_id:-}"

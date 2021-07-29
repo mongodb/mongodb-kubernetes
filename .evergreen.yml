@@ -505,6 +505,9 @@ functions:
         include_expansions_in_env:
         - ecr_registry
         - version_id
+        - kube_environment_name
+        - member_clusters
+        - central_cluster
         command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
   #
   # Performs some AWS cleanup
@@ -786,6 +789,17 @@ tasks:
     - func: prepare_test_env
       vars:
         <<: *ops_manager_44_current
+
+- name: prepare_multi_cluster
+  exec_timeout_secs: 1800
+  priority: 59
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_kubernetes_environment
+      vars:
+        <<: [ *kubernetes_environment_multi_cluster ]
+    - func: prepare_test_env
 
 
 - name: prepare_cluster_vanilla_om
@@ -2390,6 +2404,8 @@ buildvariants:
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
+    - name: prepare_multi_cluster
+      variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
     image_type: ubuntu
@@ -2516,6 +2532,7 @@ buildvariants:
     - name: build_init_database_image_ubi
     - name: prepare_cluster_vanilla
     - name: prepare_cluster_vanilla_om
+    - name: prepare_multi_cluster
     - name: prepare_aws
 
   # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
