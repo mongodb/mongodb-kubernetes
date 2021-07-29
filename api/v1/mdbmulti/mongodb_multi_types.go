@@ -19,8 +19,9 @@ func init() {
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
-// +kubebuilder:resource:path= mongodbmulti,scope=Namespaced,shortName=mdbm
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:path= mongodbmulti,scope=Namespaced,shortName=mdbm
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 type MongoDBMulti struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -120,7 +121,7 @@ type ClusterStatusItem struct {
 }
 
 type MongoDBMultiStatus struct {
-	Status            status.Common       `json:",inline"`
+	status.Common     `json:",inline"`
 	ClusterStatusList ClusterStatusList   `json:"clusterStatusList,omitempty"`
 	BackupStatus      *mdbv1.BackupStatus `json:"backup,omitempty"`
 	Version           string              `json:"version"`
@@ -183,4 +184,13 @@ func (m *MongoDBMulti) SetWarnings(warnings []status.Warning, _ ...status.Option
 	m.Status.Warnings = warnings
 }
 
-func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {}
+func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+
+	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
+		if m.Status.BackupStatus == nil {
+			m.Status.BackupStatus = &mdbv1.BackupStatus{}
+		}
+		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
+	}
+}

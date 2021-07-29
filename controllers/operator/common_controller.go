@@ -149,9 +149,10 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResource
 	if err != nil && apiErrors.IsInvalid(err) {
 		zap.S().Debug("The Status subresource might not exist yet, creating empty subresource")
 		if err := c.ensureStatusSubresourceExists(resource, options...); err != nil {
+			zap.S().Debug("Error from ensuring status subresource: %s", err)
 			return err
 		}
-		c.client.Status().Patch(context.TODO(), resource, patch)
+		return c.client.Status().Patch(context.TODO(), resource, patch)
 	}
 
 	return nil
