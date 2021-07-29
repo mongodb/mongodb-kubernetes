@@ -41,7 +41,7 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
 
 def download_dockerfile_from_s3(image: str, version: str, distro: str) -> str:
     url = (
-        f"{URL_LOCATION_BASE}/mongodb-enterprise-{image}/Dockerfile.{distro}-{version}"
+        f"{URL_LOCATION_BASE}/mongodb-enterprise-{image}/{version}/{distro}/Dockerfile"
     )
     return requests.get(url).text
 

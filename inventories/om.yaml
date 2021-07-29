@@ -82,7 +82,7 @@ images:
     - om_version
 
     output:
-    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.om_version)
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.om_version)/ubuntu/Dockerfile
 
   - name: ops-manager-template
     task_type: dockerfile_template
@@ -94,7 +94,7 @@ images:
     - om_version
 
     output:
-    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.om_version)
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.om_version)/ubi/Dockerfile
 
   - name: ops-manager-context-release
     task_type: tag_image
@@ -119,7 +119,7 @@ images:
     inputs:
     - build_id
 
-    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubuntu-$(inputs.params.release_version)
+    dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubuntu/Dockerfile
     buildargs:
       imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
 
@@ -135,7 +135,7 @@ images:
     inputs:
     - build_id
 
-    dockerfile: $(inputs.params.s3_bucket_http)/Dockerfile.ubi-$(inputs.params.release_version)
+    dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
     buildargs:
       imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
 

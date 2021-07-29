@@ -100,7 +100,7 @@ images:
       - release_version
 
       output:
-      - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.release_version)
+      - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.release_version)/ubi/Dockerfile
 
     - name: operator-template-ubuntu
       task_type: dockerfile_template
@@ -111,4 +111,4 @@ images:
       - release_version
 
       output:
-      - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.release_version)
+      - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.release_version)/ubuntu/Dockerfile

@@ -86,7 +86,7 @@ images:
     - version
 
     output:
-    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
 
   - name: database-template-ubuntu
     task_type: dockerfile_template
@@ -97,4 +97,4 @@ images:
     - version
 
     output:
-    - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
+    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubuntu/Dockerfile

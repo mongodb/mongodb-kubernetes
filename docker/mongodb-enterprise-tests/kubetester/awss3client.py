@@ -23,6 +23,22 @@ class AwsS3Client:
 
         self.s3_client.delete_bucket(Bucket=name)
 
+    def upload_file(
+        self, file_path: str, bucket: str, object_name: str, public_read: bool = False
+    ):
+        """Upload a file to an S3 bucket.
+
+        Args:
+            file_name: File to upload
+            bucket: Bucket to upload to
+            object_name: S3 object name
+
+        Throws botocore.exceptions.ClientError if upload fails
+        """
+
+        extraArgs = {"ACL": "public-read"} if public_read else None
+        self.s3_client.upload_file(file_path, bucket, object_name, extraArgs)
+
 
 def s3_endpoint(aws_region: str) -> str:
     return f"s3.{aws_region}.amazonaws.com"

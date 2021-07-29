@@ -138,7 +138,7 @@ reference:
 The outcome of the execution of the `release_quay`
 task *will not be new Images published but instead*:
 
-1. A Dockerfile corresponding to this version & distro will be uploaded to S3 ([example Dockerfile for 1.9.0/ubuntu](https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator/Dockerfile.ubuntu-1.9.0) & [example Dockerfile for 1.9.0/ubi](https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator/Dockerfile.ubi-1.9.0)).
+1. A Dockerfile corresponding to this version & distro will be uploaded to S3 ([example Dockerfile for 1.9.0/ubuntu](https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator/1.9.0/ubuntu/Dockerfile) & [example Dockerfile for 1.9.0/ubi](https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/mongodb-enterprise-operator/1.9.0/ubi/Dockerfile)).
 2. A context container image, containing all the container context to build this image from scratch ([example Container image](https://quay.io/mongodb/mongodb-enterprise-operator:1.9.0-context))
 
 These 2 artifacts will be used daily to produce new builds of the image in

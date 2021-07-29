@@ -104,7 +104,7 @@ images:
         - is_appdb
 
         output:
-        - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubi-$(inputs.params.version)
+        - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
 
       - name: init-database-template-ubuntu
         task_type: dockerfile_template
@@ -115,4 +115,4 @@ images:
           - is_appdb
 
         output:
-        - dockerfile: $(inputs.params.s3_bucket)/Dockerfile.ubuntu-$(inputs.params.version)
+        - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubuntu/Dockerfile
