@@ -5,7 +5,7 @@
 * Make sure to checkout this project into the `src/github.com/10gen` folder in the `$GOPATH` directory as described
  [here](https://golang.org/doc/code.html). So if your `$GOPATH` variable points to `/home/user/go` then the project 
  must be checked out into `/Users/user/go/src/github.com/10gen/ops-manager-kubernetes`
-* [Go](https://golang.org/doc/install): Go programming language (please use latest `1.15`)
+* [Go](https://golang.org/doc/install): Go programming language (please use latest `1.16`)
 
 
 ## Compile Operator ##

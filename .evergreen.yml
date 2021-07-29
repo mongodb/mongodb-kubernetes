@@ -62,11 +62,11 @@ variables:
     managed_security_context: "false"
 
   - &go_bin
-    "/opt/golang/go1.15/bin"
+    "/opt/golang/go1.16/bin"
 
   - &go_options
     GO111MODULE: "on"
-    GOROOT: "/opt/golang/go1.15"
+    GOROOT: "/opt/golang/go1.16"
 
 parameters:
 - key: registry
