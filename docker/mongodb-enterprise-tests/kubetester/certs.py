@@ -7,15 +7,26 @@ import collections
 from datetime import datetime, timezone
 from kubernetes import client
 from kubernetes.client.rest import ApiException
+from kubetester.kubetester import KubernetesTester
 from kubetester import random_k8s_name, create_secret, read_secret
 from typing import Optional, Dict, List, Generator
 from kubeobject import CustomObject
+import copy
 import time
 import random
 
 
 ISSUER_CA_NAME = "ca-issuer"
 
+SUBJECT = {
+    # Organizational Units matches your namespace (to be overriden by test)
+    "organizationalUnits": ["TO-BE-REPLACED"],
+    # For an additional layer of security, the certificates will have a random
+    # (unknown and "unpredictable"), random string. Even if someone was able to
+    # generate the certificates themselves, they would still require this
+    # value to do so.
+    "serialNumber": "TO-BE-REPLACED",
+}
 
 # Defines properties of a set of servers, like a Shard, or Replica Set holding config servers.
 # This is almost equivalent to the StatefulSet created.
@@ -132,6 +143,29 @@ def create_mongodb_tls_certs(
 
     create_secret(namespace, bundle_secret_name, data)
     return bundle_secret_name
+
+
+def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
+    agents = ["automation", "monitoring", "backup"]
+    subject = copy.deepcopy(SUBJECT)
+    subject["serialNumber"] = KubernetesTester.random_k8s_name(prefix="sn-")
+    subject["organizationalUnits"] = [namespace]
+
+    spec = {
+        "subject": subject,
+        "usages": ["client auth"],
+    }
+
+    full_certs = {}
+    for agent in agents:
+        spec["dnsNames"] = [agent]
+        spec["commonName"] = agent
+        secret = generate_cert(namespace, agent, agent, issuer, spec)
+        agent_cert = KubernetesTester.read_secret(namespace, secret)
+        full_certs["mms-{}-agent-pem".format(agent)] = (
+            agent_cert["tls.crt"] + agent_cert["tls.key"]
+        )
+    KubernetesTester.create_secret(namespace, "agent-certs", full_certs)
 
 
 def approve_certificate(name: str) -> None:
