@@ -1,19 +1,13 @@
 # Running Manual Periodic Builds
 
 Periodic builds use a specific Evergreen project file,
-`.evergreen-periodic-builds.yaml`. Evergreen knows how to run a periodic build
-defined in a non-standard Evergreen file, but unfortunatelly, it does not know
-how to run a `patch` using a custom file. This could be resolved in
-[EVG-13935|https://jira.mongodb.org/browse/EVG-13935], but in the meantime, we
-can force Evergreen to use our file.
+`.evergreen-periodic-builds.yaml`. In order to run it, you
+must pass the `--path` parameter pointing at the periodic builds
+Evergreen yaml file:
 
 ```
-cp .evergreen-periodic-builds.yaml .evergreen.yml
-evergreen patch -p ops-manager-kubernetes -v periodic_build -t all -y -f -d "Running Periodic Builds" -u --browse
-cp .evergreen.yml .evergreen-periodic-builds.yaml
-
-# Make sure .evergreen.yml file goes back to normality.
-git checkout -- .evergreen.yml
+evergreen patch -p ops-manager-kubernetes -v periodic_build -t all -y -f -d "Running Periodic Builds" \
+    --path .evergreen-periodic-builds.yaml -u --browse
 ```
 
 This will open a browser window with your Evergreen patch on it. It is important
