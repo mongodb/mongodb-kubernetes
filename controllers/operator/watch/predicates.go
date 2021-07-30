@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	appsv1 "k8s.io/api/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -75,6 +76,35 @@ func PredicatesForStatefulSet() predicate.Funcs {
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return false
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return false
+		},
+		CreateFunc: func(e event.CreateEvent) bool {
+			return false
+		},
+	}
+}
+
+// PredicatesForMultiStatefulSet is the predicate functions for the custom Statefulset Event
+// handler used for Multicluster reconciler
+func PredicatesForMultiStatefulSet() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
+			newSts := e.ObjectNew.(*appsv1.StatefulSet)
+
+			// check if it is owned by MultiCluster CR first
+			if _, ok := newSts.Annotations[handler.MongoDBMultiResourceAnnotation]; !ok {
+				return false
+			}
+
+			return !reflect.DeepEqual(oldSts.Status, newSts.Status)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			_, ok := e.Object.GetAnnotations()[handler.MongoDBMultiResourceAnnotation]
+			return ok
+
 		},
 		GenericFunc: func(e event.GenericEvent) bool {
 			return false

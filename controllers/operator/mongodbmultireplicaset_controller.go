@@ -13,12 +13,14 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	khandler "github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
@@ -298,10 +301,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newMultiClusterReplicaSetReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
 
-	// TODO: add events handler for MongoDBMulti CR
-	//eventHandler := MongoDBMultiResourceEventHandler{}
-
-	_, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).WithEventFilter(
+	ctrl, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).WithEventFilter(
 		predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMulti)
@@ -309,10 +309,17 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 				return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 			},
 		},
-	).
-		Build(reconciler)
+	).Build(reconciler)
 	if err != nil {
 		return err
+	}
+
+	// register watcher across member clusters
+	for k, v := range memberClustersMap {
+		err := ctrl.Watch(source.NewKindWithCache(&appsv1.StatefulSet{}, v.GetCache()), &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet())
+		if err != nil {
+			return fmt.Errorf("Failed to set Watch on member cluster: %s, err: %v", k, err)
+		}
 	}
 
 	// TODO: add watch predicates for other objects like sts/secrets/configmaps while we implement the reconcile

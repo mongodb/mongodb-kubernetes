@@ -5,6 +5,7 @@ import (
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +27,9 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 			Namespace: mdbm.Namespace,
 			Labels: map[string]string{
 				"controller": "mongodb-enterprise-operator",
+			},
+			Annotations: map[string]string{
+				handler.MongoDBMultiResourceAnnotation: mdbm.Name,
 			},
 		},
 		Spec: appsv1.StatefulSetSpec{

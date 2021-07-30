@@ -9,7 +9,7 @@ import (
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"

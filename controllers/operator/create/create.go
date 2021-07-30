@@ -7,7 +7,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/kube/statefulset"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
