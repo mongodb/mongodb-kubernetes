@@ -2,16 +2,11 @@ import time
 from typing import Optional
 
 from kubetester.certs import Certificate
-from kubetester.certs import create_mongodb_tls_certs
+from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-
-
-@fixture(scope="module")
-def domain(namespace: str):
-    return "om-with-https-svc.{}.svc.cluster.local".format(namespace)
 
 
 @fixture(scope="module")
@@ -23,32 +18,16 @@ def appdb_certs(namespace: str, issuer: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager_cert(domain: str, namespace: str, issuer: str):
-    cert = Certificate(name="om-https-cert", namespace=namespace)
-    cert["spec"] = {
-        "dnsNames": [domain],
-        "secretName": "om-https-cert-secret",
-        "issuerRef": {"name": issuer},
-        "duration": "2160h",  # 90d
-        "renewBefore": "360h",  # 15d
-    }
-    cert.create().block_until_ready()
-
-    https_cert = KubernetesTester.read_secret(namespace, "om-https-cert-secret")
-    data = {"server.pem": https_cert["tls.key"] + https_cert["tls.crt"]}
-
-    # Cert and Key file need to be merged into its own PEM file.
-    KubernetesTester.create_secret(namespace, "certs-for-ops-manager", data)
-
-    return "certs-for-ops-manager"
+def ops_manager_certs(namespace: str, issuer: str):
+    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https")
 
 
 @fixture(scope="module")
 def ops_manager(
-    domain: str,
     namespace: str,
     issuer_ca_configmap: str,
     appdb_certs: str,
+    ops_manager_certs: str,
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
@@ -139,12 +118,12 @@ def test_replica_set_over_non_https_ops_manager(replicaset0: MongoDB):
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_enable_https_on_opsmanager(
-    ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_cert: str
+    ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_certs: str
 ):
     """Ops Manager is restarted with HTTPS enabled."""
     ops_manager.load()
     ops_manager["spec"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_cert}}
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
     }
     ops_manager.update()
 

@@ -1,6 +1,6 @@
 import os
 from kubetester.certs import Certificate
-from kubetester.certs import create_mongodb_tls_certs
+from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -13,29 +13,8 @@ OM_NAME = "om-tls-monitored-appdb"
 
 
 @fixture(scope="module")
-def domain(namespace: str):
-    return "{}-svc.{}.svc.cluster.local".format(OM_NAME, namespace)
-
-
-@fixture(scope="module")
-def ops_manager_cert(domain: str, namespace: str, issuer: str):
-    cert = Certificate(name=f"{OM_NAME}-cert", namespace=namespace)
-    cert["spec"] = {
-        "dnsNames": [domain],
-        "secretName": f"{OM_NAME}-cert-secret",
-        "issuerRef": {"name": issuer},
-        "duration": "2160h",  # 90d
-        "renewBefore": "360h",  # 15d
-    }
-    cert.create().block_until_ready()
-
-    https_cert = KubernetesTester.read_secret(namespace, f"{OM_NAME}-cert-secret")
-    data = {"server.pem": https_cert["tls.key"] + https_cert["tls.crt"]}
-
-    # Cert and Key file need to be merged into its own PEM file.
-    KubernetesTester.create_secret(namespace, "certs-for-ops-manager", data)
-
-    return "certs-for-ops-manager"
+def ops_manager_certs(namespace: str, issuer: str):
+    return create_ops_manager_tls_certs(issuer, namespace, OM_NAME)
 
 
 @fixture(scope="module")
@@ -47,12 +26,12 @@ def appdb_certs(namespace: str, issuer: str):
 
 
 @fixture(scope="module")
-@mark.usefixtures("appdb_certs", "ops_manager_cert", "issuer_ca_configmap")
+@mark.usefixtures("appdb_certs", "ops_manager_certs", "issuer_ca_configmap")
 def ops_manager(
     namespace: str,
     issuer_ca_configmap: str,
     appdb_certs: str,
-    ops_manager_cert: str,
+    ops_manager_certs: str,
     custom_version: Optional[str],
 ) -> MongoDBOpsManager:
 

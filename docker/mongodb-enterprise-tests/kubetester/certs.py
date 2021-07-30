@@ -124,6 +124,20 @@ def create_tls_certs(
     return secret_and_pod_names
 
 
+def create_ops_manager_tls_certs(issuer: str, namespace: str, om_name: str) -> str:
+
+    domain = f"{om_name}-svc.{namespace}.svc.cluster.local"
+    spec = {"dnsNames": [domain]}
+
+    secret_name = generate_cert(namespace, "foo", "", issuer, spec)
+    https_cert = KubernetesTester.read_secret(namespace, secret_name)
+    data = {"server.pem": https_cert["tls.key"] + https_cert["tls.crt"]}
+
+    # Cert and Key file need to be merged into its own PEM file.
+    KubernetesTester.create_secret(namespace, "certs-for-ops-manager", data)
+    return "certs-for-ops-manager"
+
+
 def create_mongodb_tls_certs(
     issuer: str,
     namespace: str,
