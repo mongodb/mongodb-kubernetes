@@ -1669,6 +1669,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_update_before_reconciliation
+  tags: ["patch-run"]
+  exec_timeout_secs: 900
+  commands:
+    - func: e2e_test
+
 - name: release_appdb
   patch_only: true
   commands:
@@ -2082,6 +2088,7 @@ task_groups:
     - e2e_om_ops_manager_upgrade
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
+    - e2e_om_update_before_reconciliation
     - e2e_om_multiple
     - e2e_om_appdb_configure_all_images
   teardown_task:
