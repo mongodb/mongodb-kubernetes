@@ -491,7 +491,7 @@ func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfi
 func buildRole(namespace string) rbacv1.Role {
 	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mongodb-enterprise-operator-multi-cluster-role",
+			Name:      "mongodb-enterprise-operator-multi-role",
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
@@ -527,7 +527,7 @@ func buildClusterRole() rbacv1.ClusterRole {
 func buildRoleBinding(role rbacv1.Role, serviceAccount string) rbacv1.RoleBinding {
 	return rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mongodb-enterprise-operator-multi-cluster-role-binding",
+			Name:      "mongodb-enterprise-operator-multi-role-binding",
 			Labels:    multiClusterLabels(),
 			Namespace: role.Namespace,
 		},
@@ -578,7 +578,7 @@ func createMemberServiceAccountAndRoles(ctx context.Context, c kubernetes.Interf
 // for the central cluster.
 func createCentralClusterServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, f flags) error {
 	// central cluster always uses Roles. Never Cluster Roles.
-	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.centralClusterNamespace, false)
+	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.centralClusterNamespace, f.clusterScoped)
 }
 
 // createServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required.

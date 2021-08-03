@@ -65,8 +65,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 							},
 						},
 					},
-					// FIXME: Not the actual SA we want to use this has all permissions.
-					ServiceAccountName: "mongodb-enterprise-operator-multi-cluster",
+					ServiceAccountName: "mongodb-enterprise-database-pods",
 					Containers: []corev1.Container{
 						{
 							Image: "quay.io/mongodb/mongodb-enterprise-database:2.0.0",

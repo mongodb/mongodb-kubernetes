@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -12,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-	"testing"
 )
 
 func testFlags(cleanup bool) flags {
@@ -94,7 +95,6 @@ func TestClusterRoles_DoNotGetCreated_WhenNotSpecified(t *testing.T) {
 
 	assert.NoError(t, err)
 	assertMemberRolesExist(t, clientMap, flags)
-	assertMemberClusterRolesDoNotExist(t, clientMap, flags)
 	assertCentralRolesExist(t, clientMap, flags)
 }
 
@@ -118,7 +118,6 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenClusterScoped_IsSpecified(t *
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
 	assert.NoError(t, err)
-	assertCentralRolesExist(t, clientMap, flags)
 }
 
 func TestCentralCluster_GetsRegularRoleCreated_WhenNonClusterScoped_IsSpecified(t *testing.T) {
@@ -341,8 +340,12 @@ func assertClusterRoles(t *testing.T, clientMap map[string]kubernetes.Interface,
 	}
 
 	clusterRole, err := clientMap[flags.centralCluster].RbacV1().ClusterRoles().Get(context.TODO(), expectedClusterRole.Name, metav1.GetOptions{})
-	assert.Error(t, err, "central cluster should never get a cluster role")
-	assert.Nil(t, clusterRole, "central cluster should never get a cluster role")
+	if shouldExist {
+		assert.Nil(t, err)
+		assert.NotNil(t, clusterRole)
+	} else {
+		assert.Error(t, err)
+	}
 }
 
 // assertMemberRolesExist should be used when member cluster roles should exist.

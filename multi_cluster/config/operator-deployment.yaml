@@ -34,6 +34,7 @@ spec:
         - name: OPERATOR_ENV
           value: dev
         - name: WATCH_NAMESPACE
+          # specify the namespace where the MDB CR is deployed, use "*" for all namespaces.
           valueFrom:
             fieldRef:
               apiVersion: v1
