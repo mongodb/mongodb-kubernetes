@@ -18,7 +18,6 @@ RUN apt-get -qq update \
         libsasl2-modules \
         libsasl2-modules-gssapi-mit \
         libwrap0 \
-        lsb-release \
         openssl \
         snmp \
         libnss-wrapper \
