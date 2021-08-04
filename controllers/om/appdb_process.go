@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 )
 
@@ -32,7 +32,7 @@ func NewMongodProcessAppDB(name, hostName string, appdb *omv1.AppDBSpec) Process
 
 		// Process for AppDB use the mounted cert in-place and are not required for the certs to be
 		// linked into a given location.
-		p.ConfigureTLS(mdbv1.RequireTLSMode, certFile)
+		p.ConfigureTLS(tls.Require, certFile)
 	}
 
 	// default values for configurable values

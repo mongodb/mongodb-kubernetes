@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
@@ -14,7 +15,6 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -34,8 +34,6 @@ type LogLevel string
 
 type ResourceType string
 
-type TLSMode string
-
 type TransportSecurity string
 
 const (
@@ -48,12 +46,6 @@ const (
 	Standalone     ResourceType = "Standalone"
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
-
-	DisabledTLSMode TLSMode = "disabled"
-
-	RequireTLSMode TLSMode = "requireTLS"
-	PreferTLSMode  TLSMode = "preferTLS"
-	AllowTLSMode   TLSMode = "allowTLS"
 
 	DeploymentLinkIndex = 0
 
@@ -120,7 +112,7 @@ type DbSpec interface {
 	GetResourceType() ResourceType
 	IsSecurityTLSConfigEnabled() bool
 	GetFeatureCompatibilityVersion() *string
-	GetTLSMode() TLSMode
+	GetTLSMode() tls.Mode
 	GetHorizonConfig() []MongoDBHorizonConfig
 	GetAdditionalMongodConfig() AdditionalMongodConfig
 }
@@ -982,26 +974,11 @@ func NewMongoDbPodSpec() *MongoDbPodSpec {
 	return &MongoDbPodSpec{}
 }
 
-func (spec MongoDbSpec) GetTLSMode() TLSMode {
+func (spec MongoDbSpec) GetTLSMode() tls.Mode {
 	if spec.Security == nil || !spec.Security.TLSConfig.IsEnabled() {
-		return DisabledTLSMode
+		return tls.Disabled
 	}
-
-	// spec.Security.TLSConfig.IsEnabled() is true -> requireSSLMode
-	if spec.AdditionalMongodConfig.Object == nil {
-		return RequireTLSMode
-	}
-	mode := maputil.ReadMapValueAsString(spec.AdditionalMongodConfig.Object, "net", "tls", "mode")
-
-	if mode == "" {
-		mode = maputil.ReadMapValueAsString(spec.AdditionalMongodConfig.Object, "net", "ssl", "mode")
-	}
-
-	if mode == "" {
-		return RequireTLSMode
-	}
-
-	return TLSMode(mode)
+	return tls.GetTLSModeFromMongodConfig(spec.AdditionalMongodConfig.Object)
 }
 
 // Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for

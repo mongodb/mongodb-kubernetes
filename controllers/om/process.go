@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/blang/semver"
@@ -126,27 +127,6 @@ func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMo
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 	p.ConfigureTLS(spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
 
-	return p
-}
-
-// TODO: duplicated that needs to be refactored/removed
-func NewMongodProcessMulti(name, hostName, version string) Process {
-	p := createProcess(
-		WithName(name),
-		WithHostname(hostName),
-		WithProcessType(ProcessTypeMongod),
-		WithAdditionalMongodConfig(mdbv1.AdditionalMongodConfig{}),
-	)
-	p["version"] = version
-	p["authSchemaVersion"] = CalculateAuthSchemaVersion(version)
-	p["featureCompatibilityVersion"] = calculateFeatureCompatibilityVersion(version)
-	p["alias"] = hostName
-
-	// default values for configurable values
-	p.SetDbPath("/data")
-	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
-	// for all types of logs
-	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
 	return p
 }
 
@@ -359,13 +339,13 @@ func WithAdditionalMongodConfig(additionalConfig mdbv1.AdditionalMongodConfig) P
 
 // ConfigureTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
 // the value of "mode" to be an allowed ssl.mode from OM API perspective.
-func (p Process) ConfigureTLS(mode mdbv1.TLSMode, pemKeyFileLocation string) {
+func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 	// Initializing SSL configuration if it's necessary
 	tlsConfig := p.EnsureTLSConfig()
 
 	tlsConfig["mode"] = string(mode)
 
-	if mode == mdbv1.DisabledTLSMode {
+	if mode == tls.Disabled {
 		// If these attribute exists, it needs to be removed
 		// PEMKeyFile is older
 		// certificateKeyFile is the current one
@@ -432,7 +412,7 @@ func (p Process) mergeFrom(operatorProcess Process) {
 			p.EnsureTLSConfig()[key] = value
 		}
 		// if the mode is specified as disabled, providing "PEMKeyFile" is an invalid config
-		if mode == string(mdbv1.DisabledTLSMode) {
+		if mode == string(tls.Disabled) {
 			tlsConfig := p.EnsureTLSConfig()
 			if _, ok := tlsConfig["PEMKeyFile"]; ok {
 				delete(tlsConfig, "PEMKeyFile")

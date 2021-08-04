@@ -8,6 +8,7 @@ import (
 	"math"
 	"regexp"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -53,10 +54,10 @@ func init() {
 	gob.Register(ProcessTypeMongos)
 	gob.Register(mdbv1.MongoDBHorizonConfig{})
 
-	gob.Register(mdbv1.RequireTLSMode)
-	gob.Register(mdbv1.PreferTLSMode)
-	gob.Register(mdbv1.AllowTLSMode)
-	gob.Register(mdbv1.DisabledTLSMode)
+	gob.Register(tls.Require)
+	gob.Register(tls.Prefer)
+	gob.Register(tls.Allow)
+	gob.Register(tls.Disabled)
 	gob.Register([]mdbv1.MongoDbRole{})
 }
 

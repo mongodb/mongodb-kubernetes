@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
@@ -273,7 +273,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 
 				certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, p.Name)
 
-				p.Args26.Set("net.tls.mode", string(mdbv1.RequireTLSMode))
+				p.Args26.Set("net.tls.mode", string(tls.Require))
 
 				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 

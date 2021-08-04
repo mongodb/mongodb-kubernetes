@@ -7,6 +7,7 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -191,4 +192,59 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 		}
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
 	}
+}
+
+// Replicas returns the total number of MongoDB members running across all the clusters
+func (m *MongoDBMultiSpec) Replicas() int {
+	num := 0
+	for _, e := range m.ClusterSpecList.ClusterSpecs {
+		num += e.Members
+	}
+	return num
+}
+
+func (m *MongoDBMultiSpec) GetClusterDomain() string {
+	return m.ClusterDomain
+}
+
+func (m *MongoDBMultiSpec) GetMongoDBVersion() string {
+	return m.Version
+}
+
+func (m *MongoDBMultiSpec) GetSecurity() *mdbv1.Security {
+	if m.Security == nil {
+		return &mdbv1.Security{}
+	}
+	return m.Security
+}
+func (m *MongoDBMultiSpec) GetSecurityAuthenticationModes() []string {
+	return m.GetSecurity().Authentication.GetModes()
+}
+
+func (m *MongoDBMultiSpec) GetResourceType() mdbv1.ResourceType {
+	return m.ResourceType
+}
+
+func (m *MongoDBMultiSpec) IsSecurityTLSConfigEnabled() bool {
+	return m.GetSecurity().TLSConfig.IsEnabled()
+}
+
+func (m *MongoDBMultiSpec) GetFeatureCompatibilityVersion() *string {
+	return m.FeatureCompatibilityVersion
+}
+
+func (m *MongoDBMultiSpec) GetTLSMode() tls.Mode {
+	if m.Security == nil || !m.Security.TLSConfig.IsEnabled() {
+		return tls.Disabled
+	}
+
+	return tls.GetTLSModeFromMongodConfig(m.AdditionalMongodConfig.Object)
+}
+
+func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
+	return m.Connectivity.ReplicaSetHorizons
+}
+
+func (m *MongoDBMultiSpec) GetAdditionalMongodConfig() mdbv1.AdditionalMongodConfig {
+	return m.AdditionalMongodConfig
 }

@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 )
@@ -66,7 +67,7 @@ type AppDBSpec struct {
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }
 
-func (m *AppDBSpec) GetTLSMode() mdbv1.TLSMode {
+func (m *AppDBSpec) GetTLSMode() tls.Mode {
 	return m.GetTLSMode()
 }
 

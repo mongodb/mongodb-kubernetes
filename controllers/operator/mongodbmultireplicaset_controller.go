@@ -164,7 +164,7 @@ func createMongodProcessesWithLimit(mrs mdbmultiv1.MongoDBMulti) []om.Process {
 	processes := make([]om.Process, len(hostnames))
 
 	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcessMulti(fmt.Sprintf("%s-%d", mrs.Name, idx), hostnames[idx], mrs.Spec.Version)
+		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d", mrs.Name, idx), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec)
 	}
 
 	return processes
