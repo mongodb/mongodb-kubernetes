@@ -71,7 +71,7 @@ def test_install_clusterwide_operator(operator_clusterwide: Operator):
 
 @pytest.mark.e2e_operator_clusterwide
 def test_configure_ops_manager_namespace(
-        ops_manager_namespace: str, operator_installation_config: Dict[str, str]
+    ops_manager_namespace: str, operator_installation_config: Dict[str, str]
 ):
     """ create a new namespace and configures all necessary service accounts there """
     yaml_file = helm_template(
@@ -101,7 +101,9 @@ def test_create_image_pull_secret_ops_manager_namespace(
 
 
 @pytest.mark.e2e_operator_clusterwide
-def test_configure_mdb_namespace(mdb_namespace: str,  operator_installation_config: Dict[str, str]):
+def test_configure_mdb_namespace(
+    mdb_namespace: str, operator_installation_config: Dict[str, str]
+):
     yaml_file = helm_template(
         helm_args={
             "namespace": mdb_namespace,

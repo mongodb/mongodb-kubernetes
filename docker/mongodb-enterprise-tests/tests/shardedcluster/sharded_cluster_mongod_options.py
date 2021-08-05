@@ -7,7 +7,8 @@ from kubetester.mongodb import MongoDB, Phase
 @fixture(scope="module")
 def sharded_cluster(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("sharded-cluster-mongod-options.yaml"), namespace=namespace,
+        yaml_fixture("sharded-cluster-mongod-options.yaml"),
+        namespace=namespace,
     )
     return resource.create()
 

@@ -63,7 +63,10 @@ class TestReplicaSetEnterpriseCreation(KubernetesTester):
         assert len(tmpl.init_containers) == 1
         assert tmpl.init_containers[0].name == "mongodb-enterprise-init-database"
         assert tmpl.init_containers[0].volume_mounts == [
-            V1VolumeMount(mount_path="/opt/scripts", name="database-scripts",)
+            V1VolumeMount(
+                mount_path="/opt/scripts",
+                name="database-scripts",
+            )
         ]
 
         assert tmpl.volumes == [
@@ -102,8 +105,8 @@ class TestReplicaSetEnterpriseDelete(KubernetesTester):
         KubernetesTester.check_om_state_cleaned()
 
     def test_replica_set_sts_doesnt_exist(self):
-        """ The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
-        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit """
+        """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
+        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit"""
         time.sleep(15)
         with pytest.raises(client.rest.ApiException):
             self.appsv1.read_namespaced_stateful_set("rs001-ent", self.namespace)

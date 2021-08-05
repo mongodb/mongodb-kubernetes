@@ -321,10 +321,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         url = self.om_status().get_url()
         whitelist_endpoint = f"{url}/api/public/v1.0/admin/whitelist"
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
         whitelist_entries = [
             {"cidrBlock": "0.0.0.0/1", "description": "first block"},
             {"cidrBlock": "128.0.0.0/1", "description": "second block"},
@@ -332,17 +329,19 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         secret_name = self.api_key_secret(self.namespace)
         current_creds = read_secret(self.namespace, secret_name)
-        user = current_creds['user']
-        password = current_creds['publicApiKey']
-        auth=HTTPDigestAuth(user, password)
+        user = current_creds["user"]
+        password = current_creds["publicApiKey"]
+        auth = HTTPDigestAuth(user, password)
 
         for entry in whitelist_entries:
-            response = requests.post(whitelist_endpoint, json=entry, headers=headers, auth=auth)
+            response = requests.post(
+                whitelist_endpoint, json=entry, headers=headers, auth=auth
+            )
             assert response.status_code == 200
 
         data = {
             "desc": "Creating a programmatic API key before updating to 5.0.0",
-            "roles": ["GLOBAL_OWNER"]
+            "roles": ["GLOBAL_OWNER"],
         }
 
         endpoint = f"{url}/api/public/v1.0/admin/apiKeys"
@@ -370,9 +369,13 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if "configuration" not in self["spec"]:
             self["spec"]["configuration"] = {}
 
-        self["spec"]["configuration"]["mms.featureFlag.automation.mongoDevelopmentVersions"] = "enabled"
+        self["spec"]["configuration"][
+            "mms.featureFlag.automation.mongoDevelopmentVersions"
+        ] = "enabled"
         self["spec"]["configuration"]["mongodb.release.autoDownload.rc"] = "true"
-        self["spec"]["configuration"]["mongodb.release.autoDownload.development"] = "true"
+        self["spec"]["configuration"][
+            "mongodb.release.autoDownload.development"
+        ] = "true"
 
     def set_appdb_version(self, version: str):
         self["spec"]["applicationDatabase"]["version"] = version

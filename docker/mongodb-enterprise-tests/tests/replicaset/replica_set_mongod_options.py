@@ -8,7 +8,8 @@ from kubetester.mongodb import MongoDB, Phase
 @fixture(scope="module")
 def replica_set(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-mongod-options.yaml"), namespace=namespace,
+        yaml_fixture("replica-set-mongod-options.yaml"),
+        namespace=namespace,
     )
     return resource.create()
 

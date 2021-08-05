@@ -36,7 +36,7 @@ class Operator(object):
         helm_chart_path: Optional[str] = "helm_chart",
         name: Optional[str] = "mongodb-enterprise-operator",
         enable_webhook_check: bool = True,
-        api_client: Optional[client.api_client.ApiClient] = None
+        api_client: Optional[client.api_client.ApiClient] = None,
     ):
         if helm_args is None:
             helm_args = {}
@@ -96,7 +96,9 @@ class Operator(object):
 
     def delete_operator_deployment(self):
         """ Deletes the Operator deployment from K8s cluster. """
-        client.AppsV1Api(api_client=self.api_client).delete_namespaced_deployment(self.name, self.namespace)
+        client.AppsV1Api(api_client=self.api_client).delete_namespaced_deployment(
+            self.name, self.namespace
+        )
 
     def list_operator_pods(self) -> List[V1Pod]:
         pods = (
@@ -110,7 +112,9 @@ class Operator(object):
         return pods
 
     def read_deployment(self) -> V1Deployment:
-        return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
+        return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(
+            self.name, self.namespace
+        )
 
     def assert_is_running(self):
         """Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get

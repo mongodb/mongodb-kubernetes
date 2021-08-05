@@ -27,7 +27,9 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
 
 @fixture(scope="module")
 def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str,
+    namespace: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_backup_delete_sts.yaml"), namespace=namespace
@@ -39,7 +41,9 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def blockstore_replica_set(ops_manager,) -> MongoDB:
+def blockstore_replica_set(
+    ops_manager,
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
@@ -63,7 +67,9 @@ def test_create_backing_replica_sets(
 
 
 @mark.e2e_om_ops_manager_backup_delete_sts
-def test_backup_statefulset_gets_recreated(ops_manager: MongoDBOpsManager,):
+def test_backup_statefulset_gets_recreated(
+    ops_manager: MongoDBOpsManager,
+):
     # Wait for the the backup to be fully running
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
     ops_manager.load()

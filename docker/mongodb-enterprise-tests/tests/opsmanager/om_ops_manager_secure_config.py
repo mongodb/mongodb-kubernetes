@@ -140,8 +140,8 @@ def test_changing_app_db_password_triggers_rolling_restart(
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_no_unnecessary_rolling_upgrades_happen(
-        skip_if_om5: None,
-        ops_manager: MongoDBOpsManager,
+    skip_if_om5: None,
+    ops_manager: MongoDBOpsManager,
 ):
     sts = ops_manager.read_statefulset()
     old_generation = sts.metadata.generation
@@ -181,8 +181,7 @@ def test_no_unnecessary_rolling_upgrades_happen(
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_connection_string_secret_was_updated(
-        skip_if_om5: None,
-        ops_manager: MongoDBOpsManager
+    skip_if_om5: None, ops_manager: MongoDBOpsManager
 ):
     secret = KubernetesTester.read_secret(
         ops_manager.namespace, ops_manager.get_appdb_connection_url_secret_name()

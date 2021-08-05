@@ -52,7 +52,9 @@ def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: st
             "ls /var/log/mongodb-mms-automation/customLogFileShard* | wc -l",
         ]
         result = KubernetesTester.run_command_in_pod_container(
-            f"sh001-base-0-{i}", namespace, cmd,
+            f"sh001-base-0-{i}",
+            namespace,
+            cmd,
         )
         assert result != "0"
     for i in range(3):
@@ -62,7 +64,9 @@ def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: st
             "ls /var/log/mongodb-mms-automation/customLogFileSrv* | wc -l",
         ]
         result = KubernetesTester.run_command_in_pod_container(
-            f"sh001-base-config-{i}", namespace, cmd,
+            f"sh001-base-config-{i}",
+            namespace,
+            cmd,
         )
         assert result != "0"
     for i in range(2):
@@ -72,6 +76,8 @@ def test_sharded_cluster_has_agent_flags(sharded_cluster: MongoDB, namespace: st
             "ls /var/log/mongodb-mms-automation/customLogFileMongos* | wc -l",
         ]
         result = KubernetesTester.run_command_in_pod_container(
-            f"sh001-base-mongos-{i}", namespace, cmd,
+            f"sh001-base-mongos-{i}",
+            namespace,
+            cmd,
         )
         assert result != "0"

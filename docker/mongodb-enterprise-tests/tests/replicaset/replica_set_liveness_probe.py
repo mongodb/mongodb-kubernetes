@@ -95,14 +95,17 @@ def test_pods_get_restarted(replica_set: MongoDB, namespace: str):
 
 
 @pytest.mark.e2e_replica_set_liveness_probe
-def test_pods_are_restarted_if_agent_process_is_terminated(replica_set: MongoDB, namespace: str):
+def test_pods_are_restarted_if_agent_process_is_terminated(
+    replica_set: MongoDB, namespace: str
+):
     corev1_client = client.CoreV1Api()
 
     agent_pid_file = "/mongodb-automation/mongodb-mms-automation-agent.pid"
     pid_cmd = ["cat", agent_pid_file]
     # Get the agent's PID
     agent_pid = KubernetesTester.run_command_in_pod_container(
-        "my-replica-set-0", namespace, pid_cmd)
+        "my-replica-set-0", namespace, pid_cmd
+    )
 
     # Kill the agent using its PID
     kill_cmd = ["kill", "-s", "SIGTERM", agent_pid.strip()]
@@ -124,8 +127,23 @@ def test_pods_are_restarted_if_agent_process_is_terminated(replica_set: MongoDB,
     time.sleep(failure_threshold * period_seconds + 20)
 
     # Pod zero should have restarted, because the agent was killed
-    assert corev1_client.read_namespaced_pod("my-replica-set-0", namespace).status.container_statuses[0].restart_count > 0
+    assert (
+        corev1_client.read_namespaced_pod("my-replica-set-0", namespace)
+        .status.container_statuses[0]
+        .restart_count
+        > 0
+    )
 
     # Pods 1 and 2 should not have restarted, because the agent is intact
-    assert corev1_client.read_namespaced_pod("my-replica-set-1", namespace).status.container_statuses[0].restart_count == 0
-    assert corev1_client.read_namespaced_pod("my-replica-set-2", namespace).status.container_statuses[0].restart_count == 0
+    assert (
+        corev1_client.read_namespaced_pod("my-replica-set-1", namespace)
+        .status.container_statuses[0]
+        .restart_count
+        == 0
+    )
+    assert (
+        corev1_client.read_namespaced_pod("my-replica-set-2", namespace)
+        .status.container_statuses[0]
+        .restart_count
+        == 0
+    )

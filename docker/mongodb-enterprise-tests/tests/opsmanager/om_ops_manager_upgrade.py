@@ -44,6 +44,7 @@ def mdb(ops_manager: MongoDBOpsManager) -> MongoDB:
     resource.configure(ops_manager, "development")
     return resource.create()
 
+
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerCreation:
     """

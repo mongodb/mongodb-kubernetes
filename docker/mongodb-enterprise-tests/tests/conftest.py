@@ -29,6 +29,7 @@ KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
 MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 CENTRAL_CLUSTER_NAME = "e2e.operator.mongokubernetes.com"
 
+
 @fixture(scope="module")
 def namespace() -> str:
     return os.environ["PROJECT_NAMESPACE"]
@@ -210,15 +211,17 @@ def default_operator(
 
 
 @fixture(scope="module")
-def central_cluster_client(cluster_clients: Dict[str, kubernetes.client.api_client.ApiClient]) -> kubernetes.client.api_client.ApiClient:
+def central_cluster_client(
+    cluster_clients: Dict[str, kubernetes.client.api_client.ApiClient]
+) -> kubernetes.client.api_client.ApiClient:
     return cluster_clients[CENTRAL_CLUSTER_NAME]
 
 
 @fixture(scope="module")
 def multi_cluster_operator(
-        namespace: str,
-        operator_installation_config: Dict[str, str],
-        central_cluster_client: kubernetes.client.api_client.ApiClient,
+    namespace: str,
+    operator_installation_config: Dict[str, str],
+    central_cluster_client: kubernetes.client.api_client.ApiClient,
 ) -> Operator:
     # ensure we install the operator in the central cluster.
     os.environ["HELM_KUBECONTEXT"] = CENTRAL_CLUSTER_NAME
@@ -369,7 +372,9 @@ def _read_multi_cluster_config_value(value: str) -> str:
         return f.read()
 
 
-def _get_client_for_cluster(cluster_name: str) -> kubernetes.client.api_client.ApiClient:
+def _get_client_for_cluster(
+    cluster_name: str,
+) -> kubernetes.client.api_client.ApiClient:
     token = _read_multi_cluster_config_value(cluster_name)
     if not token:
         raise ValueError(f"No token found for cluster {cluster_name}")
@@ -385,9 +390,14 @@ def _get_client_for_cluster(cluster_name: str) -> kubernetes.client.api_client.A
 
 
 @fixture(scope="module")
-def cluster_clients(namespace: str) -> Dict[str, kubernetes.client.api_client.ApiClient]:
+def cluster_clients(
+    namespace: str,
+) -> Dict[str, kubernetes.client.api_client.ApiClient]:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
-    member_clusters = [_read_multi_cluster_config_value("member_cluster_1"), _read_multi_cluster_config_value("member_cluster_2")]
+    member_clusters = [
+        _read_multi_cluster_config_value("member_cluster_1"),
+        _read_multi_cluster_config_value("member_cluster_2"),
+    ]
     member_clusters_str = ",".join(member_clusters)
     subprocess.call(
         [

@@ -26,9 +26,11 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
     distros = ("rhel80", "ubuntu1604", "ubuntu1804")
 
     base_url_community = "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64"
-    base_url_enterprise = "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise"
+    base_url_enterprise = (
+        "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise"
+    )
     base_url = base_url_community
-    if version.endswith('-ent'):
+    if version.endswith("-ent"):
         # If version is enterprise, the base_url changes slightly
         base_url = base_url_enterprise
         version = version.replace("-ent", "")
@@ -43,10 +45,16 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
         container = {
             "name": KubernetesTester.random_k8s_name(prefix="mdb-download"),
             "image": "curlimages/curl:latest",
-            "command": ['sh', '-c', f'{curl_command} && true'],
-            "volumeMounts": [{"name": "mongodb-versions", "mountPath": mount_path,}]
+            "command": ["sh", "-c", f"{curl_command} && true"],
+            "volumeMounts": [
+                {
+                    "name": "mongodb-versions",
+                    "mountPath": mount_path,
+                }
+            ],
         }
         deployment["spec"]["template"]["spec"]["initContainers"].append(container)
+
 
 @fixture(scope="module")
 def nginx(namespace: str, custom_mdb_version: str):
@@ -100,6 +108,7 @@ def ops_manager(
     om.allow_mdb_rc_versions()
 
     yield om.create()
+
 
 @fixture(scope="module")
 def replica_set(
