@@ -7,6 +7,7 @@ import (
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -148,39 +149,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	return r.updateStatus(&mrs, workflow.OK(), log)
 }
 
-func getMultiClusterAgentHostnames(mrs mdbmultiv1.MongoDBMulti) []string {
-	hostnames := make([]string, 0)
-	for clusterNum, spec := range mrs.GetOrderedClusterSpecList() {
-		for podNum := 0; podNum < spec.Members; podNum++ {
-			hostnames = append(hostnames, mrs.GetServiceFQDN(clusterNum, podNum))
-		}
-	}
-	return hostnames
-}
-
-// TODO: duplicated function from process package, remove/refactor
-func createMongodProcessesWithLimit(mrs mdbmultiv1.MongoDBMulti) []om.Process {
-	hostnames := getMultiClusterAgentHostnames(mrs)
-	processes := make([]om.Process, len(hostnames))
-
-	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d", mrs.Name, idx), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec)
-	}
-
-	return processes
-}
-
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
 
-	hostnames := getMultiClusterAgentHostnames(mrs)
+	hostnames := mrs.GetMultiClusterAgentHostnames()
 	err := agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
 	if err != nil {
 		return err
 	}
 
-	processes := createMongodProcessesWithLimit(mrs)
+	processes := process.CreateMongodProcessesWithLimitMulti(mrs)
 	rs := om.NewReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes)
 
 	err = conn.ReadUpdateDeployment(

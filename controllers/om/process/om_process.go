@@ -1,7 +1,10 @@
 package process
 
 import (
+	"fmt"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -26,6 +29,18 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string
 		if wiredTigerCache != nil {
 			processes[idx].SetWiredTigerCache(*wiredTigerCache)
 		}
+	}
+
+	return processes
+}
+
+// CreateMongodProcessesWithLimitMulti creates the process array for automationConfig based on MultiCluster CR spec
+func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) []om.Process {
+	hostnames := mrs.GetMultiClusterAgentHostnames()
+	processes := make([]om.Process, len(hostnames))
+
+	for idx := range hostnames {
+		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d", mrs.Name, idx), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec)
 	}
 
 	return processes

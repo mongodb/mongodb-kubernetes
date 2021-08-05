@@ -25,8 +25,6 @@ kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mo
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_opsmanagers.yaml
 
 ## deploy the multi-cluster CRD
-kubectl --context ${CENTRAL_CLUSTER} delete namespace ${MDB_NAMESPACE} --ignore-not-found
-kubectl --context ${CENTRAL_CLUSTER} create namespace ${MDB_NAMESPACE}
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodbmulti.yaml
 
 # deploy the operator deployments
