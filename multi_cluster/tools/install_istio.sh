@@ -4,9 +4,9 @@ set -eux
 
 export CTX_CLUSTER1=e2e.cluster1.mongokubernetes.com
 export CTX_CLUSTER2=e2e.cluster2.mongokubernetes.com
-export VERSION=1.10.3
+export VERSION=1.9.1
 
-# download Istio 1.9.1 under the path 
+# download Istio 1.9.1 under the path
 curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -
 
 cd istio-${VERSION}

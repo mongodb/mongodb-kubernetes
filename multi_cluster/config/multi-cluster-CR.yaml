@@ -16,5 +16,5 @@ spec:
     clusterSpecs:
       - clusterName: e2e.cluster1.mongokubernetes.com
         members: 3
-#      - clusterName: e2e.cluster2.mongokubernetes.com
-#        members: 1
+      - clusterName: e2e.cluster2.mongokubernetes.com
+        members: 1

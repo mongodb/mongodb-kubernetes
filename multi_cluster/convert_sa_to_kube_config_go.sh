@@ -32,6 +32,7 @@ kubectl --context ${CENTRAL_CLUSTER} apply -f config/operator-deployment.yaml --
 
 # deploy the database service account in member clusters
 kubectl --context ${CLUSTER1} apply -f config/database-sa.yaml --namespace ${MDB_NAMESPACE}
+kubectl --context ${CLUSTER2} apply -f config/database-sa.yaml --namespace ${MDB_NAMESPACE}
 
 # deploy the CR
 kubectl --context ${CENTRAL_CLUSTER} apply -f config/multi-cluster-CR.yaml --namespace ${MDB_NAMESPACE}
