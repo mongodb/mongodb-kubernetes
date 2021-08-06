@@ -464,8 +464,7 @@ def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[s
                     for package in platform["packages"]["links"]:
                         if package["name"] == "tar.gz":
                             return package["download_link"]
-
-    raise ValueError("Version {} not found".format(om_version))
+    return None
 
 
 def get_om_releases() -> Dict[str, str]:
