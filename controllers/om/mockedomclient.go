@@ -16,6 +16,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
 
@@ -160,6 +161,7 @@ func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
 	connection.HTTPOmConnection = HTTPOmConnection{
 		context: ctx,
 	}
+
 	CurrMockedConnection = connection
 
 	return connection
@@ -688,6 +690,13 @@ func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, err
 		}
 	}
 	return nil, apierror.New(fmt.Errorf("Organization with id %s not found", orgId))
+}
+
+func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion {
+	if oc.context.Version.VersionString != "" {
+		return oc.context.Version
+	}
+	return versionutil.OpsManagerVersion{VersionString: "5.0.0"}
 }
 
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which

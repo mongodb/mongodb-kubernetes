@@ -271,7 +271,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "4.2.2",
+			VersionString: "4.4.0",
 		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
@@ -299,7 +299,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "4.2.2",
+			VersionString: "4.4.2",
 		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
@@ -315,32 +315,6 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
 	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
 	assert.Len(t, cf.Policies[0].DisabledParams, 0)
-}
-
-func TestOnlyTagIsAppliedToOlderOpsManager(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().Build()
-
-	reconciler, client := defaultReplicaSetReconciler(rs)
-	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
-		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "4.2.1",
-		}
-		conn := om.NewEmptyMockedOmConnection(context)
-		return conn
-	}
-
-	checkReconcileSuccessful(t, reconciler, rs, client)
-
-	mockedConn := om.CurrMockedConnection
-	cf, _ := mockedConn.GetControlledFeature()
-
-	// no feature controls are configured
-	assert.Empty(t, cf.Policies)
-	assert.Empty(t, cf.ManagementSystem.Version)
-	assert.Empty(t, cf.ManagementSystem.Name)
-
-	project := mockedConn.FindGroup("my-project")
-	assert.Contains(t, project.Tags, util.OmGroupExternallyManagedTag)
 }
 
 func TestScalingScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {

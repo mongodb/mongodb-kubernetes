@@ -440,6 +440,21 @@ func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.St
 	return workflow.OK()
 }
 
+func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
+	omVersionString := conn.OpsManagerVersion()
+	if !omVersionString.IsCloudManager() {
+		omVersion, err := omVersionString.Semver()
+		if err != nil {
+			return workflow.Failed("Failed when trying to parse Ops Manager version")
+		}
+		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
+			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
+
+		}
+	}
+	return workflow.OK()
+}
+
 // getStatefulSetStatus returns the workflow.Status based on the status of the StatefulSet.
 // If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
 // allowing to reach "ready" status sooner

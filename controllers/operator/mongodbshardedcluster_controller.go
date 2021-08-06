@@ -89,7 +89,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 	log.Infow("ShardedClusterScaling", "mongosScaler", r.mongosScaler, "configSrvScaler", r.configSrvScaler, "mongodsPerShardScaler", r.mongodsPerShardScaler, "desiredShards", sc.Spec.ShardCount, "currentShards", sc.Status.ShardCount)
 
 	conn, status := r.doShardedClusterProcessing(sc, log)
-	if !status.IsOK() {
+	if !status.IsOK() || status.Phase() == mdbstatus.PhaseUnsupported {
 		return r.updateStatus(sc, status, log)
 	}
 
@@ -150,6 +150,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
+	}
+
+	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
+		return nil, status
 	}
 	r.RegisterWatchedMongodbResources(sc.ObjectKey(), sc.Spec.GetProject(), sc.Spec.Credentials)
 

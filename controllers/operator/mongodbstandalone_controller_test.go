@@ -99,7 +99,7 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 	reconciler, client := defaultStandaloneReconciler(st)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "4.2.2",
+			VersionString: "4.4.2",
 		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn
@@ -123,7 +123,7 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 	reconciler, client := defaultStandaloneReconciler(st)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
-			VersionString: "4.2.2",
+			VersionString: "4.4.2",
 		}
 		conn := om.NewEmptyMockedOmConnection(context)
 		return conn

@@ -52,6 +52,7 @@ import (
 )
 
 const (
+	oldestSupportedOpsManagerVersion       = "4.4.0"
 	omVersionWithNewDriver                 = "4.4.0"
 	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json"
 )
@@ -63,6 +64,7 @@ type OpsManagerReconciler struct {
 	omAdminProvider        api.AdminProvider
 	omConnectionFactory    om.ConnectionFactory
 	versionMappingProvider func(string) ([]byte, error)
+	oldestSupportedVersion semver.Version
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
@@ -75,6 +77,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 		omAdminProvider:           adminProvider,
 		ResourceWatcher:           watch.NewResourceWatcher(),
 		versionMappingProvider:    versionMappingProvider,
+		oldestSupportedVersion:    semver.MustParse(oldestSupportedOpsManagerVersion),
 	}
 }
 
@@ -100,6 +103,16 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	log.Info("-> OpsManager.Reconcile")
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
+
+	// We perform this check here and not inside the validation because we don't want to put OM in failed state
+	// just log the error and put in the "Unsupported" state
+	semverVersion, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
+	if err != nil {
+		return r.updateStatus(opsManager, workflow.Invalid("%s is not a valid version", opsManager.Spec.Version), log, opsManagerExtraStatusParams)
+	}
+	if semverVersion.LT(r.oldestSupportedVersion) {
+		return r.updateStatus(opsManager, workflow.Unsupported("Ops Manager Version %s is not supported by this version of the operator. Please upgrade to a version >=%s", opsManager.Spec.Version, oldestSupportedOpsManagerVersion), log, opsManagerExtraStatusParams)
+	}
 
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(*opsManager)

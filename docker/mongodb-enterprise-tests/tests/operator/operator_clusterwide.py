@@ -36,11 +36,12 @@ def mdb_namespace(evergreen_task_id: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(ops_manager_namespace) -> MongoDBOpsManager:
+def ops_manager(ops_manager_namespace: str, custom_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=ops_manager_namespace
     )
     resource["spec"]["backup"]["enabled"] = True
+    resource["spec"]["version"] = custom_version
 
     return resource.create()
 

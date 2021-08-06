@@ -32,6 +32,7 @@ class Phase(Enum):
     Reconciling = 4
     Updated = 5
     Disabled = 6
+    Unsupported = 7
 
 
 class MongoDBCommon:

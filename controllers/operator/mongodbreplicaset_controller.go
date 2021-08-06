@@ -102,6 +102,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
+
+	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
+		return r.updateStatus(rs, status, log)
+	}
+
 	r.RegisterWatchedMongodbResources(rs.ObjectKey(), rs.Spec.GetProject(), rs.Spec.Credentials)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)

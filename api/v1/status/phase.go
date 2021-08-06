@@ -21,4 +21,7 @@ const (
 
 	// PhaseUpdated means a MongoDBUser was successfully updated
 	PhaseUpdated Phase = "Updated"
+
+	// PhaseUnsupported means a resource is not supported by the current Operator version
+	PhaseUnsupported Phase = "Unsupported"
 )
