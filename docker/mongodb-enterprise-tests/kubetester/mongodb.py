@@ -106,7 +106,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def assert_status_resource_not_ready(
         self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
     ):
-        """Checks the element in 'resources_not_ready' field by index 'idx' """
+        """Checks the element in 'resources_not_ready' field by index 'idx'"""
         assert self.get_status_resources_not_ready()[idx]["kind"] == kind
         assert self.get_status_resources_not_ready()[idx]["name"] == name
         assert (
@@ -197,7 +197,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         }
 
     def build_list_of_hosts(self):
-        """ Returns the list of full_fqdn:27017 for every member of the mongodb resource """
+        """Returns the list of full_fqdn:27017 for every member of the mongodb resource"""
         return [
             build_host_fqdn(
                 f"{self.name}-{idx}",
@@ -220,7 +220,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def mongo_uri(
         self, user_name: Optional[str] = None, password: Optional[str] = None
     ) -> str:
-        """ Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go' """
+        """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'"""
         proto = "mongodb://"
         auth = ""
         params = {"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
@@ -323,7 +323,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             return None
 
     def get_om_tester(self) -> OMTester:
-        """ Returns the OMTester instance based on MongoDB connectivity parameters """
+        """Returns the OMTester instance based on MongoDB connectivity parameters"""
         config_map = self.read_configmap()
         secret = KubernetesTester.read_secret(
             self.namespace, self["spec"]["credentials"]
@@ -331,7 +331,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         return OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
 
     def get_automation_config_tester(self, **kwargs):
-        """ This is just a shortcut for getting automation config tester for replica set"""
+        """This is just a shortcut for getting automation config tester for replica set"""
         return self.get_om_tester().get_automation_config_tester(**kwargs)
 
     @property

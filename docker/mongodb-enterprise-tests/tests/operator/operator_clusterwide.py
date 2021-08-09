@@ -74,7 +74,7 @@ def test_install_clusterwide_operator(operator_clusterwide: Operator):
 def test_configure_ops_manager_namespace(
     ops_manager_namespace: str, operator_installation_config: Dict[str, str]
 ):
-    """ create a new namespace and configures all necessary service accounts there """
+    """create a new namespace and configures all necessary service accounts there"""
     yaml_file = helm_template(
         helm_args={
             "namespace": ops_manager_namespace,
@@ -93,7 +93,7 @@ def test_create_image_pull_secret_ops_manager_namespace(
     ops_manager_namespace: str,
     operator_installation_config: Dict[str, str],
 ):
-    """ We need to copy image pull secrets to om namespace """
+    """We need to copy image pull secrets to om namespace"""
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     data = read_secret(namespace, secret_name)
     create_secret(
@@ -141,7 +141,7 @@ def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
 def test_check_k8s_resources(
     ops_manager: MongoDBOpsManager, ops_manager_namespace: str, namespace: str
 ):
-    """ Verifying that all the K8s resources were created in a ops manager namespace """
+    """Verifying that all the K8s resources were created in a ops manager namespace"""
     assert ops_manager.read_statefulset().metadata.namespace == ops_manager_namespace
     assert (
         ops_manager.read_backup_statefulset().metadata.namespace

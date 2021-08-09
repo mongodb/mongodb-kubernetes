@@ -24,9 +24,10 @@ if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
 fi
 
 prepare_operator_config_map() {
+    local context=${1}
     title "Preparing the ConfigMap with Operator installation configuration"
 
-    kubectl delete configmap operator-installation-config --ignore-not-found
+    kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
     local version_id=${version_id:=latest}
 
     local operator_version="${version_id}"
@@ -70,7 +71,9 @@ prepare_operator_config_map() {
       config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database")
     fi
 
+     # shellcheck disable=SC2154
     if [[ "${kube_environment_name}" = "multi" ]]; then
+       # shellcheck disable=SC2154
        comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
        config+=("--from-literal" "multiCluster.clusters={${comma_separated_list}}")
     fi
@@ -80,28 +83,34 @@ prepare_operator_config_map() {
     fi
 
     # shellcheck disable=SC2086
-    kubectl create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config[*]}
+    kubectl --context "${context}" create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config[*]}
     # for some reasons the previous 'create' command doesn't return >0 in case of failures...
-    ! kubectl get configmap operator-installation-config -n "${PROJECT_NAMESPACE}" && \
+    ! kubectl --context "${context}"  get configmap operator-installation-config -n "${PROJECT_NAMESPACE}" && \
           fatal "Failed to create ConfigMap operator-installation-config"
 
 }
 
 ensure_test_namespace(){
     local context=${1}
-    kubectl create ns --context "${context}"  ${PROJECT_NAMESPACE}  || true
+    kubectl create ns --context "${context}"  "${PROJECT_NAMESPACE}"  || true
     kubectl label ns "${PROJECT_NAMESPACE}" --context "${context}" "evg=task" || true
+    # shellcheck disable=SC2154
     kubectl annotate ns "${PROJECT_NAMESPACE}" --context "${context}" "evg/task=https://evergreen.mongodb.com/task/${task_id}"
 }
 
 configure_multi_cluster_environment(){
     echo "Running a multi cluster test, configuring e2e roles in all clusters and kubeconfig secret."
 
-    echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
-    kubectl create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}"
+    echo "Ensuring namespaces"
+    # shellcheck disable=SC2154
+    ensure_test_namespace "${central_cluster}"
+    for member_cluster in ${member_clusters}; do
+      ensure_test_namespace "${member_cluster}"
+      kubectl --context "${member_cluster}" label ns "${PROJECT_NAMESPACE}" istio-injection=enabled
+    done
 
 
-    local helm_template_file=$(mktemp)
+    helm_template_file=$(mktemp)
 
     helm_params=(
         "--set" "namespace=${PROJECT_NAMESPACE}"
@@ -110,12 +119,24 @@ configure_multi_cluster_environment(){
 
     helm template "scripts/evergreen/deployments/multi-cluster-roles" "${helm_params[@]}" > "${helm_template_file}" || exit 1
 
-    echo "Ensuring namespaces"
 
-    ensure_test_namespace "${central_cluster}"
-    for member_cluster in ${member_clusters}; do
-      ensure_test_namespace "${member_cluster}"
-    done
+    echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
+    kubectl --context "${central_cluster}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}"
+
+    echo "Creating project configmap"
+    # delete `my-project` if it exists
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" delete configmap my-project --ignore-not-found
+    # Configuring project
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
+            --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${OM_BASE_URL}" \
+            --from-literal=orgId="${OM_ORGID:-}"
+
+    echo "Creating credentials secret"
+    # delete `my-credentials` if it exists
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" delete  secret my-credentials  --ignore-not-found
+    # Configure the Kubernetes credentials for Ops Manager
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+            --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
     echo "Creating required roles and service accounts."
     kubectl --context "${central_cluster}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
@@ -129,8 +150,12 @@ configure_multi_cluster_environment(){
     sleep 3
 
     local service_account_name="operator-tests-multi-cluster-service-account"
-    local secret_name="$(kubectl --context  "${central_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
-    local central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
+
+    local secret_name
+    secret_name="$(kubectl --context  "${central_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
+
+    local central_cluster_token
+    central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
     echo "Creating Multi Cluster configuration secret"
 
     configuration_params=(
@@ -141,20 +166,21 @@ configure_multi_cluster_environment(){
     INDEX=1
     for member_cluster in ${member_clusters}; do
       secret_name="$(kubectl --context  "${member_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
-      local member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
+      member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
       configuration_params+=(
          "--from-literal=${member_cluster}=${member_cluster_token}"
          "--from-literal=member_cluster_${INDEX}=${member_cluster}"
       )
-      let "INDEX++"
+      (( INDEX++ ))
     done
 
-    kubectl create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}"
+    kubectl --context "${central_cluster}"  create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}"
 }
 
 deploy_test_app() {
     title "Deploying test application"
-
+    local context=${1}
+    local helm_template_file
     helm_template_file=$(mktemp)
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
@@ -175,11 +201,12 @@ deploy_test_app() {
         "--set" "imageType=${IMAGE_TYPE}"
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-
     )
 
+    # shellcheck disable=SC2154
     if [[ ${kube_environment_name} = "multi" ]]; then
-        helm_params+=("--set" "multiCluster=true")
+        helm_params+=("--set" "multiCluster.memberClusters=${member_clusters}")
+        helm_params+=("--set" "multiCluster.centralCluster=${central_cluster}")
     fi
 
     if [[ -n "${custom_om_version:-}" ]]; then
@@ -204,19 +231,20 @@ deploy_test_app() {
 
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
 
-    kubectl -n "${PROJECT_NAMESPACE}" delete -f "${helm_template_file}" 2>/dev/null  || true
+    kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" delete -f "${helm_template_file}" 2>/dev/null  || true
 
-    kubectl -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
+    kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
 
     rm "${helm_template_file}"
 }
 
 wait_until_pod_is_running_or_failed_or_succeeded() {
+    local context=${1}
     # Do wait while the Pod is not yet running or failed (can be in Pending or ContainerCreating state)
     # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
     echo "Waiting until the test application gets to Running state..."
 
-    is_running_cmd="kubectl -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
+    is_running_cmd="kubectl --context ${context} -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
 
     # test app usually starts instantly but sometimes (quite rarely though) may require more than a min to start
     # in Evergreen so let's wait for 2m
@@ -225,32 +253,38 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
 
     if ! eval "${is_running_cmd}"; then
         error "Test application failed to start on time!"
-        kubectl -n "${PROJECT_NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
+        kubectl --context "${context}" -n "${PROJECT_NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
         fatal "Failed to run test application - exiting"
     fi
 }
 
 test_app_ended() {
+    local context="${1}"
     local status
-    status="$(kubectl -n "${PROJECT_NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath="{.status.phase}")"
+    status="$(kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath="{.status.phase}")"
     [[ "${status}" = "Failed" || "${status}" = "Succeeded" ]]
 }
 
 # Will run the test application and wait for its completion.
 run_tests() {
     local task_name=${1}
+    local context
+    context="$(kubectl config current-context)"
+    if [[ "${kube_environment_name}" = "multi" ]]; then
+        context="${central_cluster}"
+    fi
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
-
-    prepare_operator_config_map
 
     if [[ "${kube_environment_name}" = "multi" ]]; then
       configure_multi_cluster_environment
     fi
 
-    deploy_test_app
+    prepare_operator_config_map "${context}"
 
-    wait_until_pod_is_running_or_failed_or_succeeded
+    deploy_test_app "${context}"
+
+    wait_until_pod_is_running_or_failed_or_succeeded "${context}"
 
     title "Running e2e test ${task_name} (tag: ${TEST_IMAGE_TAG})"
 
@@ -264,15 +298,15 @@ run_tests() {
         # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
-        kubectl -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
-        kubectl -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" > "${operator_filename}"
+        kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
+        kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" > "${operator_filename}"
     fi
 
     # Waiting a bit until the pod gets to some end
-    while ! test_app_ended; do printf .; sleep 1; done;
+    while ! test_app_ended "${context}"; do printf .; sleep 1; done;
     echo
 
-    [[ $(kubectl -n "${PROJECT_NAMESPACE}" get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
+    [[ $(kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
 }
 
 mkdir -p logs/

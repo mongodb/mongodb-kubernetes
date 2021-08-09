@@ -149,9 +149,16 @@ class KubernetesTester(object):
         return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
 
     @classmethod
-    def read_configmap(cls, namespace: str, name: str) -> Dict[str, str]:
+    def read_configmap(
+        cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+    ) -> Dict[str, str]:
         """Reads a ConfigMap and returns its contents"""
-        return cls.clients("corev1").read_namespaced_config_map(name, namespace).data
+
+        corev1 = cls.clients("corev1")
+        if api_client is not None:
+            corev1 = client.CoreV1Api(api_client=api_client)
+
+        return corev1.read_namespaced_config_map(name, namespace).data
 
     @classmethod
     def read_pod(cls, namespace: str, name: str) -> Dict[str, str]:

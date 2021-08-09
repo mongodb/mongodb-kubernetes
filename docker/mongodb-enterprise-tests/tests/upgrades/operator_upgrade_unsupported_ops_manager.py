@@ -15,7 +15,7 @@ from pytest import fixture, mark
 
 @fixture(scope="module")
 def ops_manager(namespace: str) -> MongoDBOpsManager:
-    """The fixture for Ops Manager to be created. """
+    """The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace
     )

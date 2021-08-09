@@ -2,8 +2,9 @@ import logging
 import os
 import subprocess
 import tempfile
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
+from kubernetes import client
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
@@ -14,10 +15,12 @@ from kubetester import get_pod_when_ready
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer
 from kubetester.git import clone_and_checkout
-from kubetester.helm import helm_install_from_chart
+from kubetester.helm import helm_install_from_chart, helm_template
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
+from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture
+from tests.multicluster import prepare_multi_cluster_namespaces
 
 try:
     kubernetes.config.load_kube_config()
@@ -27,7 +30,6 @@ except Exception:
 
 KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
 MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
-CENTRAL_CLUSTER_NAME = "e2e.operator.mongokubernetes.com"
 
 
 @fixture(scope="module")
@@ -40,6 +42,17 @@ def operator_installation_config(namespace: str) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     return KubernetesTester.read_configmap(namespace, "operator-installation-config")
+
+
+@fixture(scope="module")
+def multi_cluster_operator_installation_config(
+    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+) -> Dict[str, str]:
+    """Returns the ConfigMap containing configuration data for the Operator to be created.
+    Created in the single_e2e.sh"""
+    return KubernetesTester.read_configmap(
+        namespace, "operator-installation-config", api_client=central_cluster_client
+    )
 
 
 @fixture(scope="module")
@@ -211,23 +224,57 @@ def default_operator(
 
 
 @fixture(scope="module")
+def central_cluster_name() -> str:
+    central_cluster = os.environ.get("CENTRAL_CLUSTER")
+    if not central_cluster:
+        raise ValueError(
+            "No central cluster specified in environment variable CENTRAL_CLUSTER!"
+        )
+    return central_cluster
+
+
+@fixture(scope="module")
 def central_cluster_client(
-    cluster_clients: Dict[str, kubernetes.client.api_client.ApiClient]
-) -> kubernetes.client.api_client.ApiClient:
-    return cluster_clients[CENTRAL_CLUSTER_NAME]
+    central_cluster_name: str, cluster_clients: Dict[str, kubernetes.client.ApiClient]
+) -> kubernetes.client.ApiClient:
+    return cluster_clients[central_cluster_name]
+
+
+@fixture(scope="module")
+def member_cluster_clients(
+    cluster_clients: Dict[str, kubernetes.client.ApiClient]
+) -> List[MultiClusterClient]:
+    member_clusters = os.environ.get("MEMBER_CLUSTERS")
+    if not member_clusters:
+        raise ValueError(
+            "No member clusters specified in environment variable MEMBER_CLUSTERS!"
+        )
+    member_cluster_names = member_clusters.split()
+
+    member_cluster_clients = []
+    for (i, member_cluster) in enumerate(sorted(member_cluster_names)):
+        member_cluster_clients.append(
+            MultiClusterClient(cluster_clients[member_cluster], member_cluster, i)
+        )
+    return member_cluster_clients
 
 
 @fixture(scope="module")
 def multi_cluster_operator(
     namespace: str,
-    operator_installation_config: Dict[str, str],
-    central_cluster_client: kubernetes.client.api_client.ApiClient,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
 ) -> Operator:
+    prepare_multi_cluster_namespaces(
+        namespace, multi_cluster_operator_installation_config, member_cluster_clients
+    )
     # ensure we install the operator in the central cluster.
-    os.environ["HELM_KUBECONTEXT"] = CENTRAL_CLUSTER_NAME
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
     return Operator(
         namespace=namespace,
-        helm_args=operator_installation_config,
+        helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
         enable_webhook_check=False,
     ).upgrade(install=True)
@@ -410,7 +457,6 @@ def cluster_clients(
             namespace,
             "-central-cluster-namespace",
             namespace,
-            "-cleanup",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
