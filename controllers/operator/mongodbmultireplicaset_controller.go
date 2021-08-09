@@ -61,21 +61,6 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 	}
 }
 
-func copySecret(fromClient secret.Getter, toClient secret.GetUpdateCreator, sourceSecretNsName, destNsName types.NamespacedName) error {
-	s, err := fromClient.GetSecret(sourceSecretNsName)
-	if err != nil {
-		return err
-	}
-
-	secretCopy := secret.Builder().
-		SetName(destNsName.Name).
-		SetNamespace(destNsName.Namespace).
-		SetByteData(s.Data).
-		Build()
-
-	return secret.CreateOrUpdate(toClient, secretCopy)
-}
-
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
@@ -107,7 +92,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	for i, item := range mrs.GetOrderedClusterSpecList() {
 		client := r.memberClusterClientsMap[item.ClusterName]
 		// copy the agent api key to the member cluster.
-		err := copySecret(r.client, client,
+		err := secret.CopySecret(r.client, client,
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
 		)

@@ -136,7 +136,7 @@ func defaultConfigMap(name string) corev1.ConfigMap {
 	return configmap.Builder().
 		SetName(name).
 		SetNamespace(mock.TestNamespace).
-		SetField(util.OmBaseUrl, "http://mycompany.com:8080").
-		SetField(util.OmProjectName, "my-name").
+		SetDataField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetDataField(util.OmProjectName, "my-name").
 		Build()
 }

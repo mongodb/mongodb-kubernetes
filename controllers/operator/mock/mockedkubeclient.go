@@ -303,9 +303,9 @@ func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *
 	cm := configmap.Builder().
 		SetName(TestProjectConfigMapName).
 		SetNamespace(TestNamespace).
-		SetField(util.OmBaseUrl, "http://mycompany.com:8080").
-		SetField(util.OmProjectName, projectName).
-		SetField(util.OmOrgId, organizationId).
+		SetDataField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetDataField(util.OmProjectName, projectName).
+		SetDataField(util.OmOrgId, organizationId).
 		Build()
 
 	err := m.Create(context.TODO(), &cm)

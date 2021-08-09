@@ -507,7 +507,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 	cm := configmap.Builder().
 		SetName(opsManager.Spec.AppDB.ProjectIDConfigMapName()).
 		SetNamespace(opsManager.Namespace).
-		SetField(util.AppDbProjectIdKey, conn.GroupID()).
+		SetDataField(util.AppDbProjectIdKey, conn.GroupID()).
 		Build()
 
 	// Saving the "backup" ConfigMap which contains the project id
