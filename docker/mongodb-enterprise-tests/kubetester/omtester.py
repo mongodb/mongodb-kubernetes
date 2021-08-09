@@ -346,10 +346,6 @@ class OMTester(object):
     def api_get_organization_id(self, org_name: str) -> str:
         encoded_org_name = urllib.parse.quote_plus(org_name)
         json = self.om_request("get", f"/orgs?name={encoded_org_name}").json()
-        if len(json["results"]) > 1:
-            # It seems that OM version is 4.0 - so the API doesn't support filtering by name
-            # and we need to iterate over all the pages to find the organization
-            raise Exception(f"More than one organizations with name {org_name} found!")
         if len(json["results"]) == 0:
             return ""
         return json["results"][0]["id"]

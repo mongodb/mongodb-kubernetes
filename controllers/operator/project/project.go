@@ -2,10 +2,10 @@ package project
 
 import (
 	"fmt"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 
@@ -142,7 +142,6 @@ func findProject(projectName string, organization *om.Organization, conn om.Conn
 }
 
 func findProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
-	var project *om.Project
 	// 1. Trying to find the project by name
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 
@@ -164,28 +163,11 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 			return projects[0], nil
 		}
 	}
-	// 2. At this stage we guess that the "name" filter parameter is not supported or the projects
-	// slice was empty - let's failback to reading the pages (old version of OM?)
-	log.Debugf("The Ops Manager used is too old (< 4.2.0) so we need to traverse all projects inside organization %s to find '%s'.", organization.ID, projectName)
 
-	_, err = om.TraversePages(
-		func(pageNum int) (paginated om.Paginated, e error) {
-			return conn.ReadProjectsInOrganization(organization.ID, pageNum)
-		},
-		func(o interface{}) bool {
-			g := o.(*om.Project)
-			if g.Name == projectName {
-				log.Debugf("Found the project %s in organization %s (\"%s\")", g.ID, organization.ID, organization.Name)
-				project = g
-				return true
-			}
-			return false
-		})
-	return project, err
+	return nil, fmt.Errorf("could not find project %s in organization %s", projectName, organization.ID)
 }
 
 func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {
-	var orgID string
 	// 1. We try to find the ogranization using 'name' filter parameter first
 	organizations, err := conn.ReadOrganizationsByName(name)
 
@@ -208,22 +190,7 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 		}
 	}
 
-	// 2. At this stage we guess that the "name" filter parameter is not supported or the organizations slice
-	// was empty - let's failback to reading the pages (old version of OM?)
-	log.Debugf("The Ops Manager used is too old (< 4.2.0) so we need to traverse all organizations to find '%s'.", name)
-
-	_, err = om.TraversePages(
-		conn.ReadOrganizations,
-		func(o interface{}) bool {
-			org := o.(*om.Organization)
-			if org.Name == name {
-				orgID = org.ID
-				log.Debugf("Found organization \"%s\" (%s)", org.Name, org.ID)
-				return true
-			}
-			return false
-		})
-	return orgID, err
+	return "", fmt.Errorf("could not find organization %s", name)
 }
 
 func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
@@ -245,21 +212,6 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 		Tags:  []string{}, // Project creation no longer applies the EXTERNALLY_MANAGED tag, this is added afterwards
 	}
 	ans, err := conn.CreateProject(group)
-
-	if err != nil {
-		if v, ok := err.(*apierror.Error); ok {
-			if v.ErrorCodeIn(apierror.InvalidAttribute) && strings.Contains(v.Detail, "tags") {
-				// Fallback logic: seems that OM version is < 4.0.2 (as it allows to edit group
-				// tags only for GLOBAL_OWNER users), let's try to create group without tags
-				group.Tags = []string{}
-				ans, err = conn.CreateProject(group)
-
-				if err == nil {
-					log.Infow("Created project without tags as current version of Ops Manager forbids tags modification")
-				}
-			}
-		}
-	}
 
 	if err != nil {
 		return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)

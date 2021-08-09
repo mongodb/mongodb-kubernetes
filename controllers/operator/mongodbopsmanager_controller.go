@@ -53,7 +53,6 @@ import (
 
 const (
 	oldestSupportedOpsManagerVersion       = "4.4.0"
-	omVersionWithNewDriver                 = "4.4.0"
 	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json"
 )
 
@@ -598,13 +597,8 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 // buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism
 // (which internally depends on the mongodb version)
 func buildMongoConnectionUrl(opsManager omv1.MongoDBOpsManager, password string) string {
-	scramShaMechanism := "SCRAM-SHA-1"
-	if omSupportsScramSha256(opsManager.Spec) {
-		scramShaMechanism = "SCRAM-SHA-256"
-	}
-
 	return opsManager.Spec.AppDB.ConnectionURL(util.OpsManagerMongoDBUserName, password,
-		map[string]string{"authMechanism": scramShaMechanism})
+		map[string]string{"authMechanism": "SCRAM-SHA-256"})
 }
 
 func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
@@ -1286,17 +1280,7 @@ func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, us
 		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
 			" specified using 'mongodbUserRef'", mongodb.Name)
 	}
-	if omSupportsScramSha256(opsManager.Spec) {
-		return workflow.OK()
-	}
-	// This validation is only for 4.2 OM version which doesn't support ScramSha256
-	comparison, err := util.CompareVersions(mongodb.Spec.GetMongoDBVersion(), util.MinimumScramSha256MdbVersion)
-	if err != nil {
-		return workflow.Failed(err.Error())
-	}
-	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) && comparison >= 0 {
-		return workflow.Failed("The %s with SCRAM-SHA enabled must have version less than 4.0.0", description)
-	}
+
 	return workflow.OK()
 }
 
@@ -1313,19 +1297,6 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 		LastName:  data["LastName"],
 	}
 	return user, nil
-}
-
-// omSupportsScramSha256 returns true if OM supports scram sha 256.
-func omSupportsScramSha256(omSpec omv1.MongoDBOpsManagerSpec) bool {
-	v1, err := versionutil.StringToSemverVersion(omSpec.Version)
-	if err != nil {
-		return false
-	}
-	v2, err := semver.Make(omVersionWithNewDriver)
-	if err != nil {
-		return false
-	}
-	return v1.GTE(v2)
 }
 
 // delete cleans up Ops Manager related resources on CR removal.

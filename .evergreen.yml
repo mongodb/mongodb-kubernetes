@@ -19,7 +19,7 @@ variables:
     usaf_operator_version: "1.7.1"
     usaf_database_version: "1.5.3"
 
-    # These are OM/MDB versions used in OM e2e tests (build variants for 4.2/4.4 OM) - change them occasionally
+    # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
   - &ops_manager_44_latest 4.4.15
 
   - &ops_manager_50_latest 5.0.0
@@ -1961,7 +1961,6 @@ task_groups:
     - e2e_tls_rs_external_access
     - e2e_tls_rs_external_access_tls_transition
     - e2e_sharded_cluster_tls_require
-    # these tests are moved here from tls task group as they used to fail in MDB 4.4 and should not be run with OM 4.0
     - e2e_replica_set_tls_require
     - e2e_disable_tls_scale_up
     - e2e_replica_set_tls_require_and_disable
@@ -2119,7 +2118,6 @@ task_groups:
     - func: setup_kubernetes_environment
   tasks:
     - e2e_om_remotemode
-    # TODO move it to OM 4.2
     - e2e_om_ops_manager_backup_restore
     # The task has problems running in e2e_kind_ops_manager_ubi build variant - so running only on e2e_kind_ops_manager_4_4
     # (it's ubuntu based)

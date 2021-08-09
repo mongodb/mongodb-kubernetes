@@ -81,7 +81,7 @@ if [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
     override_file="/opt/scripts/config/${hostpath}"
     override="$(cat "$override_file")"
     agentOpts+=("-overrideLocalHost" "${override}")
-    echo $override
+    echo "$override"
 fi
 
 # this is the version of Automation Agent which has fixes for health file bugs
