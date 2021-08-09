@@ -4,9 +4,9 @@ set -eux
 
 export CTX_CLUSTER1=e2e.cluster1.mongokubernetes.com
 export CTX_CLUSTER2=e2e.cluster2.mongokubernetes.com
-export VERSION=1.9.1
+export VERSION=1.9.7
 
-# download Istio 1.9.1 under the path
+# download Istio 1.9.7 under the path
 curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -
 
 cd istio-${VERSION}
@@ -53,7 +53,7 @@ spec:
       network: network1
 EOF
 
-istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y
 
 cat <<EOF > cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
@@ -73,17 +73,17 @@ spec:
       network: network1
 EOF
 
-istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y
 
 
 # enable endpoint discovery
-istioctl x create-remote-secret \
+bin/istioctl x create-remote-secret \
     --context="${CTX_CLUSTER1}" \
     --name=cluster1 | \
     kubectl apply -f - --context="${CTX_CLUSTER2}"
 
 
-istioctl x create-remote-secret \
+bin/istioctl x create-remote-secret \
     --context="${CTX_CLUSTER2}" \
     --name=cluster2 | \
     kubectl apply -f - --context="${CTX_CLUSTER1}"

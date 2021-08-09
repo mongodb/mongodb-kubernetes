@@ -196,7 +196,6 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 		SetPortName("mongodb").
 		SetSelector(labels).
 		SetLabels(labels).
-		SetClusterIP("None").
 		SetPublishNotReadyAddresses(true).
 		Build()
 }
