@@ -64,6 +64,8 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
 
@@ -130,7 +132,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, err
 	}
 
-	log.Infow("Successfully finished reconcilliation", "MultiReplicaSetSpec", mrs.Spec)
+	log.Infof("Finished reconciliation for MultiReplicaSetSpec: %v", mrs.Spec)
 	return r.updateStatus(&mrs, workflow.OK(), log)
 }
 
