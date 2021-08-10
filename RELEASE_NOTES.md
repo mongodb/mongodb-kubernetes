@@ -1,10 +1,15 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
-# MongoDB Enterprise Kubernetes Operator 1.12.1
+# MongoDB Enterprise Kubernetes Operator 1.13.0
 
 ## MongoDBOpsManager Resource
 * Operator will report status of FileSystemSnaphot store names configured under `spec.backup.fileSystemStores` in OM CR. The FS however needs to be manually configured.
 * It is now possible to disable creation of "LoadBalancer" Type service for queryable backup by setting `spec.backup.externalServiceEnabled` to `false` in OM CR. By default, the operator would create the LoadBalancer type service object.
+
+## Miscellaneous
+* Ops Manager versions 4.4.16 and 5.0.1 are now supported
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.12.0
 
 ## MongoDB Resource
@@ -32,7 +37,6 @@
 * Before upgrading OpsManager to version 5.0.0 make sure the Operator is using a [programmatic API key](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/create-operator-credentials/#create-k8s-credentials). This is only required when the OpsManager instance is managed by the Operator.
 * You will find a small tutorial on how to do this in [upgrading-to-ops-manager-5.md](docs/upgrading-to-ops-manager-5.md) document.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.11.0
 
 ## MongoDB Resource
