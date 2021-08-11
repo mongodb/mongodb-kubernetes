@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 import tempfile
 
 import jsonpatch
+import kubernetes.client
 import pymongo
 import pytest
 import requests
@@ -1151,9 +1152,13 @@ class KubernetesTester(object):
 
     @staticmethod
     def run_command_in_pod_container(
-        pod_name: str, namespace: str, cmd: List[str], container: str = ""
+        pod_name: str,
+        namespace: str,
+        cmd: List[str],
+        container: str = "",
+        api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> str:
-        api_client = client.CoreV1Api()
+        api_client = client.CoreV1Api(api_client=api_client)
         api_response = stream(
             api_client.connect_get_namespaced_pod_exec,
             pod_name,
@@ -1672,7 +1677,11 @@ def validation_reason_from_exception(exception_msg):
             return reason[1]
 
 
-def create_testing_namespace(evergreen_task_id: str, name: str) -> str:
+def create_testing_namespace(
+    evergreen_task_id: str,
+    name: str,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> str:
     """creates the namespace that is used by the test. Marks it with necessary labels and annotations so that
     it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information)"""
     test_ns = client.V1Namespace(
@@ -1684,7 +1693,7 @@ def create_testing_namespace(evergreen_task_id: str, name: str) -> str:
             },
         )
     )
-    client.CoreV1Api().create_namespace(test_ns)
+    client.CoreV1Api(api_client=api_client).create_namespace(test_ns)
     return name
 
 

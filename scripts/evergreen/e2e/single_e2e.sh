@@ -107,6 +107,17 @@ configure_multi_cluster_environment(){
     for member_cluster in ${member_clusters}; do
       ensure_test_namespace "${member_cluster}"
       kubectl --context "${member_cluster}" label ns "${PROJECT_NAMESPACE}" istio-injection=enabled
+      # configure mtls at the namespace level.
+      kubectl --context "${member_cluster}"  -n "${PROJECT_NAMESPACE}" apply -f - <<EOF
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: "default"
+spec:
+  mtls:
+    mode: STRICT
+EOF
+
     done
 
 

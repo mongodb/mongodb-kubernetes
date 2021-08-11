@@ -20,6 +20,30 @@ go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2} -central-clust
 kubectl --context ${CLUSTER1} label ns ${MDB_NAMESPACE} istio-injection=enabled
 kubectl --context ${CLUSTER2} label ns ${MDB_NAMESPACE} istio-injection=enabled
 
+
+kubectl --context ${CLUSTER1} delete peerauthentication default --ignore-not-found
+kubectl --context ${CLUSTER1}  -n ${MDB_NAMESPACE} apply -f - <<EOF
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: "default"
+spec:
+  mtls:
+    mode: STRICT
+EOF
+
+kubectl --context ${CLUSTER2} delete peerauthentication default --ignore-not-found
+kubectl --context ${CLUSTER2}  -n ${MDB_NAMESPACE} apply -f - <<EOF
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: "default"
+spec:
+  mtls:
+    mode: STRICT
+EOF
+
+
 # deploy the MDB CRD in central cluster -- OM reconciler watches it
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodb.yaml
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_opsmanagers.yaml
