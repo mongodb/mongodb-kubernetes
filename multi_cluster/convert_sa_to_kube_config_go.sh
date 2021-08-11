@@ -15,7 +15,7 @@ kubectl --context ${CENTRAL_CLUSTER} delete mdbm --all --namespace ${OPERATOR_NA
 kubectl --context ${CLUSTER1} delete sts --all --namespace ${MDB_NAMESPACE} --ignore-not-found
 kubectl --context ${CLUSTER2} delete sts --all --namespace ${MDB_NAMESPACE} --ignore-not-found
 
-go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2} -central-cluster ${CENTRAL_CLUSTER} -member-cluster-namespace ${MDB_NAMESPACE} -central-cluster-namespace ${OPERATOR_NAMESPACE} -cleanup -cluster-scoped
+go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2} -central-cluster ${CENTRAL_CLUSTER} -member-cluster-namespace ${MDB_NAMESPACE} -central-cluster-namespace ${OPERATOR_NAMESPACE} -cleanup
 
 kubectl --context ${CLUSTER1} label ns ${MDB_NAMESPACE} istio-injection=enabled
 kubectl --context ${CLUSTER2} label ns ${MDB_NAMESPACE} istio-injection=enabled
