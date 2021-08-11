@@ -3,8 +3,10 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
@@ -24,6 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+)
+
+type ClusterType string
+
+const (
+	Single = "single"
+	Multi  = "multi"
 )
 
 type MongoDBUserReconciler struct {
@@ -55,14 +65,34 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 	return user, nil
 }
 
-func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (mdbv1.MongoDB, error) {
-	mdb := mdbv1.MongoDB{}
+// getMongoDB return a MongoDB deployment of type Single or Multi cluster based on the clusterType passed
+func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser, clusterType ClusterType) (project.Reader, error) {
 	name := kube.ObjectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
-	if err := r.client.Get(context.TODO(), name, &mdb); err != nil {
-		return mdb, err
+
+	if clusterType == Single {
+		mdb := &mdbv1.MongoDB{}
+		if err := r.client.Get(context.TODO(), name, mdb); err != nil {
+			return mdb, err
+		}
+		return mdb, nil
 	}
 
-	return mdb, nil
+	mdbm := &mdbmulti.MongoDBMulti{}
+	if err := r.client.Get(context.TODO(), name, mdbm); err != nil {
+		return mdbm, err
+	}
+	return mdbm, nil
+}
+
+// getProjectReader returns a project.Reader object corresponsing to MongoDB single or multi-cluster deployment
+func (r *MongoDBUserReconciler) getProjectReader(user userv1.MongoDBUser) (project.Reader, error) {
+	// first try to fetch if MongoDB Single Cluster deployment exists
+	mdb, err := r.getMongoDB(user, Single)
+	if err != nil && apiErrors.IsNotFound(err) {
+		// try to fetch MongoDB Multi Cluster deployment if couldn't find single cluster resource
+		return r.getMongoDB(user, Multi)
+	}
+	return mdb, err
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
@@ -79,15 +109,16 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 	}
 
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
-	mdb := mdbv1.MongoDB{}
+	var mdb project.Reader
+
 	if user.Spec.MongoDBResourceRef.Name != "" {
-		if mdb, err = r.getMongoDB(*user); err != nil {
+		if mdb, err = r.getProjectReader(*user); err != nil {
+			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, err: %s", user.Spec.MongoDBResourceRef.Name, err)
 			return r.updateStatus(user, workflow.Pending(err.Error()), log)
 		}
 	} else {
 		log.Warn("MongoDB reference not specified. Using deprecated project field.")
 	}
-	log.Infow("MongoDBUser MongoDBSpec", "spec", mdb.Spec)
 
 	// this can happen when a user has registered a configmap as watched resource
 	// but the user gets deleted. Reconciliation happens to this user even though it is deleted.
@@ -97,33 +128,32 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 		return reconcile.Result{}, nil
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mdb)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb)
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
 	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
-
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
+
 	if user.Spec.Database == authentication.ExternalDB {
 		return r.handleExternalAuthUser(user, conn, log)
 	} else {
 		return r.handleScramShaUser(user, conn, log)
 	}
-
 }
 
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
 	user := obj.(*userv1.MongoDBUser)
 
-	mdb, err := r.getMongoDB(*user)
+	mdb, err := r.getProjectReader(*user)
 	if err != nil {
 		return err
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mdb)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb)
 	if err != nil {
 		return err
 	}

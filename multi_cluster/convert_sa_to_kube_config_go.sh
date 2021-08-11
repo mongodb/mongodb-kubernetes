@@ -20,6 +20,7 @@ go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2} -central-clust
 kubectl --context ${CLUSTER1} label ns ${MDB_NAMESPACE} istio-injection=enabled
 kubectl --context ${CLUSTER2} label ns ${MDB_NAMESPACE} istio-injection=enabled
 
+# deploy the CRDs in the central cluster
 
 kubectl --context ${CLUSTER1} delete peerauthentication default --ignore-not-found
 kubectl --context ${CLUSTER1}  -n ${MDB_NAMESPACE} apply -f - <<EOF
@@ -44,9 +45,10 @@ spec:
 EOF
 
 
-# deploy the MDB CRD in central cluster -- OM reconciler watches it
+# deploy CRDs in central cluster
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodb.yaml
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_opsmanagers.yaml
+kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodbusers.yaml
 
 ## deploy the multi-cluster CRD
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodbmulti.yaml
@@ -93,3 +95,7 @@ kubectl --context ${CENTRAL_CLUSTER} --namespace "${MDB_NAMESPACE}" create confi
 API_KEY="$(kubectl --context ${CENTRAL_CLUSTER} get secret "${OPERATOR_NAMESPACE}-ops-manager-external-admin-key" -n ${OPERATOR_NAMESPACE} -o jsonpath='{.data.publicApiKey}' | base64 -d)"
 USER="$(kubectl --context ${CENTRAL_CLUSTER} get secret "${OPERATOR_NAMESPACE}-ops-manager-external-admin-key" -n ${OPERATOR_NAMESPACE} -o jsonpath='{.data.user}' | base64 -d)"
 kubectl --context ${CENTRAL_CLUSTER} --namespace "${MDB_NAMESPACE}" create secret generic my-credentials --from-literal=user="${USER}" --from-literal=publicApiKey="${API_KEY}"
+
+
+# create user in central cluster
+kubectl --context ${CENTRAL_CLUSTER} apply -f config/scram-user-secret.yaml --namespace ${OPERATOR_NAMESPACE}
