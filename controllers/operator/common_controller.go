@@ -598,7 +598,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
 	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
-	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb, log) {
+	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb.Spec.Security.Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
 		if mdb.Spec.Security.ShouldUseX509(ac.Auth.AutoAuthMechanism) || mdb.Spec.Security.ShouldUseClientCertificates() {
@@ -736,14 +736,14 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.C
 // it is possible to configure the authentication mechanisms specified by the given MongoDB resource
 // during this reconciliation. This function may return a different value on the next reconciliation
 // if the state of Ops Manager has been changed.
-func canConfigureAuthentication(ac *om.AutomationConfig, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) bool {
-	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && stringutil.Contains(mdb.Spec.Security.Authentication.GetModes(), util.X509)
+func canConfigureAuthentication(ac *om.AutomationConfig, authenticationModes []string, log *zap.SugaredLogger) bool {
+	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && stringutil.Contains(authenticationModes, util.X509)
 	canEnableX509InOpsManager := ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0
 
 	log.Debugw("canConfigureAuthentication",
 		"attemptingToEnableX509", attemptingToEnableX509,
 		"deploymentAuthMechanisms", ac.Auth.DeploymentAuthMechanisms,
-		"modes", mdb.Spec.Security.Authentication.GetModes(),
+		"modes", authenticationModes,
 		"canEnableX509InOpsManager", canEnableX509InOpsManager,
 		"allProcessesAreTLSEnabled", ac.Deployment.AllProcessesAreTLSEnabled(),
 		"numberOfProcesses", ac.Deployment.NumberOfProcesses())

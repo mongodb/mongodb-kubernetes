@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
@@ -150,6 +151,11 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 	processes := process.CreateMongodProcessesWithLimitMulti(mrs)
 	rs := om.NewReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes)
 
+	status, additionalReconciliationRequired := updateOmMultiSCRAMAuthentication(conn, rs.GetProcessNames(), &mrs, log)
+	if !status.IsOK() {
+		return fmt.Errorf("failed to enabled SCRAM Authorization for MongoDB Multi Replicaset")
+	}
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, log)
@@ -159,15 +165,18 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 		},
 		log,
 	)
-
 	if err != nil {
 		return err
+	}
+
+	if additionalReconciliationRequired {
+		// TODO: fix this decide when to use Pending vs Reconciling
+		return fmt.Errorf("failed to complete reconciliation")
 	}
 
 	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), log); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -292,4 +301,52 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	// logic for those objects
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
 	return err
+}
+
+func updateOmMultiSCRAMAuthentication(conn om.Connection, processName []string, mdbm *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (workflow.Status, bool) {
+	// check before proceding if authentication is enabled at all
+	if mdbm.Spec.Security == nil || mdbm.Spec.Security.Authentication == nil {
+		return workflow.OK(), false
+	}
+
+	if err := om.WaitForReadyState(conn, processName, log); err != nil {
+		return workflow.Failed(err.Error()), false
+	}
+
+	// read automation config
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return workflow.Failed(err.Error()), false
+	}
+
+	scramAgentUserName := util.AutomationAgentUserName
+	// only use the default name if there is not already a configure user name
+	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
+		scramAgentUserName = ac.Auth.AutoUser
+	}
+
+	authOpts := authentication.Options{
+		MinimumMajorVersion: mdbm.Spec.MinimumMajorVersion(),
+		Mechanisms:          mdbm.Spec.Security.Authentication.Modes,
+		ProcessNames:        processName,
+		AuthoritativeSet:    !mdbm.Spec.Security.Authentication.IgnoreUnknownUsers,
+		AgentMechanism:      mdbm.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
+		AutoUser:            scramAgentUserName,
+	}
+
+	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
+
+	shouldEnableAuthentiation := mdbm.Spec.Security.Authentication.Enabled
+	if shouldEnableAuthentiation && canConfigureAuthentication(ac, mdbm.Spec.Security.Authentication.GetModes(), log) {
+		log.Info("Configuring authentication for MongoDB Multi resource")
+
+		if err := authentication.Configure(conn, authOpts, log); err != nil {
+			return workflow.Failed(err.Error()), false
+		}
+	} else if shouldEnableAuthentiation {
+		log.Debug("Attempting to enable authentication, but OpsManager state will not allow this")
+		return workflow.OK(), true
+	}
+
+	return workflow.OK(), false
 }

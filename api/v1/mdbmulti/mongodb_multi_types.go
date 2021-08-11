@@ -8,6 +8,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/blang/semver"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -257,4 +258,16 @@ func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 
 func (m *MongoDBMultiSpec) GetAdditionalMongodConfig() mdbv1.AdditionalMongodConfig {
 	return m.AdditionalMongodConfig
+}
+
+func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {
+	if m.FeatureCompatibilityVersion != nil && *m.FeatureCompatibilityVersion != "" {
+		fcv := *m.FeatureCompatibilityVersion
+
+		// ignore errors here as the format of FCV/version is handled by CRD validation
+		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
+		return semverFcv.Major
+	}
+	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
+	return semverVersion.Major
 }

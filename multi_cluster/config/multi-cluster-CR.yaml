@@ -9,6 +9,10 @@ spec:
   persistent: false
   duplicateServiceObjects: false
   credentials: my-credentials
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]
   opsManager:
     configMapRef:
       name: my-project
