@@ -124,6 +124,10 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Failed("Error ensuring resources for upgrade from 1 to 3 container AppDB: %s", err), log, opsManagerExtraStatusParams)
 	}
 
+	if err := ensureSharedGlobalResources(r.client, *opsManager); err != nil {
+		return r.updateStatus(opsManager, workflow.Failed("Error ensuring shared global resources %s", err), log, opsManagerExtraStatusParams)
+	}
+
 	opsManagerUserPassword, err := r.ensureAppDbPassword(*opsManager, log)
 
 	if err != nil {
@@ -191,6 +195,34 @@ func getMonitoringAgentVersion(opsManager omv1.MongoDBOpsManager, readFile func(
 	} else {
 		return agentVersion, nil
 	}
+}
+
+// ensureSharedGlobalResources ensures that resources that are shared across watched namespaces (e.g. secrets) are in sync
+func ensureSharedGlobalResources(secretGetUpdaterCreator secret.GetUpdateCreator, opsManager omv1.MongoDBOpsManager) error {
+	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
+	if operatorNamespace == opsManager.Namespace {
+		// nothing to sync, OM runs in the same namespace as the operator
+		return nil
+	}
+
+	if imagePullSecretsName, found := env.Read(util.ImagePullSecrets); found {
+		imagePullSecrets, err := secretGetUpdaterCreator.GetSecret(kube.ObjectKey(operatorNamespace, imagePullSecretsName))
+		if err != nil {
+			return err
+		}
+
+		omNsSecret := secret.Builder().
+			SetName(imagePullSecretsName).
+			SetNamespace(opsManager.Namespace).
+			SetByteData(imagePullSecrets.Data).
+			Build()
+		omNsSecret.Type = imagePullSecrets.Type
+		if err := createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, omNsSecret); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 //ensureResourcesForArchitectureChange ensures that the new resources expected to be present.

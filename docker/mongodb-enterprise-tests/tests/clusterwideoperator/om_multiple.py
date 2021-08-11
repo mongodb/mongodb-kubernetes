@@ -4,15 +4,8 @@ from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from kubernetes import client
+from kubetester import client, create_secret, read_secret
 from pytest import fixture, mark
-from kubetester import (
-    create_service_account,
-    create_object_from_dict,
-    create_secret,
-    read_secret,
-)
-
 from typing import Dict
 
 
@@ -76,30 +69,32 @@ def test_create_namespaces(evergreen_task_id: str):
 
 
 @mark.e2e_om_multiple
-def test_create_image_pull_secret_om1(
-    namespace: str, operator_installation_config: Dict[str, str]
-):
-    """ We need to copy image pull secrets to om namespace """
-    secret_name = operator_installation_config["registry.imagePullSecrets"]
-    data = read_secret(namespace, secret_name)
-    create_secret("om-1", secret_name, data, type="kubernetes.io/dockerconfigjson")
-
-
-@mark.e2e_om_multiple
 def test_multiple_om_created_1(om1: MongoDBOpsManager):
     om1.om_status().assert_reaches_phase(Phase.Running, timeout=1100)
 
 
 @mark.e2e_om_multiple
-def test_create_image_pull_secret_om2(
+def test_image_pull_secret_om_created_1(
     namespace: str, operator_installation_config: Dict[str, str]
 ):
-    """ We need to copy image pull secrets to om namespace """
+    """ check if imagePullSecrets was cloned in the OM namespace """
     secret_name = operator_installation_config["registry.imagePullSecrets"]
-    data = read_secret(namespace, secret_name)
-    create_secret("om-2", secret_name, data, type="kubernetes.io/dockerconfigjson")
+    secretDataInOperatorNs = read_secret(namespace, secret_name)
+    secretDataInOmNs = read_secret("om-1", secret_name)
+    assert secretDataInOperatorNs == secretDataInOmNs
 
 
 @mark.e2e_om_multiple
 def test_multiple_om_created_2(om2: MongoDBOpsManager):
     om2.om_status().assert_reaches_phase(Phase.Running, timeout=1100)
+
+
+@mark.e2e_om_multiple
+def test_image_pull_secret_om_created_2(
+    namespace: str, operator_installation_config: Dict[str, str]
+):
+    """ check if imagePullSecrets was cloned in the OM namespace """
+    secret_name = operator_installation_config["registry.imagePullSecrets"]
+    secretDataInOperatorNs = read_secret(namespace, secret_name)
+    secretDataInOmNs = read_secret("om-2", secret_name)
+    assert secretDataInOperatorNs == secretDataInOmNs
