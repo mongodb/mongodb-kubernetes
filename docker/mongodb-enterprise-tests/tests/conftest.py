@@ -30,6 +30,9 @@ except Exception:
 
 KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
 MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
+# AppDB monitoring is disabled by default for e2e tests.
+# If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
+MONITOR_APPDB_E2E_DEFAULT = "false"
 
 
 @fixture(scope="module")
@@ -41,6 +44,16 @@ def namespace() -> str:
 def operator_installation_config(namespace: str) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
+    config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
+    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    return config
+
+
+@fixture(scope="module")
+def monitored_appdb_operator_installation_config(namespace: str) -> Dict[str, str]:
+    """Returns the ConfigMap containing configuration data for the Operator to be created
+    and for the AppDB to be monitored.
+    Created in the single_e2e.sh"""
     return KubernetesTester.read_configmap(namespace, "operator-installation-config")
 
 
@@ -50,9 +63,11 @@ def multi_cluster_operator_installation_config(
 ) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
-    return KubernetesTester.read_configmap(
+    config = KubernetesTester.read_configmap(
         namespace, "operator-installation-config", api_client=central_cluster_client
     )
+    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    return config
 
 
 @fixture(scope="module")
@@ -220,6 +235,17 @@ def default_operator(
     return Operator(
         namespace=namespace,
         helm_args=operator_installation_config,
+    ).upgrade(install=True)
+
+@fixture(scope="module")
+def operator_with_monitored_appdb(
+    namespace: str,
+    monitored_appdb_operator_installation_config: Dict[str, str],
+) -> Operator:
+    """Installs/upgrades a default Operator used by any test that needs the AppDB monitoring enabled."""
+    return Operator(
+        namespace=namespace,
+        helm_args=monitored_appdb_operator_installation_config,
     ).upgrade(install=True)
 
 

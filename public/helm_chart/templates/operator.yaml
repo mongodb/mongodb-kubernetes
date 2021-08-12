@@ -113,13 +113,19 @@ spec:
         - name: IMAGE_PULL_SECRETS
           value: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
-      {{- if .Values.multiCluster.clusters }}
+{{- if .Values.customEnvVars }}
+  {{- range split "&" .Values.customEnvVars }}
+        - name: {{ (split "=" .)._0 }}
+          value: '{{ (split "=" .)._1 }}'
+  {{- end }}
+{{- end }}
+{{- if .Values.multiCluster.clusters }}
       volumes:
         - name: kube-config-volume
           secret:
             defaultMode: 420
             secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
-      {{- end }}
+{{- end }}
 {{- if .Values.debug }}
 ---
 apiVersion: v1

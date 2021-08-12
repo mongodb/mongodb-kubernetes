@@ -254,7 +254,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	// If we can enable monitoring, let's fill in container modification function
 	monitoringModification := podtemplatespec.NOOP()
-	if podVars != nil && podVars.ProjectID != "" {
+	monitorAppDB := env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
+	if monitorAppDB && podVars != nil && podVars.ProjectID != "" {
 		monitoringModification = addMonitoringContainer(*appDb, *podVars, monitoringAgentVersion)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring

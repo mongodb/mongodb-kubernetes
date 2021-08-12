@@ -26,6 +26,14 @@ func ReadBool(env string) (valueAsBool bool, isPresent bool) {
 	return boolValue, err == nil
 }
 
+func ReadBoolOrDefault(key string, defaultValue bool) bool {
+	value, isPresent := ReadBool(key)
+	if isPresent {
+		return value
+	}
+	return defaultValue
+}
+
 // EnsureVar tests the env variable and sets it if it doesn't exist. We tolerate any errors setting env variable and
 // just log the warning
 func EnsureVar(key, value string) {

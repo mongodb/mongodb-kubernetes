@@ -8,7 +8,10 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 def pytest_runtest_setup(item):
     """ This allows to automatically install the default Operator before running any test """
-    if "default_operator" not in item.fixturenames:
+    if (
+        "default_operator" not in item.fixturenames
+        and "operator_with_monitored_appdb" not in item.fixturenames
+    ):
         item.fixturenames.insert(0, "default_operator")
 
 

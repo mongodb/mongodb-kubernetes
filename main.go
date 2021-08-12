@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	localruntime "runtime"
+	"strconv"
 	"strings"
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -270,6 +271,7 @@ func initializeEnvironment() {
 func initEnvVariables() {
 	env.EnsureVar(util.BackupDisableWaitSecondsEnv, util.DefaultBackupDisableWaitSeconds)
 	env.EnsureVar(util.BackupDisableWaitRetriesEnv, util.DefaultBackupDisableWaitRetries)
+	env.EnsureVar(util.OpsManagerMonitorAppDB, strconv.FormatBool(util.OpsManagerMonitorAppDBDefault))
 }
 
 func validateEnv(env string) bool {
