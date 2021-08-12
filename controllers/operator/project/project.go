@@ -190,7 +190,7 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 		}
 	}
 
-	return "", fmt.Errorf("could not find organization %s", name)
+	return "", fmt.Errorf("could not find organization %s: %s", name, err)
 }
 
 func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
