@@ -19,13 +19,17 @@ from .security_context import (
 
 
 def create_secret(
-    namespace: str, name: str, data: Dict[str, str], type: Optional[str] = "Opaque"
+    namespace: str,
+    name: str,
+    data: Dict[str, str],
+    type: Optional[str] = "Opaque",
+    api_client: Optional[client.ApiClient] = None,
 ) -> str:
     """Creates a Secret with `name` in `namespace`. String contents are passed as the `data` parameter."""
     secret = client.V1Secret(
         metadata=client.V1ObjectMeta(name=name), string_data=data, type=type
     )
-    client.CoreV1Api().create_namespaced_secret(namespace, secret)
+    client.CoreV1Api(api_client=api_client).create_namespaced_secret(namespace, secret)
 
     return name
 
