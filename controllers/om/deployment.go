@@ -274,14 +274,6 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool) {
 	d.setMonitoringVersions(monitoringVersions)
 }
 
-func (d Deployment) AddAgentVersionConfig() {
-	agentVersionConfig := map[string]string{
-		"name":         "10.27.1.6801-1",
-		"directoryUrl": "https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/automation-agent/qa/",
-	}
-	d["agentVersion"] = agentVersionConfig
-}
-
 // RemoveMonitoringAndBackup removes both monitoring and backup agent configurations. This must be called when the
 // Mongodb resource is being removed, otherwise UI will show non-existing agents in the "servers" tab
 func (d Deployment) RemoveMonitoringAndBackup(names []string, log *zap.SugaredLogger) {
