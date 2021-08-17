@@ -174,8 +174,6 @@ type MongoDBMultiSpec struct {
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 
 	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
-
-	OpsManagerConfig mdbv1.PrivateCloudConfig `json:"opsManager"`
 }
 
 func (m MongoDBMulti) GetPlural() string {

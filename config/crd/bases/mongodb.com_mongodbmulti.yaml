@@ -446,7 +446,6 @@ spec:
                 type: string
             required:
             - credentials
-            - opsManager
             - type
             - version
             type: object
