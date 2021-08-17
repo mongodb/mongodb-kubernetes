@@ -73,12 +73,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	// Fetch the MongoDBMulti instance
 	mrs := mdbmultiv1.MongoDBMulti{}
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, &mrs, log); reconcileResult != (reconcile.Result{}) {
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, &mrs, log); err != nil {
+		if errors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
 		log.Errorf("error preparing resource for reconciliation: %s", err)
 		return reconcileResult, err
 	}
 
-	// read Ops Manager configuration from the same namespace as the operator.
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs)
 	if err != nil {
 		log.Errorf("error reading project config and credentials: %s", err)

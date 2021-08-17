@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
@@ -110,7 +112,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); reconcileResult != (reconcile.Result{}) {
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); err != nil {
+		if errors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
 		return reconcileResult, err
 	}
 

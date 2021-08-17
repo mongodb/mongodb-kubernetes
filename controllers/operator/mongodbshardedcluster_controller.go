@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -73,7 +75,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 	sc := &mdbv1.MongoDB{}
 
 	reconcileResult, err := r.prepareResourceForReconciliation(request, sc, log)
-	if reconcileResult != (reconcile.Result{}) {
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
 		return reconcileResult, err
 	}
 

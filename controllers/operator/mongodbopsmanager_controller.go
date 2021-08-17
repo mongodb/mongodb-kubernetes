@@ -95,8 +95,11 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 
 	opsManagerExtraStatusParams := mdbstatus.NewOMPartOption(mdbstatus.OpsManager)
 
-	if reconcileResult, err := r.readOpsManagerResource(request, opsManager, log); reconcileResult != nil {
-		return *reconcileResult, err
+	if reconcileResult, err := r.readOpsManagerResource(request, opsManager, log); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
+		return reconcileResult, err
 	}
 
 	log.Info("-> OpsManager.Reconcile")
@@ -428,13 +431,13 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 }
 
 // readOpsManagerResource reads Ops Manager Custom resource into pointer provided
-func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request, ref *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*reconcile.Result, error) {
-	if result, err := r.getResource(request, ref, log); result != nil {
+func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request, ref *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if result, err := r.getResource(request, ref, log); err != nil {
 		return result, err
 	}
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
 	ref.SetWarnings([]mdbstatus.Warning{}, mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewOMPartOption(mdbstatus.AppDb), mdbstatus.NewOMPartOption(mdbstatus.Backup))
-	return nil, nil
+	return reconcile.Result{}, nil
 }
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.

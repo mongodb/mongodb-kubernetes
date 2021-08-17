@@ -237,6 +237,8 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
+	err := manager.Client.Create(context.TODO(), x509User)
+	assert.NoError(t, err)
 
 	// configure x509/tls resources
 	addKubernetesTlsResources(manager.Client, rs)
@@ -263,10 +265,22 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
-	x509User := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	scramUser := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
 
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
+	err := manager.Client.Create(context.TODO(), scramUser)
+	assert.NoError(t, err)
+
+	userPassword := secret.Builder().
+		SetNamespace(scramUser.Namespace).
+		SetName(scramUser.Spec.PasswordSecretKeyRef.Name).
+		SetField(scramUser.Spec.PasswordSecretKeyRef.Key, "password").
+		Build()
+
+	err = manager.Client.Create(context.TODO(), &userPassword)
+
+	assert.NoError(t, err)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 
@@ -276,7 +290,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 		return om.CurrMockedConnection // use the same connection
 	})
 
-	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(x509User))
+	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(scramUser))
 	expected := reconcile.Result{}
 
 	assert.NoError(t, err)

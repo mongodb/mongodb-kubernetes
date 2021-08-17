@@ -193,28 +193,28 @@ func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.Cu
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
-func (c *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (*reconcile.Result, error) {
+func (c *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
 	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcileAppDB request.
+			// Request object not found, could have been deleted after reconcile request.
 			// Return and don't requeue
-			log.Debugf("Object %s doesn't exist, was it deleted after reconcileAppDB request?", request.NamespacedName)
-			return &reconcile.Result{}, nil
+			log.Debugf("Object %s doesn't exist, was it deleted after reconcile request?", request.NamespacedName)
+			return reconcile.Result{}, err
 		}
 		// Error reading the object - requeue the request.
 		log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
-		return &reconcile.Result{RequeueAfter: 10 * time.Second}, err
+		return reconcile.Result{RequeueAfter: 10 * time.Second}, err
 	}
-	return nil, nil
+	return reconcile.Result{}, nil
 }
 
-// prepareResourceForReconciliation finds the object being reconciled. Returns pointer to 'reconcileAppDB.Status' and error
-// If the 'reconcileAppDB.Status' pointer is not nil - the client is expected to finish processing
+// prepareResourceForReconciliation finds the object being reconciled. Returns the reconcile result and any error that
+// occurred.
 func (c *ReconcileCommonController) prepareResourceForReconciliation(
 	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
-	if result, err := c.getResource(request, resource, log); result != nil {
-		return *result, err
+	if result, err := c.getResource(request, resource, log); err != nil {
+		return result, err
 	}
 
 	result, err := c.updateStatus(resource, workflow.Reconciling(), log)

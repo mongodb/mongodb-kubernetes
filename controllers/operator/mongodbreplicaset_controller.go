@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 
@@ -81,7 +82,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); reconcileResult != (reconcile.Result{}) {
+	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); err != nil {
+		if errors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
 		return reconcileResult, err
 	}
 
