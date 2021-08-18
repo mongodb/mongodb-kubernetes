@@ -143,8 +143,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+	hostnames := make([]string, 0)
 
-	hostnames := mrs.GetMultiClusterAgentHostnames()
+	for clusterNum, spec := range mrs.GetOrderedClusterSpecList() {
+		hostnames = append(hostnames, util.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
+	}
+
 	err := agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
 	if err != nil {
 		return err
@@ -188,7 +192,7 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 	}
 
 	return service.Builder().
-		SetName(mrs.GetServiceName(clusterNum, podNum)).
+		SetName(util.GetServiceName(mrs.Name, clusterNum, podNum)).
 		SetNamespace(mrs.Namespace).
 		SetPort(27017).
 		SetPortName("mongodb").
@@ -240,7 +244,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 
 	for podNum := 0; podNum < members; podNum++ {
 		key := fmt.Sprintf("%s", mrs.GetPodName(clusterNum, podNum))
-		value := fmt.Sprintf("%s.%s.svc.cluster.local", mrs.GetServiceName(clusterNum, podNum), mrs.Namespace)
+		value := fmt.Sprintf("%s.%s.svc.cluster.local", util.GetServiceName(mrs.Name, clusterNum, podNum), mrs.Namespace)
 		data[key] = value
 	}
 

@@ -34,6 +34,8 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"github.com/stretchr/testify/assert"
@@ -526,10 +528,15 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	set.Status.ReadyReplicas = *set.Spec.Replicas
 
 	if om.CurrMockedConnection != nil {
-		// We also "register" automation agents.
-		// So far we don't support custom cluster name
-		hostnames, _ := util.GetDnsForStatefulSet(*set, "")
-
+		// check first if it's multi-cluster STS
+		var hostnames []string
+		if val, ok := set.Annotations[handler.MongoDBMultiResourceAnnotation]; ok {
+			hostnames = util.GetMultiClusterAgentHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMDBMName(set.Name), int(*set.Spec.Replicas))
+		} else {
+			// We also "register" automation agents.
+			// So far we don't support custom cluster name
+			hostnames, _ = util.GetDnsForStatefulSet(*set, "")
+		}
 		om.CurrMockedConnection.AddHosts(hostnames)
 	}
 }

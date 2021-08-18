@@ -2,10 +2,11 @@ package multicluster
 
 import (
 	"fmt"
-	"github.com/ghodss/yaml"
 	"io/ioutil"
+	"strconv"
 	"strings"
 
+	"github.com/ghodss/yaml"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -82,4 +83,15 @@ type KubeConfigContext struct {
 // GetMemberClusterNamespace returns the namespace that will be used for all member clusters.
 func (k KubeConfigFile) GetMemberClusterNamespace() string {
 	return k.Contexts[0].Context.Namespace
+}
+
+// MustGetClusterNumFromMDBMName parses the statefulset object name and returns the cluster number where it is created
+func MustGetClusterNumFromMDBMName(name string) int {
+	ss := strings.Split(name, "-")
+
+	n, err := strconv.Atoi(ss[len(ss)-1])
+	if err != nil {
+		panic(err)
+	}
+	return n
 }

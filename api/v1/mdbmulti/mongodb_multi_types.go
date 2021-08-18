@@ -32,26 +32,8 @@ type MongoDBMulti struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
-func (m MongoDBMulti) GetServiceName(clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-%d-%d-svc", m.Name, clusterNum, podNum)
-}
-
 func (m MongoDBMulti) GetPodName(clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d", m.Name, clusterNum, podNum)
-}
-
-func (m MongoDBMulti) GetServiceFQDN(clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", m.GetServiceName(clusterNum, podNum), m.Namespace)
-}
-
-func (m MongoDBMulti) GetMultiClusterAgentHostnames() []string {
-	hostnames := make([]string, 0)
-	for clusterNum, spec := range m.GetOrderedClusterSpecList() {
-		for podNum := 0; podNum < spec.Members; podNum++ {
-			hostnames = append(hostnames, m.GetServiceFQDN(clusterNum, podNum))
-		}
-	}
-	return hostnames
 }
 
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {

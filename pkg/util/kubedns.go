@@ -7,6 +7,25 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
+func GetServiceName(mdbmName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-%d-%d-svc", mdbmName, clusterNum, podNum)
+}
+
+func GetMultiServiceFQDN(mdbmName, namespace string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", GetServiceName(mdbmName, clusterNum, podNum), namespace)
+}
+
+// GetMultiClusterAgentHostnames returns the agent hostnames, which which they should be registered in OM in multi-cluster mode.
+func GetMultiClusterAgentHostnames(mdbmName, namespace string, clusterNum, members int) []string {
+	hostnames := make([]string, 0)
+
+	for podNum := 0; podNum < members; podNum++ {
+		hostnames = append(hostnames, GetMultiServiceFQDN(mdbmName, namespace, clusterNum, podNum))
+	}
+
+	return hostnames
+}
+
 // GetDnsForStatefulSet returns hostnames and names of pods in stateful set "set". This is a preferred way of getting hostnames
 // it must be always used if it's possible to read the statefulset from Kubernetes
 func GetDnsForStatefulSet(set appsv1.StatefulSet, clusterName string) ([]string, []string) {
