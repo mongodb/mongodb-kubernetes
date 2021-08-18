@@ -24,6 +24,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	"github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -279,7 +280,7 @@ func (in *MongoDBOpsManagerBackup) DeepCopyInto(out *MongoDBOpsManagerBackup) {
 	}
 	if in.StatefulSetConfiguration != nil {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
-		*out = new(mdb.StatefulSetConfiguration)
+		*out = new(v1.StatefulSetConfiguration)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -397,7 +398,7 @@ func (in *MongoDBOpsManagerSpec) DeepCopyInto(out *MongoDBOpsManagerSpec) {
 	}
 	if in.StatefulSetConfiguration != nil {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
-		*out = new(mdb.StatefulSetConfiguration)
+		*out = new(v1.StatefulSetConfiguration)
 		(*in).DeepCopyInto(*out)
 	}
 }

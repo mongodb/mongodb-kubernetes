@@ -19,6 +19,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -127,7 +128,7 @@ type MongoDBOpsManagerSpec struct {
 
 	// Configure custom StatefulSet configuration
 	// +optional
-	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 type MongoDBOpsManagerSecurity struct {
@@ -207,11 +208,11 @@ type MongoDBOpsManagerBackup struct {
 	JVMParams []string                 `json:"jvmParameters,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
-	OplogStoreConfigs        []DataStoreConfig               `json:"opLogStores,omitempty"`
-	BlockStoreConfigs        []DataStoreConfig               `json:"blockStores,omitempty"`
-	S3Configs                []S3Config                      `json:"s3Stores,omitempty"`
-	FileSystemStoreConfigs   []FileSystemStoreConfig         `json:"fileSystemStores,omitempty"`
-	StatefulSetConfiguration *mdbv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	OplogStoreConfigs        []DataStoreConfig              `json:"opLogStores,omitempty"`
+	BlockStoreConfigs        []DataStoreConfig              `json:"blockStores,omitempty"`
+	S3Configs                []S3Config                     `json:"s3Stores,omitempty"`
+	FileSystemStoreConfigs   []FileSystemStoreConfig        `json:"fileSystemStores,omitempty"`
+	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {

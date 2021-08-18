@@ -3,6 +3,7 @@ package om
 import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -117,7 +118,7 @@ func (b *OpsManagerBuilder) SetAppDbFeatureCompatibility(version string) *OpsMan
 }
 
 func (b *OpsManagerBuilder) SetStatefulSetSpec(customSpec appsv1.StatefulSetSpec) *OpsManagerBuilder {
-	b.om.Spec.StatefulSetConfiguration = &mdbv1.StatefulSetConfiguration{SpecWrapper: mdbv1.StatefulSetSpecWrapper{Spec: customSpec}}
+	b.om.Spec.StatefulSetConfiguration = &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{Spec: customSpec}}
 	return b
 }
 

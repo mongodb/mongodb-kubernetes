@@ -267,14 +267,6 @@ func (m *MongoDB) CurrentReplicas() int {
 	return m.Status.Members
 }
 
-// StatefulSetConfiguration holds the optional custom StatefulSet
-// that should be merged into the operator created one.
-type StatefulSetConfiguration struct {
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +optional
-	SpecWrapper StatefulSetSpecWrapper `json:"spec"`
-}
-
 // GetMongoDBVersion returns the version of the MongoDB.
 func (ms MongoDbSpec) GetMongoDBVersion() string {
 	return ms.Version
