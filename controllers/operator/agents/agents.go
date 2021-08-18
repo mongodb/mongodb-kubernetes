@@ -6,6 +6,7 @@ import (
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -67,7 +68,7 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omCon
 
 // WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
 func WaitForRsAgentsToRegisterReplicasSpecified(set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
-	hostnames, _ := util.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members)
+	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members)
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilRegistered(omConnection, log, hostnames...) {

@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
@@ -335,7 +336,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv
 		return err
 	}
 
-	hostnames, _ := util.GetDnsForStatefulSet(appDbStatefulSet, opsManager.Spec.AppDB.GetClusterDomain())
+	hostnames, _ := dns.GetDnsForStatefulSet(appDbStatefulSet, opsManager.Spec.AppDB.GetClusterDomain())
 	getHostsResult, err := conn.GetHosts()
 	if err != nil {
 		return fmt.Errorf("error fetching existing hosts: %s", err)

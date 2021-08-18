@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -200,12 +201,12 @@ func VerifyCertificatesForStatefulSet(secretGetter secret.Getter, secretName str
 
 // getPodNames returns the pod names based on the Cert Options provided.
 func getPodNames(opts Options) []string {
-	_, podnames := util.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	_, podnames := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
 	return podnames
 }
 
 func GetDNSNames(opts Options) (hostnames, podnames []string) {
-	return util.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
 }
 
 // GetAdditionalCertDomainsForMember gets any additional domains that the

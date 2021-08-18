@@ -16,6 +16,7 @@ import (
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -547,7 +548,7 @@ func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
 }
 
 func (m MongoDBOpsManager) CentralURL() string {
-	fqdn := util.GetServiceFQDN(m.SvcName(), m.Namespace, m.Spec.GetClusterDomain())
+	fqdn := dns.GetServiceFQDN(m.SvcName(), m.Namespace, m.Spec.GetClusterDomain())
 	scheme, port := m.GetSchemePort()
 
 	// TODO use url.URL to build the url
@@ -574,7 +575,7 @@ func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
 }
 
 func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
-	_, podnames := util.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
+	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
 	return podnames
 }
 

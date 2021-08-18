@@ -10,6 +10,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
@@ -297,7 +298,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := util.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1)
+	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
@@ -313,7 +314,7 @@ func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLog
 }
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
-	hostnames, _ := util.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
+	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
 	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, s.Spec.GetMongoDBVersion())
 	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec())
 	if wiredTigerCache != nil {

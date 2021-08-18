@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
@@ -17,7 +18,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/blang/semver"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1051,7 +1052,7 @@ func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, passw
 	}
 	replicasCount := spec.Replicas()
 
-	hostnames, _ := util.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
+	hostnames, _ := dns.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
 	uri := "mongodb://"
 	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) {
 		uri += fmt.Sprintf("%s:%s@", url.QueryEscape(userName), url.QueryEscape(password))

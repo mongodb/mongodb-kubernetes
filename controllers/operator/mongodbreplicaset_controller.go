@@ -29,6 +29,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	util_int "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"go.uber.org/zap"
@@ -380,7 +381,7 @@ func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLog
 		return err
 	}
 
-	hostsToRemove, _ := util.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members))
+	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members))
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
 	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
@@ -430,6 +431,6 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, c
 }
 
 func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int) []string {
-	hostnames, _ := util.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
+	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
 	return hostnames
 }

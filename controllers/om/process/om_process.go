@@ -7,6 +7,7 @@ import (
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,7 +21,7 @@ func CreateMongodProcesses(set appsv1.StatefulSet, containerName string, dbSpec 
 }
 
 func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string, dbSpec mdbv1.DbSpec, limit int) []om.Process {
-	hostnames, names := util.GetDnsForStatefulSetReplicasSpecified(set, dbSpec.GetClusterDomain(), limit)
+	hostnames, names := dns.GetDnsForStatefulSetReplicasSpecified(set, dbSpec.GetClusterDomain(), limit)
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, dbSpec.GetMongoDBVersion())
 
@@ -38,7 +39,7 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string
 func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) []om.Process {
 	hostnames := make([]string, 0)
 	for clusterNum, spec := range mrs.GetOrderedClusterSpecList() {
-		hostnames = append(hostnames, util.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
 	}
 
 	processes := make([]om.Process, len(hostnames))
@@ -52,7 +53,7 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) []om.Proce
 func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
 	mdb omv1.AppDBSpec) []om.Process {
 
-	hostnames, names := util.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
+	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := wiredtiger.CalculateCache(set, util.AppDbContainerName, mdb.GetMongoDBVersion())
 

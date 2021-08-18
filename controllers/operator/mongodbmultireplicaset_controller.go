@@ -15,6 +15,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	khandler "github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -146,7 +147,7 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 	hostnames := make([]string, 0)
 
 	for clusterNum, spec := range mrs.GetOrderedClusterSpecList() {
-		hostnames = append(hostnames, util.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
 	}
 
 	err := agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
@@ -192,7 +193,7 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 	}
 
 	return service.Builder().
-		SetName(util.GetServiceName(mrs.Name, clusterNum, podNum)).
+		SetName(dns.GetServiceName(mrs.Name, clusterNum, podNum)).
 		SetNamespace(mrs.Namespace).
 		SetPort(27017).
 		SetPortName("mongodb").
@@ -244,7 +245,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 
 	for podNum := 0; podNum < members; podNum++ {
 		key := fmt.Sprintf("%s", mrs.GetPodName(clusterNum, podNum))
-		value := fmt.Sprintf("%s.%s.svc.cluster.local", util.GetServiceName(mrs.Name, clusterNum, podNum), mrs.Namespace)
+		value := fmt.Sprintf("%s.%s.svc.cluster.local", dns.GetServiceName(mrs.Name, clusterNum, podNum), mrs.Namespace)
 		data[key] = value
 	}
 
