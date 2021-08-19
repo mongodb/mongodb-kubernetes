@@ -1,5 +1,7 @@
 import boto3
 from kubetester.kubetester import get_env_var_or_fail
+from botocore.exceptions import ClientError
+from time import sleep
 
 
 class AwsS3Client:
@@ -14,14 +16,21 @@ class AwsS3Client:
     def create_s3_bucket(self, name: str):
         self.s3_client.create_bucket(ACL="private", Bucket=name)
 
-    def delete_s3_bucket(self, name: str):
+    def delete_s3_bucket(self, name: str, attempts: int = 10):
         v = self.s3_client.list_objects_v2(Bucket=name)
         print(v)
         if v is not None and "Contents" in v:
             for x in v["Contents"]:
                 self.s3_client.delete_object(Bucket=name, Key=x["Key"])
 
-        self.s3_client.delete_bucket(Bucket=name)
+        while attempts > 0:
+            try:
+                self.s3_client.delete_bucket(Bucket=name)
+                break
+            except ClientError:
+                print("Can't delete bucket, will try again in 5 seconds")
+            attempts -= 1
+            sleep(5)
 
     def upload_file(
         self, file_path: str, bucket: str, object_name: str, public_read: bool = False
