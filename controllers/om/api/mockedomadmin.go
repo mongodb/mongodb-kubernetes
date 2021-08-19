@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 )
@@ -31,22 +32,27 @@ type MockedOmAdmin struct {
 	oplogConfigs           map[string]backup.DataStoreConfig
 	blockStoreConfigs      map[string]backup.DataStoreConfig
 	fileSystemStoreConfigs map[string]backup.DataStoreConfig
+	apiKeys                []Key
 }
 
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
 // if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
-func NewMockedAdminProvider(baseUrl, user, publicApiKey string) Admin {
+func NewMockedAdminProvider(baseUrl, user, publicKey string) Admin {
 	if CurrMockedAdmin == nil {
 		CurrMockedAdmin = &MockedOmAdmin{}
 	}
 	CurrMockedAdmin.BaseURL = baseUrl
 	CurrMockedAdmin.User = user
-	CurrMockedAdmin.PublicAPIKey = publicApiKey
+	CurrMockedAdmin.PublicAPIKey = publicKey
 
 	CurrMockedAdmin.daemonConfigs = make([]backup.DaemonConfig, 0)
 	CurrMockedAdmin.s3Configs = make(map[string]backup.S3Config)
 	CurrMockedAdmin.oplogConfigs = make(map[string]backup.DataStoreConfig)
 	CurrMockedAdmin.blockStoreConfigs = make(map[string]backup.DataStoreConfig)
+	CurrMockedAdmin.apiKeys = []Key{Key{
+		PrivateKey: publicKey,
+		PublicKey:  user,
+	}}
 
 	return CurrMockedAdmin
 }
@@ -170,4 +176,21 @@ func (a *MockedOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, 
 		allConfigs = append(allConfigs, v)
 	}
 	return allConfigs, nil
+}
+
+func (a *MockedOmAdmin) ReadGlobalAPIKeys() ([]Key, error) {
+	return a.apiKeys, nil
+}
+
+func (a *MockedOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
+	newKey := Key{
+		Description: description,
+		Roles:       []map[string]string{{"role_name": "GLOBAL_ONWER"}},
+	}
+	a.apiKeys = append(a.apiKeys, newKey)
+	return newKey, nil
+}
+
+func (a *MockedOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error) {
+	return versionutil.OpsManagerVersion{}, nil
 }

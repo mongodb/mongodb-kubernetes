@@ -15,7 +15,7 @@ import (
 func ReadCredentials(secretGetter secret.Getter, credentialsSecret client.ObjectKey) (mdbv1.Credentials, error) {
 	secret, err := readSecret(secretGetter, credentialsSecret)
 	if err != nil {
-		return mdbv1.Credentials{}, fmt.Errorf("error getting secret %s: %s", credentialsSecret, err)
+		return mdbv1.Credentials{}, err
 	}
 	publicAPIKey, ok := secret[util.OmPublicApiKey]
 	if !ok {

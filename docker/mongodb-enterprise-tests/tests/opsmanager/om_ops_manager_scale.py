@@ -121,8 +121,6 @@ class TestOpsManagerVersionUpgrade:
         _ = background_tester
         ops_manager.load()
 
-        # If required, update operator's API key to programmatic type.
-        ops_manager.prepare_upgrade_to_om5(custom_version)
         # If running OM5 tests, this will update from 4.4.10 to OM5 one
         # If running OM4 tests, this will update from 4.4.10 to latest OM4
         ops_manager.set_version(custom_version)

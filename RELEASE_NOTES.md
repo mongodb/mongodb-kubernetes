@@ -8,6 +8,7 @@
 ## MongoDBOpsManager Resource
 * Operator will report status of FileSystemSnaphot store names configured under `spec.backup.fileSystemStores` in OM CR. The FS however needs to be manually configured.
 * It is now possible to disable creation of "LoadBalancer" Type service for queryable backup by setting `spec.backup.externalServiceEnabled` to `false` in OM CR. By default, the operator would create the LoadBalancer type service object.
+* The operator will now automatically upgrade the used API Key to a programmatic one when deploying OM >= 5.0.0. It is now possible to upgrade from older versions of OM to OM 5.0 without manual intervention.
 
 ## Miscellaneous
 * Ops Manager versions 4.4.16 and 5.0.1 are now supported

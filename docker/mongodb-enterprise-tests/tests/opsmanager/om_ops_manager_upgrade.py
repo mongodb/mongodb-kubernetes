@@ -198,7 +198,6 @@ class TestOpsManagerVersionUpgrade:
         custom_appdb_version: str,
     ):
         ops_manager.load()
-        ops_manager.prepare_upgrade_to_om5(custom_version)
         ops_manager.set_version(custom_version)
         ops_manager.set_appdb_version(custom_appdb_version)
 
