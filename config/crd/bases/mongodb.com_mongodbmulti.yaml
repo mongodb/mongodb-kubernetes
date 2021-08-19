@@ -100,86 +100,21 @@ spec:
                           description: Amount of members for this MongoDB Replica
                             Set
                           type: integer
-                        podSpec:
-                          properties:
-                            cpu:
-                              description: DEPRECATED. Please set this value using
-                                `spec.podTemplate` instead.
-                              type: string
-                            cpuRequests:
-                              description: DEPRECATED. Please set this value using
-                                `spec.podTemplate` instead.
-                              type: string
-                            memory:
-                              description: DEPRECATED. Please set this value using
-                                `spec.podTemplate` instead.
-                              type: string
-                            memoryRequests:
-                              description: DEPRECATED. Please set this value using
-                                `spec.podTemplate` instead.
-                              type: string
-                            nodeAffinity:
-                              type: object
-                              x-kubernetes-preserve-unknown-fields: true
-                            persistence:
-                              properties:
-                                multiple:
-                                  properties:
-                                    data:
-                                      properties:
-                                        labelSelector:
-                                          type: object
-                                          x-kubernetes-preserve-unknown-fields: true
-                                        storage:
-                                          type: string
-                                        storageClass:
-                                          type: string
-                                      type: object
-                                    journal:
-                                      properties:
-                                        labelSelector:
-                                          type: object
-                                          x-kubernetes-preserve-unknown-fields: true
-                                        storage:
-                                          type: string
-                                        storageClass:
-                                          type: string
-                                      type: object
-                                    logs:
-                                      properties:
-                                        labelSelector:
-                                          type: object
-                                          x-kubernetes-preserve-unknown-fields: true
-                                        storage:
-                                          type: string
-                                        storageClass:
-                                          type: string
-                                      type: object
-                                  type: object
-                                single:
-                                  properties:
-                                    labelSelector:
-                                      type: object
-                                      x-kubernetes-preserve-unknown-fields: true
-                                    storage:
-                                      type: string
-                                    storageClass:
-                                      type: string
-                                  type: object
-                              type: object
-                            podAffinity:
-                              type: object
-                              x-kubernetes-preserve-unknown-fields: true
-                            podAntiAffinityTopologyKey:
-                              type: string
-                            podTemplate:
-                              type: object
-                              x-kubernetes-preserve-unknown-fields: true
-                          type: object
                         service:
                           description: this is an optional service, it will get the
                             name "<rsName>-service" in case not provided
                           type: string
+                        statefulSet:
+                          description: StatefulSetConfiguration holds the optional
+                            custom StatefulSet that should be merged into the operator
+                            created one.
+                          properties:
+                            spec:
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
+                          required:
+                          - spec
+                          type: object
                       type: object
                     type: array
                 type: object

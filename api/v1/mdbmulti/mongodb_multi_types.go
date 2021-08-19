@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/blang/semver"
+	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -93,8 +94,9 @@ type ClusterSpecItem struct {
 	// ExposedExternally determines whether a NodePort service should be created for the resource
 	ExposedExternally bool `json:"exposedExternally,omitempty"`
 	// Amount of members for this MongoDB Replica Set
-	Members int                   `json:"members,omitempty"`
-	PodSpec *mdbv1.MongoDbPodSpec `json:"podSpec,omitempty"`
+	Members int `json:"members,omitempty"`
+	// +optional
+	StatefulSetConfiguration mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 }
 
 // ClusterStatusList holds a list of clusterStatuses corresponding to each cluster

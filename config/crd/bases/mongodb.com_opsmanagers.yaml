@@ -609,6 +609,8 @@ spec:
                       spec:
                         type: object
                         x-kubernetes-preserve-unknown-fields: true
+                    required:
+                    - spec
                     type: object
                 required:
                 - enabled
@@ -692,6 +694,8 @@ spec:
                   spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
+                required:
+                - spec
                 type: object
               version:
                 type: string
