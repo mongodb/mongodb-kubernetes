@@ -11,15 +11,29 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user
 from kubetester.ldap import OpenLDAP, LDAPUser
 from kubetester.omtester import get_rs_cert_names
-
+from kubetester.certs import (
+    Certificate,
+    ISSUER_CA_NAME,
+    create_x509_mongodb_tls_certs,
+    create_x509_agent_tls_certs,
+)
 from datetime import datetime, timezone
 import time
+
+MDB_RESOURCE = "ldap-replica-set"
+
+
+@fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_x509_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
 
 
 @fixture(scope="module")
 def replica_set(
     openldap: OpenLDAP,
     issuer_ca_configmap: str,
+    server_certs: str,
+    agent_certs: str,
     namespace: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
@@ -39,7 +53,7 @@ def replica_set(
         "authzQueryTemplate": "{USER}?memberOf?base",
     }
 
-    resource["spec"]["security"]["tls"] = {"enabled": True}
+    resource["spec"]["security"]["tls"] = {"enabled": True, "ca": issuer_ca_configmap}
     resource["spec"]["security"]["roles"] = [
         {
             "role": "cn=users,ou=groups,dc=example,dc=org",
@@ -73,49 +87,23 @@ def ldap_user_mongodb(
     return user.create()
 
 
+@fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_x509_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
+
+
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
 def test_replica_set(
     replica_set: MongoDB, ldap_mongodb_x509_agent_user: LDAPUser, namespace: str
 ):
-
-    certs = get_rs_cert_names(
-        replica_set["metadata"]["name"], namespace, with_agent_certs=True
-    )
-
-    timeout = 300
-    stop_time = time.time() + timeout
-    while len(certs) > 0 and time.time() < stop_time:
-        # We randomly choose a cert from the list instead of proceeding sequentially
-        # in case some certs are generated only after others are approved.
-        # This way it is a bit more stable in case the order of items change,
-        # otherwise we might got stuck on a single cert that has not appeared yet in K8S.
-        cert_name = random.choice(certs)
-        try:
-            body = (
-                client.CertificatesV1beta1Api().read_certificate_signing_request_status(
-                    cert_name
-                )
-            )
-            conditions = client.V1beta1CertificateSigningRequestCondition(
-                last_update_time=datetime.now(timezone.utc).astimezone(),
-                message="This certificate was approved by E2E testing framework",
-                reason="E2ETestingFramework",
-                type="Approved",
-            )
-
-            body.status.conditions = [conditions]
-            client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(
-                cert_name, body
-            )
-            certs.remove(cert_name)
-        except ApiException:
-            time.sleep(5)
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
 def test_new_ldap_users_can_authenticate(
-    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str
 ):
     tester = replica_set.tester()
 
@@ -125,7 +113,7 @@ def test_new_ldap_users_can_authenticate(
         db="foo",
         collection="foo",
         attempts=10,
-        ssl_ca_certs=kubetester.SSL_CA_CERT,
+        ssl_ca_certs=ca_path,
     )
 
 

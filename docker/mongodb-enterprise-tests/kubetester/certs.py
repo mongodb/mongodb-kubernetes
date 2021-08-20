@@ -259,11 +259,11 @@ def create_sharded_cluster_certs(
     mongos_per_shard: int,
     config_servers: int,
     mongos: int,
-    internal_auth: bool,
-    x509_certs: Optional[bool] = False,
+    internal_auth: bool = False,
+    x509_certs: bool = False,
 ):
     cert_generation_func = create_mongodb_tls_certs
-    if x509_certs is not None and x509_certs:
+    if x509_certs:
         cert_generation_func = create_x509_mongodb_tls_certs
 
     for i in range(shards):
