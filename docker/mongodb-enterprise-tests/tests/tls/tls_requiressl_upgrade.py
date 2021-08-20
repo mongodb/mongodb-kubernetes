@@ -2,122 +2,60 @@ import pytest
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.certs import (
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+)
 
 MDB_RESOURCE = "test-tls-upgrade"
 
 
-def host_names():
-    return ["{}-{}".format(MDB_RESOURCE, i) for i in range(3)]
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
+
+
+@pytest.fixture(scope="module")
+def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(
+        load_fixture("test-tls-base-rs-require-ssl-upgrade.yaml"), namespace=namespace
+    )
+    res["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
+    return res.create()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
-class TestReplicaSetWithTLSUpgradeCreation(KubernetesTester):
-    """
-    name: Replica Set Upgraded to requireSSL
-    description: |
-      Creates a mdb resource with type "ReplicaSet" with no SSL enabled, mean to
-      be "upgraded" to requireSSL in next phase
-    create:
-      file: test-tls-base-rs-require-ssl-upgrade.yaml
-      wait_until: in_running_state
-      timeout: 240
-    """
-
-    def test_mdb_resource_status_is_correct(self):
-        mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE
-        )
-        assert mdb["status"]["phase"] == "Running"
-        assert mdb["status"]["version"] == "4.0.1"
-        assert mdb["status"]["members"] == 3
-
-        # make sure the following attributes are set
-        assert mdb["status"].get("link")
-
-        # TODO: verify the next attribute is an actual timestamp
-        assert mdb["status"].get("lastTransition")
-
-    @skip_if_local()
-    def test_mdb_is_reachable_with_no_ssl(self):
-        mongo_tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        mongo_tester.assert_connectivity()
+def test_replica_set_running(mdb: MongoDB):
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
-class TestReplicaSetWithTLSUpgradeSetRequireSSLMode(KubernetesTester):
-    """
-    name: Upgrade the Replica Set to `requireSSL` and check it goes to "Failed" state.
-    description: |
-      Upgrades the Replica Set to `requireSSL`. The Replica Set will move to "Failed" state,
-      while still operational (we won't break the ReplicaSet for now, it will be just not upgraded).
-    update:
-      file: test-tls-base-rs-require-ssl-upgrade.yaml
-      patch: '[{"op": "add", "path" : "/spec/security", "value": {}}, {"op":"add","path":"/spec/security/tls","value": { "enabled": true }}]'
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 360
-    """
-
-    def test_mdb_resource_status_is_pending(self):
-        assert KubernetesTester.get_resource()["status"]["phase"] == "Pending"
-
-    @skip_if_local()
-    def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
+def test_mdb_is_reachable_with_no_ssl(mdb: MongoDB):
+    mdb.tester(use_ssl=False).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
-class TestReplicaSetWithTLSUpgradeApproveCerts(KubernetesTester):
-    """
-    name: Approval of certificates
-    description: |
-      Approves the certificates in Kubernetes, the MongoDB resource should move to Successful state.
-    """
-
-    def setup(self):
-        for host in host_names():
-            self.approve_certificate("{}.{}".format(host, self.namespace))
-
-    def test_noop(self):
-        assert True
+def test_enables_TLS_replica_set(
+    mdb: MongoDB, server_certs: str, issuer_ca_configmap: str
+):
+    mdb.load()
+    mdb["spec"]["security"] = {"tls": {"enabled": True}, "ca": issuer_ca_configmap}
+    mdb.update()
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
-class TestReplicaSetWithTLSUpgradeRunning(KubernetesTester):
-    """
-    name: check everything is in place
-    noop:
-      wait_until: in_running_state
-      timeout: 360
-    """
-
-    @skip_if_local()
-    def test_mdb_is_reachable_with_no_ssl(self):
-        ReplicaSetTester(MDB_RESOURCE, 3).assert_no_connection()
-
-    @skip_if_local()
-    def test_mdb_is_reachable_with_ssl(self):
-        ReplicaSetTester(MDB_RESOURCE, 3, ssl=True).assert_connectivity()
+@skip_if_local()
+def test_mdb_is_not_reachable_with_no_ssl():
+    ReplicaSetTester(MDB_RESOURCE, 3).assert_no_connection()
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
-class TestReplicaSetWithTLSCreationDeleted(KubernetesTester):
-    """
-    name: Removal of TLS enabled Replica Set
-    description: |
-      Removes TLS enabled Replica Set
-    delete:
-      file: test-tls-base-rs-require-ssl-upgrade.yaml
-      wait_until: mongo_resource_deleted
-      timeout: 240
-    """
-
-    def setup(self):
-        # Deletes the certificate
-        body = client.V1DeleteOptions()
-        for host in host_names():
-            self.certificates.delete_certificate_signing_request(
-                "{}.{}".format(host, self.namespace), body=body
-            )
-
-    def test_deletion(self):
-        assert True
+@skip_if_local()
+def test_mdb_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
+    mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()

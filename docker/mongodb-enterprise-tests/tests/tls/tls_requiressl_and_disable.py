@@ -8,19 +8,31 @@ from kubetester.kubetester import (
     fixture as yaml_fixture,
 )
 from kubetester.mongodb import Phase
+from kubetester.certs import (
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+)
 
 MDB_RESOURCE_NAME = "tls-replica-set"
 
 
-def csr_names(namespace):
-    return ["{}-{}.{}".format(MDB_RESOURCE_NAME, i, namespace) for i in range(3)]
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-cert"
+    )
 
 
-@fixture(scope="module")
-def tls_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+@pytest.fixture(scope="module")
+def tls_replica_set(
+    namespace: str, custom_mdb_version: str, issuer_ca_configmap: str, server_certs: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("test-tls-base-rs-require-ssl.yaml"), MDB_RESOURCE_NAME, namespace
     )
+
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     resource.set_version(custom_mdb_version)
 
     yield resource.create()
@@ -30,24 +42,6 @@ def tls_replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 def test_replica_set_creation(tls_replica_set: MongoDB):
-    """
-    Creates a MongoDB object with the ssl attribute on. The MongoDB object will go to Pending
-    state because of missing certificates.
-    """
-    tls_replica_set.assert_reaches_phase(
-        Phase.Pending,
-        timeout=240,
-        msg_regexp=f"Not all certificates have been approved by Kubernetes CA for {MDB_RESOURCE_NAME}",
-    )
-
-
-@pytest.mark.e2e_replica_set_tls_require_and_disable
-def test_replica_set_gets_into_running_state(namespace: str, tls_replica_set: MongoDB):
-    """
-    Ensure the resource reaches Running state after certificate approval
-    """
-    for cert in KubernetesTester.yield_existing_csrs(csr_names(namespace)):
-        KubernetesTester.approve_certificate(cert)
     tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 
@@ -60,8 +54,8 @@ def test_replica_set_is_not_reachable_without_tls(tls_replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 @skip_if_local()
-def test_replica_set_is_reachable_with_tls(tls_replica_set: MongoDB):
-    tester = tls_replica_set.tester(use_ssl=True)
+def test_replica_set_is_reachable_with_tls(tls_replica_set: MongoDB, ca_path: str):
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()
 
 
@@ -88,8 +82,10 @@ def test_replica_set_is_reachable_without_ssl_prefer_ssl(tls_replica_set: MongoD
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 @skip_if_local()
-def test_replica_set_is_reachable_with_ssl_prefer_ssl(tls_replica_set: MongoDB):
-    tester = tls_replica_set.tester(use_ssl=True)
+def test_replica_set_is_reachable_with_ssl_prefer_ssl(
+    tls_replica_set: MongoDB, ca_path: str
+):
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()
 
 
@@ -116,8 +112,10 @@ def test_replica_set_is_reachable_without_tls_allow_ssl(tls_replica_set: MongoDB
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 @skip_if_local()
-def test_replica_set_is_reachable_with_tls_allow_ssl(tls_replica_set: MongoDB):
-    tester = tls_replica_set.tester(use_ssl=True)
+def test_replica_set_is_reachable_with_tls_allow_ssl(
+    tls_replica_set: MongoDB, ca_path: str
+):
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()
 
 
