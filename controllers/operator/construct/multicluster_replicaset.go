@@ -7,6 +7,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	resource "k8s.io/apimachinery/pkg/api/resource"
@@ -20,8 +21,7 @@ func boolPtr(b bool) *bool                                                 { ret
 func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { return &s }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) appsv1.StatefulSet {
-
-	return appsv1.StatefulSet{
+	sts := appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%d", mdbm.Name, clusterNum),
 			Namespace: mdbm.Namespace,
@@ -229,4 +229,9 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 			},
 		},
 	}
+
+	stsOverride := mdbm.Spec.ClusterSpecList.ClusterSpecs[clusterNum].StatefulSetConfiguration.SpecWrapper.Spec
+	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, stsOverride)
+	sts.Spec = stsSpecFinal
+	return sts
 }

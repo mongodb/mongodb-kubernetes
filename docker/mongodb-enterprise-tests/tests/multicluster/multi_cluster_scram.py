@@ -1,7 +1,6 @@
 import kubernetes
 
 import pytest
-import kubetester
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
