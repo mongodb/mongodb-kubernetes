@@ -261,12 +261,22 @@ def create_sharded_cluster_certs(
     mongos: int,
     internal_auth: bool = False,
     x509_certs: bool = False,
+    additional_domains: Optional[List[str]] = None,
 ):
     cert_generation_func = create_mongodb_tls_certs
     if x509_certs:
         cert_generation_func = create_x509_mongodb_tls_certs
 
     for i in range(shards):
+        additional_domains_for_shard = None
+        if additional_domains is not None:
+            additional_domains_for_shard = []
+            for domain in additional_domains:
+                for j in range(mongos_per_shard):
+                    additional_domains_for_shard.append(
+                        f"{resource_name}-{i}-{j}.{domain}"
+                    )
+
         cert_generation_func(
             ISSUER_CA_NAME,
             namespace,
@@ -274,10 +284,20 @@ def create_sharded_cluster_certs(
             f"{resource_name}-{i}-cert",
             replicas=mongos_per_shard,
             service_name=resource_name + "-sh",
+            additional_domains=additional_domains_for_shard,
         )
         if internal_auth:
             data = read_secret(namespace, f"{resource_name}-{i}-cert")
             create_secret(namespace, f"{resource_name}-{i}-clusterfile", data)
+
+    additional_domains_for_config = None
+    if additional_domains is not None:
+        additional_domains_for_config = []
+        for domain in additional_domains:
+            for j in range(config_servers):
+                additional_domains_for_config.append(
+                    f"{resource_name}-config-{j}.{domain}"
+                )
 
     cert_generation_func(
         ISSUER_CA_NAME,
@@ -286,10 +306,20 @@ def create_sharded_cluster_certs(
         f"{resource_name}-config-cert",
         replicas=config_servers,
         service_name=resource_name + "-cs",
+        additional_domains=additional_domains_for_config,
     )
     if internal_auth:
         data = read_secret(namespace, f"{resource_name}-config-cert")
         create_secret(namespace, f"{resource_name}-config-clusterfile", data)
+
+    additional_domains_for_mongos = None
+    if additional_domains is not None:
+        additional_domains_for_mongos = []
+        for domain in additional_domains:
+            for j in range(mongos):
+                additional_domains_for_mongos.append(
+                    f"{resource_name}-mongos-{j}.{domain}"
+                )
 
     cert_generation_func(
         ISSUER_CA_NAME,
@@ -298,6 +328,7 @@ def create_sharded_cluster_certs(
         f"{resource_name}-mongos-cert",
         service_name=resource_name + "-svc",
         replicas=mongos,
+        additional_domains=additional_domains_for_mongos,
     )
 
     if internal_auth:

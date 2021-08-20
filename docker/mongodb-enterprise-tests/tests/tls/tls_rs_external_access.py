@@ -5,38 +5,85 @@ import pytest
 from kubetester.omtester import get_rs_cert_names
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.mongodb import MongoDB, Phase
+
+from kubetester.kubetester import fixture as load_fixture
+from kubetester import create_secret, find_fixture
+from kubetester.certs import (
+    Certificate,
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+)
+
+
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    mdb_resource = "test-tls-base-rs-external-access"
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME,
+        namespace,
+        mdb_resource,
+        f"{mdb_resource}-cert",
+        replicas=4,
+        additional_domains=[
+            "mdb0-test-website.com",
+            "mdb1-test-website.com",
+            "mdb2-test-website.com",
+            "mdb3-test-website.com",
+        ],
+    )
+
+
+@pytest.fixture(scope="module")
+def server_certs_multiple_horizons(issuer: str, namespace: str):
+    mdb_resource = "test-tls-rs-external-access-multiple-horizons"
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME,
+        namespace,
+        mdb_resource,
+        f"{mdb_resource}-cert",
+        replicas=4,
+        additional_domains=[
+            "mdb0-test-1-website.com",
+            "mdb0-test-2-website.com",
+            "mdb1-test-1-website.com",
+            "mdb1-test-2-website.com",
+            "mdb2-test-1-website.com",
+            "mdb2-test-2-website.com",
+        ],
+    )
+
+
+@pytest.fixture(scope="module")
+def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(
+        load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace
+    )
+    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    return res.create()
+
+
+@pytest.fixture(scope="module")
+def mdb_multiple_horizons(
+    namespace: str, server_certs_multiple_horizons: str, issuer_ca_configmap: str
+) -> MongoDB:
+    res = MongoDB.from_yaml(
+        load_fixture("test-tls-rs-external-access-multiple-horizons.yaml"),
+        namespace=namespace,
+    )
+    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    return res.create()
 
 
 @pytest.mark.e2e_tls_rs_external_access
 class TestReplicaSetWithExternalAccess(KubernetesTester):
-    """
-    create:
-      file: test-tls-base-rs-external-access.yaml
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 240
-    """
-
-    def test_horizon_certs_generated(self):
-        expected_horizon_names = {
-            "mdb0-test-website.com",
-            "mdb1-test-website.com",
-            "mdb2-test-website.com",
-        }
-        csr_names = get_rs_cert_names(
-            "test-tls-base-rs-external-access", self.namespace
-        )
-        for csr_name in self.yield_existing_csrs(csr_names):
-            horizon_name = [
-                s for s in self.get_csr_sans(csr_name) if s in expected_horizon_names
-            ][0]
-            expected_horizon_names.remove(horizon_name)
-
-            self.approve_certificate(csr_name)
-        KubernetesTester.wait_until("in_running_state")
+    def test_replica_set_running(self, mdb: MongoDB):
+        mdb.assert_reaches_phase(Phase.Running, timeout=240)
 
     @skip_if_local
-    def test_can_still_connect(self):
-        tester = ReplicaSetTester("test-tls-base-rs-external-access", 3, ssl=True)
+    def test_can_still_connect(self, mdb: MongoDB, ca_path: str):
+        tester = mdb.tester(use_ssl=True, ca_path=ca_path)
         tester.assert_connectivity()
 
     def test_automation_config_is_right(self):
@@ -62,53 +109,33 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
 
 
 @pytest.mark.e2e_tls_rs_external_access
-class TestReplicaSetScaleWithExternalAccess(KubernetesTester):
-    init = {
-        "update": {
-            "file": "test-tls-base-rs-external-access.yaml",
-            "wait_for_message": "Not all certificates have been approved by Kubernetes CA",
-            "timeout": 240,
-            "patch": [
-                {
-                    "op": "add",
-                    "path": "/spec/connectivity/replicaSetHorizons/-",
-                    "value": {"test-horizon": "mdb3-test-website.com:1337"},
-                },
-                {"op": "replace", "path": "/spec/members", "value": 4},
-            ],
-        }
-    }
-
-    def test_certs_approved(self):
-        csr_names = get_rs_cert_names(
-            "test-tls-base-rs-external-access", self.namespace, members=4
-        )
-        for csr_name in self.yield_existing_csrs(csr_names):
-            self.approve_certificate(csr_name)
-        KubernetesTester.wait_until("in_running_state")
+def test_scale_up_replica_set(mdb: MongoDB):
+    mdb.load()
+    mdb["spec"]["members"] = 4
+    mdb["spec"]["connectivity"]["replicaSetHorizons"] = [
+        {"test-horizon": "mdb0-test-website.com:1337"},
+        {"test-horizon": "mdb1-test-website.com:1337"},
+        {"test-horizon": "mdb2-test-website.com:1337"},
+        {"test-horizon": "mdb3-test-website.com:1337"},
+    ]
+    mdb.update()
+    mdb.assert_reaches_phase(Phase.Running, timeout=240)
 
 
 @pytest.mark.e2e_tls_rs_external_access
-class TestReplicaSetExternalAccessInvalidCerts(KubernetesTester):
-    init = {
-        "update": {
-            "file": "test-tls-base-rs-external-access.yaml",
-            "wait_for_message": re.compile(
-                r"Certificate request for .+ doesn't have all required domains. Please manually remove the CSR in order to proceed."
-            ),
-            "patch": [
-                {
-                    "op": "replace",
-                    "path": "/spec/connectivity/replicaSetHorizons/0/test-horizon",
-                    "value": "mdb5-test-website.com:1337",
-                }
-            ],
-            "timeout": 10,
-        }
-    }
-
-    def test_horizon_certs_generated(self):
-        return True
+def tests_invalid_cert(mdb: MongoDB):
+    mdb.load()
+    mdb["spec"]["connectivity"]["replicaSetHorizons"] = [
+        {"test-horizon": "mdb0-test-website.com:1337"},
+        {"test-horizon": "mdb1-test-website.com:1337"},
+        {"test-horizon": "mdb2-test-website.com:1337"},
+        {"test-horizon": "mdb5-test-website.com:1337"},
+    ]
+    mdb.update()
+    mdb.assert_reaches_phase(
+        Phase.Failed,
+        timeout=240,
+    )
 
 
 @pytest.mark.e2e_tls_rs_external_access
@@ -140,33 +167,8 @@ class TestReplicaSetWithNoTLSDeletion(KubernetesTester):
 
 @pytest.mark.e2e_tls_rs_external_access
 class TestReplicaSetWithMultipleHorizons(KubernetesTester):
-    """
-    create:
-      file: test-tls-rs-external-access-multiple-horizons.yaml
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 240
-    """
-
-    def test_horizon_certs_generated(self):
-        expected_horizon_names = {
-            ("mdb0-test-1-website.com", "mdb0-test-2-website.com"),
-            ("mdb1-test-1-website.com", "mdb1-test-2-website.com"),
-            ("mdb2-test-1-website.com", "mdb2-test-2-website.com"),
-        }
-        resource_name = "test-tls-rs-external-access-multiple-horizons"
-        csr_names = get_rs_cert_names(resource_name, self.namespace)
-        for csr_name in self.yield_existing_csrs(csr_names):
-            # ensure that the CSR has one of expected sets of Subject
-            # Alternative Names
-            sans = self.get_csr_sans(csr_name)
-            assert any(
-                all(name in sans for name in expected)
-                for expected in expected_horizon_names
-            )
-
-            print("Approving certificate {}".format(csr_name))
-            self.approve_certificate(csr_name)
-        KubernetesTester.wait_until("in_running_state")
+    def test_replica_set_running(self, mdb_multiple_horizons: MongoDB):
+        mdb_multiple_horizons.assert_reaches_phase(Phase.Running, timeout=240)
 
     def test_automation_config_is_right(self):
         ac = self.get_automation_config()
