@@ -3,26 +3,42 @@ from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.omtester import get_rs_cert_names
 
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.certs import (
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+)
 
 MDB_RESOURCE = "test-x509-rs"
 
 
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
+
+
+@pytest.fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+
+
+@pytest.fixture(scope="module")
+def mdb(
+    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
+) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
+    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    return res.create()
+
+
 @pytest.mark.e2e_tls_x509_rs
 class TestReplicaSetWithNoTLSCreation(KubernetesTester):
-    """
-    create:
-      file: test-x509-rs.yaml
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 240
-    """
-
-    def test_approve_certs(self):
-        for cert in self.yield_existing_csrs(
-            get_rs_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)
-        ):
-            print("Approving certificate {}".format(cert))
-            self.approve_certificate(cert)
-        KubernetesTester.wait_until("in_running_state")
+    def test_gets_to_running_state(self, mdb: MongoDB):
+        mdb.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local
     def test_mdb_is_reachable_with_no_ssl(self):
