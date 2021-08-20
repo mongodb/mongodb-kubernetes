@@ -8,7 +8,6 @@ from typing import Dict, List, Optional, Tuple
 
 from kubeobject import CustomObject
 from kubernetes import client
-from kubernetes.client import V1ConfigMap
 
 from kubetester.kubetester import (
     KubernetesTester,

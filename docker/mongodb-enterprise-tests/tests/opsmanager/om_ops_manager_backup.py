@@ -351,7 +351,6 @@ class TestBackupDatabasesAdded:
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
         oplog_user.assert_reaches_phase(Phase.Updated)
 
-    @mark.skip(reason="re-enable when bug in CLOUDP-60443 is fixed")
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
         oplog_replica_set["spec"]["security"] = {
             "authentication": {"enabled": True, "modes": ["SCRAM"]}

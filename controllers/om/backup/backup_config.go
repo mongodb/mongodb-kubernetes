@@ -25,9 +25,10 @@ type ConfigUpdater interface {
 	UpdateBackupStatus(clusterID string, status Status) error
 }
 
-type ConfigReadUpdater interface {
+type ConfigHostReadUpdater interface {
 	ConfigReader
 	ConfigUpdater
+	HostClusterReader
 }
 
 /*

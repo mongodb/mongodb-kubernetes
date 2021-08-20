@@ -5,6 +5,11 @@
 ## Kubernetes Operator
 * When deploying to multiple namespaces, imagePullSecrets has to be created only in the namespace where the Operator is installed. From here, the Operator will be sync this secret across all watched namespaces.
 
+## MongoDB Resource
+* Bug fixes
+  * Fixes an issue where Sharded Cluster backups could not be correctly configured using the MongoDB CR.
+
+
 ## MongoDBOpsManager Resource
 * Operator will report status of FileSystemSnaphot store names configured under `spec.backup.fileSystemStores` in OM CR. The FS however needs to be manually configured.
 * It is now possible to disable creation of "LoadBalancer" Type service for queryable backup by setting `spec.backup.externalServiceEnabled` to `false` in OM CR. By default, the operator would create the LoadBalancer type service object.

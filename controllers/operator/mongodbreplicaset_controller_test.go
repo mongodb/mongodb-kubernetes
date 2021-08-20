@@ -486,6 +486,13 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		Status:    backup.Inactive,
 	})
 
+	// add corresponding host cluster.
+	om.CurrMockedConnection.BackupHostClusters[uuidStr] = &backup.HostCluster{
+		ReplicaSetName: rs.Name,
+		ClusterName:    rs.Name,
+		TypeName:       "REPLICA_SET",
+	}
+
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkReconcileSuccessful(t, reconciler, rs, client)
 

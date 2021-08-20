@@ -110,11 +110,11 @@ class OMTester(object):
         raise Exception("Failed to create a restore job!")
 
     def wait_until_backup_snapshots_are_ready(
-        self, expected_count: int, timeout: int = 1500
+        self, expected_count: int, timeout: int = 1500, expected_config_count: int = 1
     ):
         """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
-        cluster_id = self.get_backup_cluster_id()
+        cluster_id = self.get_backup_cluster_id(expected_config_count)
 
         if expected_count == 1:
             print(f"Waiting until 1 snapshot is ready (can take a while)")
@@ -168,9 +168,9 @@ class OMTester(object):
             f"project {self.context.group_name} "
         )
 
-    def get_backup_cluster_id(self) -> str:
+    def get_backup_cluster_id(self, expected_config_count: int = 1) -> str:
         configs = self.api_read_backup_configs()
-        assert len(configs) == 1
+        assert len(configs) == expected_config_count
         # we can use the first config as there's only one MongoDB in deployment
         return configs[0]["clusterId"]
 

@@ -237,6 +237,7 @@ def default_operator(
         helm_args=operator_installation_config,
     ).upgrade(install=True)
 
+
 @fixture(scope="module")
 def operator_with_monitored_appdb(
     namespace: str,

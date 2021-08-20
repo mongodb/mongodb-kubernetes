@@ -9,12 +9,12 @@ import (
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(backupSpec *mdbv1.Backup, projectId string, configReadUpdater ConfigReadUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
-	if backupSpec == nil {
+func EnsureBackupConfigurationInOpsManager(mdb mdbv1.MongoDB, projectId string, configReadUpdater ConfigHostReadUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
+	if mdb.Spec.Backup == nil {
 		return workflow.OK(), nil
 	}
 
-	desiredConfig := getMongoBDBackupConfig(backupSpec, projectId)
+	desiredConfig := getMongoBDBackupConfig(mdb.Spec.Backup, projectId)
 
 	configs, err := configReadUpdater.ReadBackupConfigs()
 	if err != nil {
@@ -22,65 +22,96 @@ func EnsureBackupConfigurationInOpsManager(backupSpec *mdbv1.Backup, projectId s
 	}
 
 	projectConfigs := configs.Configs
-	if len(projectConfigs) > 1 {
-		return workflow.Failed("There should be a maximum of one backup config per project!"), nil
-	}
 
 	if len(projectConfigs) == 0 {
 		return workflow.Pending("Waiting for backup configuration to be created in Ops Manager").WithRetry(10), nil
 	}
 
-	currentConfig := projectConfigs[0]
-	desiredConfig.ClusterId = currentConfig.ClusterId
+	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater)
+}
 
-	okResult := workflow.OK()
+// ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
+func ensureBackupConfigStatuses(mdb mdbv1.MongoDB, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
+	result := workflow.OK()
 
-	desiredStatus := getDesiredStatus(desiredConfig, currentConfig)
+	for _, config := range projectConfigs {
+		desiredConfig.ClusterId = config.ClusterId
 
-	needToRequeue := desiredStatus != desiredConfig.Status
-	if needToRequeue {
-		okResult.Requeue()
-	}
+		desiredStatus := getDesiredStatus(desiredConfig, config)
 
-	// If backup was never enabled and the deployment has `spec.backup.mode=disabled` specified
-	// we don't send this state to OM or we will get
-	// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.'
-	if desiredConfig.Status == Stopped && currentConfig.Status == Inactive {
-		return workflow.OK(), nil
-	}
+		cluster, err := configReadUpdater.ReadHostCluster(config.ClusterId)
 
-	if desiredConfig.Status == currentConfig.Status {
-		log.Debug("Config is already in the desired state, not updating configuration")
-		// we are already in the desired state, nothing to change
-		// if we attempt to send the desired state again we get
-		// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
-		statusOpts, err := getCurrentBackupStatusOption(configReadUpdater, currentConfig.ClusterId)
 		if err != nil {
 			return workflow.Failed(err.Error()), nil
 		}
-		return okResult, statusOpts
-	}
 
-	updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
-	if err != nil {
-		return workflow.Failed(err.Error()), nil
-	}
+		// There is one HostConfig per component of the deployment being backed up.
 
-	log.Debugw("Project Backup Configuration", "desiredConfig", desiredConfig, "updatedConfig", updatedConfig)
+		// E.g. a sharded cluster with 2 shards is composed of 4 backup configurations.
 
-	if !waitUntilBackupReachesStatus(configReadUpdater, updatedConfig, desiredConfig.Status, log) {
-		statusOpts, err := getCurrentBackupStatusOption(configReadUpdater, currentConfig.ClusterId)
+		// 1x CONFIG_SERVER_REPLICA_SET (config server)
+		// 2x REPLICA_SET (each shard)
+		// 1x SHARDED_REPLICA_SET (the source of truth for sharded cluster configuration)
+
+		// Only the SHARDED_REPLICA_SET can be configured, we need to ensure that based on the cluster wide
+		// we care about we are only updating the config if the type and name are correct.
+		resourceType := MongoDbResourceType(mdb.Spec.ResourceType)
+
+		nameIsEqual := cluster.ClusterName == mdb.Name
+		isReplicaSet := resourceType == ReplicaSetType && cluster.TypeName == "REPLICA_SET"
+		isShardedCluster := resourceType == ShardedClusterType && cluster.TypeName == "SHARDED_REPLICA_SET"
+		shouldUpdateBackupConfiguration := nameIsEqual && (isReplicaSet || isShardedCluster)
+		if !shouldUpdateBackupConfiguration {
+			continue
+		}
+
+		needToRequeue := desiredStatus != desiredConfig.Status
+		if needToRequeue {
+			result.Requeue()
+		}
+
+		// If we are configuring a sharded cluster, we must only update the config of the whole cluster, not each individual shard.
+		// Status: 409 (Conflict), ErrorCode: CANNOT_MODIFY_SHARD_BACKUP_CONFIG, Detail: Cannot modify backup configuration for individual shard; use cluster ID 611a63f668d22f4e2e62c2e3 for entire cluster.
+
+		// If backup was never enabled and the deployment has `spec.backup.mode=disabled` specified
+		// we don't send this state to OM or we will get
+		// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.'
+		if desiredConfig.Status == Stopped && config.Status == Inactive {
+			continue
+		}
+
+		if desiredConfig.Status == config.Status {
+			log.Debug("Config is already in the desired state, not updating configuration")
+			// we are already in the desired state, nothing to change
+			// if we attempt to send the desired state again we get
+			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
+			continue
+		}
+
+		updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
 		if err != nil {
 			return workflow.Failed(err.Error()), nil
 		}
-		return workflow.Pending("Backup configuration has not yet reached the desired status").WithRetry(1), statusOpts
+
+		log.Debugw("Project Backup Configuration", "desiredConfig", desiredConfig, "updatedConfig", updatedConfig)
+
+		if !waitUntilBackupReachesStatus(configReadUpdater, updatedConfig, desiredConfig.Status, log) {
+			statusOpts, err := getCurrentBackupStatusOption(configReadUpdater, config.ClusterId)
+			if err != nil {
+				return workflow.Failed(err.Error()), nil
+			}
+			return workflow.Pending("Backup configuration %s has not yet reached the desired status", updatedConfig.ClusterId).WithRetry(1), statusOpts
+		}
+
+		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
+		backupOpts, err := getCurrentBackupStatusOption(configReadUpdater, desiredConfig.ClusterId)
+		if err != nil {
+			return workflow.Failed(err.Error()), nil
+		}
+		return result, backupOpts
 	}
 
-	statusOpts, err := getCurrentBackupStatusOption(configReadUpdater, currentConfig.ClusterId)
-	if err != nil {
-		return workflow.Failed(err.Error()), nil
-	}
-	return okResult, statusOpts
+	return result, nil
 }
 
 // getCurrentBackupStatusOption fetches the latest information from the backup config

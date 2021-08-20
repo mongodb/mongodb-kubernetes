@@ -24,6 +24,7 @@ import warnings
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from kubeobject import CustomObject
 from kubernetes import client, config
 from kubernetes.client import V1ObjectMeta
 from kubernetes.stream import stream
@@ -1576,7 +1577,7 @@ def build_hosts_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}/hosts".format(base_url, group_id)
 
 
-def ensure_nested_objects(resource: Dict, keys: List[str]):
+def ensure_nested_objects(resource: CustomObject, keys: List[str]):
     curr_dict = resource
     for k in keys:
         if k not in curr_dict:

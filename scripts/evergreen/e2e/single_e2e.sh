@@ -72,7 +72,7 @@ prepare_operator_config_map() {
     fi
 
      # shellcheck disable=SC2154
-    if [[ "${kube_environment_name}" = "multi" ]]; then
+    if [[ "${kube_environment_name-}" = "multi" ]]; then
        # shellcheck disable=SC2154
        comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
        config+=("--from-literal" "multiCluster.clusters={${comma_separated_list}}")
@@ -255,7 +255,7 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
     # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
     echo "Waiting until the test application gets to Running state..."
 
-    is_running_cmd="kubectl --context ${context} -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
+    is_running_cmd="kubectl --context '${context}' -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
 
     # test app usually starts instantly but sometimes (quite rarely though) may require more than a min to start
     # in Evergreen so let's wait for 2m

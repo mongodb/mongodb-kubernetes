@@ -12,8 +12,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
-	"github.com/google/uuid"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
@@ -792,25 +790,43 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 	reconciler, client := defaultClusterReconciler(sc)
 
-	clusterId := uuid.New().String()
 	// configure backup for this project in Ops Manager in the mocked connection
 	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
-	om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
-		ClusterId: clusterId,
-		Status:    backup.Inactive,
-	})
+
+	// 4 because configserver + num shards + 1 for entity to represent the sharded cluster iteself
+	clusterIds := []string{"1", "2", "3", "4"}
+	typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
+	for i, clusterId := range clusterIds {
+		om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
+			ClusterId: clusterId,
+			Status:    backup.Inactive,
+		})
+
+		om.CurrMockedConnection.BackupHostClusters[clusterId] = &backup.HostCluster{
+			ClusterName: sc.Name,
+			ShardName:   "ShardedCluster",
+			TypeName:    typeNames[i],
+		}
+	}
+
+	assertAllOtherBackupConfigsRemainUntouched := func(t *testing.T) {
+		for _, configId := range []string{"2", "3", "4"} {
+			config, err := om.CurrMockedConnection.ReadBackupConfig(configId)
+			assert.NoError(t, err)
+			// backup status should remain INACTIVE for all non "SHARDED_REPLICA_SET" configs.
+			assert.Equal(t, backup.Inactive, config.Status)
+		}
+	}
 
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkReconcileSuccessful(t, reconciler, sc, client)
 
-		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
-		assert.Len(t, configResponse.Configs, 1)
-
-		config := configResponse.Configs[0]
-
+		config, err := om.CurrMockedConnection.ReadBackupConfig("1")
+		assert.NoError(t, err)
 		assert.Equal(t, backup.Started, config.Status)
-		assert.Equal(t, clusterId, config.ClusterId)
+		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
+		assertAllOtherBackupConfigsRemainUntouched(t)
 	})
 
 	t.Run("Backup can be stopped", func(t *testing.T) {
@@ -820,14 +836,12 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(t, reconciler, sc, client)
 
-		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
-		assert.Len(t, configResponse.Configs, 1)
-
-		config := configResponse.Configs[0]
-
+		config, err := om.CurrMockedConnection.ReadBackupConfig("1")
+		assert.NoError(t, err)
 		assert.Equal(t, backup.Stopped, config.Status)
-		assert.Equal(t, clusterId, config.ClusterId)
+		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
+		assertAllOtherBackupConfigsRemainUntouched(t)
 	})
 
 	t.Run("Backup can be terminated", func(t *testing.T) {
@@ -837,14 +851,12 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(t, reconciler, sc, client)
 
-		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
-		assert.Len(t, configResponse.Configs, 1)
-
-		config := configResponse.Configs[0]
-
+		config, err := om.CurrMockedConnection.ReadBackupConfig("1")
+		assert.NoError(t, err)
 		assert.Equal(t, backup.Terminating, config.Status)
-		assert.Equal(t, clusterId, config.ClusterId)
+		assert.Equal(t, "1", config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
+		assertAllOtherBackupConfigsRemainUntouched(t)
 	})
 
 }

@@ -1576,6 +1576,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_om_ops_manager_backup_sharded_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_om_ops_manager_backup_liveness_probe
   tags: ["patch-run"]
   exec_timeout_secs: 4000
@@ -2102,6 +2108,7 @@ task_groups:
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_backup_liveness_probe
+    - e2e_om_ops_manager_backup_sharded_cluster
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_https_enabled
     - e2e_om_ops_manager_https_enabled_internet_mode
@@ -2169,6 +2176,7 @@ task_groups:
     - e2e_om_localmode_multiple_pv
     - e2e_om_weak_password
     - e2e_om_ops_manager_backup
+    - e2e_om_ops_manager_backup_sharded_cluster
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_scale
