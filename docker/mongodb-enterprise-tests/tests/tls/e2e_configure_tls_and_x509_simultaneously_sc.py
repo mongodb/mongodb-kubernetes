@@ -3,50 +3,61 @@ import pytest
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.certs import (
+    Certificate,
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+    create_sharded_cluster_certs,
+)
+from kubetester.kubetester import fixture as load_fixture
+
 
 MDB_RESOURCE = "sh001-base"
 
 
-@pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
-class TestCreateShardedCluster(KubernetesTester):
-    """
-    create:
-      file: sharded-cluster.yaml
-      wait_until: in_running_state
-    """
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str) -> str:
+    create_sharded_cluster_certs(
+        namespace,
+        MDB_RESOURCE,
+        shards=1,
+        mongos_per_shard=3,
+        config_servers=3,
+        mongos=2,
+    )
 
-    def test_connectivity(self):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_connectivity()
+
+@pytest.fixture(scope="module")
+def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
+    res["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
+    return res.create()
 
 
-@pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
-class TestEnableX509AndTls(KubernetesTester):
-    """
-    update:
-      file: sharded-cluster.yaml
-      patch: '[{"op":"add","path":"/spec/security", "value" : {"authentication" : {"enabled" : true, "modes" : ["X509"]}, "tls" : { "enabled" : true }}} ]'
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-    """
-
-    def test_approve_certificates(self):
-        for cert in self.yield_existing_csrs(
-            get_sc_cert_names(MDB_RESOURCE, self.namespace, with_agent_certs=True)
-        ):
-            self.approve_certificate(cert)
-        KubernetesTester.wait_until(KubernetesTester.in_running_state, timeout=1200)
+@pytest.fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
-class TestShardedClusterDeleted(KubernetesTester):
-    """
-    description: |
-      Deletes the Sharded Cluster
-    delete:
-      file: sharded-cluster.yaml
-      wait_until: mongo_resource_deleted
-      timeout: 240
-    """
+def test_standalone_running(mdb: MongoDB):
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
-    def test_noop(self):
-        pass
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
+def test_connectivity():
+    tester = ShardedClusterTester(MDB_RESOURCE, 2)
+    tester.assert_connectivity()
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
+def test_enable_x509(mdb: MongoDB, agent_certs: str):
+    mdb.load()
+    mdb["spec"]["security"] = {
+        "authentication": {"enabled": True},
+        "modes": ["X509"],
+    }
+
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)
