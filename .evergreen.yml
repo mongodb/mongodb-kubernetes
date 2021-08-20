@@ -1050,12 +1050,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_tls_sc_additional_certs_transition
-  tags: ["patch-run"]
-  exec_timeout_secs: 720
-  commands:
-    - func: "e2e_test"
-
 - name: e2e_tls_rs_additional_certs
   tags: ["patch-run"]
   exec_timeout_secs: 720
@@ -1068,11 +1062,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_tls_rs_external_access_tls_transition
-  tags: ["patch-run"]
-  exec_timeout_secs: 720
-  commands:
-    - func: "e2e_test"
 
 - name: e2e_sharded_cluster
   tags: ["patch-run"]
@@ -1284,12 +1273,6 @@ tasks:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_upgrade
-  tags: ["patch-run"]
-  exec_timeout_secs: 1200
-  commands:
-  - func: "e2e_test"
-
-- name: e2e_sharded_cluster_tls_require
   tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
@@ -1826,7 +1809,6 @@ task_groups:
     - e2e_tls_rs_additional_certs
     - e2e_tls_sc_additional_certs
     - e2e_tls_sharded_cluster_certs_prefix
-    - e2e_tls_sc_additional_certs_transition
     - e2e_standalone_no_tls_no_status_is_set
     # e2e_om_4_4_plus_only_task_group
     - e2e_feature_controls_authentication
@@ -1838,8 +1820,6 @@ task_groups:
     - e2e_sharded_cluster_scale_shards
     - e2e_sharded_cluster_mongod_options
     - e2e_tls_rs_external_access
-    - e2e_tls_rs_external_access_tls_transition
-    - e2e_sharded_cluster_tls_require
     - e2e_replica_set_tls_require
     - e2e_disable_tls_scale_up
     - e2e_replica_set_tls_require_and_disable
@@ -1983,8 +1963,6 @@ task_groups:
     - e2e_sharded_cluster_scale_shards
     - e2e_sharded_cluster_mongod_options
     - e2e_tls_rs_external_access
-    - e2e_tls_rs_external_access_tls_transition
-    - e2e_sharded_cluster_tls_require
     - e2e_replica_set_tls_require
     - e2e_disable_tls_scale_up
     - e2e_replica_set_tls_require_and_disable
@@ -1994,7 +1972,6 @@ task_groups:
     - e2e_replica_set_tls_require_upgrade
     - e2e_tls_rs_additional_certs
     - e2e_tls_sc_additional_certs
-    - e2e_tls_sc_additional_certs_transition
     - e2e_standalone_no_tls_no_status_is_set
     # e2e_scram_sha_task_group
     - e2e_replica_set_scram_sha_256_user_connectivity
