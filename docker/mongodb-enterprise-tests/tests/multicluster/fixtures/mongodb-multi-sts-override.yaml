@@ -25,9 +25,6 @@ spec:
                   image: busybox
                   command: ["sleep"]
                   args: [ "infinity" ]
-                securityContext:
-                  runAsUser: 2000
-                  runAsNonRoot: true
       - clusterName: e2e.cluster2.mongokubernetes.com
         members: 1
         statefulSet:
@@ -39,6 +36,3 @@ spec:
                   image: busybox
                   command: ["sleep"]
                   args: [ "infinity" ]
-                securityContext:
-                  runAsUser: 2000
-                  runAsNonRoot: true

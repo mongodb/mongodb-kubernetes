@@ -38,7 +38,7 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		Name:            initDatabaseContainerName,
 		Image:           "quay.io/mongodb/mongodb-enterprise-init-database:latest",
 		VolumeMounts:    expectedVolumeMounts,
-		SecurityContext: &expectedSecurityContext,
+		SecurityContext: expectedSecurityContext,
 	}
 	assert.Equal(t, expectedContainer, container)
 

@@ -657,8 +657,8 @@ func defaultPodSecurityContext() corev1.PodSecurityContext {
 	}
 }
 
-func defaultSecurityContext() corev1.SecurityContext {
-	return corev1.SecurityContext{
+func defaultSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
 		RunAsNonRoot: util.BooleanRef(true),
 		RunAsUser:    util.Int64Ref(util.RunAsUser),
 	}

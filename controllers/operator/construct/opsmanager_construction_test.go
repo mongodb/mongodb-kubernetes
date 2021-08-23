@@ -44,7 +44,7 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 		Name:            util.InitOpsManagerContainerName,
 		Image:           "test-registry:latest",
 		VolumeMounts:    expectedVolumeMounts,
-		SecurityContext: &expectedSecurityContext,
+		SecurityContext: expectedSecurityContext,
 	}
 	assert.Equal(t, expectedContainer, container)
 

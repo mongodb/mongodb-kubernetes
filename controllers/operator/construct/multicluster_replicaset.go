@@ -17,7 +17,6 @@ import (
 // For testing remove this later
 func int32Ptr(i int32) *int32                                              { return &i }
 func int64Ptr(i int64) *int64                                              { return &i }
-func boolPtr(b bool) *bool                                                 { return &b }
 func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { return &s }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) appsv1.StatefulSet {
@@ -68,8 +67,9 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					ServiceAccountName: "mongodb-enterprise-database-pods",
 					Containers: []corev1.Container{
 						{
-							Image: "quay.io/mongodb/mongodb-enterprise-database:2.0.0",
-							Name:  "mongodb-enterprise-database",
+							Image:           "quay.io/mongodb/mongodb-enterprise-database:2.0.0",
+							Name:            "mongodb-enterprise-database",
+							SecurityContext: defaultSecurityContext(),
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 27017,
@@ -99,10 +99,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 								PeriodSeconds:       5,
 								SuccessThreshold:    1,
 								FailureThreshold:    4,
-							},
-							SecurityContext: &corev1.SecurityContext{
-								RunAsUser:    int64Ptr(2000),
-								RunAsNonRoot: boolPtr(true),
 							},
 							ImagePullPolicy: corev1.PullAlways,
 							Command:         []string{"/opt/scripts/agent-launcher.sh"},
@@ -167,10 +163,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 							},
 						},
 					},
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: boolPtr(true),
-						FSGroup:      int64Ptr(2000),
-					},
 					Volumes: []corev1.Volume{
 						{
 							Name: "database-scripts",
@@ -193,10 +185,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 							Name:            "mongodb-enterprise-init-database",
 							Image:           "268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-init-database:latest",
 							ImagePullPolicy: corev1.PullAlways,
-							SecurityContext: &corev1.SecurityContext{
-								RunAsUser:    int64Ptr(2000),
-								RunAsNonRoot: boolPtr(true),
-							},
+							SecurityContext: defaultSecurityContext(),
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "database-scripts",
