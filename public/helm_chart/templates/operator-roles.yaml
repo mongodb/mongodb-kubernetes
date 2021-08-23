@@ -1,4 +1,5 @@
 ---
+{{ if .Values.operator.createOperatorServiceAccount }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -10,8 +11,7 @@ metadata:
 imagePullSecrets:
   - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
-
-
+{{ end }}
 ---
 kind: {{ if eq (.Values.operator.watchNamespace | default "") "*" }} ClusterRole {{ else }} Role {{ end }}
 apiVersion: rbac.authorization.k8s.io/v1

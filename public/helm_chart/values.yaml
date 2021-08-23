@@ -29,6 +29,9 @@ operator:
   - opsmanagers
   - mongodbusers
 
+  # Create operator-service account
+  createOperatorServiceAccount: true
+
 ## Database
 database:
   name: mongodb-enterprise-database

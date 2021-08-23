@@ -33,6 +33,7 @@ MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # AppDB monitoring is disabled by default for e2e tests.
 # If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
 MONITOR_APPDB_E2E_DEFAULT = "false"
+MULTI_CLUSTER_OPERATOR_NAME = "mongodb-enterprise-operator-multi-cluster"
 
 
 @fixture(scope="module")
@@ -299,7 +300,16 @@ def multi_cluster_operator(
     )
     # ensure we install the operator in the central cluster.
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+    # override the serviceAccountName for the operator deployment
+    multi_cluster_operator_installation_config[
+        "operator.name"
+    ] = MULTI_CLUSTER_OPERATOR_NAME
+    multi_cluster_operator_installation_config[
+        "operator.createOperatorServiceAccount"
+    ] = "false"
+
     return Operator(
+        name=MULTI_CLUSTER_OPERATOR_NAME,
         namespace=namespace,
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
