@@ -248,8 +248,6 @@ class TestBackupRestorePIT:
         raise AssertionError("The data hasn't been restored in 2 minutes!")
 
 
-# Remove this skip with CLOUDP-94707
-@mark.usefixtures("skip_if_om5")
 @mark.e2e_om_ops_manager_backup_restore
 class TestBackupRestoreFromSnapshot:
     """This part tests the restore to the snapshot built once the backup has been enabled."""
@@ -268,9 +266,9 @@ class TestBackupRestoreFromSnapshot:
         self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
     ):
         restore_prev_id = mdb_prev_project.create_restore_job_snapshot()
-        restore_latest_id = mdb_latest_project.create_restore_job_snapshot()
-
         mdb_prev_project.wait_until_restore_job_is_ready(restore_prev_id)
+
+        restore_latest_id = mdb_latest_project.create_restore_job_snapshot()
         mdb_latest_project.wait_until_restore_job_is_ready(restore_latest_id)
 
     def test_data_got_restored(
