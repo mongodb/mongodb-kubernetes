@@ -94,7 +94,7 @@ def ops_manager(
     namespace: str, custom_version: Optional[str], nginx
 ) -> MongoDBOpsManager:
 
-    """ The fixture for Ops Manager to be created."""
+    """The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("remote_fixtures/om_remotemode.yaml"),
         namespace=namespace,
@@ -167,7 +167,7 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
 def test_replica_sets_reaches_running_phase(
     replica_set: MongoDB, replica_set_ent: MongoDB
 ):
-    """ Doing this in parallel for faster success """
+    """Doing this in parallel for faster success"""
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     replica_set_ent.assert_reaches_phase(Phase.Running, timeout=300)
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/runtime"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -202,7 +204,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to replica set MongoDB resources
-	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
+	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
 	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet))
 
@@ -346,7 +348,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 	return tlsConfigWasDisabled, err
 }
 
-func (r *ReconcileMongoDbReplicaSet) delete(obj interface{}, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs)

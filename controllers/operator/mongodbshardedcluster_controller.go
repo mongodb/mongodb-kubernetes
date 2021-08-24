@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -374,8 +375,8 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	return workflow.OK()
 }
 
-// delete tries to complete a Deletion reconciliation event
-func (r *ReconcileMongoDbShardedCluster) delete(obj interface{}, log *zap.SugaredLogger) error {
+// OnDelete tries to complete a Deletion reconciliation event
+func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc)
@@ -449,7 +450,7 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to sharded cluster MongoDB resources
-	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
+	eventHandler := ResourceEventHandler{deleter: reconciler}
 	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster))
 	if err != nil {
 		return err

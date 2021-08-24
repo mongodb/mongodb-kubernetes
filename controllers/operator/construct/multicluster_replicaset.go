@@ -25,7 +25,8 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 			Name:      fmt.Sprintf("%s-%d", mdbm.Name, clusterNum),
 			Namespace: mdbm.Namespace,
 			Labels: map[string]string{
-				"controller": "mongodb-enterprise-operator",
+				"controller":   "mongodb-enterprise-operator",
+				"mongodbmulti": fmt.Sprintf("%s-%s", mdbm.Namespace, mdbm.Name),
 			},
 			Annotations: map[string]string{
 				handler.MongoDBMultiResourceAnnotation: mdbm.Name,

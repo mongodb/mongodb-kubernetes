@@ -72,7 +72,7 @@ spec:
           value: mongodb-enterprise-appdb-database
         - name: MONGODB_REPO_URL
           value: quay.io/mongodb
-        image: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-operator:latest
+        image: 268558157000.dkr.ecr.eu-west-1.amazonaws.com/<NAMESPACE>/ubuntu/mongodb-enterprise-operator:latest
         imagePullPolicy: Always
         name: mongodb-enterprise-operator
         volumeMounts:

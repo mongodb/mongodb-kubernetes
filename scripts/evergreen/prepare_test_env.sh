@@ -43,7 +43,8 @@ fix_env() {
 }
 
 deploy_cluster_cleaner() {
-    local current_context="$(kubectl config current-context)"
+    local current_context
+    current_context="$(kubectl config current-context)"
     local ops_manager_namespace="${1}"
     local context="${2:-$current_context}"
     local cleaner_namespace="cluster-cleaner"
@@ -74,6 +75,7 @@ fix_env
 
 echo "Deploying cluster-cleaner"
 
+# shellcheck disable=SC2154
 if [[ "${kube_environment_name}" = "multi" ]]; then
     deploy_cluster_cleaner "${ops_manager_namespace}" "${central_cluster}"
     for member_cluster in ${member_clusters}; do

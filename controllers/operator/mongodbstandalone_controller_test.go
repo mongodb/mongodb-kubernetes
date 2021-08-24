@@ -79,7 +79,7 @@ func TestAddDeleteStandalone(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, st, client)
 
 	// Now delete it
-	assert.NoError(t, reconciler.delete(st, zap.S()))
+	assert.NoError(t, reconciler.OnDelete(st, zap.S()))
 
 	omConn := om.CurrMockedConnection
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM

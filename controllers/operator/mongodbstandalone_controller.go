@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
@@ -52,7 +53,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 	}
 
 	// watch for changes to standalone MongoDB resources
-	eventHandler := MongoDBResourceEventHandler{reconciler: reconciler}
+	eventHandler := ResourceEventHandler{deleter: reconciler}
 	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone))
 	if err != nil {
 		return err
@@ -262,7 +263,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 
 }
 
-func (r *ReconcileMongoDbStandalone) delete(obj interface{}, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)

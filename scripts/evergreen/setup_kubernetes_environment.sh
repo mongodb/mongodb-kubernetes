@@ -64,9 +64,10 @@ elif [[ "${kube_environment_name}" = "minikube" ]]; then
 elif [[ "${kube_environment_name}" = "multi" ]]; then
 
     # TODO: ensure that the clusters exist and are configured correctly.
-
+    # shellcheck disable=SC2154
     kops export kubecfg "${central_cluster}" --admin=87600h
     # configure kube config with all member clusters
+    # shellcheck disable=SC2154
     for member_cluster in ${member_clusters}; do
       kops export kubecfg "${member_cluster}" --admin=87600h
     done

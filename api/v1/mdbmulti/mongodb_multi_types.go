@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -51,6 +53,14 @@ func (m MongoDBMulti) GetProjectConfigMapName() string {
 
 func (m MongoDBMulti) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
+}
+
+func (m MongoDBMulti) GetMultiClusterAgentHostnames() []string {
+	hostnames := make([]string, 0)
+	for clusterNum, spec := range m.GetOrderedClusterSpecList() {
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, clusterNum, spec.Members)...)
+	}
+	return hostnames
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

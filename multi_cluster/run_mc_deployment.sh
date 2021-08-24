@@ -53,8 +53,7 @@ kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mo
 ## deploy the multi-cluster CRD
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodbmulti.yaml
 
-# deploy the operator deployments
-kubectl --context ${CENTRAL_CLUSTER} apply -f config/operator-deployment.yaml --namespace ${OPERATOR_NAMESPACE}
+sed -e "s/<NAMESPACE>/${OPERATOR_NAMESPACE}/g" < config/operator-deployment.yaml | kubectl --context "${CENTRAL_CLUSTER}" --namespace "${OPERATOR_NAMESPACE}" apply -f -
 
 # deploy the database service account in member clusters
 kubectl --context ${CLUSTER1} apply -f config/database-sa.yaml --namespace ${MDB_NAMESPACE}

@@ -69,7 +69,7 @@ class TestOpsManagerCreation:
         assert "user" in data
 
     def test_backup_not_enabled(self, ops_manager: MongoDBOpsManager):
-        """ Backup is deliberately disabled so no statefulset should be created"""
+        """Backup is deliberately disabled so no statefulset should be created"""
         with pytest.raises(client.rest.ApiException):
             ops_manager.read_backup_statefulset()
 
@@ -88,7 +88,7 @@ class TestOpsManagerCreation:
             pass
 
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
-        """ Checks that 4.2 OM has both SCRAM-SHA-1 and SCRAM-SHA-256 enabled """
+        """Checks that 4.2 OM has both SCRAM-SHA-1 and SCRAM-SHA-256 enabled"""
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
         automation_config_tester.assert_authentication_mechanism_enabled(
@@ -151,7 +151,7 @@ class TestOpsManagerConfigurationChange:
         gen_key_resource_version: str,
         admin_key_resource_version: str,
     ):
-        """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
+        """Making sure that the new reconciliation hasn't tried to generate new gen and api keys"""
         gen_key_secret = ops_manager.read_gen_key_secret()
         api_key_secret = ops_manager.read_api_key_secret()
 
@@ -221,7 +221,7 @@ class TestOpsManagerVersionUpgrade:
         mdb_tester.assert_version(custom_appdb_version)
 
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
-        """ Right after OM was upgraded from 4.2 the AppDB still uses both SCRAM methods"""
+        """Right after OM was upgraded from 4.2 the AppDB still uses both SCRAM methods"""
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
         automation_config_tester.assert_authentication_mechanism_enabled(
@@ -290,7 +290,7 @@ class TestAppDBScramShaUpdated:
         reason="re-enable when only SCRAM-SHA-256 is supported for the AppDB"
     )
     def test_appdb_scram_sha_(self, ops_manager: MongoDBOpsManager):
-        """ In case of upgrade OM 4.2 -> OM 4.4 the AppDB scram-sha method must be upgraded as well """
+        """In case of upgrade OM 4.2 -> OM 4.4 the AppDB scram-sha method must be upgraded as well"""
         automation_config_tester = ops_manager.get_automation_config_tester()
         automation_config_tester.assert_authentication_mechanism_enabled(
             "SCRAM-SHA-256", False

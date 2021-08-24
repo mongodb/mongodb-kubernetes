@@ -279,7 +279,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return config_map_name
 
     def get_om_tester(self, project_name: Optional[str] = None) -> OMTester:
-        """ Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes. """
+        """Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes."""
         api_key_secret = KubernetesTester.read_secret(
             KubernetesTester.get_namespace(),
             self.api_key_secret(KubernetesTester.get_namespace()),
@@ -300,7 +300,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         )
 
     def pod_urls(self):
-        """ Returns http urls to each pod in the Ops Manager """
+        """Returns http urls to each pod in the Ops Manager"""
         return [
             "http://{}".format(host)
             for host in build_list_of_hosts(
@@ -443,7 +443,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self.name + "-svc-ext"
 
     def download_mongodb_binaries(self, version: str):
-        """ Downloads mongodb binary in each OM pod, optional downloads MongoDB Tools """
+        """Downloads mongodb binary in each OM pod, optional downloads MongoDB Tools"""
         distros = [
             f"mongodb-linux-x86_64-rhel80-{version}.tgz",
             f"mongodb-linux-x86_64-ubuntu1604-{version}.tgz",
@@ -494,7 +494,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def assert_status_resource_not_ready(
             self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
         ):
-            """Checks the element in 'resources_not_ready' field by index 'idx' """
+            """Checks the element in 'resources_not_ready' field by index 'idx'"""
             assert self.get_resources_not_ready()[idx]["kind"] == kind
             assert self.get_resources_not_ready()[idx]["name"] == name
             assert (

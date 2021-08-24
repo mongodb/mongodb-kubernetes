@@ -5,6 +5,16 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/hashicorp/go-multierror"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
@@ -28,11 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -187,7 +194,13 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 }
 
 func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Service {
-	labels := map[string]string{
+	svcLabels := map[string]string{
+		"statefulset.kubernetes.io/pod-name": mrs.GetPodName(clusterNum, podNum),
+		"controller":                         "mongodb-enterprise-operator",
+		"mongodbmulti":                       fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
+	}
+
+	labelSelectors := map[string]string{
 		"statefulset.kubernetes.io/pod-name": mrs.GetPodName(clusterNum, podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
@@ -197,8 +210,8 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 		SetNamespace(mrs.Namespace).
 		SetPort(27017).
 		SetPortName("mongodb").
-		SetSelector(labels).
-		SetLabels(labels).
+		SetSelector(labelSelectors).
+		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
 		Build()
 }
@@ -254,7 +267,8 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 			Name:      "hostname-override",
 			Namespace: mrs.Namespace,
 			Labels: map[string]string{
-				"controller": "mongodb-enterprise-operator",
+				"controller":   "mongodb-enterprise-operator",
+				"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
 			},
 		},
 		Data: data,
@@ -281,25 +295,29 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 // and Start it when the Manager is Started.
 func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newMultiClusterReplicaSetReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
+	c, err := controller.New(util.MongoDbMultiController, mgr, controller.Options{Reconciler: reconciler})
+	if err != nil {
+		return err
+	}
 
-	ctrl, err := ctrl.NewControllerManagedBy(mgr).For(&mdbmultiv1.MongoDBMulti{}).WithEventFilter(
-		predicate.Funcs{
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMulti)
-				newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMulti)
-				return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
-			},
+	eventHandler := ResourceEventHandler{deleter: reconciler}
+	err = c.Watch(&source.Kind{Type: &mdbmultiv1.MongoDBMulti{}}, &eventHandler, predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMulti)
+			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMulti)
+			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
-	).Build(reconciler)
+	})
+
 	if err != nil {
 		return err
 	}
 
 	// register watcher across member clusters
 	for k, v := range memberClustersMap {
-		err := ctrl.Watch(source.NewKindWithCache(&appsv1.StatefulSet{}, v.GetCache()), &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet())
+		err := c.Watch(source.NewKindWithCache(&appsv1.StatefulSet{}, v.GetCache()), &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet())
 		if err != nil {
-			return fmt.Errorf("Failed to set Watch on member cluster: %s, err: %v", k, err)
+			return fmt.Errorf("failed to set Watch on member cluster: %s, err: %v", k, err)
 		}
 	}
 
@@ -307,6 +325,113 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	// logic for those objects
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
 	return err
+}
+
+// OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
+func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
+	mrs := obj.(*mdbmultiv1.MongoDBMulti)
+	return r.deleteManagedResources(*mrs, log)
+}
+
+// cleanOpsManagerState removes the project configuration (processes, auth settings etc.) from the corresponding OM project.
+func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs)
+	if err != nil {
+		return err
+	}
+
+	log.Infow("Removing replica set from Ops Manager", "config", mrs.Spec)
+	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	if err != nil {
+		return err
+	}
+
+	processNames := make([]string, 0)
+	err = conn.ReadUpdateDeployment(
+		func(d om.Deployment) error {
+			processNames = d.GetProcessNames(om.ReplicaSet{}, mrs.Name)
+			// error means that replica set is not in the deployment - it's ok and we can proceed (could happen if
+			// deletion cleanup happened twice and the first one cleaned OM state already)
+			if e := d.RemoveReplicaSetByName(mrs.Name, log); e != nil {
+				log.Warnf("Failed to remove replica set from automation config: %s", e)
+			}
+
+			return nil
+		},
+		log,
+	)
+	if err != nil {
+		return err
+	}
+
+	hostsToRemove := mrs.GetMultiClusterAgentHostnames()
+	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
+
+	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+		return err
+	}
+
+	opts := authentication.Options{
+		AuthoritativeSet: false,
+		ProcessNames:     processNames,
+	}
+
+	if err := authentication.Disable(conn, opts, true, log); err != nil {
+		return err
+	}
+	log.Infof("Removed deployment %s from Ops Manager at %s", mrs.Name, conn.BaseURL())
+	return nil
+}
+
+// deleteManagedResources deletes resources across all member clusters that are owned by this MongoDBMulti resource.
+func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+	var errs error
+	if err := r.cleanOpsManagerState(mrs, log); err != nil {
+		errs = multierror.Append(errs, err)
+	}
+
+	for _, item := range mrs.GetOrderedClusterSpecList() {
+		c := r.memberClusterClientsMap[item.ClusterName]
+		if err := r.deleteClusterResources(c, mrs, log); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("failed deleting dependant resources in cluster %s: %s", item.ClusterName, err))
+		}
+	}
+	return errs
+}
+
+// deleteClusterResources removes all resources that are associated with the given MongoDBMulti resource in a given cluster.
+func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesClient.Client, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+	var errs error
+
+	// cleanup resources in the namespace as the MongoDBMuliti with the corresponding label.
+	cleanupOptions := mongodbMultiCleanUpOptions{
+		namesapce: mrs.Namespace,
+		labels: map[string]string{
+			"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
+		},
+	}
+
+	if err := c.DeleteAllOf(context.TODO(), &corev1.Service{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed Serivces associated with %s/%s", mrs.Namespace, mrs.Name)
+	}
+
+	if err := c.DeleteAllOf(context.TODO(), &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed StatefulSets associated with %s/%s", mrs.Namespace, mrs.Name)
+	}
+
+	if err := c.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed ConfigMaps associated with %s/%s", mrs.Namespace, mrs.Name)
+	}
+
+	r.RemoveMongodbWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
+
+	return errs
 }
 
 func updateOmMultiSCRAMAuthentication(conn om.Connection, processName []string, mdbm *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (workflow.Status, bool) {
@@ -355,4 +480,17 @@ func updateOmMultiSCRAMAuthentication(conn om.Connection, processName []string, 
 	}
 
 	return workflow.OK(), false
+}
+
+// mongodbMultiCleanUpOptions implements the required interface to be passed
+// to the DeleteAllOf function, this cleans up resources of a given type with
+// the provided labels in a specific namespace.
+type mongodbMultiCleanUpOptions struct {
+	namesapce string
+	labels    map[string]string
+}
+
+func (m *mongodbMultiCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
+	opts.Namespace = m.namesapce
+	opts.LabelSelector = labels.SelectorFromValidatedSet(m.labels)
 }

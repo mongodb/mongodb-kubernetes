@@ -65,7 +65,7 @@ class Operator(object):
         return self
 
     def install(self) -> Operator:
-        """ Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running """
+        """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
         helm_install(
             "mongodb-enterprise-operator",
             self.helm_arguments,
@@ -78,7 +78,7 @@ class Operator(object):
         return self
 
     def upgrade(self, install: bool = True) -> Operator:
-        """ Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running """
+        """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
         helm_upgrade(
             self.name,
             self.helm_arguments,
@@ -95,7 +95,7 @@ class Operator(object):
         helm_uninstall(self.name)
 
     def delete_operator_deployment(self):
-        """ Deletes the Operator deployment from K8s cluster. """
+        """Deletes the Operator deployment from K8s cluster."""
         client.AppsV1Api(api_client=self.api_client).delete_namespaced_deployment(
             self.name, self.namespace
         )
@@ -127,7 +127,7 @@ class Operator(object):
             time.sleep(1)
 
     def _wait_for_operator_ready(self, retries: int = 60):
-        """ waits until the Operator deployment is ready. """
+        """waits until the Operator deployment is ready."""
         # we need to give some time for the new pod to start instead of the existing one (if any)
         time.sleep(4)
         retry_count = retries

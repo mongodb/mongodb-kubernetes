@@ -118,7 +118,7 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 	omConn.CleanHistory()
 
 	// Now delete it
-	assert.NoError(t, reconciler.delete(sc, zap.S()))
+	assert.NoError(t, reconciler.OnDelete(sc, zap.S()))
 
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
 	omConn.CheckResourcesDeleted(t)

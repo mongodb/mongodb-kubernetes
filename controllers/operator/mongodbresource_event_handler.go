@@ -3,31 +3,35 @@ package operator
 import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
 
-// MongoDBResourceEventHandler is a custom event handler that extends the
-// handler.EnqueueRequestForObject event handler. It overrides the Delete
-// method used to clean up the mongodb resource when a deletion event happens.
-// This results in a single, synchronous attempt to clean up the resource
-// rather than an asynchronous one.
-type MongoDBResourceEventHandler struct {
-	*handler.EnqueueRequestForObject
-	reconciler interface {
-		delete(obj interface{}, log *zap.SugaredLogger) error
-	}
+// Deleter cleans up any state required upon deletion of a resource.
+type Deleter interface {
+	OnDelete(obj runtime.Object, log *zap.SugaredLogger) error
 }
 
-func (eh *MongoDBResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+// ResourceEventHandler is a custom event handler that extends the
+// handler.EnqueueRequestForObject event handler. It overrides the Delete
+// method used to clean up custom resources when a deletion event happens.
+// This results in a single, synchronous attempt to clean up the resource
+// rather than an asynchronous one.
+type ResourceEventHandler struct {
+	*handler.EnqueueRequestForObject
+	deleter Deleter
+}
+
+func (h *ResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	objectKey := kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName())
 	logger := zap.S().With("resource", objectKey)
 
-	zap.S().Infow("Cleaning up MongoDB resource", "resource", e.Object)
-	if err := eh.reconciler.delete(e.Object, logger); err != nil {
-		logger.Errorf("MongoDB resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
+	zap.S().Infow("Cleaning up Resource", "resource", e.Object)
+	if err := h.deleter.OnDelete(e.Object, logger); err != nil {
+		logger.Errorf("Resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
 		return
 	}
-	logger.Info("Removed MongoDB resource from Kubernetes and Ops Manager")
+	logger.Info("Removed Resource from Kubernetes and Ops Manager")
 }

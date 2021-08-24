@@ -15,7 +15,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @fixture(scope="module")
 def project_name_with_whitespace(replica_set: MongoDB) -> str:
-    """ replaces the value in the ConfigMap with the generated one with whitespaces in it """
+    """replaces the value in the ConfigMap with the generated one with whitespaces in it"""
     project_name = KubernetesTester.random_om_project_name()
     connection_data = replica_set.read_configmap()
     connection_data["projectName"] = project_name

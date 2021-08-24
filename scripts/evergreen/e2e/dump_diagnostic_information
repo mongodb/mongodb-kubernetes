@@ -13,8 +13,9 @@ dump_all () {
 
     # TODO: provide a cleaner way of handling this. For now we run the same command with kubectl configured
     # with a different context.
-    local original_context="$(kubectl config current-context)"
-    kubectl config use-context ${1:-original_context} &> /dev/null
+    local original_context
+    original_context="$(kubectl config current-context)"
+    kubectl config use-context "${1:-original_context}" &> /dev/null
 
     # The dump process usually happens for a single namespace (the one the test and the operator are installed to)
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
@@ -147,7 +148,7 @@ dump_pods() {
         kubectl logs "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-logs.txt"
     done
 
-    operator_pod=$(kubectl get pod -n ${namespace} -l app.kubernetes.io/name=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name")
+    operator_pod=$(kubectl get pod -n "${namespace}" -l app.kubernetes.io/name=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name")
     kubectl describe "pod/${operator_pod}" -n "${namespace}" > "logs/z_${operator_pod}-pod-describe.txt"
 }
 
