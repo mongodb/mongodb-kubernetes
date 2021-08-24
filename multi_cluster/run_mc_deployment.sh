@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -u
-# usage: sh ./convert_sa_to_kube_config_go.sh tmp operator my-project
+# usage: sh ./run_mc_deployment.sh tmp operator my-project
 CLUSTER1="e2e.cluster1.mongokubernetes.com"
 CLUSTER2="e2e.cluster2.mongokubernetes.com"
 CENTRAL_CLUSTER="e2e.operator.mongokubernetes.com"
