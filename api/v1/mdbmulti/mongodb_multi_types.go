@@ -27,6 +27,7 @@ func init() {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path= mongodbmulti,scope=Namespaced,shortName=mdbm
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBMulti resource was created."
 type MongoDBMulti struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
