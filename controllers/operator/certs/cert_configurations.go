@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 )
 
@@ -31,7 +32,7 @@ type Options struct {
 func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               getCertNameWithPrefixOrDefault(mdb, mdb.Name),
+		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
 		Namespace:                    mdb.Namespace,
 		ServiceName:                  mdb.ServiceName(),
 		Replicas:                     1,
@@ -44,7 +45,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               getCertNameWithPrefixOrDefault(mdb, mdb.Name),
+		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(&mdb),
 		ServiceName:                  mdb.ServiceName(),
@@ -58,7 +59,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ShardRsName(shardNum),
-		CertSecretName:               getCertNameWithPrefixOrDefault(mdb, mdb.ShardRsName(shardNum)),
+		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.ShardRsName(shardNum)),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ShardServiceName(),
@@ -67,11 +68,23 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 	}
 }
 
+// MultiReplicaSetConfig returns a struct which provides all of thr configuration required for a given MongoDB Multi Replicaset.
+func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum int, scaler scale.ReplicaSetScaler) Options {
+	return Options{
+		ResourceName:                 mdbm.Name,
+		CertSecretName:               getCertNameWithPrefixOrDefault(*mdbm.Spec.GetSecurity(), mdbm.Name),
+		Namespace:                    mdbm.Namespace,
+		Replicas:                     scale.ReplicasThisReconciliation(scaler),
+		ClusterDomain:                mdbm.Spec.GetClusterDomain(),
+		additionalCertificateDomains: mdbm.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+	}
+}
+
 // MongosConfig returns a struct which provides all of the configuration options required for the given Mongos.
 func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.MongosRsName(),
-		CertSecretName:               getCertNameWithPrefixOrDefault(mdb, mdb.MongosRsName()),
+		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.MongosRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ServiceName(),
@@ -84,7 +97,7 @@ func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ConfigRsName(),
-		CertSecretName:               getCertNameWithPrefixOrDefault(mdb, mdb.ConfigRsName()),
+		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.ConfigRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ConfigSrvServiceName(),
@@ -96,8 +109,8 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 
 // getCertNameWithPrefixOrDefault returns the name of the cert that will store certificates for the given resource.
 // this takes into account the tlsConfig.prefix option.
-func getCertNameWithPrefixOrDefault(mdb mdbv1.MongoDB, defaultName string) string {
-	tlsConfig := mdb.GetSecurity().TLSConfig
+func getCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
+	tlsConfig := ms.TLSConfig
 	if tlsConfig != nil {
 		// use old behaviour if name is specified
 		if tlsConfig.SecretRef.Name != "" {

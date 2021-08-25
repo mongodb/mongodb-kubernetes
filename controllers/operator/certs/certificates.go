@@ -289,14 +289,14 @@ func VerifyClientCertificatesForAgents(secretGetter secret.Getter, namespace str
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
-func EnsureSSLCertsForStatefulSet(client kubernetesClient.Client, mdb mdbv1.MongoDB, opts Options, log *zap.SugaredLogger) workflow.Status {
-	if !mdb.Spec.IsTLSEnabled() {
+func EnsureSSLCertsForStatefulSet(client kubernetesClient.Client, ms mdbv1.Security, opts Options, log *zap.SugaredLogger) workflow.Status {
+	if !ms.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
 		return workflow.OK()
 	}
 
 	secretName := opts.CertSecretName
-	if mdb.Spec.Security.TLSConfig.IsSelfManaged() {
+	if ms.TLSConfig.IsSelfManaged() {
 		return validateSelfManagedSSLCertsForStatefulSet(client, secretName, opts)
 	}
 	return ensureOperatorManagedSSLCertsForStatefulSet(client, secretName, opts, log)

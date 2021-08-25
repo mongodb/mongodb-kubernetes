@@ -313,11 +313,11 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 
 	var status workflow.Status
 	status = workflow.OK()
-	status = status.Merge(certs.EnsureSSLCertsForStatefulSet(r.client, *s, certs.MongosConfig(*s, r.mongosScaler), log))
-	status = status.Merge(certs.EnsureSSLCertsForStatefulSet(r.client, *s, certs.ConfigSrvConfig(*s, r.configSrvScaler), log))
+	status = status.Merge(certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, certs.MongosConfig(*s, r.mongosScaler), log))
+	status = status.Merge(certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, certs.ConfigSrvConfig(*s, r.configSrvScaler), log))
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
-		status = status.Merge(certs.EnsureSSLCertsForStatefulSet(r.client, *s, certs.ShardConfig(*s, i, r.mongodsPerShardScaler), log))
+		status = status.Merge(certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, certs.ShardConfig(*s, i, r.mongodsPerShardScaler), log))
 	}
 
 	return status

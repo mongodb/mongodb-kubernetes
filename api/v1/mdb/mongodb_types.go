@@ -372,8 +372,8 @@ func (spec MongoDbSpec) GetSecurity() *Security {
 	return spec.Security
 }
 
-func (spec MongoDbSpec) IsTLSEnabled() bool {
-	return spec.Security != nil && spec.Security.TLSConfig != nil && spec.Security.TLSConfig.IsEnabled()
+func (s *Security) IsTLSEnabled() bool {
+	return s != nil && s.TLSConfig != nil && s.TLSConfig.IsEnabled()
 }
 
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.

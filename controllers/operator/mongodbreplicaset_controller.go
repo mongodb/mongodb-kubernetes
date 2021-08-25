@@ -125,7 +125,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	if status := certs.EnsureSSLCertsForStatefulSet(r.client, *rs, certs.ReplicaSetConfig(*rs), log); !status.IsOK() {
+	if status := certs.EnsureSSLCertsForStatefulSet(r.client, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
