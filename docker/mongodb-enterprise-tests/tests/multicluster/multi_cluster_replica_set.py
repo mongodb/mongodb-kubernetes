@@ -27,9 +27,10 @@ def mongodb_multi(
 def test_create_kube_config_file(cluster_clients: Dict):
     clients = cluster_clients
 
-    assert len(clients) == 3
+    assert len(clients) == 4
     assert "e2e.cluster1.mongokubernetes.com" in clients
     assert "e2e.cluster2.mongokubernetes.com" in clients
+    assert "e2e.cluster3.mongokubernetes.com" in clients
     assert "e2e.operator.mongokubernetes.com" in clients
 
 
@@ -40,7 +41,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=300)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
@@ -56,3 +57,7 @@ def test_statefulset_is_created_across_multiple_clusters(
     cluster_two_client = member_cluster_clients[1]
     cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
     assert cluster_two_sts.status.ready_replicas == 1
+
+    cluster_three_client = member_cluster_clients[2]
+    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
+    assert cluster_three_sts.status.ready_replicas == 2

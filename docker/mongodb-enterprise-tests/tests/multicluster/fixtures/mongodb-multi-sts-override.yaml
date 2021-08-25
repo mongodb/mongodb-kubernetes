@@ -36,3 +36,14 @@ spec:
                   image: busybox
                   command: ["sleep"]
                   args: [ "infinity" ]
+      - clusterName: e2e.cluster3.mongokubernetes.com
+        members: 1
+        statefulSet:
+          spec:
+            template:
+              spec:
+                containers:
+                - name: sidecar3
+                  image: busybox
+                  command: ["sleep"]
+                  args: [ "infinity" ]

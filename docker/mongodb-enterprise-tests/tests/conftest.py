@@ -481,6 +481,7 @@ def cluster_clients(
     member_clusters = [
         _read_multi_cluster_config_value("member_cluster_1"),
         _read_multi_cluster_config_value("member_cluster_2"),
+        _read_multi_cluster_config_value("member_cluster_3"),
     ]
     member_clusters_str = ",".join(member_clusters)
     subprocess.call(

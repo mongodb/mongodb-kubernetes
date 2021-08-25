@@ -53,7 +53,7 @@ variables:
     # Multi Cluster Environment
   - &kubernetes_environment_multi_cluster
     kube_environment_name: multi
-    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com"
+    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
     central_cluster: e2e.operator.mongokubernetes.com
 
   - &kubernetes_environment_kind
