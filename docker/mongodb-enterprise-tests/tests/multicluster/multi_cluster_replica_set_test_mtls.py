@@ -35,7 +35,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_mtls_test
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=300)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_multi_cluster_mtls_test
@@ -210,20 +210,29 @@ def test_connectivity_succeeds_from_second_namespace(
         f"{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local",
     ]
 
-    result = KubernetesTester.run_command_in_pod_container(
-        "mongo",
-        f"{namespace}-mongo",
-        cmd,
-        container="mongo",
-        api_client=cluster_1_client.api_client,
-    )
+    def can_connect_to_deployment() -> bool:
+        result = KubernetesTester.run_command_in_pod_container(
+            "mongo",
+            f"{namespace}-mongo",
+            cmd,
+            container="mongo",
+            api_client=cluster_1_client.api_client,
+        )
+        if (
+            "Error: network error while attempting to run command 'isMaster' on host"
+            in result
+        ):
+            return False
 
-    assert (
-        "Error: network error while attempting to run command 'isMaster' on host"
-        not in result
-    )
-    assert "HostNotFound" not in result
-    assert (
-        f"connecting to: mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local"
-        in result
-    )
+        if "HostNotFound" in result:
+            return False
+
+        if (
+            f"connecting to: mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local"
+            not in result
+        ):
+            return False
+
+        return True
+
+    wait_until(can_connect_to_deployment, timeout=60)
