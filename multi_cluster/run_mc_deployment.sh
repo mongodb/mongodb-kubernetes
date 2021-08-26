@@ -4,6 +4,7 @@ set -u
 # usage: sh ./run_mc_deployment.sh tmp operator my-project
 CLUSTER1="e2e.cluster1.mongokubernetes.com"
 CLUSTER2="e2e.cluster2.mongokubernetes.com"
+CLUSTER3="e2e.cluster3.mongokubernetes.com"
 CENTRAL_CLUSTER="e2e.operator.mongokubernetes.com"
 MDB_NAMESPACE=$1
 OPERATOR_NAMESPACE=$2
@@ -14,11 +15,13 @@ kubectl --context ${CENTRAL_CLUSTER} delete deployment mongodb-enterprise-operat
 kubectl --context ${CENTRAL_CLUSTER} delete mdbm --all --namespace ${OPERATOR_NAMESPACE} --ignore-not-found
 kubectl --context ${CLUSTER1} delete sts --all --namespace ${MDB_NAMESPACE} --ignore-not-found
 kubectl --context ${CLUSTER2} delete sts --all --namespace ${MDB_NAMESPACE} --ignore-not-found
+kubectl --context ${CLUSTER3} delete sts --all --namespace ${MDB_NAMESPACE} --ignore-not-found
 
-go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2} -central-cluster ${CENTRAL_CLUSTER} -member-cluster-namespace ${MDB_NAMESPACE} -central-cluster-namespace ${OPERATOR_NAMESPACE} -cleanup
+go run tools/cmd/main.go -member-clusters ${CLUSTER1},${CLUSTER2},${CLUSTER3}  -central-cluster ${CENTRAL_CLUSTER} -member-cluster-namespace ${MDB_NAMESPACE} -central-cluster-namespace ${OPERATOR_NAMESPACE} -cleanup
 
 kubectl --context ${CLUSTER1} label ns ${MDB_NAMESPACE} istio-injection=enabled
 kubectl --context ${CLUSTER2} label ns ${MDB_NAMESPACE} istio-injection=enabled
+kubectl --context ${CLUSTER3} label ns ${MDB_NAMESPACE} istio-injection=enabled
 
 # deploy the CRDs in the central cluster
 
@@ -44,6 +47,17 @@ spec:
     mode: STRICT
 EOF
 
+kubectl --context ${CLUSTER3} delete peerauthentication default --ignore-not-found
+kubectl --context ${CLUSTER3}  -n ${MDB_NAMESPACE} apply -f - <<EOF
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: "default"
+spec:
+  mtls:
+    mode: STRICT
+EOF
+
 
 # deploy CRDs in central cluster
 kubectl --context ${CENTRAL_CLUSTER} apply -f ../config/crd/bases/mongodb.com_mongodb.yaml
@@ -58,6 +72,7 @@ sed -e "s/<NAMESPACE>/${OPERATOR_NAMESPACE}/g" < config/operator-deployment.yaml
 # deploy the database service account in member clusters
 kubectl --context ${CLUSTER1} apply -f config/database-sa.yaml --namespace ${MDB_NAMESPACE}
 kubectl --context ${CLUSTER2} apply -f config/database-sa.yaml --namespace ${MDB_NAMESPACE}
+kubectl --context ${CLUSTER3} apply -f config/database-sa.yaml --namespace ${MDB_NAMESPACE}
 
 # deploy the CR
 kubectl --context ${CENTRAL_CLUSTER} apply -f config/multi-cluster-CR.yaml --namespace ${MDB_NAMESPACE}
@@ -70,9 +85,11 @@ kubectl create secret generic ops-manager-admin-secret  --from-literal=Username=
 
 kubectl  --context ${CLUSTER1} --namespace "${MDB_NAMESPACE}" delete configmap my-project --ignore-not-found
 kubectl  --context ${CLUSTER2} --namespace "${MDB_NAMESPACE}" delete configmap my-project --ignore-not-found
+kubectl  --context ${CLUSTER3} --namespace "${MDB_NAMESPACE}" delete configmap my-project --ignore-not-found
 
 kubectl  --context ${CLUSTER1} --namespace "${MDB_NAMESPACE}" delete secret my-credentials --ignore-not-found
 kubectl  --context ${CLUSTER2} --namespace "${MDB_NAMESPACE}" delete secret my-credentials --ignore-not-found
+kubectl  --context ${CLUSTER3} --namespace "${MDB_NAMESPACE}" delete secret my-credentials --ignore-not-found
 
 kubectl  --context ${CENTRAL_CLUSTER} --namespace "${OPERATOR_NAMESPACE}" delete configmap my-project --ignore-not-found
 kubectl  --context ${CENTRAL_CLUSTER} --namespace "${OPERATOR_NAMESPACE}" delete secret my-credentials --ignore-not-found
