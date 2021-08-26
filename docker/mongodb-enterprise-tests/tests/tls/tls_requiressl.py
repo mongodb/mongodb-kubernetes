@@ -1,14 +1,11 @@
 import pytest
 
-from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubernetes import client
-from kubetester.mongotester import ReplicaSetTester
+from kubetester.kubetester import skip_if_local
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
-    create_agent_tls_certs,
 )
 
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"

@@ -1,11 +1,11 @@
+import copy
 import logging
 import random
 import ssl
 import string
 import threading
 import time
-import timeit
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Dict
 
 import pymongo
 from kubetester import kubetester
@@ -15,6 +15,55 @@ from pytest import fail
 
 TEST_DB = "test-db"
 TEST_COLLECTION = "test-collection"
+
+
+def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, str]:
+    # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
+    # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
+    options = {"ssl": use_tls}
+
+    if use_tls:
+        options["ssl_ca_certs"] = kubetester.SSL_CA_CERT if ca_path is None else ca_path
+    return options
+
+
+def with_scram(
+    username: str, password: str, auth_mechanism: str = "SCRAM-SHA-256"
+) -> Dict[str, str]:
+    valid_mechanisms = {"SCRAM-SHA-256", "SCRAM-SHA-1"}
+    if auth_mechanism not in valid_mechanisms:
+        raise ValueError(
+            f"auth_mechanism must be one of {valid_mechanisms}, but was {auth_mechanism}."
+        )
+
+    return {
+        "authMechanism": auth_mechanism,
+        "password": password,
+        "username": username,
+    }
+
+
+def with_x509(cert_file_name: str, ca_path: Optional[str] = None) -> Dict[str, str]:
+    options = with_tls(True, ca_path=ca_path)
+    options.update(
+        {
+            "authMechanism": "MONGODB-X509",
+            "ssl_certfile": cert_file_name,
+            "ssl_cert_reqs": ssl.CERT_REQUIRED,
+        }
+    )
+    return options
+
+
+def with_ldap(
+    ssl_certfile: Optional[str] = None, ssl_ca_certs: Optional[str] = None
+) -> Dict[str, str]:
+    options = {}
+    if ssl_ca_certs is not None:
+        options.update(with_tls(True, ssl_ca_certs))
+    if ssl_certfile is not None:
+        options["ssl_certfile"] = ssl_certfile
+    return options
 
 
 class MongoTester:
@@ -27,19 +76,37 @@ class MongoTester:
         use_ssl: bool,
         ca_path: Optional[str] = None,
     ):
-        # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
-        # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
-        options = {"ssl": use_ssl}
-
-        if use_ssl:
-            options["ssl_ca_certs"] = (
-                kubetester.SSL_CA_CERT if ca_path is None else ca_path
-            )
-
+        self.default_opts = with_tls(use_ssl, ca_path)
         self.cnx_string = connection_string
-        self.client = pymongo.MongoClient(connection_string, **options)
+        self.client = None
 
-    def assert_connectivity(self, attempts: int = 5):
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = self._init_client()
+        return self._client
+
+    @client.setter
+    def client(self, value):
+        self._client = value
+
+    def _merge_options(self, opts: List[Dict[str, str]]) -> Dict[str, str]:
+        options = copy.deepcopy(self.default_opts)
+        for opt in opts:
+            options.update(opt)
+        return options
+
+    def _init_client(self, **kwargs):
+        return pymongo.MongoClient(self.cnx_string, **kwargs)
+
+    def assert_connectivity(
+        self, attempts: int = 5, opts: Optional[List[Dict[str, str]]] = None
+    ):
+        if opts is None:
+            opts = []
+
+        options = self._merge_options(opts)
+        self.client = self._init_client(**options)
         """Trivial check to make sure mongod is alive"""
         assert attempts > 0
         while True:
@@ -53,9 +120,9 @@ class MongoTester:
             else:
                 break
 
-    def assert_no_connection(self):
+    def assert_no_connection(self, opts: Optional[List[Dict[str, str]]] = None):
         try:
-            self.assert_connectivity()
+            self.assert_connectivity(opts=opts)
             fail()
         except ServerSelectionTimeoutError:
             pass
@@ -89,7 +156,11 @@ class MongoTester:
         for i in reversed(range(attempts)):
             try:
                 self._authenticate_with_scram(
-                    username, password, auth_mechanism=auth_mechanism, ssl=ssl, **kwargs
+                    username,
+                    password,
+                    auth_mechanism=auth_mechanism,
+                    ssl=ssl,
+                    **kwargs,
                 )
                 return
             except OperationFailure as e:
@@ -131,36 +202,36 @@ class MongoTester:
         ssl: bool = False,
         **kwargs,
     ):
-        options = {
-            "ssl": ssl,
-            "authMechanism": auth_mechanism,
-            "password": password,
-            "username": username,
-        }
-        if ssl:
-            options["ssl_ca_certs"] = kwargs.get("ssl_ca_certs", kubetester.SSL_CA_CERT)
 
-        conn = pymongo.MongoClient(self.cnx_string, **options)
+        options = self._merge_options(
+            [
+                with_tls(ssl, ca_path=kwargs.get("ssl_ca_certs")),
+                with_scram(username, password, auth_mechanism),
+            ]
+        )
+
+        self.client = self._init_client(**options)
         # authentication doesn't actually happen until we interact with a database
-        conn["admin"]["myCol"].insert_one({})
+        self.client["admin"]["myCol"].insert_one({})
 
     def assert_x509_authentication(
         self, cert_file_name: str, attempts: int = 5, **kwargs
     ):
         assert attempts > 0
-        options = {
-            "ssl": True,
-            "authMechanism": "MONGODB-X509",
-            "ssl_certfile": cert_file_name,
-            "ssl_cert_reqs": ssl.CERT_REQUIRED,
-            "ssl_ca_certs": kwargs.get("ssl_ca_certs", kubetester.SSL_CA_CERT),
-        }
+
+        options = self._merge_options(
+            [
+                with_x509(
+                    cert_file_name, kwargs.get("ssl_ca_certs", kubetester.SSL_CA_CERT)
+                ),
+            ]
+        )
 
         total_attempts = attempts
         while True:
             attempts -= 1
             try:
-                pymongo.MongoClient(self.cnx_string, **options)
+                self.client = self._init_client(**options)
                 return
             except OperationFailure:
                 if attempts == 0:
@@ -177,18 +248,14 @@ class MongoTester:
         ssl_certfile: str = None,
         attempts: int = 5,
     ):
-        options = {}
-        if ssl_ca_certs is not None:
-            options["ssl"] = True
-            options["ssl_ca_certs"] = ssl_ca_certs
-        if ssl_certfile is not None:
-            options["ssl_certfile"] = ssl_certfile
+
+        options = with_ldap(ssl_certfile, ssl_ca_certs)
         total_attempts = attempts
 
         while True:
             attempts -= 1
             try:
-                client = pymongo.MongoClient(self.cnx_string, **options)
+                client = self._init_client(**options)
                 client.admin.authenticate(
                     username, password, source="$external", mechanism="PLAIN"
                 )
@@ -237,7 +304,6 @@ class StandaloneTester(MongoTester):
         self,
         mdb_resource_name: str,
         ssl: bool = False,
-        srv: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
     ):
@@ -275,10 +341,15 @@ class ReplicaSetTester(MongoTester):
         super().__init__(self.cnx_string, ssl, ca_path)
 
     def assert_connectivity(
-        self, wait_for=60, check_every=5, with_srv=False, attempts: int = 5
+        self,
+        wait_for=60,
+        check_every=5,
+        with_srv=False,
+        attempts: int = 5,
+        opts: Optional[List[Dict[str, str]]] = None,
     ):
         """For replica sets in addition to is_master() we need to make sure all replicas are up"""
-        super().assert_connectivity(attempts=attempts)
+        super().assert_connectivity(attempts=attempts, opts=opts)
 
         if self.replicas_count == 1:
             # On 1 member replica-set, there won't be a "primary" and secondaries will be `set()`
@@ -297,6 +368,19 @@ class ReplicaSetTester(MongoTester):
 
         assert self.client.primary is not None
         assert len(self.client.secondaries) == self.replicas_count - 1
+
+
+class MultiReplicaSetTester(MongoTester):
+    def __init__(
+        self,
+        service_names: List[str],
+        namespace: Optional[str] = None,
+    ):
+        super().__init__(
+            build_mongodb_multi_connection_uri(namespace, service_names),
+            use_ssl=False,
+            ca_path=None,
+        )
 
 
 class ShardedClusterTester(MongoTester):
@@ -474,6 +558,10 @@ def build_mongodb_connection_uri(
         )
 
 
+def build_mongodb_multi_connection_uri(namespace: str, service_names: List[str]) -> str:
+    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names))
+
+
 def build_list_of_hosts(
     mdb_resource: str, namespace: str, members: int, servicename: str
 ) -> List[str]:
@@ -483,10 +571,21 @@ def build_list_of_hosts(
     ]
 
 
+def build_list_of_multi_hosts(namespace: str, service_names: List[str]) -> List[str]:
+    return [
+        build_host_service_fqdn(namespace, service_name)
+        for service_name in service_names
+    ]
+
+
 def build_host_fqdn(hostname: str, namespace: str, servicename: str) -> str:
     return "{hostname}.{servicename}.{namespace}.svc.cluster.local:27017".format(
         hostname=hostname, servicename=servicename, namespace=namespace
     )
+
+
+def build_host_service_fqdn(namespace: str, servicename: str) -> str:
+    return f"{servicename}.{namespace}.svc.cluster.local:27017"
 
 
 def build_host_srv(servicename: str, namespace: str) -> str:

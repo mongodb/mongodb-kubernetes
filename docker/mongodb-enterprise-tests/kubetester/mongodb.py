@@ -124,6 +124,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         use_ssl: Optional[bool] = None,
     ) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
+        if self.type == "ReplicaSet" and "clusterSpecList" in self["spec"]:
+            raise ValueError(
+                "A MongoDB class is being used to represent a MongoDBMulti instance!"
+            )
+
         if self.type == "ReplicaSet":
             return ReplicaSetTester(
                 mdb_resource_name=self.name,
@@ -146,7 +151,6 @@ class MongoDB(CustomObject, MongoDBCommon):
             return StandaloneTester(
                 mdb_resource_name=self.name,
                 ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
-                srv=srv,
                 ca_path=ca_path,
                 namespace=self.namespace,
             )

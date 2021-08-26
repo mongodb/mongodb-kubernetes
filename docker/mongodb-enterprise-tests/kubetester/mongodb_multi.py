@@ -1,9 +1,10 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import kubernetes.client
 from kubernetes import client
 from kubetester import MongoDB
+from kubetester.mongotester import MultiReplicaSetTester, MongoTester
 
 
 class MultiClusterClient:
@@ -40,3 +41,26 @@ class MongoDBMulti(MongoDB):
                 f"{self.name}-{mcc.cluster_index}", self.namespace
             )
         return statefulsets
+
+    def service_names(self) -> List[str]:
+        service_names = []
+        cluster_specs = sorted(
+            self["spec"]["clusterSpecList"]["clusterSpecs"],
+            key=lambda x: x["clusterName"],
+        )
+        for (i, spec) in enumerate(cluster_specs):
+            for j in range(spec["members"]):
+                service_names.append(f"{self.name}-{i}-{j}-svc")
+        return service_names
+
+    def tester(
+        self,
+        ca_path: Optional[str] = None,
+        srv: bool = False,
+        use_ssl: Optional[bool] = None,
+    ) -> MongoTester:
+        return MultiReplicaSetTester(
+            service_names=self.service_names(),
+            namespace=self.namespace,
+            # TODO: tls, ca_path
+        )
