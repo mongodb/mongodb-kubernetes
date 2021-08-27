@@ -100,7 +100,7 @@ func MustGetClusterNumFromMultiStsName(name string) int {
 func GetRsNamefromMultiStsName(name string) string {
 	ss := strings.Split(name, "-")
 	if len(ss) <= 1 || ss[0] == "" {
-		panic("invalid statefulset name")
+		panic(fmt.Sprintf("invalid statefulset name: %s", name))
 	}
 	return strings.Join(ss[:len(ss)-1], "-")
 }

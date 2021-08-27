@@ -19,6 +19,10 @@ func TestGetRsNamefromMultiStsName(t *testing.T) {
 			inp:  "foo-0",
 			want: "foo",
 		},
+		{
+			inp:  "foo-bar-1-2",
+			want: "foo-bar-1",
+		},
 	}
 
 	for _, tt := range tests {
