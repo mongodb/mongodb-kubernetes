@@ -42,6 +42,40 @@ class MongoDBMulti(MongoDB):
             )
         return statefulsets
 
+    def _get_item_spec(self, cluster_name: str) -> Dict:
+        for spec in sorted(
+            self["spec"]["clusterSpecList"]["clusterSpecs"],
+            key=lambda x: x["clusterName"],
+        ):
+            if spec["clusterName"] == cluster_name:
+                return spec
+
+        raise ValueError(f"Cluster with name {cluster_name} not found!")
+
+    def read_services(
+        self, clients: List[MultiClusterClient]
+    ) -> Dict[str, client.V1Service]:
+        services = {}
+        for mcc in clients:
+            spec = self._get_item_spec(mcc.cluster_name)
+            for (i, item) in enumerate(spec):
+                services[mcc.cluster_name] = client.CoreV1Api(
+                    api_client=mcc.api_client
+                ).read_namespaced_service(
+                    f"{self.name}-{mcc.cluster_index}-{i}-svc", self.namespace
+                )
+        return services
+
+    def read_configmaps(
+        self, clients: List[MultiClusterClient]
+    ) -> Dict[str, client.V1ConfigMap]:
+        configmaps = {}
+        for mcc in clients:
+            configmaps[mcc.cluster_name] = client.CoreV1Api(
+                api_client=mcc.api_client
+            ).read_namespaced_config_map("hostname-override", self.namespace)
+        return configmaps
+
     def service_names(self) -> List[str]:
         service_names = []
         cluster_specs = sorted(

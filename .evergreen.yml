@@ -1665,6 +1665,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_replica_set_deletion
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_mtls_test
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2052,6 +2058,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_multi_cluster_replica_set
+    - e2e_multi_cluster_replica_set_deletion
     - e2e_multi_cluster_mtls_test
     - e2e_multi_cluster_scram
     - e2e_multi_sts_override
