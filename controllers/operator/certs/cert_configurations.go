@@ -8,6 +8,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 )
 
+type clustermode string
+
+const (
+	single = "single"
+	multi  = "multi"
+)
+
 type Options struct {
 	// CertSecretName is the name of the secret which contains the certs.
 	CertSecretName string
@@ -26,6 +33,8 @@ type Options struct {
 	// horizons is an array of MongoDBHorizonConfig which is used to determine any
 	// additional cert domains required.
 	horizons []mdbv1.MongoDBHorizonConfig
+
+	ClusterMode clustermode
 }
 
 // StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
@@ -69,14 +78,14 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 }
 
 // MultiReplicaSetConfig returns a struct which provides all of thr configuration required for a given MongoDB Multi Replicaset.
-func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum int, scaler scale.ReplicaSetScaler) Options {
+func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int) Options {
 	return Options{
-		ResourceName:                 mdbm.Name,
-		CertSecretName:               getCertNameWithPrefixOrDefault(*mdbm.Spec.GetSecurity(), mdbm.Name),
-		Namespace:                    mdbm.Namespace,
-		Replicas:                     scale.ReplicasThisReconciliation(scaler),
-		ClusterDomain:                mdbm.Spec.GetClusterDomain(),
-		additionalCertificateDomains: mdbm.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+		ResourceName:   mdbm.MultiStatefulsetName(clusterNum),
+		CertSecretName: getCertNameWithPrefixOrDefault(*mdbm.Spec.GetSecurity(), mdbm.Name),
+		Namespace:      mdbm.Namespace,
+		Replicas:       replicas,
+		ClusterDomain:  mdbm.Spec.GetClusterDomain(),
+		ClusterMode:    multi,
 	}
 }
 

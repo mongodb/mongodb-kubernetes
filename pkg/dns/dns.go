@@ -7,6 +7,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
+func GetMultiPodName(mdbmName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
+}
+
 func GetServiceName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d-svc", mdbmName, clusterNum, podNum)
 }

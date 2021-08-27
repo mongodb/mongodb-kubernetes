@@ -783,7 +783,7 @@ func (m *MongoDB) InitDefaults() {
 		m.Spec.Connectivity = newConnectivity()
 	}
 
-	ensureSecurity(&m.Spec)
+	m.Spec.Security = EnsureSecurity(m.Spec.Security)
 
 	if m.Spec.OpsManagerConfig == nil {
 		m.Spec.OpsManagerConfig = newOpsManagerConfig()
@@ -1017,17 +1017,17 @@ func newOpsManagerConfig() *PrivateCloudConfig {
 	return &PrivateCloudConfig{}
 }
 
-func ensureSecurity(spec *MongoDbSpec) {
-	if spec.Security == nil {
-		spec.Security = newSecurity()
-		return
+func EnsureSecurity(sec *Security) *Security {
+	if sec == nil {
+		return newSecurity()
 	}
-	if spec.Security.TLSConfig == nil {
-		spec.Security.TLSConfig = &TLSConfig{}
+	if sec.TLSConfig == nil {
+		sec.TLSConfig = &TLSConfig{}
 	}
-	if spec.Security.Roles == nil {
-		spec.Security.Roles = make([]MongoDbRole, 0)
+	if sec.Roles == nil {
+		sec.Roles = make([]MongoDbRole, 0)
 	}
+	return sec
 }
 
 func newAuthentication() *Authentication {

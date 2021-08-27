@@ -19,6 +19,7 @@ import (
 
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -187,6 +188,21 @@ func VerifyCertificatesForStatefulSet(secretGetter secret.Getter, secretName str
 	}
 
 	var errs error
+
+	// For multi-cluster mode ....
+	if opts.ClusterMode == multi {
+		// get the pod names and get the service FQDN for each of the service hostnames
+		mdbmName, clusterNum := multicluster.GetRsNamefromMultiStsName(opts.ResourceName), multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)
+		for podNum := 0; podNum < opts.Replicas; podNum++ {
+			podName, serviceFQDN := dns.GetMultiPodName(mdbmName, clusterNum, podNum), dns.GetMultiServiceFQDN(mdbmName, opts.Namespace, clusterNum, podNum)
+			pem := fmt.Sprintf("%s-pem", podName)
+			if err := validatePemSecret(s, pem, []string{serviceFQDN}); err != nil {
+				errs = multierror.Append(errs, err)
+			}
+		}
+
+		return errs
+	}
 
 	for i, pod := range getPodNames(opts) {
 		pem := fmt.Sprintf("%s-pem", pod)

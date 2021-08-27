@@ -85,8 +85,8 @@ func (k KubeConfigFile) GetMemberClusterNamespace() string {
 	return k.Contexts[0].Context.Namespace
 }
 
-// MustGetClusterNumFromMDBMName parses the statefulset object name and returns the cluster number where it is created
-func MustGetClusterNumFromMDBMName(name string) int {
+// MustGetClusterNumFromMultiStsName parses the statefulset object name and returns the cluster number where it is created
+func MustGetClusterNumFromMultiStsName(name string) int {
 	ss := strings.Split(name, "-")
 
 	n, err := strconv.Atoi(ss[len(ss)-1])
@@ -94,4 +94,13 @@ func MustGetClusterNumFromMDBMName(name string) int {
 		panic(err)
 	}
 	return n
+}
+
+// GetRsNamefromMultiStsName parese the statefulset object name and returns the name of MongoDBMulti object name
+func GetRsNamefromMultiStsName(name string) string {
+	ss := strings.Split(name, "-")
+	if len(ss) <= 1 || ss[0] == "" {
+		panic("invalid statefulset name")
+	}
+	return strings.Join(ss[:len(ss)-1], "-")
 }

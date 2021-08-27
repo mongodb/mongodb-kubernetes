@@ -4,29 +4,28 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
 	spec := &MongoDbSpec{Security: nil}
-	ensureSecurity(spec)
+	spec.Security = EnsureSecurity(spec.Security)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
 }
 
 func TestEnsureSecurity_WithNilTlsConfig(t *testing.T) {
 	spec := &MongoDbSpec{Security: &Security{TLSConfig: nil, Authentication: &Authentication{}}}
-	ensureSecurity(spec)
+	spec.Security = EnsureSecurity(spec.Security)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
 }
 
 func TestEnsureSecurity_EmptySpec(t *testing.T) {
 	spec := &MongoDbSpec{}
-	ensureSecurity(spec)
+	spec.Security = EnsureSecurity(spec.Security)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
 }

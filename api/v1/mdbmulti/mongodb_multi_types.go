@@ -1,6 +1,7 @@
 package mdbmulti
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -36,10 +37,6 @@ type MongoDBMulti struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
-func (m MongoDBMulti) GetPodName(clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-%d-%d", m.Name, clusterNum, podNum)
-}
-
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
 	return m.Namespace
 }
@@ -62,6 +59,10 @@ func (m MongoDBMulti) GetMultiClusterAgentHostnames() []string {
 		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, clusterNum, spec.Members)...)
 	}
 	return hostnames
+}
+
+func (m MongoDBMulti) MultiStatefulsetName(clusterNum int) string {
+	return fmt.Sprintf("%s-%d", m.Name, clusterNum)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -195,6 +196,32 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 		}
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
 	}
+}
+
+// when unmarshaling a MongoDBMulti instance, we don't want to have any nil references
+// these are replaced with an empty instance to prevent nil references
+func (m *MongoDBMulti) UnmarshalJSON(data []byte) error {
+	type MongoDBJSON *MongoDBMulti
+	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
+		return err
+	}
+
+	m.InitDefaults()
+
+	return nil
+}
+
+// InitDefaults makes sure the MongoDBMulti resource has correct state after initialization:
+// - prevents any references from having nil values.
+// - makes sure the spec is in correct state
+//
+// should not be called directly, used in tests and unmarshalling
+func (m *MongoDBMulti) InitDefaults() {
+	m.Spec.Security = mdbv1.EnsureSecurity(m.Spec.Security)
+
+	// TODO: add more default if need be
+	// ProjectName defaults to the name of the resource
+	m.Spec.ProjectName = m.Name
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters

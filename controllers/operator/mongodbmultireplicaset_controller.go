@@ -20,6 +20,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
@@ -105,6 +106,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	for i, item := range mrs.GetOrderedClusterSpecList() {
 		client := r.memberClusterClientsMap[item.ClusterName]
+		// Ensure TLS for multi-cluster statefulset
+		if status := certs.EnsureSSLCertsForStatefulSet(r.client, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, item.Members), log); !status.IsOK() {
+			log.Error("failed to ensure Statefulset for MDB Multi")
+			return r.updateStatus(&mrs, status, log)
+		}
+
 		// copy the agent api key to the member cluster.
 		err := secret.CopySecret(r.client, client,
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
@@ -195,13 +202,13 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 
 func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": mrs.GetPodName(clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, clusterNum, podNum),
 		"controller":                         "mongodb-enterprise-operator",
 		"mongodbmulti":                       fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
 	}
 
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": mrs.GetPodName(clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, clusterNum, podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
 
@@ -257,7 +264,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 	data := make(map[string]string)
 
 	for podNum := 0; podNum < members; podNum++ {
-		key := fmt.Sprintf("%s", mrs.GetPodName(clusterNum, podNum))
+		key := fmt.Sprintf("%s", dns.GetMultiPodName(mrs.Name, clusterNum, podNum))
 		value := fmt.Sprintf("%s.%s.svc.cluster.local", dns.GetServiceName(mrs.Name, clusterNum, podNum), mrs.Namespace)
 		data[key] = value
 	}
