@@ -245,6 +245,28 @@ it's possible to debug problems with Ops Manager 4.0. The test will be run in an
 isolated namespace (`anton` for this example) and won't affect the existing
 namespaces
 
+#### Multi Cluster
+
+In order to run e2e test for multi cluster, you will need to create a multi cluster context file.
+
+Add the following to this context file.
+
+```bash
+export kube_environment_name=multi
+export member_clusters="e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
+export central_cluster=e2e.operator.mongokubernetes.com
+export test_pod_cluster=e2e.cluster1.mongokubernetes.com
+```
+
+Run a test with
+
+```bash
+make e2e test=e2e_multi_cluster_replica_set
+```
+
+This test will deploy the operator in the `central_cluster`, the test pod in `test_pod_cluster` and configure
+the operator to have api access to all clusters in `member_clusters`
+
 ### Troubleshooting
 
 #### Error with find

@@ -16,6 +16,7 @@ ensure_namespace "${NAMESPACE}"
 
 kubectl delete mdb --all -n "${NAMESPACE}" || true
 kubectl delete mdbu --all -n "${NAMESPACE}" || true
+kubectl delete mdbm --all -n "${NAMESPACE}" || true
 
 # Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
 kubectl delete "$(kubectl get sts -o name -n "${NAMESPACE}" | grep "backup-daemon")" 2>/dev/null || true

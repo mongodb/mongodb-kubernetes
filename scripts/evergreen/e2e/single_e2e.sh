@@ -288,7 +288,7 @@ run_tests() {
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
     if [[ "${kube_environment_name}" = "multi" ]]; then
-      configure_multi_cluster_environment
+        configure_multi_cluster_environment
     fi
 
     prepare_operator_config_map "${context}"

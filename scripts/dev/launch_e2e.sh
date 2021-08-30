@@ -45,9 +45,14 @@ fi
 if [[ -n "${local:-}" ]]; then
     pytest -m "${test}" docker/mongodb-enterprise-tests --disable-pytest-warnings
 else
+    current_context="$(kubectl config current-context)"
+    if [[ "${kube_environment_name:-}" = "multi" ]]; then
+        # shellcheck disable=SC2154
+        current_context="${central_cluster}"
+    fi
     # e2e test application doesn't update CRDs if they exist (as Helm 3 doesn't do this anymore)
     # so we need to make sure the CRDs are upgraded when run locally
-    kubectl replace -f "public/helm_chart/crds" || kubectl apply -f "public/helm_chart/crds"
+    kubectl --context "${current_context}" replace -f "public/helm_chart/crds" || kubectl apply -f "public/helm_chart/crds"
 
     TASK_NAME=${test} \
     WAIT_TIMEOUT="4m" \
@@ -56,6 +61,9 @@ else
     MANAGED_SECURITY_CONTEXT=${managed_security_context:-} \
     REGISTRY=${REPO_URL} \
     DEBUG=${debug-} \
+    kube_environment_name=${kube_environment_name:-} \
+    member_clusters=${member_clusters:-} \
+    central_cluster=${central_cluster:-} \
     ./scripts/evergreen/e2e/e2e.sh
 fi
 
