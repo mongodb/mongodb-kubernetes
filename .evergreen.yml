@@ -55,6 +55,7 @@ variables:
     kube_environment_name: multi
     member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
     central_cluster: e2e.operator.mongokubernetes.com
+    test_pod_cluster: e2e.cluster1.mongokubernetes.com
 
   - &kubernetes_environment_kind
     kube_environment_name: kind
@@ -333,6 +334,7 @@ functions:
       - cluster_name
       - central_cluster
       - member_clusters
+      - test_pod_cluster
       - kube_environment_name
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_secret
@@ -459,6 +461,7 @@ functions:
           - agent_version
           - central_cluster
           - member_clusters
+          - test_pod_cluster
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -508,6 +511,7 @@ functions:
         - kube_environment_name
         - member_clusters
         - central_cluster
+        - test_pod_cluster
         command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
   #
   # Performs some AWS cleanup

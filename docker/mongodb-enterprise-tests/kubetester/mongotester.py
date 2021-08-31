@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Dict
 import pymongo
 from kubetester import kubetester
 from kubetester.kubetester import KubernetesTester
-from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import OperationFailure, ServerSelectionTimeoutError, PyMongoError
 from pytest import fail
 
 TEST_DB = "test-db"
@@ -100,20 +100,27 @@ class MongoTester:
         return pymongo.MongoClient(self.cnx_string, **kwargs)
 
     def assert_connectivity(
-        self, attempts: int = 5, opts: Optional[List[Dict[str, str]]] = None
+        self,
+        attempts: int = 5,
+        db: str = "admin",
+        col: str = "myCol",
+        opts: Optional[List[Dict[str, str]]] = None,
     ):
         if opts is None:
             opts = []
 
         options = self._merge_options(opts)
         self.client = self._init_client(**options)
-        """Trivial check to make sure mongod is alive"""
+
         assert attempts > 0
         while True:
             attempts -= 1
             try:
                 self.client.admin.command("ismaster")
-            except ServerSelectionTimeoutError:
+                if "authMechanism" in options:
+                    # Perform an action that will require auth.
+                    self.client[db][col].insert_one({})
+            except PyMongoError:
                 if attempts == 0:
                     raise
                 time.sleep(5)

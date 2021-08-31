@@ -65,7 +65,5 @@ def test_statefulset_is_created_across_multiple_clusters(
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
-    pass
-    # TODO: add test app to service mesh so connectivity checks will work.
-    # tester = mongodb_multi.tester()
-    # tester.assert_connectivity()
+    tester = mongodb_multi.tester()
+    tester.assert_connectivity()

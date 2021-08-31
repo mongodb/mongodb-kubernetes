@@ -132,7 +132,8 @@ EOF
 
 
     echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
-    kubectl --context "${central_cluster}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}"
+     # shellcheck disable=SC2154
+    kubectl --context "${test_pod_cluster}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}"
 
     echo "Creating project configmap"
     # delete `my-project` if it exists
@@ -185,7 +186,7 @@ EOF
       (( INDEX++ ))
     done
 
-    kubectl --context "${central_cluster}"  create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}"
+    kubectl --context "${test_pod_cluster}"  create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}"
 }
 
 deploy_test_app() {
@@ -272,18 +273,24 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
 test_app_ended() {
     local context="${1}"
     local status
-    status="$(kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" get pod "${TEST_APP_PODNAME}" -o jsonpath="{.status.phase}")"
-    [[ "${status}" = "Failed" || "${status}" = "Succeeded" ]]
+    status="$(kubectl --context "${context}" get pod mongodb-enterprise-operator-tests -n "${PROJECT_NAMESPACE}" -o jsonpath="{.status}" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
+    [[ "${status}" = "Error" || "${status}" = "Completed" ]]
 }
 
 # Will run the test application and wait for its completion.
 run_tests() {
     local task_name=${1}
-    local context
-    context="$(kubectl config current-context)"
+    local operator_context
+    local test_pod_context
+    operator_context="$(kubectl config current-context)"
+    test_pod_context="${operator_context}"
     if [[ "${kube_environment_name}" = "multi" ]]; then
-        context="${central_cluster}"
+        operator_context="${central_cluster}"
+        test_pod_context="${test_pod_cluster}"
     fi
+
+    echo "Operator running in cluster ${operator_context}"
+    echo "Test pod running in cluster ${test_pod_context}"
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
@@ -291,11 +298,11 @@ run_tests() {
         configure_multi_cluster_environment
     fi
 
-    prepare_operator_config_map "${context}"
+    prepare_operator_config_map "${operator_context}"
 
-    deploy_test_app "${context}"
+    deploy_test_app "${test_pod_context}"
 
-    wait_until_pod_is_running_or_failed_or_succeeded "${context}"
+    wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_context}"
 
     title "Running e2e test ${task_name} (tag: ${TEST_IMAGE_TAG})"
 
@@ -309,15 +316,16 @@ run_tests() {
         # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
-        kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
-        kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" logs "deployment/mongodb-enterprise-operator" > "${operator_filename}"
+        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
+        kubectl --context "${operator_context}" -n "${PROJECT_NAMESPACE}" logs -l app.kubernetes.io/component=controller --tail -1 > "${operator_filename}"
     fi
 
     # Waiting a bit until the pod gets to some end
-    while ! test_app_ended "${context}"; do printf .; sleep 1; done;
+    while ! test_app_ended "${test_pod_context}"; do printf .; sleep 1; done;
     echo
 
-    [[ $(kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" get pods/${TEST_APP_PODNAME} -o jsonpath='{.status.phase}') == "Succeeded" ]]
+    status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
+    [[ "${status}" == "Completed" ]]
 }
 
 mkdir -p logs/

@@ -6,6 +6,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from kubetester.mongotester import with_scram
 from kubetester.operator import Operator
 from kubetester import create_secret
 
@@ -56,7 +57,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_scram
 def test_create_mongodb_multi_with_scram(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=500)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_multi_cluster_scram
@@ -88,3 +89,9 @@ def test_om_configured_correctly():
     tester.assert_user_has_roles(USER_NAME, expected_roles)
     tester.assert_authentication_enabled()
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
+
+
+@pytest.mark.e2e_multi_cluster_scram
+def test_replica_set_connectivity(mongodb_multi: MongoDBMulti):
+    tester = mongodb_multi.tester()
+    tester.assert_connectivity(db="admin", opts=[with_scram(USER_NAME, USER_PASSWORD)])
