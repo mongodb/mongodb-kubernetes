@@ -17,6 +17,8 @@ from .security_context import (
     assert_pod_security_context,
 )
 
+import kubernetes.client
+
 
 def create_secret(
     namespace: str,
@@ -139,7 +141,11 @@ def random_k8s_name(prefix=""):
     return prefix + "".join(random.choice(string.ascii_lowercase) for _ in range(10))
 
 
-def get_pod_when_ready(namespace: str, label_selector: str) -> client.V1Pod:
+def get_pod_when_ready(
+    namespace: str,
+    label_selector: str,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> client.V1Pod:
     """Returns a Pod that matches label_selector. It will block until the Pod is in
     Ready state.
 
@@ -148,7 +154,7 @@ def get_pod_when_ready(namespace: str, label_selector: str) -> client.V1Pod:
         time.sleep(3)
 
         try:
-            pods = client.CoreV1Api().list_namespaced_pod(
+            pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
                 namespace, label_selector=label_selector
             )
             try:

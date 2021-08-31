@@ -21,6 +21,8 @@ from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture
 from tests.multicluster import prepare_multi_cluster_namespaces
+from kubetester import create_secret
+from kubetester.mongodb_multi import MultiClusterClient
 
 try:
     kubernetes.config.load_kube_config()
@@ -114,29 +116,19 @@ def crd_api():
 @fixture(scope="module")
 def cert_manager(namespace: str) -> str:
     """Installs cert-manager v0.15.2 using Helm."""
-    name = "cert-manager"
-    version = "v0.15.2"
-    helm_install_from_chart(
-        name,  # cert-manager is installed on a specific namespace
-        name,
-        f"jetstack/{name}",
-        version=version,
-        custom_repo=("jetstack", "https://charts.jetstack.io"),
-        helm_args={"installCRDs": "true"},
-    )
+    return install_cert_manager(namespace)
 
-    # waits until the cert-manager webhook and controller are Ready, otherwise creating
-    # Certificate Custom Resources will fail.
-    get_pod_when_ready(
-        name,
-        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
-    )
-    get_pod_when_ready(
-        name,
-        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
-    )
 
-    return name
+@fixture(scope="module")
+def multi_cluster_cert_manager(
+    namespace: str, member_cluster_clients: List[MultiClusterClient]
+):
+    for client in member_cluster_clients:
+        install_cert_manager(
+            namespace,
+            cluster_client=client.api_client,
+            cluster_name=client.cluster_name,
+        )
 
 
 @fixture(scope="module")
@@ -160,6 +152,41 @@ def issuer(cert_manager: str, namespace: str) -> str:
     issuer = Issuer(name="ca-issuer", namespace=namespace)
     issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
     issuer.create().block_until_ready()
+
+    return "ca-issuer"
+
+
+@fixture(scope="module")
+def multi_cluster_issuer(
+    multi_cluster_cert_manager: str,
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+) -> str:
+    """
+    This fixture creates an "Issuer" in the testing namespace. This requires cert-manager
+    to be installed in the cluster.
+    The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
+    certificates. This is based on a Cert-Manager CA Issuer.
+    More info here: https://cert-manager.io/docs/configuration/ca/
+    """
+    issuer_data = {
+        "tls.key": open(_fixture("ca-tls.key")).read(),
+        "tls.crt": open(_fixture("ca-tls.crt")).read(),
+    }
+
+    for client in member_cluster_clients:
+        create_secret(
+            namespace=namespace,
+            name="ca-key-pair",
+            data=issuer_data,
+            api_client=client.api_client,
+        )
+
+        issuer = Issuer(name="ca-issuer", namespace=namespace)
+        issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
+        issuer.api = kubernetes.client.CustomObjectsApi(api_client=client.api_client)
+
+        issuer.create().block_until_ready()
 
     return "ca-issuer"
 
@@ -471,6 +498,42 @@ def _get_client_for_cluster(
     configuration.verify_ssl = False
     configuration.api_key = {"authorization": f"Bearer {token}"}
     return kubernetes.client.api_client.ApiClient(configuration=configuration)
+
+
+def install_cert_manager(
+    namespace: str,
+    cluster_client: Optional[client.ApiClient] = None,
+    cluster_name: Optional[str] = None,
+    name="cert-manager",
+    version="v0.15.2",
+) -> str:
+
+    if cluster_name is not None:
+        # ensure we cert-manager in the member clusters.
+        os.environ["HELM_KUBECONTEXT"] = cluster_name
+
+    helm_install_from_chart(
+        name,  # cert-manager is installed on a specific namespace
+        name,
+        f"jetstack/{name}",
+        version=version,
+        custom_repo=("jetstack", "https://charts.jetstack.io"),
+        helm_args={"installCRDs": "true"},
+    )
+
+    # waits until the cert-manager webhook and controller are Ready, otherwise creating
+    # Certificate Custom Resources will fail.
+    get_pod_when_ready(
+        name,
+        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
+        api_client=cluster_client,
+    )
+    get_pod_when_ready(
+        name,
+        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
+        api_client=cluster_client,
+    )
+    return name
 
 
 @fixture(scope="module")
