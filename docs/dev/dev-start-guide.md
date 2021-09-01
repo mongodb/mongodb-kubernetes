@@ -267,6 +267,18 @@ make e2e test=e2e_multi_cluster_replica_set
 This test will deploy the operator in the `central_cluster`, the test pod in `test_pod_cluster` and configure
 the operator to have api access to all clusters in `member_clusters`
 
+If you want to run tests using pytest locally without building the test image. You can run tests using:
+
+```bash
+make e2e test=e2e_multi_cluster_replica_set local=true
+```
+
+You will need to ensure that you have the following env var set in your context
+
+```bash
+export MULTI_CLUSTER_CONFIG_DIR=/absolute/path/to/directory/ops-manager-kubernetes/.multi_cluster_local_test_files
+```
+
 ### Troubleshooting
 
 #### Error with find

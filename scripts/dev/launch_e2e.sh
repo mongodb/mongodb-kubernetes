@@ -10,6 +10,8 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 # shellcheck source=scripts/funcs/printing
 source scripts/funcs/printing
+source scripts/funcs/multicluster
+source scripts/funcs/operator_deployment
 
 
 # This will allow to reuse the current namespace - it already has Operator installed
@@ -43,12 +45,46 @@ fi
 [[ ${skip:-} = "true" ]] && export SKIP_EXECUTION="'true'"
 
 if [[ -n "${local:-}" ]]; then
+    operator_context="$(kubectl config current-context)"
+    if [[ "${kube_environment_name:-}" = "multi" ]]; then
+        operator_context="${central_cluster}"
+        configure_multi_cluster_environment
+        if [ "$(uname)" = "Darwin" ]; then
+            env GOOS=darwin GOARCH=amd64  go build -o docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator multi_cluster/tools/cmd/main.go
+            PATH=$PATH:docker/mongodb-enterprise-tests
+        fi
+
+        test_pod_secret_name="test-pod-multi-cluster-config"
+        echo "Creating local configuration for multi cluster test in ${MULTI_CLUSTER_CONFIG_DIR}"
+        mkdir -p "${MULTI_CLUSTER_CONFIG_DIR}"
+
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.central_cluster }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.operator\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${central_cluster}"
+
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_1 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_1"
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.e2e\.cluster1\.mongokubernetes\.com }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster1.mongokubernetes.com"
+
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_2 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_2"
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.cluster2\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster2.mongokubernetes.com"
+
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_3 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_3"
+        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.cluster3\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster3.mongokubernetes.com"
+    fi
+
+    prepare_operator_config_map "${operator_context}"
+
+    CENTRAL_CLUSTER="${central_cluster:-}" \
+    MEMBER_CLUSTERS="${member_clusters:-}" \
+    HELM_CHART_DIR="public/helm_chart" \
     pytest -m "${test}" docker/mongodb-enterprise-tests --disable-pytest-warnings
+
 else
     current_context="$(kubectl config current-context)"
     if [[ "${kube_environment_name:-}" = "multi" ]]; then
         # shellcheck disable=SC2154
         current_context="${central_cluster}"
+        # shellcheck disable=SC2154
+        kubectl --context "${test_pod_cluster}" delete pod -l role=operator-tests
     fi
     # e2e test application doesn't update CRDs if they exist (as Helm 3 doesn't do this anymore)
     # so we need to make sure the CRDs are upgraded when run locally
@@ -61,9 +97,6 @@ else
     MANAGED_SECURITY_CONTEXT=${managed_security_context:-} \
     REGISTRY=${REPO_URL} \
     DEBUG=${debug-} \
-    kube_environment_name=${kube_environment_name:-} \
-    member_clusters=${member_clusters:-} \
-    central_cluster=${central_cluster:-} \
     ./scripts/evergreen/e2e/e2e.sh
 fi
 

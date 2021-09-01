@@ -1,3 +1,4 @@
+import os
 import subprocess
 import uuid
 from typing import Dict, Optional, List, Tuple
@@ -18,7 +19,7 @@ def helm_template(
         command_args.append("--show-only")
         command_args.append(templates)
 
-    args = ("helm", "template", *(command_args), helm_chart_path)
+    args = ("helm", "template", *(command_args), _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
@@ -35,7 +36,7 @@ def helm_install(
     helm_options: Optional[List[str]] = None,
 ):
     command_args = _create_helm_args(helm_args, helm_options)
-    args = ("helm", "install", *(command_args), name, helm_chart_path)
+    args = ("helm", "install", *(command_args), name, _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
     process_check(subprocess.run(args, check=True, capture_output=True))
@@ -97,7 +98,7 @@ def helm_upgrade(
     if install:
         # the helm chart will be installed if it doesn't exist yet
         command_args.append("--install")
-    args = ("helm", "upgrade", *(command_args), name, helm_chart_path)
+    args = ("helm", "upgrade", *(command_args), name, _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
     process_check(subprocess.run(args, check=True, capture_output=True))
@@ -125,3 +126,7 @@ def _create_helm_args(helm_args, helm_options: Optional[List[str]] = None) -> Li
         command_args.extend(helm_options)
 
     return command_args
+
+
+def _helm_chart_dir(default: Optional[str] = "helm_chart") -> str:
+    return os.environ.get("HELM_CHART_DIR", default)

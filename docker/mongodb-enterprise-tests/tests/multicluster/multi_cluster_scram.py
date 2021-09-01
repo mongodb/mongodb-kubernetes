@@ -5,7 +5,11 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from kubetester.kubetester import (
+    KubernetesTester,
+    fixture as yaml_fixture,
+    skip_if_local,
+)
 from kubetester.mongotester import with_scram
 from kubetester.operator import Operator
 from kubetester import create_secret
@@ -91,6 +95,7 @@ def test_om_configured_correctly():
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
 
 
+@skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
 def test_replica_set_connectivity(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()

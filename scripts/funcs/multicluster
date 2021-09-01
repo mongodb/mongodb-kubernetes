@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+
+ensure_test_namespace(){
+    local context=${1}
+    kubectl create ns --context "${context}"  "${PROJECT_NAMESPACE}"  &>/dev/null  || true
+    kubectl label ns "${PROJECT_NAMESPACE}" --context "${context}" "evg=task" &>/dev/null || true
+    # shellcheck disable=SC2154
+    kubectl annotate ns "${PROJECT_NAMESPACE}" --context "${context}" "evg/task=https://evergreen.mongodb.com/task/${task_id:-}" &>/dev/null || true
+}
+
+configure_multi_cluster_environment(){
+    echo "Running a multi cluster test, configuring e2e roles in all clusters and kubeconfig secret."
+
+    echo "Ensuring namespaces"
+    # shellcheck disable=SC2154
+    ensure_test_namespace "${central_cluster}"
+     # shellcheck disable=SC2154
+    for member_cluster in ${member_clusters}; do
+      ensure_test_namespace "${member_cluster}"
+      kubectl --context "${member_cluster}" label ns "${PROJECT_NAMESPACE}" istio-injection=enabled --overwrite
+      # configure mtls at the namespace level.
+      kubectl --context "${member_cluster}"  -n "${PROJECT_NAMESPACE}" apply -f - <<EOF
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: "default"
+spec:
+  mtls:
+    mode: STRICT
+EOF
+
+    done
+
+    # shellcheck disable=SC2154
+    kubectl --context "${test_pod_context}" delete secret test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" --ignore-not-found
+    kubectl --context "${test_pod_context}" delete secret test-pod-kubeconfig  -n "${PROJECT_NAMESPACE}" --ignore-not-found
+
+    helm_template_file=$(mktemp)
+
+    helm_params=(
+        "--set" "namespace=${PROJECT_NAMESPACE}"
+        "--set" "imagePullSecrets=image-registries-secret"
+    )
+
+    helm template "scripts/evergreen/deployments/multi-cluster-roles" "${helm_params[@]}" > "${helm_template_file}" || exit 1
+
+
+    echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
+    kubectl --context "${test_pod_context}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}" || true
+
+    echo "Creating project configmap"
+    # delete `my-project` if it exists
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" delete configmap my-project --ignore-not-found
+    # Configuring project
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
+            --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${OM_BASE_URL}" \
+            --from-literal=orgId="${OM_ORGID:-}"
+
+    echo "Creating credentials secret"
+    # delete `my-credentials` if it exists
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" delete  secret my-credentials  --ignore-not-found
+    # Configure the Kubernetes credentials for Ops Manager
+    kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+            --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
+
+    echo "Creating required roles and service accounts."
+    kubectl --context "${central_cluster}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
+    for member_cluster in ${member_clusters}; do
+      kubectl --context "${member_cluster}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
+    done
+
+    rm "${helm_template_file}"
+
+    # wait some time for service account token secrets to appear.
+    sleep 3
+
+    local service_account_name="operator-tests-multi-cluster-service-account"
+
+    local secret_name
+    secret_name="$(kubectl --context  "${central_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
+
+    local central_cluster_token
+    central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
+    echo "Creating Multi Cluster configuration secret"
+
+    configuration_params=(
+      "--from-literal=${central_cluster}=${central_cluster_token}"
+      "--from-literal=central_cluster=${central_cluster}"
+    )
+
+    INDEX=1
+    for member_cluster in ${member_clusters}; do
+      secret_name="$(kubectl --context  "${member_cluster}" get secret -n "${PROJECT_NAMESPACE}" | grep "${service_account_name}"  | awk '{ print $1 }')"
+      member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
+      configuration_params+=(
+         "--from-literal=${member_cluster}=${member_cluster_token}"
+         "--from-literal=member_cluster_${INDEX}=${member_cluster}"
+      )
+      (( INDEX++ ))
+    done
+
+    kubectl --context "${test_pod_context}"  create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}" || true
+}

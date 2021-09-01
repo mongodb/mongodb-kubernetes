@@ -476,11 +476,14 @@ def fetch_latest_released_operator_version() -> str:
 
 
 def _read_multi_cluster_config_value(value: str) -> str:
-    filepath = f"{MULTI_CLUSTER_CONFIG_DIR}/{value}"
+    multi_cluster_config_dir = os.environ.get(
+        "MULTI_CLUSTER_CONFIG_DIR", MULTI_CLUSTER_CONFIG_DIR
+    )
+    filepath = f"{multi_cluster_config_dir}/{value}".rstrip()
     if not os.path.isfile(filepath):
         raise ValueError(f"{filepath} does not exist!")
     with open(filepath, "r") as f:
-        return f.read()
+        return f.read().strip()
 
 
 def _get_client_for_cluster(
@@ -491,7 +494,8 @@ def _get_client_for_cluster(
         raise ValueError(f"No token found for cluster {cluster_name}")
 
     kubernetes.config.load_kube_config(
-        context=cluster_name, config_file=KUBECONFIG_FILEPATH
+        context=cluster_name,
+        config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
     )
     configuration = kubernetes.client.Configuration()
     configuration.host = f"https://api.{cluster_name}"

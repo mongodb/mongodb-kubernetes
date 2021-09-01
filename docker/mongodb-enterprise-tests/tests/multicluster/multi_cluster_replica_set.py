@@ -6,7 +6,7 @@ import pytest
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +63,7 @@ def test_statefulset_is_created_across_multiple_clusters(
     assert cluster_three_sts.status.ready_replicas == 2
 
 
+@skip_if_local
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
