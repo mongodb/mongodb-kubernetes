@@ -91,11 +91,21 @@ if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     if [ "${always_remove_testing_namespace-}" = "true" ]; then
         # Failed namespaces might cascade into more failures if the namespaces
         # are not being removed soon enough.
-        scripts/evergreen/e2e/teardown.sh || true
+        scripts/evergreen/e2e/teardown.sh "$(kubectl config current-context)" || true
     fi
 else
-    # If the test pass, then the namespace is removed
-    scripts/evergreen/e2e/teardown.sh || true
+    if [[ "${kube_environment_name}" = "multi" ]]; then
+        echo "Tearing down cluster ${central_cluster}"
+        scripts/evergreen/e2e/teardown.sh "${central_cluster}" || true
+
+        for member_cluster in ${member_clusters}; do
+            echo "Tearing down cluster ${member_cluster}"
+            scripts/evergreen/e2e/teardown.sh "${member_cluster}" || true
+        done
+    else
+        # If the test pass, then the namespace is removed
+        scripts/evergreen/e2e/teardown.sh "$(kubectl config current-context)" || true
+    fi
 fi
 
 # We exit with the test result to surface status to Evergreen.
