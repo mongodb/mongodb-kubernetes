@@ -912,7 +912,7 @@ func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager om
 		return nil, currentOpsManagerVersion, workflow.Failed("can't get alternative OpsManager url: %s", err)
 	}
 	log.Debugf("Trying to contact OM at %s", newUrl)
-	admin = r.omAdminProvider(newUrl, cred.PublicAPIKey, cred.PublicAPIKey)
+	admin = r.omAdminProvider(newUrl, cred.PublicAPIKey, cred.PrivateAPIKey)
 	currentOpsManagerVersion, err = admin.ReadOpsManagerVersion()
 	if err != nil {
 		log.Debugf("can't get current Ops Manager version: %s", err)
