@@ -149,7 +149,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
@@ -379,7 +379,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, log)
 	if err != nil {
 		return err
 	}

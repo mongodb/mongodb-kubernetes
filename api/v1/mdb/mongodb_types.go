@@ -313,10 +313,10 @@ type ProjectConfig struct {
 // `.spec.credentials`.
 type Credentials struct {
 	// +required
-	User string
+	PublicAPIKey string
 
 	// +required
-	PublicAPIKey string
+	PrivateAPIKey string
 }
 
 type ConfigMapRef struct {

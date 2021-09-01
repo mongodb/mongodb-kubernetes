@@ -770,7 +770,7 @@ func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv
 	podVars := &env.PodEnvVars{}
 	podVars.BaseURL = conn.BaseURL()
 	podVars.ProjectID = conn.GroupID()
-	podVars.User = conn.User()
+	podVars.User = conn.PublicKey()
 	podVars.LogLevel = string(spec.LogLevel)
 	podVars.SSLProjectConfig = projectConfig.SSLProjectConfig
 	return podVars

@@ -319,10 +319,10 @@ func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *
 }
 
 // AddCredentialsSecret creates the Secret that stores Ops Manager credentials for the test environment.
-func (m *MockedClient) AddCredentialsSecret(omUser, omPublicKey string) *MockedClient {
+func (m *MockedClient) AddCredentialsSecret(publicKey, privateKey string) *MockedClient {
 	credentials := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
-		StringData: map[string]string{util.OmUser: omUser, util.OmPublicApiKey: omPublicKey}}
+		StringData: map[string]string{util.OmPublicApiKey: publicKey, util.OmPrivateKey: privateKey}}
 	err := m.Create(context.TODO(), credentials)
 	if err != nil {
 		panic(err)

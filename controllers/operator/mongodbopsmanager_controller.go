@@ -406,7 +406,7 @@ func (r *OpsManagerReconciler) ensureGlobalProgrammaticApiKey(opsManager omv1.Mo
 		return workflow.Failed("can't create a global programmatic API Key: %s", err)
 	}
 	// Update the secret used by the operator
-	secretData = map[string]string{util.OmPublicApiKey: key.PrivateKey, util.OmUser: key.PublicKey}
+	secretData = map[string]string{util.OmPublicApiKey: key.PublicKey, util.OmPrivateKey: key.PrivateKey}
 	newKeySecretBuilder := secret.Builder().
 		SetNamespace(adminKeySecretName.Namespace).
 		SetName(adminKeySecretName.Name).
@@ -884,7 +884,7 @@ func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager om
 		return nil, currentOpsManagerVersion, status
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName))
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// We need to differentiate here, because it is ok it the secret does not exist:
@@ -900,7 +900,7 @@ func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager om
 	// This means that when enabling/disabling TLS on Ops Manager the baseUrl for it will change
 	// and we can not know for sure which one is correct.
 	// We first try the one we can extract from the spec, and if it doesn't work we move to the opposite
-	admin := r.omAdminProvider(opsManager.CentralURL(), cred.User, cred.PublicAPIKey)
+	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey)
 	currentOpsManagerVersion, err = admin.ReadOpsManagerVersion()
 	if err == nil {
 		return admin, currentOpsManagerVersion, workflow.OK()
@@ -912,7 +912,7 @@ func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager om
 		return nil, currentOpsManagerVersion, workflow.Failed("can't get alternative OpsManager url: %s", err)
 	}
 	log.Debugf("Trying to contact OM at %s", newUrl)
-	admin = r.omAdminProvider(newUrl, cred.User, cred.PublicAPIKey)
+	admin = r.omAdminProvider(newUrl, cred.PublicAPIKey, cred.PublicAPIKey)
 	currentOpsManagerVersion, err = admin.ReadOpsManagerVersion()
 	if err != nil {
 		log.Debugf("can't get current Ops Manager version: %s", err)
@@ -928,7 +928,7 @@ func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 	return fmt.Sprintf("This is a fatal error, as the"+
 		" Operator requires public API key for the admin user to exist. Please create the GLOBAL_ADMIN user in "+
 		"Ops Manager manually and create a secret '%s' with fields '%s' and '%s'", adminKeySecretName, util.OmPublicApiKey,
-		util.OmUser)
+		util.OmPrivateKey)
 }
 
 func (r OpsManagerReconciler) readApiKeySecret(opsManager omv1.MongoDBOpsManager) (map[string]string, workflow.Status) {
@@ -996,7 +996,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			log.Infof("Created an admin user %s with GLOBAL_ADMIN role", user.Username)
 
 			// The structure matches the structure of a credentials secret used by normal mongodb resources
-			secretData := map[string]string{util.OmPublicApiKey: apiKey.PrivateKey, util.OmUser: apiKey.PublicKey}
+			secretData := map[string]string{util.OmPublicApiKey: apiKey.PublicKey, util.OmPrivateKey: apiKey.PrivateKey}
 
 			if err = r.client.DeleteSecret(adminKeySecretName); err != nil && !apiErrors.IsNotFound(err) {
 				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
@@ -1051,12 +1051,12 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 		return workflow.Failed(err.Error()), nil
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName))
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
 
-	admin := r.omAdminProvider(opsManager.CentralURL(), cred.User, cred.PublicAPIKey)
+	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey)
 
 	return workflow.OK(), admin
 }

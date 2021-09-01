@@ -100,7 +100,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Invalid(err.Error()), log)
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs, log)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
@@ -351,7 +351,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, rs, log)
 	if err != nil {
 		return err
 	}

@@ -34,11 +34,14 @@ echo "Getting credentials from secrets"
 
 OM_USER="$(kubectl get secret ops-manager-admin-secret -n "${OPERATOR_TESTING_FRAMEWORK_NS}"  -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.Username' -r)"
 OM_PASSWORD="$(kubectl get secret ops-manager-admin-secret  -n "${OPERATOR_TESTING_FRAMEWORK_NS}" -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.Password' -r)"
-OM_API_KEY="$(kubectl get secret "${OPERATOR_TESTING_FRAMEWORK_NS}"-ops-manager-admin-key -n "${OPERATOR_TESTING_FRAMEWORK_NS}" -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.publicApiKey' -r)"
+
+OM_PUBLIC_API_KEY="$(kubectl get secret "${OPERATOR_TESTING_FRAMEWORK_NS}"-ops-manager-admin-key -n "${OPERATOR_TESTING_FRAMEWORK_NS}" -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.publicKey' -r)"
+OM_API_KEY="$(kubectl get secret "${OPERATOR_TESTING_FRAMEWORK_NS}"-ops-manager-admin-key -n "${OPERATOR_TESTING_FRAMEWORK_NS}" -o json | jq -r '.data | with_entries(.value |= @base64d)' | jq '.privateKey' -r)"
 
 export OM_USER
 export OM_PASSWORD
 export OM_API_KEY
+export OM_PUBLIC_API_KEY
 
 
 title "Ops Manager environment is successfully read"

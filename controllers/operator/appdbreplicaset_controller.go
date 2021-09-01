@@ -471,14 +471,14 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return env.PodEnvVars{}, fmt.Errorf("error getting opsManager secret name: %s", err)
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName))
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
 		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
 		return env.PodEnvVars{}, nil
 	}
 	log.Debugf("Ensuring monitoring of AppDB is configured in Ops Manager")
 
-	existingPodVars, err := r.readExistingPodVars(*opsManager)
+	existingPodVars, err := r.readExistingPodVars(*opsManager, log)
 	if client.IgnoreNotFound(err) != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error reading existing podVars: %s", err)
 	}
@@ -516,7 +516,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return existingPodVars, fmt.Errorf("error creating ConfigMap: %s", err)
 	}
 
-	return env.PodEnvVars{User: conn.User(), ProjectID: conn.GroupID(), SSLProjectConfig: env.SSLProjectConfig{
+	return env.PodEnvVars{User: conn.PublicKey(), ProjectID: conn.GroupID(), SSLProjectConfig: env.SSLProjectConfig{
 		SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
 	},
 	}, nil
@@ -532,7 +532,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 // In such a case, we cannot read the groupId from OM, so we fall back to the ConfigMap we created
 // before hand. This is required as with empty PodVars this would trigger an unintentional
 // rolling restart of the AppDB.
-func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager) (env.PodEnvVars, error) {
+func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) (env.PodEnvVars, error) {
 	cm, err := r.client.GetConfigMap(kube.ObjectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
 	if err != nil {
 		return env.PodEnvVars{}, err
@@ -547,13 +547,13 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return env.PodEnvVars{}, fmt.Errorf("error getting ops-manager API secret name: %s", err)
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APISecretName))
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APISecretName), log)
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error reading credentials: %s", err)
 	}
 
 	return env.PodEnvVars{
-		User:      cred.User,
+		User:      cred.PublicAPIKey,
 		ProjectID: projectId,
 		SSLProjectConfig: env.SSLProjectConfig{
 			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),

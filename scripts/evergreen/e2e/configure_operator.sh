@@ -41,8 +41,13 @@ else
     # delete `my-credentials` if it exists
     kubectl --namespace "${PROJECT_NAMESPACE}" delete  secret my-credentials  --ignore-not-found
     # Configure the Kubernetes credentials for Ops Manager
-    kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
-            --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
+    if [[ -z ${OM_PUBLIC_API_KEY:-} ]]; then
+         kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+            --from-literal=user="${OM_USER:-admin}" --from-literal=publicApiKey="${OM_API_KEY}"
+    else
+        kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+            --from-literal=user="${OM_PUBLIC_API_KEY}" --from-literal=publicApiKey="${OM_API_KEY}"
+    fi
 fi
 
 title "All necessary ConfigMaps and Secrets have been created"

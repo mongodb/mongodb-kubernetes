@@ -284,12 +284,22 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             KubernetesTester.get_namespace(),
             self.api_key_secret(KubernetesTester.get_namespace()),
         )
-        om_context = OMContext(
-            self.om_status().get_url(),
-            api_key_secret["user"],
-            api_key_secret["publicApiKey"],
-            project_name=project_name,
-        )
+
+        # Check if it's an old stile secret or a new one
+        if "publicApiKey" in api_key_secret:
+            om_context = OMContext(
+                self.om_status().get_url(),
+                api_key_secret["user"],
+                api_key_secret["publicApiKey"],
+                project_name=project_name,
+            )
+        else:
+            om_context = OMContext(
+                self.om_status().get_url(),
+                api_key_secret["publicKey"],
+                api_key_secret["privateKey"],
+                project_name=project_name,
+            )
         return OMTester(om_context)
 
     def get_appdb_tester(self, **kwargs) -> ReplicaSetTester:

@@ -138,7 +138,7 @@ func connectToMongoDB(getter secretAndConfigMapGetter, factory om.ConnectionFact
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Project Config: %s", err)
 	}
-	credsConfig, err := project.ReadCredentials(getter, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials))
+	credsConfig, err := project.ReadCredentials(getter, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials), log)
 	if err != nil {
 		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
 	}

@@ -26,12 +26,12 @@ type Reader interface {
 
 // ReadConfigAndCredentials returns the ProjectConfig and Credentials for a given resource which are
 // used to communicate with Ops Manager.
-func ReadConfigAndCredentials(client kubernetesClient.Client, reader Reader) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+func ReadConfigAndCredentials(client kubernetesClient.Client, reader Reader, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
 	projectConfig, err := ReadProjectConfig(client, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
 	}
-	credsConfig, err := ReadCredentials(client, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()))
+	credsConfig, err := ReadCredentials(client, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), log)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading Credentials secret: %s", err)
 	}
@@ -62,12 +62,12 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 
 	// we need to create a temporary connection object without group id
 	omContext := om.OMContext{
-		GroupID:      "",
-		GroupName:    projectName,
-		OrgID:        config.OrgID,
-		BaseURL:      config.BaseURL,
-		PublicAPIKey: credentials.PublicAPIKey,
-		User:         credentials.User,
+		GroupID:    "",
+		GroupName:  projectName,
+		OrgID:      config.OrgID,
+		BaseURL:    config.BaseURL,
+		PublicKey:  credentials.PublicAPIKey,
+		PrivateKey: credentials.PrivateAPIKey,
 
 		// The OM Client expects the inverse of "Require valid cert" because in Go
 		// The "zero" value of bool is "False", hence this default.

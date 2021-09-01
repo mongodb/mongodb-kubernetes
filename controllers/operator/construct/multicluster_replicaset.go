@@ -155,7 +155,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 								},
 								{
 									Name:  "USER_LOGIN",
-									Value: conn.User(),
+									Value: conn.PublicKey(),
 								},
 								{
 									Name:  "MULTI_CLUSTER_MODE",

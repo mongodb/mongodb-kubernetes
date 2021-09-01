@@ -75,8 +75,8 @@ type Connection interface {
 	GroupID() string
 	GroupName() string
 	OrgID() string
-	User() string
-	PublicAPIKey() string
+	PublicKey() string
+	PrivateKey() string
 
 	// ConfigureProject configures the OMContext to have the correct project and org ids
 	ConfigureProject(project *Project)
@@ -145,13 +145,13 @@ type ConnectionFactory func(context *OMContext) Connection
 
 // OMContext is the convenient way of grouping all OM related information together
 type OMContext struct {
-	BaseURL      string
-	GroupID      string
-	GroupName    string
-	OrgID        string
-	User         string
-	PublicAPIKey string
-	Version      versionutil.OpsManagerVersion
+	BaseURL    string
+	GroupID    string
+	GroupName  string
+	OrgID      string
+	PrivateKey string
+	PublicKey  string
+	Version    versionutil.OpsManagerVersion
 
 	// Will check that the SSL certificate provided by the Ops Manager Server is valid
 	// I've decided to use a "AllowInvalid" instead of "RequireValid" as the Zero value
@@ -216,15 +216,15 @@ func (oc *HTTPOmConnection) OrgID() string {
 	return oc.context.OrgID
 }
 
-// User returns User of HTTPOmConnection
-func (oc *HTTPOmConnection) User() string {
-	return oc.context.User
+// PublicKey returns PublicKey of HTTPOmConnection
+func (oc *HTTPOmConnection) PublicKey() string {
+	return oc.context.PublicKey
 
 }
 
-// PublicAPIKey returns PublicAPIKey of HTTPOmConnection
-func (oc *HTTPOmConnection) PublicAPIKey() string {
-	return oc.context.PublicAPIKey
+// PrivateKey returns PrivateKey of HTTPOmConnection
+func (oc *HTTPOmConnection) PrivateKey() string {
+	return oc.context.PrivateKey
 }
 
 // GetOpsManagerVersion returns the current Ops Manager version
@@ -817,7 +817,7 @@ func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 		opts = append(opts, api.OptionSkipVerify)
 	}
 
-	opts = append(opts, api.OptionDigestAuth(oc.User(), oc.PublicAPIKey()))
+	opts = append(opts, api.OptionDigestAuth(oc.PublicKey(), oc.PrivateKey()))
 
 	client, err := api.NewHTTPClient(opts...)
 	if err != nil {

@@ -23,9 +23,9 @@ var CurrMockedAdmin *MockedOmAdmin
 
 type MockedOmAdmin struct {
 	// These variables are not used internally but are used to check the correctness of parameters passed by the controller
-	BaseURL      string
-	User         string
-	PublicAPIKey string
+	BaseURL    string
+	PublicKey  string
+	PrivateKey string
 
 	daemonConfigs          []backup.DaemonConfig
 	s3Configs              map[string]backup.S3Config
@@ -37,21 +37,21 @@ type MockedOmAdmin struct {
 
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
 // if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
-func NewMockedAdminProvider(baseUrl, user, publicKey string) Admin {
+func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) Admin {
 	if CurrMockedAdmin == nil {
 		CurrMockedAdmin = &MockedOmAdmin{}
 	}
 	CurrMockedAdmin.BaseURL = baseUrl
-	CurrMockedAdmin.User = user
-	CurrMockedAdmin.PublicAPIKey = publicKey
+	CurrMockedAdmin.PublicKey = publicApiKey
+	CurrMockedAdmin.PrivateKey = privateApiKey
 
 	CurrMockedAdmin.daemonConfigs = make([]backup.DaemonConfig, 0)
 	CurrMockedAdmin.s3Configs = make(map[string]backup.S3Config)
 	CurrMockedAdmin.oplogConfigs = make(map[string]backup.DataStoreConfig)
 	CurrMockedAdmin.blockStoreConfigs = make(map[string]backup.DataStoreConfig)
-	CurrMockedAdmin.apiKeys = []Key{Key{
-		PrivateKey: publicKey,
-		PublicKey:  user,
+	CurrMockedAdmin.apiKeys = []Key{{
+		PrivateKey: privateApiKey,
+		PublicKey:  publicApiKey,
 	}}
 
 	return CurrMockedAdmin

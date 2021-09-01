@@ -48,8 +48,8 @@ class TestOpsManagerCreation:
     def test_admin_key_secret(self, ops_manager: MongoDBOpsManager):
         secret = ops_manager.read_api_key_secret()
         data = secret.data
-        assert "publicApiKey" in data
-        assert "user" in data
+        assert "publicKey" in data
+        assert "privateKey" in data
 
     def test_appdb_connection_url_secret(self, ops_manager: MongoDBOpsManager):
         assert len(ops_manager.read_appdb_members_from_connection_url_secret()) == 3

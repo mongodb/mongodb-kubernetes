@@ -111,7 +111,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
-	assert.Equal(t, "jane.doe@g.com-key", admin.PublicAPIKey)
+	assert.Equal(t, "jane.doe@g.com", admin.PublicKey)
 
 	// the user "created" in Ops Manager
 	assert.Len(t, initializer.currentUsers, 1)
@@ -122,7 +122,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 
 	// One secret was created by the user, another one - by the Operator for the user public key
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
-	expectedSecretData := map[string]string{"user": "jane.doe@g.com", "publicApiKey": "jane.doe@g.com-key"}
+	expectedSecretData := map[string]string{"publicKey": "jane.doe@g.com", "privateKey": "jane.doe@g.com-key"}
 
 	APIKeySecretName, err := testOm.APIKeySecretName(client)
 	assert.NoError(t, err)
@@ -148,7 +148,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 	assert.Equal(t, workflow.OK(), reconcileStatus)
-	assert.Equal(t, "jane.doe@g.com-key", admin.PublicAPIKey)
+	assert.Equal(t, "jane.doe@g.com-key", admin.PrivateKey)
 
 	// the call to the api didn't happen
 	assert.Equal(t, 1, initializer.numberOfCalls)
@@ -158,7 +158,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 
 	data, _ := secret.ReadStringData(client, kube.ObjectKey(OperatorNamespace, APIKeySecretName))
-	assert.Equal(t, "jane.doe@g.com", data["user"])
+	assert.Equal(t, "jane.doe@g.com", data["publicKey"])
 }
 
 // TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser checks that if the public API key secret is removed by the

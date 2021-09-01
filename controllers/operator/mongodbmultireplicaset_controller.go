@@ -90,7 +90,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcileResult, err
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, log)
 	if err != nil {
 		log.Errorf("error reading project config and credentials: %s", err)
 		return r.updateStatus(&mrs, workflow.Failed("Error reading project config and credentials: %s", err), log)
@@ -342,7 +342,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(obj runtime.Object, log *zap.
 
 // cleanOpsManagerState removes the project configuration (processes, auth settings etc.) from the corresponding OM project.
 func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, log)
 	if err != nil {
 		return err
 	}

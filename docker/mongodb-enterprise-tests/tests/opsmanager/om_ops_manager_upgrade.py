@@ -65,8 +65,8 @@ class TestOpsManagerCreation:
     def test_admin_key_secret(self, ops_manager: MongoDBOpsManager):
         secret = ops_manager.read_api_key_secret()
         data = secret.data
-        assert "publicApiKey" in data
-        assert "user" in data
+        assert "publicKey" in data
+        assert "privateKey" in data
 
     def test_backup_not_enabled(self, ops_manager: MongoDBOpsManager):
         """Backup is deliberately disabled so no statefulset should be created"""

@@ -58,14 +58,24 @@ class OMContext(object):
     def build_from_config_map_and_secret(
         connection_config_map: Dict[str, str], connection_secret: Dict[str, str]
     ) -> OMContext:
-        return OMContext(
-            base_url=connection_config_map["baseUrl"],
-            project_id=None,
-            project_name=connection_config_map["projectName"],
-            org_id=connection_config_map.get("orgId", ""),
-            user=connection_secret["user"],
-            public_key=connection_secret["publicApiKey"],
-        )
+        if "publicApiKey" in connection_secret:
+            return OMContext(
+                base_url=connection_config_map["baseUrl"],
+                project_id=None,
+                project_name=connection_config_map["projectName"],
+                org_id=connection_config_map.get("orgId", ""),
+                user=connection_secret["user"],
+                public_key=connection_secret["publicApiKey"],
+            )
+        else:
+            return OMContext(
+                base_url=connection_config_map["baseUrl"],
+                project_id=None,
+                project_name=connection_config_map["projectName"],
+                org_id=connection_config_map.get("orgId", ""),
+                user=connection_secret["publicKey"],
+                public_key=connection_secret["privateKey"],
+            )
 
 
 class OMTester(object):

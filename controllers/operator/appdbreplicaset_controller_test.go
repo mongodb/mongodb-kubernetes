@@ -310,10 +310,9 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	_ = client.Update(context.TODO(), &appDbSts)
 
-	// create the apiKey and OM user
 	data := map[string]string{
-		util.OmPublicApiKey: "apiKey",
-		util.OmUser:         "omUser",
+		util.OmPublicApiKey: "publicApiKey",
+		util.OmPrivateKey:   "privateApiKey",
 	}
 	APIKeySecretName, err := opsManager.APIKeySecretName(client)
 	assert.NoError(t, err)
@@ -332,7 +331,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
-	assert.Equal(t, "omUser", podVars.User)
+	assert.Equal(t, "publicApiKey", podVars.User)
 
 	hosts, _ := om.CurrMockedConnection.GetHosts()
 	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
@@ -464,8 +463,8 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 
 	// create the apiKey and OM user
 	data := map[string]string{
-		util.OmPublicApiKey: "apiKey",
-		util.OmUser:         "omUser",
+		util.OmPublicApiKey: "publicApiKey",
+		util.OmPrivateKey:   "privateApiKey",
 	}
 
 	APIKeySecretName, err := opsManager.APIKeySecretName(client)

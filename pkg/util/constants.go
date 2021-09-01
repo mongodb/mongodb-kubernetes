@@ -27,13 +27,15 @@ const (
 	MongoDbOpsManagerController = "opsmanager-controller"
 
 	// Ops manager config map and secret variables
-	OmBaseUrl      = "baseUrl"
-	OmOrgId        = "orgId"
-	OmProjectName  = "projectName"
-	OmUser         = "user"
-	OmPublicApiKey = "publicApiKey"
-	OmAgentApiKey  = "agentApiKey"
-	OmCredentials  = "credentials"
+	OmBaseUrl         = "baseUrl"
+	OmOrgId           = "orgId"
+	OmProjectName     = "projectName"
+	OldOmPublicApiKey = "publicApiKey"
+	OldOmUser         = "user"
+	OmPublicApiKey    = "publicKey"
+	OmPrivateKey      = "privateKey"
+	OmAgentApiKey     = "agentApiKey"
+	OmCredentials     = "credentials"
 
 	// SSLRequireValidMMSServerCertificates points at the string name of the
 	// same name variable in OM configuration passed in the "Project" config
