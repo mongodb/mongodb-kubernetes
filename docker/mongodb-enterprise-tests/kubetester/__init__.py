@@ -113,9 +113,15 @@ def create_statefulset(
     client.AppsV1Api().create_namespaced_stateful_set(namespace, body=sts)
 
 
-def read_secret(namespace: str, name: str) -> Dict[str, str]:
+def read_secret(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+) -> Dict[str, str]:
     return decode_secret(
-        client.CoreV1Api().read_namespaced_secret(name, namespace).data
+        client.CoreV1Api(api_client=api_client)
+        .read_namespaced_secret(name, namespace)
+        .data
     )
 
 

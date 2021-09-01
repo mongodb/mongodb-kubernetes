@@ -15,7 +15,8 @@ from kubeobject import CustomObject
 import copy
 import time
 import random
-
+import kubernetes
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 
 ISSUER_CA_NAME = "ca-issuer"
 
@@ -79,17 +80,22 @@ class Issuer(IssuerType, WaitForConditions):
 def generate_cert(
     namespace: str,
     pod: str,
-    pod_dns: str,
+    dns: str,
     issuer: str,
     spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
-):
+    multi_cluster_mode=False,
+    api_client: Optional[client.ApiClient] = None,
+) -> str:
     if spec is None:
         spec = dict()
     secret_name = "{}-{}".format(pod, random_k8s_name(prefix="")[:4])
     cert = Certificate(namespace=namespace, name=secret_name)
 
-    dns_names = [pod_dns, pod]
+    dns_names = [dns]
+    if not multi_cluster_mode:
+        dns_names += pod
+
     if additional_domains is not None:
         dns_names += additional_domains
 
@@ -102,6 +108,7 @@ def generate_cert(
         "usages": ["server auth", "client auth"],
     }
     cert["spec"].update(spec)
+    cert.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
     cert.create().block_until_ready()
 
     # Make sure the Secret names used have a random part
@@ -181,6 +188,81 @@ def create_mongodb_tls_certs(
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 
     create_secret(namespace, bundle_secret_name, data)
+    return bundle_secret_name
+
+
+def mutli_cluster_pod_name_to_service_fqdn_mapping(
+    resource_name: str, namespace: str, cluster_index: str, replicas: int
+) -> Dict[str, str]:
+    pod_to_service_fqdn_mapping = {}
+
+    for n in range(replicas):
+        pod_to_service_fqdn_mapping[
+            f"{resource_name}-{cluster_index}-{n}"
+        ] = f"{resource_name}-{cluster_index}-{n}-svc.{namespace}.svc.cluster.local"
+
+    return pod_to_service_fqdn_mapping
+
+
+def create_multi_cluster_tls_certs(
+    multi_cluster_issuer: str,
+    client: MultiClusterClient,
+    mongodb_multi: MongoDBMulti,
+) -> Dict[str, str]:
+    """
+    Returns a dictionary of pod_name -> secret_name
+    """
+
+    pod_to_secret_name = {}
+    # get the service names for a given cluster
+    cluster_spec = mongodb_multi.get_item_spec(client.cluster_name)
+    pod_to_service_fqdn_mapping = mutli_cluster_pod_name_to_service_fqdn_mapping(
+        mongodb_multi.name,
+        mongodb_multi.namespace,
+        client.cluster_index,
+        cluster_spec["members"],
+    )
+    for pod_name, service_fqdn in pod_to_service_fqdn_mapping.items():
+        cert_secret_name = generate_cert(
+            mongodb_multi.namespace,
+            pod_name,
+            service_fqdn,
+            multi_cluster_issuer,
+            multi_cluster_mode=True,
+            api_client=client.api_client,
+        )
+        pod_to_secret_name[pod_name] = cert_secret_name
+
+    return pod_to_secret_name
+
+
+def create_multi_cluster_mongodb_tls_certs(
+    multi_cluster_isser: str,
+    bundle_secret_name: str,
+    member_cluster_clients: List[MultiClusterClient],
+    mongodb_multi: MongoDBMulti,
+) -> str:
+
+    data = {}
+
+    for client in member_cluster_clients:
+        pod_to_secret_name = create_multi_cluster_tls_certs(
+            multi_cluster_isser, client, mongodb_multi
+        )
+        for pod_name, cert_secret_name in pod_to_secret_name.items():
+            secret = read_secret(
+                mongodb_multi.namespace, cert_secret_name, client.api_client
+            )
+            data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
+
+    for client in member_cluster_clients:
+        create_secret(
+            namespace=mongodb_multi.namespace,
+            name=bundle_secret_name,
+            data=data,
+            api_client=client.api_client,
+        )
+
     return bundle_secret_name
 
 

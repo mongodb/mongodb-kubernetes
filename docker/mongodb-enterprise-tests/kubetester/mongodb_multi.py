@@ -42,7 +42,7 @@ class MongoDBMulti(MongoDB):
             )
         return statefulsets
 
-    def _get_item_spec(self, cluster_name: str) -> Dict:
+    def get_item_spec(self, cluster_name: str) -> Dict:
         for spec in sorted(
             self["spec"]["clusterSpecList"]["clusterSpecs"],
             key=lambda x: x["clusterName"],
@@ -57,7 +57,7 @@ class MongoDBMulti(MongoDB):
     ) -> Dict[str, client.V1Service]:
         services = {}
         for mcc in clients:
-            spec = self._get_item_spec(mcc.cluster_name)
+            spec = self.get_item_spec(mcc.cluster_name)
             for (i, item) in enumerate(spec):
                 services[mcc.cluster_name] = client.CoreV1Api(
                     api_client=mcc.api_client
