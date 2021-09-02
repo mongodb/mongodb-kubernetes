@@ -17,6 +17,7 @@
 * The operator will now automatically upgrade the used API Key to a programmatic one when deploying OM >= 5.0.0. It is now possible to upgrade from older versions of OM to OM 5.0 without manual intervention.
 
 ## Miscellaneous
+* Ops Manager versions 4.4.7, 4.4.9, 4.4.10, 4.4.11, 4.4.12 and 4.4.13 base images have been updated to Ubuntu 20.04.
 * Ops Manager versions 4.4.16 and 5.0.1 are now supported
 
 <!-- Past Releases -->
