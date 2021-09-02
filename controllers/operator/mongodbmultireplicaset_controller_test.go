@@ -2,7 +2,12 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
@@ -15,6 +20,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+func init() {
+	logger, _ := zap.NewDevelopment()
+	zap.ReplaceGlobals(logger)
+}
 
 var (
 	clusters = []string{"api.kube.com", "api2.kube.com", "api3.kube.com"}
@@ -66,6 +76,11 @@ func DefaultMultiReplicaSetBuilder() *multiReplicaSetBuilder {
 	return &multiReplicaSetBuilder{mrs}
 }
 
+func (m *multiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *multiReplicaSetBuilder {
+	m.Spec.Security = s
+	return m
+}
+
 func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMulti, client *mock.MockedClient) {
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(m))
 	assert.NoError(t, e)
@@ -75,22 +90,99 @@ func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler
 func TestCreateMultiReplicaSet(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 
-	reconciler, client := defaultMultiReplicaSetReconciler(mrs, t)
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
 
 }
 
-func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient) {
+func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+
+	err := client.DeleteConfigMap(kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName))
+	assert.NoError(t, err)
+
+	result, err := reconciler.Reconcile(context.TODO(), requestFromObject(mrs))
+	assert.Nil(t, err)
+	assert.True(t, result.RequeueAfter > 0)
+}
+
+func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+
+	for _, clusterName := range clusters {
+		t.Run(fmt.Sprintf("Secret exists in cluster %s", clusterName), func(t *testing.T) {
+			c, ok := memberClusterMap[clusterName]
+			assert.True(t, ok)
+
+			s := corev1.Secret{}
+			err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-group-secret", om.CurrMockedConnection.GroupID())), &s)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
+		Authentication: &mdbv1.Authentication{Enabled: true, Modes: []string{"SCRAM"}},
+	}).Build()
+
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+
+	t.Run("Reconciliation is successful when configuring scram", func(t *testing.T) {
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	})
+
+	t.Run("Automation Config has been updated correctly", func(t *testing.T) {
+		ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+		assert.NoError(t, err)
+
+		assert.Contains(t, ac.Auth.AutoAuthMechanism, "SCRAM-SHA-256")
+		assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
+		assert.True(t, ac.Auth.IsEnabled())
+		assert.NotEmpty(t, ac.Auth.AutoPwd)
+		assert.NotEmpty(t, ac.Auth.Key)
+		assert.NotEmpty(t, ac.Auth.KeyFile)
+		assert.NotEmpty(t, ac.Auth.KeyFileWindows)
+		assert.NotEmpty(t, ac.Auth.AutoUser)
+	})
+}
+
+func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
+		TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "some-ca", SecretRef: mdbv1.TLSSecretRef{Prefix: "some-prefix"}},
+	}).Build()
+
+	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
+	createMultiClusterReplicaSetTLSData(memberClients, mrs)
+
+	t.Run("Reconciliation is successful when configuring tls", func(t *testing.T) {
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	})
+
+	t.Run("Automation Config has been updated correctly", func(t *testing.T) {
+		processes := om.CurrMockedConnection.GetProcesses()
+		for _, p := range processes {
+			assert.True(t, p.IsTLSEnabled())
+			assert.Equal(t, "requireTLS", p.TLSConfig()["mode"])
+		}
+	})
+}
+
+func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	return multiReplicaSetReconcilerWithConnection(m, om.NewEmptyMockedOmConnection, t)
 }
 
 func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMulti,
-	connectionFunc func(ctx *om.OMContext) om.Connection, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient) {
+	connectionFunc func(ctx *om.OMContext) om.Connection, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	manager := mock.NewManager(m)
 	manager.Client.AddDefaultMdbConfigResources()
 
 	memberClusterMap := getFakeMultiClusterMap()
-	return newMultiClusterReplicaSetReconciler(manager, connectionFunc, memberClusterMap), manager.Client
+	return newMultiClusterReplicaSetReconciler(manager, connectionFunc, memberClusterMap), manager.Client, memberClusterMap
 }
 
 func (m *multiReplicaSetBuilder) Build() *mdbmulti.MongoDBMulti {

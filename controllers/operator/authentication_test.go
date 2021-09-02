@@ -15,6 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -663,9 +667,19 @@ func createMockCSRBytes() []byte {
 	return certRequestPemBytes.Bytes()
 }
 
+// createMockCertAndKeyBytesMulti generates a random key and certificate and returns
+// them as bytes with the MongoDBMulti service FQDN in the dns names of the certificate.
+func createMockCertAndKeyBytesMulti(mdbm mdbmulti.MongoDBMulti, clusterNum, podNum int) []byte {
+	return createMockCertAndKeyBytesWithDNSName(dns.GetMultiServiceFQDN(mdbm.Name, mock.TestNamespace, clusterNum, podNum))
+}
+
 // createMockCertAndKeyBytes generates a random key and certificate and returns
 // them as bytes
 func createMockCertAndKeyBytes() []byte {
+	return createMockCertAndKeyBytesWithDNSName("somehost.com")
+}
+
+func createMockCertAndKeyBytesWithDNSName(dnsName string) []byte {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		panic(err)
@@ -693,7 +707,7 @@ func createMockCertAndKeyBytes() []byte {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		DNSNames:              []string{"somehost.com"},
+		DNSNames:              []string{dnsName},
 	}
 	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
@@ -737,6 +751,42 @@ func createReplicaSetTLSData(client kubernetesClient.Client, mdb *mdbv1.MongoDB)
 		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-clusterfile", mdb.Name), Namespace: mock.TestNamespace},
 		Data:       clientCerts,
 	})
+}
+
+// createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMulti ReplicaSet.
+func createMultiClusterReplicaSetTLSData(clients map[string]cluster.Cluster, mdbm *mdbmulti.MongoDBMulti) {
+	// Lets create a secret with Certificates and private keys!
+
+	secretName := fmt.Sprintf("%s-cert", mdbm.Name)
+	if mdbm.Spec.Security.TLSConfig.SecretRef.Prefix != "" {
+		secretName = fmt.Sprintf("%s-%s", mdbm.Spec.Security.TLSConfig.SecretRef.Prefix, secretName)
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: mock.TestNamespace,
+		},
+	}
+
+	certs := map[string][]byte{}
+	clientCerts := map[string][]byte{}
+
+	for clusterNum, item := range mdbm.GetOrderedClusterSpecList() {
+		for podNum := 0; podNum < item.Members; podNum++ {
+			pemFile := createMockCertAndKeyBytesMulti(*mdbm, clusterNum, podNum)
+			certs[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, clusterNum, podNum)] = pemFile
+			clientCerts[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, clusterNum, podNum)] = pemFile
+		}
+	}
+
+	secret.Data = certs
+
+	// create the secret in every member cluster.
+	for _, v := range clients {
+		_ = v.GetClient().Create(context.TODO(), secret)
+	}
+
 }
 
 // createShardedClusterTLSData creates and populates all the  secrets needed for a TLS enabled Sharded
