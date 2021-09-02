@@ -27,7 +27,7 @@ def server_certs(issuer: str, namespace: str):
     for i in range(3):
         pod_dns = pod_fqdn_fstring.format(i)
         pod_name = f"{resource_name}-{i}"
-        cert = generate_cert(namespace, pod_dns, pod_name, issuer)
+        cert = generate_cert(namespace, pod_name, pod_dns, issuer)
         secret = read_secret(namespace, cert)
         data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 
