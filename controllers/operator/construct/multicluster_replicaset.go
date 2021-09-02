@@ -3,6 +3,8 @@ package construct
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
@@ -218,6 +220,13 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 				},
 			},
 		},
+	}
+
+	if mdbm.Spec.GetSecurity().TLSConfig.IsEnabled() {
+		tlsConfig := mdbm.Spec.GetSecurity().TLSConfig
+		if tlsConfig != nil {
+			tls.ConfigureStatefulSet(&sts, mdbm.Name, tlsConfig.SecretRef.Prefix, tlsConfig.CA)
+		}
 	}
 
 	stsOverride := mdbm.Spec.ClusterSpecList.ClusterSpecs[clusterNum].StatefulSetConfiguration.SpecWrapper.Spec

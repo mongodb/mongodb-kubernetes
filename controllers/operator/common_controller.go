@@ -6,6 +6,8 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -803,7 +805,7 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 			return true
 		}
 
-		if mdb.Spec.Security.TLSConfig.CA == "" && statefulset.VolumeMountWithNameExists(volumeMounts, construct.ConfigMapVolumeCAName) {
+		if mdb.Spec.Security.TLSConfig.CA == "" && statefulset.VolumeMountWithNameExists(volumeMounts, tls.ConfigMapVolumeCAName) {
 			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
 			return true
 		}

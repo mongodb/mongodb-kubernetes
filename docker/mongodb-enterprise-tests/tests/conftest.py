@@ -11,7 +11,7 @@ from requests.adapters import HTTPAdapter
 import kubernetes
 import requests
 from kubernetes.client import ApiextensionsV1beta1Api
-from kubetester import get_pod_when_ready
+from kubetester import get_pod_when_ready, create_configmap
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer
 from kubetester.git import clone_and_checkout
@@ -189,6 +189,24 @@ def multi_cluster_issuer(
         issuer.create().block_until_ready()
 
     return "ca-issuer"
+
+
+@fixture(scope="module")
+def multi_cluster_issuer_ca_configmap(
+    namespace: str, member_cluster_clients: List[MultiClusterClient]
+) -> str:
+    """This is the CA file which verifies the certificates signed by it."""
+    ca = open(_fixture("ca-tls.crt")).read()
+
+    # The operator expects the CA that validates Ops Manager is contained in
+    # an entry with a name of "mms-ca.crt"
+    data = {"ca-pem": ca, "mms-ca.crt": ca}
+
+    name = "issuer-ca"
+
+    for c in member_cluster_clients:
+        create_configmap(namespace, name, data, api_client=c.api_client)
+    return name
 
 
 @fixture(scope="module")

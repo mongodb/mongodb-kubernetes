@@ -63,9 +63,16 @@ def create_object_from_dict(data, namespace: str) -> List:
     return utils.create_from_dict(k8s_client=k8s_client, data=data, namespace=namespace)
 
 
-def create_configmap(namespace: str, name: str, data: Dict[str, str]):
+def create_configmap(
+    namespace: str,
+    name: str,
+    data: Dict[str, str],
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+):
     configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
-    client.CoreV1Api().create_namespaced_config_map(namespace, configmap)
+    client.CoreV1Api(api_client=api_client).create_namespaced_config_map(
+        namespace, configmap
+    )
 
 
 def create_service(

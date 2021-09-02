@@ -5,6 +5,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/om"
 
@@ -143,7 +145,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) (
 		}
 
 		if tlsConfig.CA != "" {
-			caVolume := statefulset.CreateVolumeFromConfigMap(ConfigMapVolumeCAName, tlsConfig.CA)
+			caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, tlsConfig.CA)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: util.ConfigMapVolumeCAMountPath,
 				Name:      caVolume.Name,

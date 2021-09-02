@@ -105,15 +105,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
 	for i, item := range mrs.GetOrderedClusterSpecList() {
-		client := r.memberClusterClientsMap[item.ClusterName]
+		memberClient := r.memberClusterClientsMap[item.ClusterName]
 		// Ensure TLS for multi-cluster statefulset
-		if status := certs.EnsureSSLCertsForStatefulSet(r.client, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, item.Members), log); !status.IsOK() {
+		if status := certs.EnsureSSLCertsForStatefulSet(memberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, item.Members), log); !status.IsOK() {
 			log.Error("failed to ensure Statefulset for MDB Multi")
 			return r.updateStatus(&mrs, status, log)
 		}
 
 		// copy the agent api key to the member cluster.
-		err := secret.CopySecret(r.client, client,
+		err := secret.CopySecret(r.client, memberClient,
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
 		)
@@ -124,7 +124,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 
 		sts := construct.MultiClusterStatefulSet(mrs, i, item.Members, conn)
-		if err := client.Create(context.TODO(), &sts); err != nil {
+		if err := memberClient.Create(context.TODO(), &sts); err != nil {
 			if !errors.IsAlreadyExists(err) {
 				log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
 				return reconcile.Result{}, err
@@ -181,6 +181,7 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, log)
 			d.AddMonitoringAndBackup(log, false)
+			d.ConfigureTLS(mrs.Spec.GetSecurity().TLSConfig)
 			return nil
 		},
 		log,

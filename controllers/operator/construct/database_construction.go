@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
@@ -30,8 +32,7 @@ const (
 	PvcNameDatabaseScripts = "database-scripts"
 	PvcMountPathScripts    = "/opt/scripts"
 
-	caCertMountPath       = "/mongodb-automation/certs"
-	ConfigMapVolumeCAName = "secret-ca"
+	caCertMountPath = "/mongodb-automation/certs"
 	// CaCertName is the name of the volume with the CA Cert
 	CaCertName = "ca-cert-volume"
 	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
@@ -383,7 +384,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		}
 
 		if tlsConfig.CA != "" {
-			caVolume := statefulset.CreateVolumeFromConfigMap(ConfigMapVolumeCAName, tlsConfig.CA)
+			caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, tlsConfig.CA)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: util.ConfigMapVolumeCAMountPath,
 				Name:      caVolume.Name,
