@@ -96,7 +96,7 @@ def generate_cert(
 
     dns_names = [dns]
     if not multi_cluster_mode:
-        dns_names += pod
+        dns_names.append(pod)
 
     if additional_domains is not None:
         dns_names += additional_domains
