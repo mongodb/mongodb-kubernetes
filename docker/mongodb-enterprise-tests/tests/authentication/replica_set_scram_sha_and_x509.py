@@ -9,7 +9,9 @@ from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
     create_agent_tls_certs,
+    create_x509_user_cert,
 )
+import tempfile
 from kubetester.kubetester import fixture as load_fixture
 
 MDB_RESOURCE = "replica-set-scram-256-and-x509"
@@ -143,17 +145,19 @@ class TestAddMongoDBUser(KubernetesTester):
 @pytest.mark.e2e_replica_set_scram_sha_and_x509
 class TestX509CertCreationAndApproval(KubernetesTester):
     def setup(self):
-        cert_name = "x509-testing-user." + self.get_namespace()
-        self.cert_file = self.generate_certfile(
-            cert_name, "x509-testing-user.csr", "server-key.pem"
+        self.cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
+
+    def test_create_user_and_authenticate(
+        self, issuer: str, namespace: str, ca_path: str
+    ):
+        create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
+        tester = ReplicaSetTester(MDB_RESOURCE, 3)
+        tester.assert_x509_authentication(
+            cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path
         )
 
     def teardown(self):
         self.cert_file.close()
-
-    def test_can_authenticate_with_added_user(self):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_x509_authentication(cert_file_name=self.cert_file.name)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_and_x509

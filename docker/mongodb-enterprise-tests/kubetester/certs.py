@@ -15,6 +15,8 @@ from kubeobject import CustomObject
 import copy
 import time
 import random
+import tempfile
+
 import kubernetes
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 
@@ -457,6 +459,21 @@ def approve_certificate(name: str) -> None:
     client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(
         name, body
     )
+
+
+def create_x509_user_cert(issuer: str, namespace: str, path: str):
+    user_name = "x509-testing-user"
+
+    spec = {
+        "usages": ["digital signature", "key encipherment", "client auth"],
+        "commonName": user_name,
+    }
+    secret = generate_cert(namespace, user_name, user_name, issuer, spec)
+    cert = KubernetesTester.read_secret(namespace, secret)
+    with open(path, mode="w") as f:
+        f.write(cert["tls.key"])
+        f.write(cert["tls.crt"])
+        f.flush()
 
 
 def yield_existing_csrs(

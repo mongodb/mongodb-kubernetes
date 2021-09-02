@@ -239,6 +239,7 @@ class MongoTester:
             attempts -= 1
             try:
                 self.client = self._init_client(**options)
+                self.client["admin"]["myCol"].insert_one({})
                 return
             except OperationFailure:
                 if attempts == 0:

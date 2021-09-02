@@ -8,6 +8,8 @@ from kubetester.certs import create_mongodb_tls_certs
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
+from kubetester.certs import create_x509_user_cert
+import tempfile
 
 from kubetester.kubetester import KubernetesTester
 
@@ -262,13 +264,14 @@ def test_x509_user_created(replica_set: MongoDB, user_x509: MongoDBUser):
 
 @mark.e2e_replica_set_ldap
 def test_x509_user_connectivity(
-    namespace: str, ca_path: str, replica_set: MongoDB, user_x509: MongoDBUser
+    namespace: str,
+    ca_path: str,
+    issuer: str,
+    replica_set: MongoDB,
+    user_x509: MongoDBUser,
 ):
-    cert_name = "x509-testing-user." + namespace
-    kt = KubernetesTester()
-    cert_file = kt.generate_certfile(
-        cert_name, "x509-testing-user.csr", "server-key.pem", namespace=namespace
-    )
+    cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
+    create_x509_user_cert(issuer, namespace, path=cert_file.name)
 
     tester = replica_set.tester()
     tester.assert_x509_authentication(
