@@ -609,10 +609,6 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	return &ReplicaSetBuilder{rs}
 }
 
-func (b *ReplicaSetBuilder) SetClusterAuth(auth string) *ReplicaSetBuilder {
-	b.Spec.Security.ClusterAuthMode = auth
-	return b
-}
 func (b *ReplicaSetBuilder) SetName(name string) *ReplicaSetBuilder {
 	b.Name = name
 	return b

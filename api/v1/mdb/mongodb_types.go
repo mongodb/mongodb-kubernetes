@@ -357,12 +357,7 @@ type ConnectionSpec struct {
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
-
-	// Deprecated: This has been replaced by Authentication.InternalCluster which
-	// should be used instead
-	ClusterAuthMode string `json:"clusterAuthenticationMode,omitempty"`
-
-	Roles []MongoDbRole `json:"roles,omitempty"`
+	Roles          []MongoDbRole   `json:"roles,omitempty"`
 }
 
 func (spec MongoDbSpec) GetSecurity() *Security {
@@ -458,9 +453,6 @@ func (s *Security) GetInternalClusterAuthenticationMode() string {
 	}
 	if s.Authentication.InternalCluster != "" {
 		return strings.ToUpper(s.Authentication.InternalCluster)
-	}
-	if s.ClusterAuthMode != "" {
-		return strings.ToUpper(s.ClusterAuthMode)
 	}
 	return ""
 }

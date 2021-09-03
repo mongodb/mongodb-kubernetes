@@ -1096,11 +1096,6 @@ func (b *ClusterBuilder) EnableSCRAM() *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) SetClusterAuth(auth string) *ClusterBuilder {
-	b.Spec.Security.ClusterAuthMode = auth
-	return b
-}
-
 func (b *ClusterBuilder) RemoveAuth() *ClusterBuilder {
 	b.Spec.Security.Authentication = nil
 
