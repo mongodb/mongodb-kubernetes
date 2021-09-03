@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -36,8 +38,9 @@ type multiReplicaSetBuilder struct {
 
 func DefaultMultiReplicaSetBuilder() *multiReplicaSetBuilder {
 	spec := mdbmulti.MongoDBMultiSpec{
-		Version:    "5.0.0",
-		Persistent: util.BooleanRef(false),
+		Version:                 "5.0.0",
+		DuplicateServiceObjects: util.BooleanRef(false),
+		Persistent:              util.BooleanRef(false),
 		ConnectionSpec: mdbv1.ConnectionSpec{
 			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 				ConfigMapRef: mdbv1.ConfigMapRef{
@@ -106,6 +109,139 @@ func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 	result, err := reconciler.Reconcile(context.TODO(), requestFromObject(mrs))
 	assert.Nil(t, err)
 	assert.True(t, result.RequeueAfter > 0)
+}
+
+func TestServiceCreation_WithoutDuplicates(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+
+	clusterSpecs := mrs.GetOrderedClusterSpecList()
+	for clusterNum, item := range clusterSpecs {
+		c := memberClusterMap[item.ClusterName]
+		for podNum := 0; podNum < item.Members; podNum++ {
+			svc := getService(*mrs, clusterNum, podNum)
+
+			testSvc := corev1.Service{}
+			err := c.GetClient().Get(context.TODO(), kube.ObjectKey(svc.Namespace, svc.Name), &testSvc)
+			assert.NoError(t, err)
+
+			// ensure that all other clusters do not have this service
+			for _, otherItem := range clusterSpecs {
+				if item.ClusterName == otherItem.ClusterName {
+					continue
+				}
+				otherCluster := memberClusterMap[otherItem.ClusterName]
+				err = otherCluster.GetClient().Get(context.TODO(), kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
+				assert.Error(t, err)
+			}
+		}
+	}
+}
+
+func TestServiceCreation_WithDuplicates(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
+
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+
+	clusterSpecs := mrs.GetOrderedClusterSpecList()
+	for clusterNum, item := range clusterSpecs {
+		for podNum := 0; podNum < item.Members; podNum++ {
+			svc := getService(*mrs, clusterNum, podNum)
+
+			// ensure that all clusters have all services
+			for _, otherItem := range clusterSpecs {
+				otherCluster := memberClusterMap[otherItem.ClusterName]
+				err := otherCluster.GetClient().Get(context.TODO(), kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
+				assert.NoError(t, err)
+			}
+		}
+	}
+}
+
+func TestResourceDeletion(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+
+	t.Run("Resources are created", func(t *testing.T) {
+		for clusterNum, item := range mrs.GetOrderedClusterSpecList() {
+			c := memberClients[item.ClusterName]
+			t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
+				sts := appsv1.StatefulSet{}
+				err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(clusterNum)), &sts)
+				assert.NoError(t, err)
+			})
+
+			t.Run("Services in each member cluster have been created", func(t *testing.T) {
+				svcList := corev1.ServiceList{}
+				err := c.GetClient().List(context.TODO(), &svcList)
+				assert.NoError(t, err)
+				assert.Len(t, svcList.Items, item.Members)
+			})
+
+			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
+				configMapList := corev1.ConfigMapList{}
+				err := c.GetClient().List(context.TODO(), &configMapList)
+				assert.NoError(t, err)
+				assert.Len(t, configMapList.Items, 1)
+			})
+			t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
+				secretList := corev1.SecretList{}
+				err := c.GetClient().List(context.TODO(), &secretList)
+				assert.NoError(t, err)
+				assert.Len(t, secretList.Items, 1)
+			})
+		}
+	})
+
+	err := reconciler.deleteManagedResources(*mrs, zap.S())
+	assert.NoError(t, err)
+
+	for clusterNum, item := range mrs.GetOrderedClusterSpecList() {
+		c := memberClients[item.ClusterName]
+		t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
+			sts := appsv1.StatefulSet{}
+			err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(clusterNum)), &sts)
+			assert.Error(t, err)
+		})
+
+		t.Run("Services in each member cluster have been removed", func(t *testing.T) {
+			svcList := corev1.ServiceList{}
+			err := c.GetClient().List(context.TODO(), &svcList)
+			assert.NoError(t, err)
+			assert.Len(t, svcList.Items, 0)
+		})
+
+		t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
+			configMapList := corev1.ConfigMapList{}
+			err := c.GetClient().List(context.TODO(), &configMapList)
+			assert.NoError(t, err)
+			assert.Len(t, configMapList.Items, 0)
+		})
+
+		t.Run("Secrets in each member cluster have been removed", func(t *testing.T) {
+			secretList := corev1.SecretList{}
+			err := c.GetClient().List(context.TODO(), &secretList)
+			assert.NoError(t, err)
+			assert.Len(t, secretList.Items, 0)
+		})
+	}
+
+	t.Run("Ops Manager state has been cleaned", func(t *testing.T) {
+		processes := om.CurrMockedConnection.GetProcesses()
+		assert.Len(t, processes, 0)
+
+		ac, err := om.CurrMockedConnection.ReadAutomationConfig()
+		assert.NoError(t, err)
+
+		assert.Empty(t, ac.Auth.AutoAuthMechanisms)
+		assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+		assert.False(t, ac.Auth.IsEnabled())
+	})
+
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {

@@ -373,8 +373,41 @@ func (k *MockedClient) ApproveAllCSRs() {
 // successful call, Items field in the list will be populated with the
 // result returned from the server.
 func (k *MockedClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	// we don't need this
-	return nil
+	switch l := list.(type) {
+	case *corev1.ServiceList:
+		serviceMap := k.GetMapForObject(&corev1.Service{})
+		var services []corev1.Service
+		for _, v := range serviceMap {
+			services = append(services, *v.(*corev1.Service))
+		}
+		l.Items = services
+		return nil
+	case *appsv1.StatefulSetList:
+		statefulSetMap := k.GetMapForObject(&appsv1.StatefulSet{})
+		var statefulSets []appsv1.StatefulSet
+		for _, v := range statefulSetMap {
+			statefulSets = append(statefulSets, *v.(*appsv1.StatefulSet))
+		}
+		l.Items = statefulSets
+		return nil
+	case *corev1.ConfigMapList:
+		configMapMap := k.GetMapForObject(&corev1.ConfigMap{})
+		var configMaps []corev1.ConfigMap
+		for _, v := range configMapMap {
+			configMaps = append(configMaps, *v.(*corev1.ConfigMap))
+		}
+		l.Items = configMaps
+		return nil
+	case *corev1.SecretList:
+		secretList := k.GetMapForObject(&corev1.Secret{})
+		var secrets []corev1.Secret
+		for _, v := range secretList {
+			secrets = append(secrets, *v.(*corev1.Secret))
+		}
+		l.Items = secrets
+		return nil
+	}
+	return fmt.Errorf("the List method is not implemented for type %s", reflect.TypeOf(list))
 }
 
 // Create saves the object obj in the Kubernetes cluster.
@@ -458,6 +491,7 @@ func (k *MockedClient) Delete(ctx context.Context, obj client.Object, opts ...cl
 }
 
 func (k *MockedClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
+	k.backingMap[reflect.TypeOf(obj)] = map[client.ObjectKey]apiruntime.Object{}
 	return nil
 }
 

@@ -112,6 +112,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return r.updateStatus(&mrs, status, log)
 		}
 
+		// TODO: add multi cluster label to these secrets.
 		// copy the agent api key to the member cluster.
 		err := secret.CopySecret(r.client, memberClient,
 			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
@@ -435,6 +436,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesCli
 		errs = multierror.Append(errs, err)
 	} else {
 		log.Infof("Removed ConfigMaps associated with %s/%s", mrs.Namespace, mrs.Name)
+	}
+
+	if err := c.DeleteAllOf(context.TODO(), &corev1.Secret{}, &cleanupOptions); err != nil {
+		errs = multierror.Append(errs, err)
+	} else {
+		log.Infof("Removed Secrets associated with %s/%s", mrs.Namespace, mrs.Name)
 	}
 
 	r.RemoveMongodbWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
