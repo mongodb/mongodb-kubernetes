@@ -6,7 +6,7 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/hashicorp/go-multierror"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,7 +22,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
@@ -124,7 +124,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return reconcile.Result{}, err
 		}
 
-		sts := construct.MultiClusterStatefulSet(mrs, i, item.Members, conn)
+		sts := multicluster.MultiClusterStatefulSet(mrs, i, item.Members, conn)
 		if err := memberClient.Create(context.TODO(), &sts); err != nil {
 			if !errors.IsAlreadyExists(err) {
 				log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)

@@ -12,9 +12,9 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
 	construct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
@@ -32,7 +32,7 @@ const (
 	podNamespaceEnv        = "POD_NAMESPACE"
 	automationConfigMapEnv = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv       = "HEADLESS_AGENT"
-	agentApiKeyEnv         = "AGENT_API_KEY"
+	AgentApiKeyEnv         = "AGENT_API_KEY"
 
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 )
@@ -100,7 +100,7 @@ func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modifi
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
 	}
 	return container.Apply(
 		container.WithName(InitAppDbContainerName),
@@ -403,7 +403,7 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1
 
 	// These env vars are required to configure Monitoring of the AppDB
 	if podVars != nil && podVars.ProjectID != "" {
-		envVars = append(envVars, env.FromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
+		envVars = append(envVars, env.FromSecret(AgentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
 	}
 
 	return envVars

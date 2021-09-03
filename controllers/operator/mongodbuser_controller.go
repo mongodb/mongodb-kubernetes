@@ -11,7 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"

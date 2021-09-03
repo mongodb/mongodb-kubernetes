@@ -3,7 +3,7 @@ package project
 import (
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 

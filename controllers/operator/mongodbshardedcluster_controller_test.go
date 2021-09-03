@@ -16,7 +16,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"

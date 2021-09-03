@@ -10,7 +10,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -42,7 +42,7 @@ const (
 	databaseReadinessProbeCommand = "/opt/scripts/readinessprobe"
 
 	ControllerLabelName       = "controller"
-	initDatabaseContainerName = "mongodb-enterprise-init-database"
+	InitDatabaseContainerName = "mongodb-enterprise-init-database"
 
 	// Database environment variable names
 	initDatabaseVersionEnv = "INIT_DATABASE_VERSION"
@@ -250,7 +250,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
 		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
-		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
 	}
 
 	configureImagePullSecrets := podtemplatespec.NOOP()
@@ -349,8 +349,8 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 		container.WithImage(env.ReadOrPanic(util.AutomationAgentImage)),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithLivenessProbe(databaseLivenessProbe()),
-		container.WithReadinessProbe(databaseReadinessProbe()),
+		container.WithLivenessProbe(DatabaseLivenessProbe()),
+		container.WithReadinessProbe(DatabaseReadinessProbe()),
 		configureContainerSecurityContext,
 	)
 }
@@ -489,7 +489,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -511,7 +511,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 				container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
-				container.WithLivenessProbe(databaseLivenessProbe()),
+				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 				configureContainerSecurityContext,
 			),
@@ -564,10 +564,10 @@ func buildDatabaseInitContainer() container.Modification {
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
 	}
 	return container.Apply(
-		container.WithName(initDatabaseContainerName),
+		container.WithName(InitDatabaseContainerName),
 		container.WithImage(initContainerImageURL),
 		configureContainerSecurityContext,
 		container.WithVolumeMounts([]corev1.VolumeMount{
@@ -594,7 +594,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
 		},
-		env.FromSecret(agentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
+		env.FromSecret(AgentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
 			Value: string(podVars.LogLevel),
@@ -624,7 +624,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	return vars
 }
 
-func databaseLivenessProbe() probes.Modification {
+func DatabaseLivenessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
 		probes.WithInitialDelaySeconds(60),
@@ -634,7 +634,7 @@ func databaseLivenessProbe() probes.Modification {
 		probes.WithFailureThreshold(6),
 	)
 }
-func databaseReadinessProbe() probes.Modification {
+func DatabaseReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
 		probes.WithFailureThreshold(4),
@@ -658,7 +658,7 @@ func defaultPodSecurityContext() corev1.PodSecurityContext {
 	}
 }
 
-func defaultSecurityContext() *corev1.SecurityContext {
+func DefaultSecurityContext() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
 		RunAsNonRoot: util.BooleanRef(true),
 		RunAsUser:    util.Int64Ref(util.RunAsUser),

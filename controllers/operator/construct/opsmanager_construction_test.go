@@ -39,7 +39,7 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 		MountPath: "/opt/scripts",
 		ReadOnly:  false,
 	}}
-	expectedSecurityContext := defaultSecurityContext()
+	expectedSecurityContext := DefaultSecurityContext()
 	expectedContainer := &corev1.Container{
 		Name:            util.InitOpsManagerContainerName,
 		Image:           "test-registry:latest",

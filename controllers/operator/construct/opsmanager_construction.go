@@ -6,7 +6,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	appsv1 "k8s.io/api/apps/v1"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -149,7 +149,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
 		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
-		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -278,7 +278,7 @@ func buildOpsManagerAndBackupInitContainer() container.Modification {
 
 	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(defaultSecurityContext())
+		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
 	}
 	return container.Apply(
 		container.WithName(util.InitOpsManagerContainerName),

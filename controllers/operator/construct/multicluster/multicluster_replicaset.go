@@ -1,0 +1,212 @@
+package multicluster
+
+import (
+	"fmt"
+
+	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// For testing remove this later
+func int32Ptr(i int32) *int32                                              { return &i }
+func pvModePtr(s corev1.PersistentVolumeMode) *corev1.PersistentVolumeMode { return &s }
+
+func statefulSetName(mdbmName string, clusterNum int) string {
+	return fmt.Sprintf("%s-%d", mdbmName, clusterNum)
+}
+
+func statefulSetLabels(mdbmName, mdbmNamespace string) map[string]string {
+	return map[string]string{
+		"controller":   "mongodb-enterprise-operator",
+		"mongodbmulti": fmt.Sprintf("%s-%s", mdbmName, mdbmNamespace),
+	}
+}
+
+func statefulSetAnnotations(mdbmName string) map[string]string {
+	return map[string]string{
+		handler.MongoDBMultiResourceAnnotation: mdbmName,
+	}
+}
+
+func statefulSetSelector(mdbmName string) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller":        "mongodb-enterprise-operator",
+			"pod-anti-affinity": mdbmName,
+		},
+	}
+}
+
+func podLabel(mdbmName string) map[string]string {
+	return map[string]string{
+		"controller":        "mongodb-enterprise-operator",
+		"pod-anti-affinity": mdbmName,
+	}
+}
+
+func mongodbVolumeMount() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{
+			Name:      "data",
+			MountPath: "/data",
+			SubPath:   "data",
+		},
+		{
+			Name:      "data",
+			MountPath: "/journal",
+			SubPath:   "journal",
+		},
+		{
+			Name:      "data",
+			MountPath: "/var/log/mongodb-mms-automation",
+			SubPath:   "logs",
+		},
+		{
+			Name:      "database-scripts",
+			MountPath: "/opt/scripts",
+			ReadOnly:  true,
+		},
+		{
+			Name:      "hostname-override",
+			MountPath: "/opt/scripts/config",
+		},
+	}
+}
+
+func mongodbInitVolumeMount() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{
+			Name:      "database-scripts",
+			MountPath: "/opt/scripts",
+		},
+		{
+			Name:      "hostname-override",
+			MountPath: "/opt/scripts/config",
+		},
+	}
+}
+
+func mongodbEnv(conn om.Connection) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{
+			Name: construct.AgentApiKeyEnv,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: fmt.Sprintf("%s-group-secret", conn.GroupID()),
+					},
+					Key: util.OmAgentApiKey,
+				},
+			},
+		},
+		{
+			Name:  "AGENT_FLAGS",
+			Value: fmt.Sprintf("-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,"),
+		},
+		{
+			Name:  util.ENV_VAR_BASE_URL,
+			Value: conn.BaseURL(),
+		},
+		{
+			Name:  util.ENV_VAR_PROJECT_ID,
+			Value: conn.GroupID(),
+		},
+		{
+			Name:  util.ENV_VAR_USER,
+			Value: conn.PublicKey(),
+		},
+		{
+			Name:  "MULTI_CLUSTER_MODE",
+			Value: "true",
+		},
+	}
+}
+
+func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
+	return []corev1.PersistentVolumeClaim{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "data",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						"storage": resource.MustParse("16G"),
+					},
+				},
+				VolumeMode: pvModePtr(corev1.PersistentVolumeFilesystem),
+			},
+		},
+	}
+}
+
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) appsv1.StatefulSet {
+	// create the statefulSet modifications
+	stsModifications := statefulset.Apply(
+		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
+		statefulset.WithNamespace(mdbm.Namespace),
+		statefulset.WithLabels(statefulSetLabels(mdbm.Namespace, mdbm.Name)),
+		statefulset.WithAnnotations(statefulSetAnnotations(mdbm.Name)),
+		statefulset.WithReplicas(memberCount),
+		statefulset.WithSelector(statefulSetSelector(mdbm.Name)),
+		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+			podtemplatespec.WithPodLabels(podLabel(mdbm.Name)),
+			podtemplatespec.WithAffinity(statefulSetName(mdbm.Name, clusterNum), construct.PodAntiAffinityLabelKey, 100),
+			podtemplatespec.WithTopologyKey("kubernetes.io/hostname", 0),
+			podtemplatespec.WithServiceAccount("mongodb-enterprise-database-pods"),
+			podtemplatespec.WithContainerByIndex(0,
+				container.Apply(
+					container.WithName(util.DatabaseContainerName),
+					container.WithImage("quay.io/mongodb/mongodb-enterprise-database:2.0.0"),
+					container.WithImagePullPolicy(corev1.PullAlways),
+					container.WithSecurityContext(construct.DefaultSecurityContext()),
+					container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort, Protocol: "TCP"}}),
+					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
+					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
+					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
+					container.WithVolumeMounts(mongodbVolumeMount()),
+					container.WithEnvs(mongodbEnv(conn)...),
+				)),
+			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
+			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap("hostname-override", "hostname-override")),
+			podtemplatespec.WithTerminationGracePeriodSeconds(600),
+			podtemplatespec.WithInitContainerByIndex(0,
+				container.WithName(construct.InitDatabaseContainerName),
+				container.WithImage("268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-init-database:latest"),
+				container.WithImagePullPolicy(corev1.PullAlways),
+				container.WithSecurityContext(construct.DefaultSecurityContext()),
+				container.WithVolumeMounts(mongodbInitVolumeMount()),
+			),
+		)),
+		statefulset.WithVolumeClaimTemplates(statefulSetVolumeClaimTemplates()),
+	)
+
+	sts := statefulset.New(stsModifications)
+
+	// Configure STS with TLS
+	if mdbm.Spec.GetSecurity().TLSConfig.IsEnabled() {
+		tlsConfig := mdbm.Spec.GetSecurity().TLSConfig
+		if tlsConfig != nil {
+			tls.ConfigureStatefulSet(&sts, mdbm.Name, tlsConfig.SecretRef.Prefix, tlsConfig.CA)
+		}
+	}
+
+	stsOverride := mdbm.Spec.ClusterSpecList.ClusterSpecs[clusterNum].StatefulSetConfiguration.SpecWrapper.Spec
+	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, stsOverride)
+	sts.Spec = stsSpecFinal
+
+	return sts
+}

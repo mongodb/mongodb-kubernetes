@@ -33,9 +33,9 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		MountPath: PvcMountPathScripts,
 		ReadOnly:  false,
 	}}
-	expectedSecurityContext := defaultSecurityContext()
+	expectedSecurityContext := DefaultSecurityContext()
 	expectedContainer := &corev1.Container{
-		Name:            initDatabaseContainerName,
+		Name:            InitDatabaseContainerName,
 		Image:           "quay.io/mongodb/mongodb-enterprise-init-database:latest",
 		VolumeMounts:    expectedVolumeMounts,
 		SecurityContext: expectedSecurityContext,
