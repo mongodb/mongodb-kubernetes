@@ -15,7 +15,12 @@ dump_all () {
     # with a different context.
     local original_context
     original_context="$(kubectl config current-context)"
-    kubectl config use-context "${1:-original_context}" &> /dev/null
+    kubectl config use-context "${1:-$original_context}" &> /dev/null
+    prefix="${1:-$original_context}_"
+    # shellcheck disable=SC2154
+    if [[ "${kube_environment_name:-}" != "multi" ]]; then
+        prefix=""
+    fi
 
     # The dump process usually happens for a single namespace (the one the test and the operator are installed to)
     # but in some exceptional cases (e.g. clusterwide operator) there can be more than 1 namespace to print diagnostics
@@ -24,7 +29,7 @@ dump_all () {
     for ns in $(kubectl get namespace -l "evg=task" --output=jsonpath={.items..metadata.name}); do
         if kubectl get namespace "${ns}" -o jsonpath='{.metadata.annotations}' | grep -q "${task_id:?}"; then
             echo "Dumping all diagnostic information for namespace ${ns}"
-            dump_namespace "${ns}"
+            dump_namespace "${ns}" "${prefix}"
         fi
     done
 
@@ -65,15 +70,16 @@ is_mdb_resource_pod() {
 dump_pod_logs() {
     local pod="${1}"
     local namespace="${2}"
+    local prefix="${3}"
 
     if is_mdb_resource_pod "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files
         echo "Writing agent and mongodb logs for pod ${pod} to logs"
-        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${pod}-agent-verbose.log" &> /dev/null
-        tail -n 500 "logs/${pod}-agent-verbose.log" > "logs/${pod}-agent.log" || true
-        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${pod}-mongodb.log" &> /dev/null || true
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${prefix}${pod}-agent-verbose.log" &> /dev/null
+        tail -n 500 "logs/${pod}-agent-verbose.log" > "logs/${prefix}${pod}-agent.log" || true
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log" &> /dev/null || true
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
-        kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${pod}-launcher.log"
+        kubectl logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
     else
         # for new-style Pods (multiple containers), we get the stdouts of each container
         for container in $(kubectl get pods -n "${namespace}" "$pod" -o jsonpath='{.spec.containers[*].name}'); do
@@ -83,7 +89,7 @@ dump_pod_logs() {
     fi
 
     if kubectl exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
-        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${pod}-agent-stderr.log" &> /dev/null
+        kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${prefix}${pod}-agent-stderr.log" &> /dev/null
     fi
 }
 
@@ -91,31 +97,35 @@ dump_pod_logs() {
 dump_pod_readiness_state() {
     local pod="${1}"
     local namespace="${2}"
+    local prefix="${3}"
 
     # kubectl cp won't create any files if the file doesn't exist in the container
-    agent_health_status="logs/${pod}-agent-health-status.json"
+    agent_health_status="logs/${prefix}${pod}-agent-health-status.json"
     kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
     ([[ -f "${agent_health_status}" ]] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}")
 
-    kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${pod}-readiness.log" &> /dev/null
+    kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${prefix}${pod}-readiness.log" &> /dev/null
 }
 
 # dump_pod_config dumps mongod configuration and cluster-config.
 dump_pod_config() {
     local pod="${1}"
     local namespace="${2}"
+    local prefix="${3}"
 
     # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
-    pod_cluster_config="logs/${pod}-cluster-config.json"
+    pod_cluster_config="logs/${prefix}${pod}-cluster-config.json"
     kubectl cp "${namespace}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null
-    ([[ -f "${pod_cluster_config}" ]] && jq < "logs/${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}")
+    ([[ -f "${pod_cluster_config}" ]] && jq < "logs/${prefix}${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}")
 
     # Mongodb Configuration
-    kubectl cp "${namespace}/${pod}:data/automation-mongod.conf" "logs/${pod}-automation-mongod.conf" &> /dev/null
+    kubectl cp "${namespace}/${pod}:data/automation-mongod.conf" "logs/${prefix}${pod}-automation-mongod.conf" &> /dev/null
 }
 
 dump_configmaps() {
-    kubectl -n "${namespace}" get configmaps -o yaml > logs/z_configmaps.txt
+    local namespace="${1}"
+    local prefix="${2}"
+    kubectl -n "${namespace}" get configmaps -o yaml > "logs/${prefix}z_configmaps.txt"
 }
 
 decode_secret() {
@@ -127,9 +137,9 @@ decode_secret() {
 
 dump_secrets() {
     local namespace="${1}"
-
+    local prefix="${2}"
     for secret in $(kubectl get secrets -n "${namespace}" --no-headers | grep -v service-account-token | grep -v dockerconfigjson | awk '{ print $1 }'); do
-        decode_secret "${secret}" "${namespace}" > "logs/z_secret_${secret}.txt"
+        decode_secret "${secret}" "${namespace}" > "logs/${prefix}z_secret_${secret}.txt"
     done
 }
 
@@ -137,19 +147,22 @@ dump_secrets() {
 # logs, etc.
 dump_pods() {
     local namespace="${1}"
+    local prefix="${2}"
 
     pods=$(get_operator_managed_pods "${namespace}")
     for pod in ${pods}; do
-        dump_pod_logs "${pod}" "${namespace}"
-        dump_pod_readiness_state "${pod}" "${namespace}"
-        dump_pod_config "${pod}" "${namespace}"
+        dump_pod_logs "${pod}" "${namespace}" "${prefix}"
+        dump_pod_readiness_state "${pod}" "${namespace}" "${prefix}"
+        dump_pod_config "${pod}" "${namespace}" "${prefix}"
 
-        kubectl describe "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-describe.txt"
-        kubectl logs "pod/${pod}" -n "${namespace}" > "logs/${pod}-pod-logs.txt"
+        kubectl describe "pod/${pod}" -n "${namespace}" > "logs/${prefix}${pod}-pod-describe.txt"
+        kubectl logs "pod/${pod}" -n "${namespace}" > "logs/${prefix}${pod}-pod-logs.txt"
     done
 
-    operator_pod=$(kubectl get pod -n "${namespace}" -l app.kubernetes.io/name=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name")
-    kubectl describe "pod/${operator_pod}" -n "${namespace}" > "logs/z_${operator_pod}-pod-describe.txt"
+    if  (kubectl get pod -n "${namespace}" -l app.kubernetes.io/name=mongodb-enterprise-operator ) &> /dev/null ; then
+        operator_pod=$(kubectl get pod -n "${namespace}" -l app.kubernetes.io/name=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name")
+        kubectl describe "pod/${operator_pod}" -n "${namespace}" > "logs/z_${operator_pod}-pod-describe.txt"
+    fi
 }
 
 # dump_diagnostics writes only the *most important information* for debugging
@@ -171,6 +184,7 @@ dump_diagnostics() {
 # resources.
 dump_namespace() {
     local namespace=${1}
+    local prefix="${2}"
 
     # do not fail for any reason
     set +e
@@ -180,24 +194,24 @@ dump_namespace() {
     mkdir -p logs
 
     # 2. Write diagnostics file
-    dump_diagnostics "${namespace}" > logs/0_diagnostics.txt
+    dump_diagnostics "${namespace}"  > "logs/${prefix}0_diagnostics.txt"
 
     # 3. Print Pod logs
-    dump_pods "${namespace}"
+    dump_pods "${namespace}" "${prefix}"
 
     # 4. Print other Kubernetes resources
-    dump_configmaps "${namespace}"
-    dump_secrets "${namespace}"
+    dump_configmaps "${namespace}" "${prefix}"
+    dump_secrets "${namespace}" "${prefix}"
 
-    dump_objects pvc "Persistent Volume Claims" "${namespace}" > logs/z_persistent_volume_claims.txt
-    dump_objects deploy "Deployments" "${namespace}" > logs/z_deployments.txt
-    dump_objects deploy "Deployments" "${namespace}" "describe" > logs/z_deployments_describe.txt
-    dump_objects sts "StatefulSets" "${namespace}" describe > logs/z_statefulsets.txt
-    dump_objects sts "StatefulSets Yaml" "${namespace}" >> logs/z_statefulsets.txt
-    dump_objects serviceaccounts "ServiceAccounts" "${namespace}" > logs/z_service_accounts.txt
-    dump_objects validatingwebhookconfigurations "Validating Webhook Configurations" "${namespace}" > logs/z_validatingwebhookconfigurations.txt
-    dump_objects certificates.cert-manager.io "Cert-manager certificates" "${namespace}"  2> /dev/null > logs/z_certificates_certmanager.txt
+    dump_objects pvc "Persistent Volume Claims" "${namespace}"  > "logs/${prefix}z_persistent_volume_claims.txt"
+    dump_objects deploy "Deployments" "${namespace}" > "logs/${prefix}z_deployments.txt"
+    dump_objects deploy "Deployments" "${namespace}" "describe" > "logs/${prefix}z_deployments_describe.txt"
+    dump_objects sts "StatefulSets" "${namespace}" describe > "logs/${prefix}z_statefulsets.txt"
+    dump_objects sts "StatefulSets Yaml" "${namespace}" >> "logs/${prefix}z_statefulsets.txt"
+    dump_objects serviceaccounts "ServiceAccounts" "${namespace}" > "logs/${prefix}z_service_accounts.txt"
+    dump_objects validatingwebhookconfigurations "Validating Webhook Configurations" "${namespace}" > "logs/${prefix}z_validatingwebhookconfigurations.txt"
+    dump_objects certificates.cert-manager.io "Cert-manager certificates" "${namespace}"  2> /dev/null > "logs/${prefix}z_certificates_certmanager.txt"
 
     # shellcheck disable=SC2046
-    kubectl describe $(kubectl get crd -o name | grep mongodb.com) > logs/z_mongodb_crds.log
+    kubectl describe $(kubectl get crd -o name | grep mongodb.com) > "logs/${prefix}z_mongodb_crds.log"
 }
