@@ -249,39 +249,27 @@ func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoD
 	if security.Authentication != nil && !security.Authentication.Enabled {
 		return workflow.OK()
 	}
-	useCustomCA := sc.Spec.GetTLSConfig().CA != ""
 
 	if sc.Spec.Security.ShouldUseX509(currentAgentAuthMechanism) {
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(sc, useCustomCA, sc.Namespace, log)
-		if err != nil {
+		if err := certs.VerifyClientCertificatesForAgents(r.client, sc.Namespace); err != nil {
 			return workflow.Failed(err.Error())
 		}
-		if !successful {
-			return workflow.Pending("Agent certs have not yet been approved")
-		}
+
 		if !sc.Spec.Security.TLSConfig.Enabled {
 			return workflow.Failed("authentication mode for project is x509 but this MDB resource is not TLS enabled")
-		} else if !r.doAgentX509CertsExist(sc.Namespace) {
-			return workflow.Pending("agent x509 certificates have not yet been created")
 		}
 	}
 
 	if sc.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
-		allSuccessful := true
 		allCertOptions := r.getAllCertOptions(*sc)
 		for _, certOption := range allCertOptions {
-			if success, err := r.ensureInternalClusterCerts(*sc, certOption, log); err != nil {
+			if err := r.ensureInternalClusterCerts(*sc, certOption, log); err != nil {
 				errors = append(errors, err)
-			} else if !success {
-				allSuccessful = false
 			}
 		}
-		// fail only after creating all CSRs
 		if len(errors) > 0 {
 			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
-		} else if !allSuccessful {
-			return workflow.Pending("not all internal cluster authentication certs have been approved by Kubernetes CA")
 		}
 	}
 	return workflow.OK()
@@ -371,7 +359,6 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName(), "servers count", mongosSts.Spec.Replicas)
-
 	return workflow.OK()
 }
 

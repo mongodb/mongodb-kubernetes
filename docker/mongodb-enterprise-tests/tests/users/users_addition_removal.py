@@ -4,21 +4,18 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
 
-from kubetester.kubetester import KubernetesTester
+from kubetester.mongodb import MongoDB, Phase
+from kubetester import find_fixture
+from kubetester.kubetester import KubernetesTester, fixture as load_fixture
+from kubetester.certs import (
+    Certificate,
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+)
 
 MDB_RESOURCE = "test-x509-rs"
 NUM_AGENTS = 2
-
-
-def get_cert_names(namespace, members=3, with_agent_certs=False):
-    cert_names = [f"{MDB_RESOURCE}-{i}.{namespace}" for i in range(members)]
-    if with_agent_certs:
-        cert_names += [
-            f"mms-monitoring-agent.{namespace}",
-            f"mms-backup-agent.{namespace}",
-            f"mms-automation-agent.{namespace}",
-        ]
-    return cert_names
 
 
 def get_subjects(start, end):
@@ -28,10 +25,16 @@ def get_subjects(start, end):
     ]
 
 
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
+
+
 def get_names_from_certificate_attributes(cert):
     names = {}
     subject = cert.subject
-    names["O"] = subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)[0].value
     names["OU"] = subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)[
         0
     ].value
@@ -40,21 +43,24 @@ def get_names_from_certificate_attributes(cert):
     return names
 
 
+@pytest.fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+
+
+@pytest.fixture(scope="module")
+def mdb(
+    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
+) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
+    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    return res.create()
+
+
 @pytest.mark.e2e_tls_x509_users_addition_removal
 class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
-    """
-    create:
-      file: test-x509-rs.yaml
-      wait_for_message: Not all certificates have been approved by Kubernetes CA
-      timeout: 240
-    """
-
-    def test_mdb_resource_status_is_correct(self):
-        for cert in self.yield_existing_csrs(
-            get_cert_names(self.namespace, with_agent_certs=True)
-        ):
-            self.approve_certificate(cert)
-        KubernetesTester.wait_until("in_running_state")
+    def test_mdb_resource_running(self, mdb: MongoDB):
+        mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_certificates_have_sane_subject(self, namespace):
         agent_certs = KubernetesTester.read_secret(namespace, "agent-certs")
@@ -68,8 +74,7 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
             cert = x509.load_pem_x509_certificate(bytecert, default_backend())
             names = get_names_from_certificate_attributes(cert)
 
-            assert names["CN"] == agent
-            assert names["O"] == "cluster.local-agent"
+            assert names["CN"] == agent.split("-")[1]
             assert names["OU"] == namespace
 
 
@@ -103,12 +108,10 @@ class TestMultipleUsersAreAdded(KubernetesTester):
 
     def test_automation_users_are_correct(self):
         ac = KubernetesTester.get_automation_config()
-        backup_names = get_user_pkix_names(ac, "mms-backup-agent")
-        assert backup_names["O"] == "cluster.local-agent"
+        backup_names = get_user_pkix_names(ac, "backup")
         assert backup_names["OU"] == KubernetesTester.get_namespace()
 
-        monitoring_names = get_user_pkix_names(ac, "mms-monitoring-agent")
-        assert monitoring_names["O"] == "cluster.local-agent"
+        monitoring_names = get_user_pkix_names(ac, "monitoring")
         assert monitoring_names["OU"] == KubernetesTester.get_namespace()
 
 

@@ -43,25 +43,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func TestX509CannotBeEnabled_IfAgentCertsAreNotApproved(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
-	manager := mock.NewManager(rs)
-
-	createConfigMap(t, manager.Client)
-	createAgentCSRs(1, manager.Client, certsv1.CertificateDenied)
-	addKubernetesTlsResources(manager.Client, rs)
-	approveCSRs(manager.Client, rs)
-
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-	expectedError := fmt.Sprintf("Agent certs have not yet been approved")
-	checkReconcilePending(t, reconciler, rs, expectedError, manager.Client, 10)
-}
-
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA("custom-ca").Build()
 	manager := mock.NewManager(rs)
 	createConfigMap(t, manager.Client)
-	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
+	createAgentCSRs(3, manager.Client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(manager.Client, rs)
 	approveCSRs(manager.Client, rs)
 
@@ -70,13 +56,12 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T
 }
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ReplicaSet(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().Build()
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA("custom-ca").Build()
 	manager := mock.NewManager(rs)
 	addKubernetesTlsResources(manager.Client, rs)
 	approveCSRs(manager.Client, rs)
-
 	createConfigMap(t, manager.Client)
-	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
+	createAgentCSRs(3, manager.Client, certsv1.CertificateApproved)
 	// enable internal cluster authentication mode
 	rs.Spec.Security.ClusterAuthMode = util.X509
 
@@ -85,11 +70,10 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 }
 
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
-	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").Build()
-
+	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 	reconciler, client := defaultClusterReconciler(scWithTls)
 	addKubernetesTlsResources(client, scWithTls)
-	createAgentCSRs(1, client, certsv1.CertificateApproved)
+	createAgentCSRs(3, client, certsv1.CertificateApproved)
 
 	// enable internal cluster authentication mode
 	scWithTls.Spec.Security.ClusterAuthMode = util.X509
@@ -97,10 +81,10 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 }
 
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testing.T) {
-	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").Build()
+	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
 	reconciler, client := defaultClusterReconciler(scWithTls)
-	createAgentCSRs(1, client, certsv1.CertificateApproved)
+	createAgentCSRs(3, client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(client, scWithTls)
 
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
@@ -173,6 +157,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 		EnableTLS().
 		EnableAuth().
 		EnableX509().
+		SetTLSCA("custom-ca").
 		Build()
 
 	manager := mock.NewManager(rs)
@@ -180,7 +165,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client, 1)
+	createAgentCSRs(3, client, certsv1.CertificateApproved)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
@@ -206,6 +191,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().
 		EnableTLS().
+		SetTLSCA("custom-ca").
 		SetAuthentication(
 			&mdbv1.Authentication{
 				Enabled: false,
@@ -236,7 +222,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 }
 
 func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().SetTLSCA("custom-ca").EnableAuth().EnableX509().Build()
 	x509User := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetMongoDBResourceName("my-rs").Build()
 
 	manager := mock.NewManager(rs)
@@ -246,7 +232,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	// configure x509/tls resources
 	addKubernetesTlsResources(manager.Client, rs)
-	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
+	createAgentCSRs(3, manager.Client, certsv1.CertificateApproved)
 	approveCSRs(manager.Client, rs)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)

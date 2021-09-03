@@ -14,7 +14,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
@@ -259,162 +258,20 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 }
 
-// doAgentX509CertsExist looks for the secret "agent-certs" to determine if we can continue with mounting the x509 volumes
-func (r *ReconcileCommonController) doAgentX509CertsExist(namespace string) bool {
-	_, err := r.client.GetSecret(kube.ObjectKey(namespace, util.AgentSecretName))
-	if err != nil {
-		return false
-	}
-	return true
-}
-
 // ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
-	// TODO: move this logic into the certs package
-	// Flag that's set to false if any of the certificates have not been approved yet.
-	certsNeedApproval := false
+func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) error {
 	secretName := certs.ToInternalClusterAuthName(opts.ResourceName) // my-replica-set-clusterfile
 
-	if mdb.Spec.Security.TLSConfig.CA != "" {
-		// A "Certs" attribute has been provided
-		// This means that the customer has provided with a secret name they have
-		// already populated with the certs and keys for this deployment.
-		// Because of the async nature of Kubernetes, this object might not be ready yet,
-		// in which case, we'll keep reconciling until the object is created and is correct.
-		if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
-			return false, fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err)
-		}
-
-		// Validates that the secret is valid
-		if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
-			return false, err
-		}
-	} else {
-
-		// Validates that the secret is valid
-		if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
-			return false, err
-		}
-
-		if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
-			// If the Kube CA and the operator are responsible for the certificates to be
-			// ready and correctly stored in the secret object, and this secret is not "complete"
-			// we'll go through the process of creating the CSR, wait for certs approval and then
-			// creating a correct secret with the certificates and keys.
-
-			// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
-			fqdns, podnames := certs.GetDNSNames(opts)
-
-			// pemFiles will store every key (during the CSR creation phase) and certificate
-			// both can happen on different reconciliation stages (CSR and keys are created, then
-			// reconciliation, then certs are obtained from the CA). If this happens we need to
-			// store the keys in the final secret, that will be updated with the certs, once they
-			// are issued by the CA.
-			pemFiles := enterprisepem.NewCollection()
-
-			for idx, host := range fqdns {
-				csrName := certs.ToInternalClusterAuthName(podnames[idx])
-				csr, err := certs.ReadCSR(r.client, csrName, opts.Namespace)
-				if err != nil {
-					certsNeedApproval = true
-					key, err := certs.CreateInternalClusterAuthCSR(r.client, csrName, opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), []string{host, podnames[idx]}, podnames[idx])
-					if err != nil {
-						return false, fmt.Errorf("Failed to create CSR, %s", err)
-					}
-
-					// This note was added on Release 1.5.1 of the Operator.
-					log.Warn("The Operator is generating TLS x509 certificates for internal cluster authentication. " + TLSGenerationDeprecationWarning)
-
-					pemFiles.AddPrivateKey(podnames[idx], string(key))
-				} else {
-					if certs.CSRWasApproved(csr) {
-						log.Infof("Certificate for Pod %s -> Approved", host)
-						pemFiles.AddCertificate(podnames[idx], string(csr.Status.Certificate))
-					} else {
-						log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
-						certsNeedApproval = true
-					}
-				}
-			}
-
-			// once we are here we know we have built everything we needed
-			// This "secret" object corresponds to the certificates for this statefulset
-			labels := make(map[string]string)
-			labels["mongodb/secure"] = "certs"
-			labels["mongodb/operator"] = "certs." + secretName
-
-			err := enterprisepem.CreateOrUpdateSecret(r.client, secretName, opts.Namespace, pemFiles)
-			if err != nil {
-				// If we have an error creating or updating the secret, we might lose
-				// the keys, in which case we return an error, to make it clear what
-				// the error was to customers -- this should end up in the status
-				// message.
-				return false, fmt.Errorf("Failed to create or update the secret: %s", err)
-			}
-		}
+	if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
+		return fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err)
 	}
 
-	successful := !certsNeedApproval
-	return successful, nil
-}
-
-//ensureX509AgentCertsForMongoDBResource will generate all the CSRs for the agents
-func (r *ReconcileCommonController) ensureX509AgentCertsForMongoDBResource(mdb *mdbv1.MongoDB, useCustomCA bool, namespace string, log *zap.SugaredLogger) (bool, error) {
-	certsNeedApproval := false
-	if err := certs.VerifyClientCertificatesForAgents(r.client, namespace); err != nil {
-		if useCustomCA {
-			return false, fmt.Errorf("The %s Secret file does not contain the necessary Agent certificates: %s", util.AgentSecretName, err)
-		}
-
-		pemFiles := enterprisepem.NewCollection()
-		agents := []string{"automation", "monitoring", "backup"}
-
-		for _, agent := range agents {
-			agentName := fmt.Sprintf("mms-%s-agent", agent)
-			csr, err := certs.ReadCSR(r.client, agentName, namespace)
-			if err != nil {
-				certsNeedApproval = true
-
-				// the agentName name will be the same on each host, but we want to ensure there's
-				// a unique name for the CSR created.
-				key, err := certs.CreateAgentCSR(r.client, agentName, namespace, mdb.Spec.GetClusterDomain())
-				if err != nil {
-					return false, fmt.Errorf("failed to create CSR, %s", err)
-				}
-
-				// This note was added on Release 1.5.1 of the Operator.
-				log.Warn("The Operator is generating TLS x509 certificates for agent authentication. " + TLSGenerationDeprecationWarning)
-
-				pemFiles.AddPrivateKey(agentName, string(key))
-			} else {
-				if certs.CSRWasApproved(csr) {
-					pemFiles.AddCertificate(agentName, string(csr.Status.Certificate))
-				} else {
-					certsNeedApproval = true
-				}
-			}
-		}
-
-		// once we are here we know we have built everything we needed
-		// This "secret" object corresponds to the certificates for this statefulset
-		labels := make(map[string]string)
-		labels["mongodb/secure"] = "certs"
-		labels["mongodb/operator"] = "certs." + util.AgentSecretName
-
-		err := enterprisepem.CreateOrUpdateSecret(r.client, util.AgentSecretName, namespace, pemFiles)
-		if err != nil {
-			// If we have an error creating or updating the secret, we might lose
-			// the keys, in which case we return an error, to make it clear what
-			// the error was to customers -- this should end up in the status
-			// message.
-			return false, fmt.Errorf("failed to create or update the secret: %s", err)
-		}
-
+	// Validates that the secret is valid
+	if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
+		return err
 	}
-
-	successful := !certsNeedApproval
-	return successful, nil
+	return nil
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
@@ -756,14 +613,6 @@ func canConfigureAuthentication(ac *om.AutomationConfig, authenticationModes []s
 
 	// x509 is the only mechanism with restrictions determined based on Ops Manager state
 	return true
-}
-
-func clusterDomainOrDefault(clusterDomain string) string {
-	if clusterDomain == "" {
-		return ClusterDomain
-	}
-
-	return clusterDomain
 }
 
 // newPodVars initializes a PodEnvVars instance based on the values of the provided Ops Manager connection, project config

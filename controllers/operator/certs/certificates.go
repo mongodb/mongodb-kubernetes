@@ -1,13 +1,6 @@
 package certs
 
 import (
-	"bytes"
-	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"net/url"
 
@@ -27,156 +20,9 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	certsv1 "k8s.io/api/certificates/v1beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
-var keyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "server auth", "client auth"}
-var clientKeyUsages = []certsv1.KeyUsage{"digital signature", "key encipherment", "client auth"}
-
-const (
-	NumAgents                       = 3
-	privateKeySize                  = 4096
-	certificateNameCountry          = "US"
-	certificateNameState            = "NY"
-	certificateNameLocation         = "NY"
-	clusterDomain                   = "cluster.local"
-	TLSGenerationDeprecationWarning = "This feature has been DEPRECATED and should only be used in testing environments."
-)
-
-// createCSR creates a CertificateSigningRequest object and posting it into Kubernetes API.
-func createCSR(client kubernetesClient.Client, hosts []string, subject pkix.Name, keyUsages []certsv1.KeyUsage, name, namespace string) ([]byte, error) {
-	priv, err := rsa.GenerateKey(rand.Reader, privateKeySize)
-	if err != nil {
-		return nil, err
-	}
-
-	template := x509.CertificateRequest{
-		Subject:  subject,
-		DNSNames: hosts,
-	}
-	certRequestBytes, err := x509.CreateCertificateRequest(rand.Reader, &template, priv)
-	if err != nil {
-		return nil, err
-	}
-
-	certRequestPemBytes := &bytes.Buffer{}
-	certRequestPemBlock := pem.Block{Type: "CERTIFICATE REQUEST", Bytes: certRequestBytes}
-	if err := pem.Encode(certRequestPemBytes, &certRequestPemBlock); err != nil {
-		return nil, err
-	}
-
-	csr := certsv1.CertificateSigningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s.%s", name, namespace),
-		},
-		Spec: certsv1.CertificateSigningRequestSpec{
-			Groups:  []string{"system:authenticated"},
-			Usages:  keyUsages,
-			Request: certRequestPemBytes.Bytes(),
-		},
-	}
-
-	if err = client.Create(context.TODO(), &csr); err != nil {
-		return nil, err
-	}
-
-	x509EncodedPrivKey, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		return nil, err
-	}
-
-	pemEncodedPrivKey := pem.EncodeToMemory(&pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: x509EncodedPrivKey,
-	})
-	return pemEncodedPrivKey, nil
-}
-
-// ReadCSR will obtain a get a CSR object from the Kubernetes API.
-func ReadCSR(client kubernetesClient.Client, name, namespace string) (*certsv1.CertificateSigningRequest, error) {
-	csr := &certsv1.CertificateSigningRequest{}
-	err := client.Get(context.TODO(),
-		types.NamespacedName{Namespace: "", Name: fmt.Sprintf("%s.%s", name, namespace)},
-		csr)
-	return csr, err
-}
-
-// CreateTlsCSR creates a CertificateSigningRequest for Server certificates.
-func CreateTlsCSR(client kubernetesClient.Client, name, namespace, clusterDomain string, hosts []string, commonName string) (key []byte, err error) {
-	subject := pkix.Name{
-		CommonName:         commonName,
-		Organization:       []string{clusterDomain + "-server"},
-		OrganizationalUnit: []string{namespace},
-		Country:            []string{certificateNameCountry},
-		Province:           []string{certificateNameState},
-		Locality:           []string{certificateNameLocation},
-	}
-	return createCSR(client, hosts, subject, keyUsages, name, namespace)
-}
-
-// CreateInternalClusterAuthCSR creates CSRs for internal cluster authentication.
-// The certs structure is very strict, more info in:
-// https://docs.mongodb.com/manual/tutorial/configure-x509-member-authentication/index.html
-// For instance, both O and OU need to match O and OU for the server TLS certs.
-func CreateInternalClusterAuthCSR(client kubernetesClient.Client, name, namespace, clusterDomain string, hosts []string, commonName string) ([]byte, error) {
-	subject := pkix.Name{
-		CommonName:         commonName,
-		Locality:           []string{certificateNameLocation},
-		Organization:       []string{clusterDomain + "-server"},
-		Country:            []string{certificateNameCountry},
-		Province:           []string{certificateNameState},
-		OrganizationalUnit: []string{namespace},
-	}
-	return createCSR(client, hosts, subject, clientKeyUsages, name, namespace)
-}
-
-// CreateAgentCSR creates CSR for the agents.
-// These is regular client based authentication so the requirements for the Subject are less
-// strict than for internal cluster auth.
-func CreateAgentCSR(client kubernetesClient.Client, name, namespace, clusterDomain string) ([]byte, error) {
-	subject := pkix.Name{
-		CommonName:         name,
-		Organization:       []string{clusterDomain + "-agent"},
-		Locality:           []string{certificateNameLocation},
-		Country:            []string{certificateNameCountry},
-		Province:           []string{certificateNameState},
-		OrganizationalUnit: []string{namespace},
-	}
-	return createCSR(client, []string{name}, subject, clientKeyUsages, name, namespace)
-}
-
-// CSRWasApproved returns true if the given CSR has been approved.
-func CSRWasApproved(csr *certsv1.CertificateSigningRequest) bool {
-	for _, condition := range csr.Status.Conditions {
-		if condition.Type == certsv1.CertificateApproved {
-			return true
-		}
-	}
-	return false
-}
-
-// CSRHasRequiredDomains checks that a given CSR is requesting a
-// certificate valid for at least the provided domains.
-func CSRHasRequiredDomains(csr *certsv1.CertificateSigningRequest, domains []string) bool {
-	block, _ := pem.Decode(csr.Spec.Request)
-	if block == nil {
-		return false
-	}
-
-	csrX509, err := x509.ParseCertificateRequest(block.Bytes)
-	if err != nil {
-		return false
-	}
-
-	for _, domain := range domains {
-		if !stringutil.Contains(csrX509.DNSNames, domain) {
-			return false
-		}
-	}
-	return true
-}
+const NumAgents = 3
 
 // VerifyCertificatesForStatefulSet returns the number of certificates created by the operator which are not ready (approved and issued).
 // If all the certificates and keys required for the MongoDB resource exist in the secret with name `secretName`.
@@ -312,10 +158,11 @@ func EnsureSSLCertsForStatefulSet(client kubernetesClient.Client, ms mdbv1.Secur
 	}
 
 	secretName := opts.CertSecretName
-	if ms.TLSConfig.IsSelfManaged() {
-		return validateSelfManagedSSLCertsForStatefulSet(client, secretName, opts)
+	if !ms.TLSConfig.IsSelfManaged() {
+		return workflow.Failed("Operator-generated certs are not supported. You must create your own certificates.")
 	}
-	return ensureOperatorManagedSSLCertsForStatefulSet(client, secretName, opts, log)
+	return validateSelfManagedSSLCertsForStatefulSet(client, secretName, opts)
+
 }
 
 // validateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
@@ -335,96 +182,6 @@ func validateSelfManagedSSLCertsForStatefulSet(client kubernetesClient.Client, s
 	}
 
 	return workflow.OK()
-}
-
-// ensureOperatorManagedSSLCertsForStatefulSet ensures that a stateful set
-// using operator-managed certificates has all of the relevant certificates in
-// place.
-func ensureOperatorManagedSSLCertsForStatefulSet(client kubernetesClient.Client, secretName string, opts Options, log *zap.SugaredLogger) workflow.Status {
-	certsNeedApproval := false
-
-	if err := ValidateCertificates(client, secretName, opts.Namespace); err != nil {
-		return workflow.Failed(err.Error())
-	}
-
-	if err := VerifyCertificatesForStatefulSet(client, secretName, opts); err != nil {
-		// If the Kube CA and the operator are responsible for the certificates to be
-		// ready and correctly stored in the secret object, and this secret is not "complete"
-		// we'll go through the process of creating the CSR, wait for certs approval and then
-		// creating a correct secret with the certificates and keys.
-
-		// For replica set we need to create rs.Spec.Replicas certificates, one per each Pod
-		fqdns, podnames := GetDNSNames(opts)
-
-		// pemFiles will store every key (during the CSR creation phase) and certificate
-		// both can happen on different reconciliation stages (CSR and keys are created, then
-		// reconciliation, then certs are obtained from the CA). If this happens we need to
-		// store the keys in the final secret, that will be updated with the certs, once they
-		// are issued by the CA.
-		pemFiles := enterprisepem.NewCollection()
-
-		for idx, host := range fqdns {
-			csr, err := ReadCSR(client, podnames[idx], opts.Namespace)
-			additionalCertDomains := GetAdditionalCertDomainsForMember(opts, idx)
-			if err != nil {
-				certsNeedApproval = true
-				hostnames := []string{host, podnames[idx]}
-				hostnames = append(hostnames, additionalCertDomains...)
-				key, err := CreateTlsCSR(client, podnames[idx], opts.Namespace, clusterDomainOrDefault(opts.ClusterDomain), hostnames, host)
-				if err != nil {
-					return workflow.Failed("Failed to create CSR, %s", err)
-				}
-
-				// This note was added on Release 1.5.1 of the Operator.
-				log.Warn("The Operator is generating TLS certificates for server authentication. " + TLSGenerationDeprecationWarning)
-
-				pemFiles.AddPrivateKey(podnames[idx], string(key))
-			} else if !CSRHasRequiredDomains(csr, additionalCertDomains) {
-				log.Infow(
-					"Certificate request does not have all required domains",
-					"requiredDomains", additionalCertDomains,
-					"host", host,
-				)
-				return workflow.Pending("Certificate request for " + host + " doesn't have all required domains. Please manually remove the CSR in order to proceed.")
-			} else if CSRWasApproved(csr) {
-				log.Infof("Certificate for Pod %s -> Approved", host)
-				pemFiles.AddCertificate(podnames[idx], string(csr.Status.Certificate))
-			} else {
-				log.Infof("Certificate for Pod %s -> Waiting for Approval", host)
-				certsNeedApproval = true
-			}
-		}
-
-		// once we are here we know we have built everything we needed
-		// This "secret" object corresponds to the certificates for this statefulset
-		labels := make(map[string]string)
-		labels["mongodb/secure"] = "certs"
-		labels["mongodb/operator"] = "certs." + secretName
-
-		// note that CreateOrUpdateSecret modifies pemFiles in place by merging
-		// in the existing values in the secret
-		err := enterprisepem.CreateOrUpdateSecret(client, secretName, opts.Namespace, pemFiles)
-		if err != nil {
-			// If we have an error creating or updating the secret, we might lose
-			// the keys, in which case we return an error, to make it clear what
-			// the error was to customers -- this should end up in the status
-			// message.
-			return workflow.Failed("Failed to create or update the secret: %s", err)
-		}
-	}
-
-	if certsNeedApproval {
-		return workflow.Pending("Not all certificates have been approved by Kubernetes CA for %s", opts.ResourceName)
-	}
-	return workflow.OK()
-}
-
-func clusterDomainOrDefault(domain string) string {
-	if domain == "" {
-		return clusterDomain
-	}
-
-	return domain
 }
 
 // ToInternalClusterAuthName takes a hostname e.g. my-replica-set and converts

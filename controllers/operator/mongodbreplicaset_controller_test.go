@@ -114,11 +114,10 @@ func TestScaleUpReplicaSet(t *testing.T) {
 }
 
 func TestCreateReplicaSet_TLS(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().Build()
+	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().SetTLSCA("custom-ca").Build()
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
-
-	checkReconcilePending(t, reconciler, rs, "Not all certificates have been approved by Kubernetes CA for temple", client, 10)
+	addKubernetesTlsResources(client, rs)
 	client.ApproveAllCSRs()
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
@@ -195,7 +194,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 }
 
 func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetAuthModes([]string{util.X509}).Build()
+	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetTLSCA("custom-ca").SetAuthModes([]string{util.X509}).Build()
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		conn := om.NewEmptyMockedOmConnection(context)
@@ -208,7 +207,7 @@ func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 	}
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client, 1)
+	approveAgentCSRs(client, 3)
 
 	checkReconcileFailed(t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", client)
 }
@@ -232,7 +231,7 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 }
 
 func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableTLS().SetPodSpecTemplate(corev1.PodTemplateSpec{
+	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").SetPodSpecTemplate(corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			NodeName: "some-node-name",
 			Hostname: "some-host-name",
@@ -703,6 +702,14 @@ func (b *ReplicaSetBuilder) EnableTLS() *ReplicaSetBuilder {
 		b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetTLSCA(ca string) *ReplicaSetBuilder {
+	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
+		b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}})
+	}
+	b.Spec.Security.TLSConfig.CA = ca
 	return b
 }
 

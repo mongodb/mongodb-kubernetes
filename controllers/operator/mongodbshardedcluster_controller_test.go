@@ -307,36 +307,13 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	sc := DefaultClusterBuilder().
 		EnableTLS().
 		EnableX509().
+		SetTLSCA("custom-ca").
 		Build()
 
 	reconciler, client := defaultClusterReconciler(sc)
+	addKubernetesTlsResources(client, sc)
 
-	cMap := configMap()
-	createAgentCSRs(1, client, certsv1.CertificateApproved)
-	client.GetMapForObject(&corev1.ConfigMap{})[kube.ObjectKey("", om.TestGroupName)] = &cMap
-
-	// create the secret the agent certs will exist in
-	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey("", util.AgentSecretName)] = &corev1.Secret{}
-
-	// create pre-approved TLS csrs for the sharded cluster
-	addCsrs(client,
-		createCSR(fmt.Sprintf("%s-mongos-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-mongos-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-mongos-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-mongos-3", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-config-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-0-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1-0", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1-1", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-		createCSR(fmt.Sprintf("%s-1-2", sc.Name), mock.TestNamespace, certsv1.CertificateApproved),
-	)
+	createAgentCSRs(3, client, certsv1.CertificateApproved)
 
 	actualResult, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 	expectedResult := reconcile.Result{}
@@ -354,6 +331,7 @@ func addCsrs(client kubernetesClient.Client, csrs ...certsv1.CertificateSigningR
 func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	sc := DefaultClusterBuilder().
 		EnableTLS().
+		SetTLSCA("custom-ca").
 		Build()
 
 	// perform successful reconciliation to populate all the stateful sets in the mocked client
@@ -378,7 +356,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
-	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().
+	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
 		SetShardPodSpec(corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				NodeName: "some-node-name",
@@ -1087,6 +1065,14 @@ func (b *ClusterBuilder) EnableTLS() *ClusterBuilder {
 		return b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}})
 	}
 	b.Spec.Security.TLSConfig.Enabled = true
+	return b
+}
+
+func (b *ClusterBuilder) SetTLSCA(ca string) *ClusterBuilder {
+	if b.Spec.Security == nil || b.Spec.Security.TLSConfig == nil {
+		b.SetSecurity(mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}})
+	}
+	b.Spec.Security.TLSConfig.CA = ca
 	return b
 }
 

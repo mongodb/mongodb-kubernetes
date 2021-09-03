@@ -405,28 +405,18 @@ func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, c
 	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
 		return workflow.OK()
 	}
-	useCustomCA := mdb.Spec.GetTLSConfig().CA != ""
 	if mdb.Spec.Security.ShouldUseX509(currentAuthMechanism) {
-		successful, err := r.ensureX509AgentCertsForMongoDBResource(mdb, useCustomCA, mdb.Namespace, log)
-		if err != nil {
+		if err := certs.VerifyClientCertificatesForAgents(r.client, mdb.Namespace); err != nil {
 			return workflow.Failed(err.Error())
 		}
-		if !successful {
-			return workflow.Pending("Agent certs have not yet been approved")
-		}
-
 		if !mdb.Spec.Security.TLSConfig.Enabled {
 			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
-		} else if !r.doAgentX509CertsExist(mdb.Namespace) {
-			return workflow.Pending("Agent x509 certificates have not yet been created")
 		}
 	}
 
 	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		if success, err := r.ensureInternalClusterCerts(*mdb, certs.ReplicaSetConfig(*mdb), log); err != nil {
+		if err := r.ensureInternalClusterCerts(*mdb, certs.ReplicaSetConfig(*mdb), log); err != nil {
 			return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
-		} else if !success {
-			return workflow.Pending("Not all internal cluster authentication certs have been approved by Kubernetes CA")
 		}
 	}
 	return workflow.OK()
