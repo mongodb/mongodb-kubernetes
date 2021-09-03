@@ -1,7 +1,6 @@
 import time
 from typing import Optional
 
-from kubetester.certs import Certificate
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase

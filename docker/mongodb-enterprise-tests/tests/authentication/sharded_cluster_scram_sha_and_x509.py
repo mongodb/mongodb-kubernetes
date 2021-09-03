@@ -2,13 +2,9 @@ import pytest
 
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
-from kubetester.omtester import get_sc_cert_names
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    Certificate,
-    ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
     create_x509_agent_tls_certs,
     create_sharded_cluster_certs,
     create_x509_user_cert,

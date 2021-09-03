@@ -15,9 +15,8 @@ from kubetester import get_pod_when_ready, create_configmap
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer
 from kubetester.git import clone_and_checkout
-from kubetester.helm import helm_install_from_chart, helm_template
+from kubetester.helm import helm_install_from_chart
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
-from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture
 from tests.multicluster import prepare_multi_cluster_namespaces

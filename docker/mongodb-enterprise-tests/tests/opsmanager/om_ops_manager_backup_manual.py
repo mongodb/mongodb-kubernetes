@@ -6,27 +6,19 @@ This is a companion test for docs/investigation/pod-is-killed-while-agent-restor
 
 """
 
+from typing import Optional, Dict
 
-from operator import attrgetter
-from typing import Optional, Dict, Callable
-
-from kubernetes import client
 from kubetester import get_default_storage_class
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
-    skip_if_local,
     fixture as yaml_fixture,
     KubernetesTester,
 )
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
-from kubetester import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-)
 
-from pytest import mark, fixture, skip
+from pytest import mark, fixture
 from tests.opsmanager.conftest import ensure_ent_version
 
 HEAD_PATH = "/head/"
