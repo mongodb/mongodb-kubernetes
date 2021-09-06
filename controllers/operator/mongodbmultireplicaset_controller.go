@@ -181,7 +181,7 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, log)
-			d.AddMonitoringAndBackup(log, false)
+			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().TLSConfig.IsEnabled())
 			d.ConfigureTLS(mrs.Spec.GetSecurity().TLSConfig)
 			return nil
 		},
