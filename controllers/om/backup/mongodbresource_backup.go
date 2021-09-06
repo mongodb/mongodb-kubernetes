@@ -1,20 +1,28 @@
 package backup
 
 import (
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"go.uber.org/zap"
 )
 
+type ConfigReaderUpdater interface {
+	GetBackupSpec() *mdbv1.Backup
+	GetResourceType() mdbv1.ResourceType
+	GetResourceName() string
+	v1.CustomResourceReadWriter
+}
+
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(mdb mdbv1.MongoDB, projectId string, configReadUpdater ConfigHostReadUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
-	if mdb.Spec.Backup == nil {
+func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, projectId string, configReadUpdater ConfigHostReadUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
+	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
 
-	desiredConfig := getMongoBDBackupConfig(mdb.Spec.Backup, projectId)
+	desiredConfig := getMongoBDBackupConfig(mdb.GetBackupSpec(), projectId)
 
 	configs, err := configReadUpdater.ReadBackupConfigs()
 	if err != nil {
@@ -31,7 +39,7 @@ func EnsureBackupConfigurationInOpsManager(mdb mdbv1.MongoDB, projectId string, 
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
-func ensureBackupConfigStatuses(mdb mdbv1.MongoDB, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
+func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater) (workflow.Status, []status.Option) {
 	result := workflow.OK()
 
 	for _, config := range projectConfigs {
@@ -55,9 +63,9 @@ func ensureBackupConfigStatuses(mdb mdbv1.MongoDB, projectConfigs []*Config, des
 
 		// Only the SHARDED_REPLICA_SET can be configured, we need to ensure that based on the cluster wide
 		// we care about we are only updating the config if the type and name are correct.
-		resourceType := MongoDbResourceType(mdb.Spec.ResourceType)
+		resourceType := MongoDbResourceType(mdb.GetResourceType())
 
-		nameIsEqual := cluster.ClusterName == mdb.Name
+		nameIsEqual := cluster.ClusterName == mdb.GetResourceName()
 		isReplicaSet := resourceType == ReplicaSetType && cluster.TypeName == "REPLICA_SET"
 		isShardedCluster := resourceType == ShardedClusterType && cluster.TypeName == "SHARDED_REPLICA_SET"
 		shouldUpdateBackupConfiguration := nameIsEqual && (isReplicaSet || isShardedCluster)

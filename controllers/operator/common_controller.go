@@ -275,8 +275,8 @@ func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
-func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(conn om.Connection, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
-	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(*mdb, conn.GroupID(), conn, log)
+func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(conn om.Connection, mdb backup.ConfigReaderUpdater, log *zap.SugaredLogger) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(mdb, conn.GroupID(), conn, log)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(mdb, statusOpt, log, opts...); err != nil {
 			return workflow.Failed(err.Error())

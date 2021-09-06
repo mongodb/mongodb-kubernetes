@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -19,6 +20,8 @@ import (
 func init() {
 	v1.SchemeBuilder.Register(&MongoDBMulti{}, &MongoDBMultiList{})
 }
+
+var _ backup.ConfigReaderUpdater = (*MongoDBMulti)(nil)
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
 // multiple clusters
@@ -63,6 +66,18 @@ func (m MongoDBMulti) GetMultiClusterAgentHostnames() []string {
 
 func (m MongoDBMulti) MultiStatefulsetName(clusterNum int) string {
 	return fmt.Sprintf("%s-%d", m.Name, clusterNum)
+}
+
+func (m MongoDBMulti) GetBackupSpec() *mdbv1.Backup {
+	return m.Spec.Backup
+}
+
+func (m MongoDBMulti) GetResourceType() mdbv1.ResourceType {
+	return m.Spec.ResourceType
+}
+
+func (m MongoDBMulti) GetResourceName() string {
+	return m.Name
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

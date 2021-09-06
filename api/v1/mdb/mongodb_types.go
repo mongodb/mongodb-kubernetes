@@ -100,8 +100,20 @@ func (m *MongoDB) GetSecurity() *Security {
 	return m.Spec.Security
 }
 
-func (m MongoDB) AddValidationToManager(mgr manager.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&m).Complete()
+func (m *MongoDB) AddValidationToManager(mgr manager.Manager) error {
+	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
+}
+
+func (m *MongoDB) GetBackupSpec() *Backup {
+	return m.Spec.Backup
+}
+
+func (m *MongoDB) GetResourceType() ResourceType {
+	return m.Spec.ResourceType
+}
+
+func (m *MongoDB) GetResourceName() string {
+	return m.Name
 }
 
 // +kubebuilder:object:generate=false
