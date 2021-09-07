@@ -22,6 +22,7 @@ if [[ "$originalArgOne" == mongo* ]] && [ "$(id -u)" = '0' ]; then
 	exec gosu mongodb "$BASH_SOURCE" "$@"
 fi
 
+
 # you should use numactl to start your mongod instances, including the config servers, mongos instances, and any clients.
 # https://docs.mongodb.com/manual/administration/production-notes/#configuring-numa-on-linux
 if [[ "$originalArgOne" == mongo* ]]; then
@@ -268,6 +269,9 @@ if [ "$originalArgOne" = 'mongod' ]; then
 		# remove "--auth" and "--replSet" for our initial startup (see https://docs.mongodb.com/manual/tutorial/enable-authentication/#start-mongodb-without-access-control)
 		# https://github.com/docker-library/mongo/issues/211
 		_mongod_hack_ensure_no_arg --auth "${mongodHackedArgs[@]}"
+		# "keyFile implies security.authorization"
+		# https://docs.mongodb.com/manual/reference/configuration-options/#mongodb-setting-security.keyFile
+		_mongod_hack_ensure_no_arg_val --keyFile "${mongodHackedArgs[@]}"
 		if [ "$MONGO_INITDB_ROOT_USERNAME" ] && [ "$MONGO_INITDB_ROOT_PASSWORD" ]; then
 			_mongod_hack_ensure_no_arg_val --replSet "${mongodHackedArgs[@]}"
 		fi
