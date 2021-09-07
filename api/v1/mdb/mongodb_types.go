@@ -480,11 +480,11 @@ type Authentication struct {
 
 	// LDAP Configuration
 	// +optional
-	Ldap *Ldap `json:"ldap"`
+	Ldap *Ldap `json:"ldap,omitempty"`
 
 	// Agents contains authentication configuration properties for the agents
 	// +optional
-	Agents AgentAuthentication `json:"agents"`
+	Agents AgentAuthentication `json:"agents,omitempty"`
 
 	// Clients should present valid TLS certificates
 	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`

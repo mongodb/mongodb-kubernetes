@@ -236,7 +236,13 @@ func (m *MongoDBMulti) InitDefaults() {
 
 	// TODO: add more default if need be
 	// ProjectName defaults to the name of the resource
-	m.Spec.ProjectName = m.Name
+	if m.Spec.ProjectName == "" {
+		m.Spec.ProjectName = m.Name
+	}
+
+	if m.Spec.Agent.StartupParameters == nil {
+		m.Spec.Agent.StartupParameters = map[string]string{}
+	}
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters

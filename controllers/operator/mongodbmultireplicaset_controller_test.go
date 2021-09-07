@@ -1,7 +1,9 @@
 package operator
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -308,6 +310,41 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	})
 }
 
+func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+
+	// fetch the resource after reconciliation
+	err := client.Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.Name), mrs)
+	assert.NoError(t, err)
+
+	expected := mrs.Spec
+	actual, err := readLastAchievedSpec(mrs)
+	assert.NoError(t, err)
+	assert.NotNil(t, actual)
+
+	areEqual, err := specsAreEqual(expected, *actual)
+
+	assert.NoError(t, err)
+	assert.True(t, areEqual)
+}
+
+// specsAreEqual compares two different MongoDBMultiSpec instances and returns true if they are equal.
+// the specs need to be marshaled and bytes compared as this ensures that empty slices are converted to nil
+// ones and gives an accurate comparison.
+func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
+	spec1Bytes, err := json.Marshal(spec1)
+	if err != nil {
+		return false, err
+	}
+	spec2Bytes, err := json.Marshal(spec2)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Compare(spec1Bytes, spec2Bytes) == 0, nil
+}
+
 func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	return multiReplicaSetReconcilerWithConnection(m, om.NewEmptyMockedOmConnection, t)
 }
@@ -323,7 +360,9 @@ func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMulti,
 
 func (m *multiReplicaSetBuilder) Build() *mdbmulti.MongoDBMulti {
 	// initialize defaults
-	return m.MongoDBMulti.DeepCopy()
+	res := m.MongoDBMulti.DeepCopy()
+	res.InitDefaults()
+	return res
 }
 
 func getFakeMultiClusterMap() map[string]cluster.Cluster {

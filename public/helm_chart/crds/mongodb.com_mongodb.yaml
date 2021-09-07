@@ -508,10 +508,6 @@ spec:
                     required:
                     - enabled
                     type: object
-                  clusterAuthenticationMode:
-                    description: 'Deprecated: This has been replaced by Authentication.InternalCluster
-                      which should be used instead'
-                    type: string
                   roles:
                     items:
                       properties:

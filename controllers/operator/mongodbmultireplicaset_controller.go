@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -43,6 +44,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+)
+
+const (
+	lastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 )
 
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
@@ -152,8 +157,47 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, err
 	}
 
+	if err := r.saveLastAchievedSpec(&mrs); err != nil {
+		log.Errorf("Failed to set annotation: %s", err)
+		return reconcile.Result{}, err
+	}
+
 	log.Infof("Finished reconciliation for MultiReplicaSetSpec: %v", mrs.Spec)
 	return r.updateStatus(&mrs, workflow.OK(), log)
+}
+
+// saveLastAchievedSpec updates the MongoDBMulti resource with the spec that was just achieved.
+func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs *mdbmultiv1.MongoDBMulti) error {
+	achivedSpec := mrs.Spec
+	achivedSpecBytes, err := json.Marshal(achivedSpec)
+	if err != nil {
+		return err
+	}
+
+	if mrs.Annotations == nil {
+		mrs.Annotations = map[string]string{}
+	}
+
+	mrs.Annotations[lastSuccessfulMultiClusterConfiguration] = string(achivedSpecBytes)
+
+	return r.client.Update(context.TODO(), mrs)
+}
+
+// readLastAchievedSpec fetches the previously achieved spec.
+func readLastAchievedSpec(mrs *mdbmultiv1.MongoDBMulti) (*mdbmultiv1.MongoDBMultiSpec, error) {
+	if mrs.Annotations == nil {
+		return nil, nil
+	}
+	specBytes, ok := mrs.Annotations[lastSuccessfulMultiClusterConfiguration]
+	if !ok {
+		return nil, nil
+	}
+
+	prevSpec := &mdbmultiv1.MongoDBMultiSpec{}
+	if err := json.Unmarshal([]byte(specBytes), &prevSpec); err != nil {
+		return nil, err
+	}
+	return prevSpec, nil
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
@@ -314,6 +358,16 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMulti)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMulti)
+
+			oldSpecAnnotation := oldResource.GetAnnotations()[lastSuccessfulMultiClusterConfiguration]
+			newSpecAnnotation := newResource.GetAnnotations()[lastSuccessfulMultiClusterConfiguration]
+
+			// don't handle an update to just the previous spec annotation if they are not the same.
+			// this prevents the operator triggering reconciliations on resource that it is updating itself.
+			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
+				return false
+			}
+
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
 	})
