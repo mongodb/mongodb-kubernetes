@@ -77,7 +77,7 @@ ENV GPG_KEYS E162F504A20CDF15827F718D4B7C549A058F8B6B
 RUN set -ex; \
 	export GNUPGHOME="$(mktemp -d)"; \
 	for key in $GPG_KEYS; do \
-		gpg --batch --keyserver ha.pool.sks-keyservers.net --recv-keys "$key"; \
+		gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key"; \
 	done; \
 	gpg --batch --export $GPG_KEYS > /etc/apt/trusted.gpg.d/mongodb.gpg; \
 	command -v gpgconf && gpgconf --kill all || :; \

@@ -59,6 +59,22 @@ functions:
       command: "sh -c 'docker login scan.connect.redhat.com -u unused -p ${project_id} || true'"
 
 
+  build_and_push_appdb_database:
+    - command: subprocess.exec
+      params:
+        include_expansions_in_env:
+          - workdir
+        working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
+        binary: ./build_and_push_appdb_database_images.sh
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+
+
   pipeline:
   - command: subprocess.exec
     type: setup
@@ -183,6 +199,15 @@ tasks:
       vars:
         image_name: mongodb-agent-daily
 
+- name: periodic_build_appdb_database
+  commands:
+    - func: clone
+    - func: configure_docker_auth
+    - func: configure_rh_docker_auth
+      vars:
+        project_id: ${rhc_appdb_database_pid}
+    - func: build_and_push_appdb_database
+
 buildvariants:
 - name: periodic_build
   display_name: periodic_build
@@ -197,3 +222,4 @@ buildvariants:
   - periodic_build_appdb
   - periodic_build_database
   - periodic_build_agent
+  - periodic_build_appdb_database
