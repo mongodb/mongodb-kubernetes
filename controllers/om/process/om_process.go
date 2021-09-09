@@ -36,9 +36,14 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string
 }
 
 // CreateMongodProcessesWithLimitMulti creates the process array for automationConfig based on MultiCluster CR spec
-func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) []om.Process {
+func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) ([]om.Process, error) {
 	hostnames := make([]string, 0)
-	for clusterNum, spec := range mrs.GetOrderedClusterSpecList() {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return nil, err
+	}
+
+	for clusterNum, spec := range clusterSpecList {
 		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
 	}
 
@@ -47,7 +52,7 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) []om.Proce
 		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d", mrs.Name, idx), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec)
 	}
 
-	return processes
+	return processes, nil
 }
 
 func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,

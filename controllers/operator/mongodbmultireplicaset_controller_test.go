@@ -90,6 +90,9 @@ func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(m))
 	assert.NoError(t, e)
 	assert.Equal(t, reconcile.Result{}, result)
+	// fetch the last updates as the reconciliation loop can update the mdb resource.
+	err := client.Get(context.TODO(), kube.ObjectKey(m.Namespace, m.Name), m)
+	assert.NoError(t, err)
 }
 
 func TestCreateMultiReplicaSet(t *testing.T) {
@@ -118,7 +121,11 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
 
-	clusterSpecs := mrs.GetOrderedClusterSpecList()
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+	clusterSpecs := clusterSpecList
 	for clusterNum, item := range clusterSpecs {
 		c := memberClusterMap[item.ClusterName]
 		for podNum := 0; podNum < item.Members; podNum++ {
@@ -148,7 +155,10 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
 
-	clusterSpecs := mrs.GetOrderedClusterSpecList()
+	clusterSpecs, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
 	for clusterNum, item := range clusterSpecs {
 		for podNum := 0; podNum < item.Members; podNum++ {
 			svc := getService(*mrs, clusterNum, podNum)
@@ -169,7 +179,11 @@ func TestResourceDeletion(t *testing.T) {
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
 
 	t.Run("Resources are created", func(t *testing.T) {
-		for clusterNum, item := range mrs.GetOrderedClusterSpecList() {
+		clusterSpecs, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			assert.NoError(t, err)
+		}
+		for clusterNum, item := range clusterSpecs {
 			c := memberClients[item.ClusterName]
 			t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
 				sts := appsv1.StatefulSet{}
@@ -202,7 +216,11 @@ func TestResourceDeletion(t *testing.T) {
 	err := reconciler.deleteManagedResources(*mrs, zap.S())
 	assert.NoError(t, err)
 
-	for clusterNum, item := range mrs.GetOrderedClusterSpecList() {
+	clusterSpecs, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+	for clusterNum, item := range clusterSpecs {
 		c := memberClients[item.ClusterName]
 		t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
 			sts := appsv1.StatefulSet{}
@@ -320,7 +338,7 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 	assert.NoError(t, err)
 
 	expected := mrs.Spec
-	actual, err := readLastAchievedSpec(mrs)
+	actual, err := mrs.ReadLastAchievedSpec()
 	assert.NoError(t, err)
 	assert.NotNil(t, actual)
 
@@ -330,9 +348,147 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 	assert.True(t, areEqual)
 }
 
+func TestScaling(t *testing.T) {
+
+	t.Run("Can scale to max amount when creating the resource", func(t *testing.T) {
+		mrs := DefaultMultiReplicaSetBuilder().Build()
+		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+
+		statefulSets := readStatefulSets(mrs, memberClusters)
+		assert.Len(t, statefulSets, 3)
+
+		clusterSpecs, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			assert.NoError(t, err)
+		}
+		for _, item := range clusterSpecs {
+			sts := statefulSets[item.ClusterName]
+			assert.Equal(t, item.Members, int(*sts.Spec.Replicas))
+		}
+	})
+
+	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
+		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		statefulSets := readStatefulSets(mrs, memberClusters)
+		clusterSpecs, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			assert.NoError(t, err)
+		}
+		for _, item := range clusterSpecs {
+			sts := statefulSets[item.ClusterName]
+			assert.Equal(t, 1, int(*sts.Spec.Replicas))
+		}
+
+		// scale up in two different clusters at once.
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 1)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 4)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 1)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 5)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 2)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 6)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 3)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 7)
+	})
+
+	t.Run("Scale one at a time when scaling down", func(t *testing.T) {
+		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 2
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
+		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		statefulSets := readStatefulSets(mrs, memberClusters)
+		clusterSpecList, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			assert.NoError(t, err)
+		}
+
+		for _, item := range clusterSpecList {
+			sts := statefulSets[item.ClusterName]
+			assert.Equal(t, item.Members, int(*sts.Spec.Replicas))
+		}
+
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 8)
+
+		// scale down in all clusters.
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 2, 3)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 7)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2, 3)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 6)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 3)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 5)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 2)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 4)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 1)
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 3)
+	})
+}
+
+func assertStatefulSetReplicas(t *testing.T, mrs *mdbmulti.MongoDBMulti, memberClusters map[string]cluster.Cluster, expectedReplicas ...int) {
+	if len(expectedReplicas) != len(memberClusters) {
+		panic("must provide a replica count for each statefulset!")
+	}
+	statefulSets := readStatefulSets(mrs, memberClusters)
+	assert.Equal(t, expectedReplicas[0], int(*statefulSets[clusters[0]].Spec.Replicas))
+	assert.Equal(t, expectedReplicas[1], int(*statefulSets[clusters[1]].Spec.Replicas))
+	assert.Equal(t, expectedReplicas[2], int(*statefulSets[clusters[2]].Spec.Replicas), "We should only scale one member at a time")
+}
+
+func readStatefulSets(mrs *mdbmulti.MongoDBMulti, memberClusters map[string]cluster.Cluster) map[string]appsv1.StatefulSet {
+	allStatefulSets := map[string]appsv1.StatefulSet{}
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		panic(err)
+	}
+	for i, item := range clusterSpecList {
+		memberClient := memberClusters[item.ClusterName]
+		sts := appsv1.StatefulSet{}
+		err := memberClient.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(i)), &sts)
+		if err != nil {
+			panic(err)
+		}
+		allStatefulSets[item.ClusterName] = sts
+	}
+	return allStatefulSets
+}
+
 // specsAreEqual compares two different MongoDBMultiSpec instances and returns true if they are equal.
 // the specs need to be marshaled and bytes compared as this ensures that empty slices are converted to nil
 // ones and gives an accurate comparison.
+// We are unable to use reflect.DeepEqual for this comparision as when deserialization happens,
+// some fields on spec2 are nil, while spec1 are empty collections. By converting both to bytes
+// we can ensure they are equivalent for our purposes.
 func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	spec1Bytes, err := json.Marshal(spec1)
 	if err != nil {

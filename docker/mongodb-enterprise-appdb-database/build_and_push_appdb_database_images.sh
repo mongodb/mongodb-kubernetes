@@ -11,6 +11,7 @@ build_id="b$(date '+%Y%m%dT000000Z')"
 missing_versions=""
 
 append_missing_version() {
+    # shellcheck disable=SC2181
     if [ $? -ne 0 ]; then
         missing_versions+="${1} on ${2}"$'\n'
     fi
@@ -25,7 +26,7 @@ for version in $_40_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent" .
-    append_missing_version $version "ubuntu"
+    append_missing_version "${version}" "ubuntu"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent"
@@ -41,7 +42,7 @@ for version in $_40_versions; do
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"
-    append_missing_version $version "ubi"
+    append_missing_version "${version}" "ubi"
 
 done
 
@@ -54,7 +55,7 @@ for version in $_42_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent" .
-    append_missing_version $version "ubuntu"
+    append_missing_version "${version}" "ubuntu"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent"
@@ -67,7 +68,7 @@ for version in $_42_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent" .
-    append_missing_version $version "ubi"
+    append_missing_version "${version}" "ubi"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"
@@ -83,7 +84,7 @@ for version in $_44_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent" .
-    append_missing_version $version "ubuntu"
+    append_missing_version "${version}" "ubuntu"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent"
@@ -95,7 +96,7 @@ for version in $_44_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent" .
-    append_missing_version $version "ubi"
+    append_missing_version "${version}" "ubi"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"
@@ -110,7 +111,7 @@ for version in $_50_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent" .
-    append_missing_version $version "ubuntu"
+    append_missing_version "${version}" "ubuntu"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent"
@@ -122,7 +123,7 @@ for version in $_50_versions; do
         --build-arg MONGO_REPO=repo.mongodb.com \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}" \
         -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent" .
-    append_missing_version $version "ubi"
+    append_missing_version "${version}" "ubi"
 
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}"
     docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"

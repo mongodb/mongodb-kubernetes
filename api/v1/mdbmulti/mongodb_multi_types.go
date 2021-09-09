@@ -21,6 +21,10 @@ func init() {
 	v1.SchemeBuilder.Register(&MongoDBMulti{}, &MongoDBMultiList{})
 }
 
+const (
+	lastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
+)
+
 var _ backup.ConfigReaderUpdater = (*MongoDBMulti)(nil)
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
@@ -56,12 +60,18 @@ func (m MongoDBMulti) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
 }
 
-func (m MongoDBMulti) GetMultiClusterAgentHostnames() []string {
+func (m MongoDBMulti) GetMultiClusterAgentHostnames() ([]string, error) {
 	hostnames := make([]string, 0)
-	for clusterNum, spec := range m.GetOrderedClusterSpecList() {
+
+	clusterSpecList, err := m.GetClusterSpecItems()
+	if err != nil {
+		return nil, err
+	}
+
+	for clusterNum, spec := range clusterSpecList {
 		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, clusterNum, spec.Members)...)
 	}
-	return hostnames
+	return hostnames, nil
 }
 
 func (m MongoDBMulti) MultiStatefulsetName(clusterNum int) string {
@@ -99,14 +109,6 @@ func (m MongoDBMulti) GetClusterSpecByName(clusterName string) *ClusterSpecItem 
 // ClusterSpecList holds a list with a clusterSpec corresponding to each cluster
 type ClusterSpecList struct {
 	ClusterSpecs []ClusterSpecItem `json:"clusterSpecs,omitempty"`
-}
-
-func (m *MongoDBMulti) GetOrderedClusterSpecList() []ClusterSpecItem {
-	clusterSpecs := m.Spec.ClusterSpecList.ClusterSpecs
-	sort.SliceStable(clusterSpecs, func(i, j int) bool {
-		return clusterSpecs[i].ClusterName < clusterSpecs[j].ClusterName
-	})
-	return clusterSpecs
 }
 
 // ClusterSpecItem is the mongodb multi-cluster spec that is specific to a
@@ -213,6 +215,54 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 	}
 }
 
+// GetClusterSpecItems returns the cluster spec items that should be used for reconciliation.
+// These may not be the values specified in the spec directly,  scaling is taken into account
+// and the members of each cluster items are the ones that should be used for StatefulSet replicas
+// and when updating the Ops Manger automation config.
+func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
+	clusterSpecs := m.Spec.GetOrderedClusterSpecList()
+	prevSpec, err := m.ReadLastAchievedSpec()
+	if err != nil {
+		return nil, err
+	}
+
+	if prevSpec == nil {
+		return clusterSpecs, nil
+	}
+
+	prevSpecs := prevSpec.GetOrderedClusterSpecList()
+	for i, item := range clusterSpecs {
+		prevItem := prevSpecs[i]
+		// can only scale one member at a time
+		if item.Members > prevItem.Members {
+			prevSpecs[i].Members += 1
+			return prevSpecs, nil
+		}
+		if item.Members < prevItem.Members {
+			prevSpecs[i].Members -= 1
+			return prevSpecs, nil
+		}
+	}
+	return prevSpecs, nil
+}
+
+// ReadLastAchievedSpec fetches the previously achieved spec.
+func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
+	if m.Annotations == nil {
+		return nil, nil
+	}
+	specBytes, ok := m.Annotations[lastSuccessfulMultiClusterConfiguration]
+	if !ok {
+		return nil, nil
+	}
+
+	prevSpec := &MongoDBMultiSpec{}
+	if err := json.Unmarshal([]byte(specBytes), &prevSpec); err != nil {
+		return nil, err
+	}
+	return prevSpec, nil
+}
+
 // when unmarshaling a MongoDBMulti instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references
 func (m *MongoDBMulti) UnmarshalJSON(data []byte) error {
@@ -310,4 +360,13 @@ func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {
 	}
 	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
 	return semverVersion.Major
+}
+
+// GetOrderedClusterSpecList returns the cluster spec items sorted by name.
+func (m *MongoDBMultiSpec) GetOrderedClusterSpecList() []ClusterSpecItem {
+	clusterSpecs := m.ClusterSpecList.ClusterSpecs
+	sort.SliceStable(clusterSpecs, func(i, j int) bool {
+		return clusterSpecs[i].ClusterName < clusterSpecs[j].ClusterName
+	})
+	return clusterSpecs
 }

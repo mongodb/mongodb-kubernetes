@@ -829,7 +829,12 @@ func createMultiClusterReplicaSetTLSData(clients map[string]cluster.Cluster, mdb
 	certs := map[string][]byte{}
 	clientCerts := map[string][]byte{}
 
-	for clusterNum, item := range mdbm.GetOrderedClusterSpecList() {
+	clusterSpecs, err := mdbm.GetClusterSpecItems()
+	if err != nil {
+		panic(err)
+	}
+
+	for clusterNum, item := range clusterSpecs {
 		for podNum := 0; podNum < item.Members; podNum++ {
 			pemFile := createMockCertAndKeyBytesMulti(*mdbm, clusterNum, podNum)
 			certs[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, clusterNum, podNum)] = pemFile
