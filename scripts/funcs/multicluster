@@ -33,8 +33,8 @@ EOF
     done
 
     # shellcheck disable=SC2154
-    kubectl --context "${test_pod_context}" delete secret test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" --ignore-not-found
-    kubectl --context "${test_pod_context}" delete secret test-pod-kubeconfig  -n "${PROJECT_NAMESPACE}" --ignore-not-found
+    kubectl --context "${test_pod_cluster}" delete secret test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" --ignore-not-found
+    kubectl --context "${test_pod_cluster}" delete secret test-pod-kubeconfig  -n "${PROJECT_NAMESPACE}" --ignore-not-found
 
     helm_template_file=$(mktemp)
 
@@ -47,7 +47,7 @@ EOF
 
 
     echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
-    kubectl --context "${test_pod_context}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}" || true
+    kubectl --context "${test_pod_cluster}" create secret generic test-pod-kubeconfig --from-file=kubeconfig="${KUBECONFIG}" --namespace "${PROJECT_NAMESPACE}" || true
 
     echo "Creating project configmap"
     # delete `my-project` if it exists
@@ -100,5 +100,5 @@ EOF
       (( INDEX++ ))
     done
 
-    kubectl --context "${test_pod_context}"  create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}" || true
+    kubectl --context "${test_pod_cluster}"  create secret generic test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" "${configuration_params[@]}" || true
 }

@@ -58,17 +58,17 @@ if [[ -n "${local:-}" ]]; then
         echo "Creating local configuration for multi cluster test in ${MULTI_CLUSTER_CONFIG_DIR}"
         mkdir -p "${MULTI_CLUSTER_CONFIG_DIR}"
 
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.central_cluster }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.operator\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${central_cluster}"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.central_cluster }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.operator\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${central_cluster}"
 
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_1 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_1"
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.e2e\.cluster1\.mongokubernetes\.com }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster1.mongokubernetes.com"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_1 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_1"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.e2e\.cluster1\.mongokubernetes\.com }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster1.mongokubernetes.com"
 
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_2 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_2"
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.cluster2\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster2.mongokubernetes.com"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_2 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_2"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.cluster2\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster2.mongokubernetes.com"
 
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_3 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_3"
-        kubectl --context "${test_pod_context}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.cluster3\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster3.mongokubernetes.com"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath='{ .data.member_cluster_3 }' | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_3"
+        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.e2e\.cluster3\.mongokubernetes\.com }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/e2e.cluster3.mongokubernetes.com"
     fi
 
     prepare_operator_config_map "${operator_context}"
