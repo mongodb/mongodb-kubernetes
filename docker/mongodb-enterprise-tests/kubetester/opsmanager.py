@@ -142,8 +142,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             self.app_db_name(), self.namespace
         )
 
-    def read_backup_statefulset(self) -> client.V1StatefulSet:
-        return client.AppsV1Api().read_namespaced_stateful_set(
+    def read_backup_statefulset(
+        self,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> client.V1StatefulSet:
+        return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(
             self.backup_daemon_name(), self.namespace
         )
 

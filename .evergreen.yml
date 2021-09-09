@@ -1663,6 +1663,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_om_ops_manager_backup
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_replica_set_deletion
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2066,6 +2072,7 @@ task_groups:
     - e2e_multi_cluster_scram
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
+    - e2e_multi_cluster_om_ops_manager_backup
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2430,15 +2437,22 @@ buildvariants:
   depends_on:
     - name: build_operator_ubuntu
       variant: init_test_run
+    - name: build_om_images
+      variant: build_om50_images
     - name: build_init_database_image_ubuntu
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
     - name: prepare_multi_cluster
       variant: init_test_run
+    - name: build_init_om_images_ubuntu
+      variant: init_test_run
+    - name: build_init_appdb_images_ubuntu
+      variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
     image_type: ubuntu
+    agent_version: *agent_version50
   tasks:
     - name: e2e_multi_cluster_task_group
 
