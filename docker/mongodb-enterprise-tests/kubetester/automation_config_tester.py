@@ -1,4 +1,6 @@
-from typing import Dict, Set, Tuple, List
+from typing import Dict, Set, Tuple, List, Optional
+
+from kubetester.kubetester import KubernetesTester
 
 X509_AGENT_SUBJECT = "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US"
 SCRAM_AGENT_USER = "mms-automation-agent"
@@ -11,7 +13,9 @@ class AutomationConfigTester:
     users in MongoDB to be the ones defined in the Automation Config.
     """
 
-    def __init__(self, ac: Dict):
+    def __init__(self, ac: Optional[Dict] = None):
+        if ac is None:
+            ac = KubernetesTester.get_automation_config()
         self.automation_config = ac
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:

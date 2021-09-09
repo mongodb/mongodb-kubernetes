@@ -111,11 +111,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
-	lastSpec, err := mrs.ReadLastAchievedSpec()
-	if err != nil {
-		return r.updateStatus(&mrs, workflow.Failed(fmt.Sprintf("Failed to read last achieved spec: %s", err)), log)
-	}
-
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(fmt.Sprintf("Failed to read cluster spec list: %s", err)), log)
@@ -146,6 +141,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return reconcile.Result{}, err
 		}
 
+		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
 		sts := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn)
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
@@ -158,14 +154,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
 	}
 
-	err = r.reconcileServices(log, mrs, lastSpec)
+	err = r.reconcileServices(log, mrs)
 	if err != nil {
 		log.Error(err)
 		return reconcile.Result{}, err
 	}
 
 	// create configmap with the hostnameoverride
-	err = r.reconcileHostnameOverrideConfigMap(log, mrs, lastSpec)
+	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
 	if err != nil {
 		log.Error(err)
 		return reconcile.Result{}, err
@@ -176,9 +172,20 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, err
 	}
 
+	desiredSpecList := mrs.Spec.GetOrderedClusterSpecList()
+	actualSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+	}
+
 	if err := r.saveLastAchievedSpec(mrs); err != nil {
 		log.Errorf("Failed to set annotation: %s", err)
 		return reconcile.Result{}, err
+	}
+
+	needToRequeue := !reflect.DeepEqual(desiredSpecList, actualSpecList)
+	if needToRequeue {
+		return r.updateStatus(&mrs, workflow.Pending("MongoDBMulti deployment is not yet ready, requeing reconciliation."), log)
 	}
 
 	log.Infof("Finished reconciliation for MultiReplicaSetSpec: %v", mrs.Spec)
@@ -243,11 +250,11 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 		return err
 	}
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(mrs)
+	processMap, err := process.CreateMongodProcessesWithLimitPerCluster(mrs)
 	if err != nil {
 		return err
 	}
-	rs := om.NewReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes)
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processMap)
 
 	status, additionalReconciliationRequired := updateOmMultiSCRAMAuthentication(conn, rs.GetProcessNames(), &mrs, log)
 	if !status.IsOK() {
@@ -303,7 +310,7 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 
 // reconcileServices make sure that we have a service object corresponding to each statefulset pod
 // in the member clusters
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti, prevSpec *mdbmultiv1.MongoDBMultiSpec) error {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti) error {
 	// by default we would create the duplicate services
 	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
 	if shouldCreateDuplicates {
@@ -372,7 +379,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 	return cm
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti, prevSpec *mdbmultiv1.MongoDBMultiSpec) error {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti) error {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return err

@@ -69,7 +69,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
 	d.getReplicaSets()[0]["protocolVersion"] = 10                          // this field will be overriden by Operator
 	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2]) // "removing" the last node in replicaset
-	d.getReplicaSets()[0].addMember(newProcess)                            // "adding" some new node
+	d.getReplicaSets()[0].addMember(newProcess, "")                        // "adding" some new node
 	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true               // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))

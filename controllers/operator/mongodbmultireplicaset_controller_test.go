@@ -86,10 +86,15 @@ func (m *multiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *multiReplicaSet
 	return m
 }
 
-func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMulti, client *mock.MockedClient) {
+func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMulti, client *mock.MockedClient, shouldRequeue bool) {
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(m))
 	assert.NoError(t, e)
-	assert.Equal(t, reconcile.Result{}, result)
+	if shouldRequeue {
+		assert.True(t, result.Requeue || result.RequeueAfter > 0)
+	} else {
+		assert.Equal(t, reconcile.Result{}, result)
+	}
+
 	// fetch the last updates as the reconciliation loop can update the mdb resource.
 	err := client.Get(context.TODO(), kube.ObjectKey(m.Namespace, m.Name), m)
 	assert.NoError(t, err)
@@ -99,7 +104,7 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
-	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 }
 
@@ -119,7 +124,7 @@ func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
-	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -153,7 +158,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
 
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
-	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 	clusterSpecs, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -176,7 +181,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 func TestResourceDeletion(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
-	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 	t.Run("Resources are created", func(t *testing.T) {
 		clusterSpecs, err := mrs.GetClusterSpecItems()
@@ -267,7 +272,7 @@ func TestResourceDeletion(t *testing.T) {
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
-	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 	for _, clusterName := range clusters {
 		t.Run(fmt.Sprintf("Secret exists in cluster %s", clusterName), func(t *testing.T) {
@@ -289,7 +294,7 @@ func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 
 	t.Run("Reconciliation is successful when configuring scram", func(t *testing.T) {
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 	})
 
 	t.Run("Automation Config has been updated correctly", func(t *testing.T) {
@@ -316,7 +321,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	createMultiClusterReplicaSetTLSData(memberClients, mrs)
 
 	t.Run("Reconciliation is successful when configuring tls", func(t *testing.T) {
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 	})
 
 	t.Run("Automation Config has been updated correctly", func(t *testing.T) {
@@ -331,7 +336,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
-	checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 	// fetch the resource after reconciliation
 	err := client.Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.Name), mrs)
@@ -353,7 +358,7 @@ func TestScaling(t *testing.T) {
 	t.Run("Can scale to max amount when creating the resource", func(t *testing.T) {
 		mrs := DefaultMultiReplicaSetBuilder().Build()
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		statefulSets := readStatefulSets(mrs, memberClusters)
 		assert.Len(t, statefulSets, 3)
@@ -375,7 +380,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		statefulSets := readStatefulSets(mrs, memberClusters)
 		clusterSpecs, err := mrs.GetClusterSpecItems()
 		if err != nil {
@@ -390,19 +395,19 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 1)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 4)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 1)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 5)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 2)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 6)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 3)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 7)
 	})
@@ -414,7 +419,7 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		statefulSets := readStatefulSets(mrs, memberClusters)
 		clusterSpecList, err := mrs.GetClusterSpecItems()
 		if err != nil {
@@ -433,23 +438,23 @@ func TestScaling(t *testing.T) {
 		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 2, 3)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 7)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2, 3)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 6)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 3)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 5)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 2)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 4)
 
-		checkMultiReconcileSuccessful(t, reconciler, mrs, client)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 1)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 3)
 	})

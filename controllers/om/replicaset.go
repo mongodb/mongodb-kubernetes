@@ -158,7 +158,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
-func (r ReplicaSet) addMember(process Process) {
+func (r ReplicaSet) addMember(process Process, id string) {
 	members := r.members()
 	lastIndex := -1
 	if len(members) > 0 {
@@ -166,7 +166,10 @@ func (r ReplicaSet) addMember(process Process) {
 	}
 
 	rsMember := ReplicaSetMember{}
-	rsMember["_id"] = lastIndex + 1
+	rsMember["_id"] = id
+	if id == "" {
+		rsMember["_id"] = lastIndex + 1
+	}
 	rsMember["host"] = process.Name()
 
 	// We always set this member to have vote (it will be set anyway on creation of deployment in OM), though this can

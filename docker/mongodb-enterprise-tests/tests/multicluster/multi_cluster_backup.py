@@ -132,7 +132,7 @@ def blockstore_user(
     blockstore_replica_set: MongoDB,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
     )
@@ -159,7 +159,7 @@ def oplog_user(
     oplog_replica_set: MongoDB,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user-backing-db.yaml"),
         namespace=namespace,
@@ -199,7 +199,7 @@ class TestOpsManagerCreation:
     """
 
     def test_setup_gp2_storage_class(self):
-        """ This is necessary for Backup HeadDB """
+        """This is necessary for Backup HeadDB"""
         KubernetesTester.make_default_gp2_storage_class()
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
@@ -235,7 +235,7 @@ class TestOpsManagerCreation:
         namespace,
         central_cluster_client: kubernetes.client.ApiClient,
     ):
-        """ Backup creates two additional services for queryable backup """
+        """Backup creates two additional services for queryable backup"""
         services = (
             client.CoreV1Api(api_client=central_cluster_client)
             .list_namespaced_service(namespace)
@@ -259,7 +259,7 @@ class TestBackupDatabasesAdded:
         oplog_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
-        """ Creates mongodb databases all at once """
+        """Creates mongodb databases all at once"""
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -267,7 +267,7 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
-        """ Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
+        """Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
