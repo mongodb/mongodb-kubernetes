@@ -1663,11 +1663,18 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: e2e_multi_cluster_replica_set_scale
+- name: e2e_multi_cluster_replica_set_scale_up
   tags: ["patch-run"]
   exec_timeout_secs: 2800
   commands:
-  - func: e2e_test
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set_scale_down
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 
 - name: e2e_multi_cluster_om_ops_manager_backup
   tags: ["patch-run"]
@@ -2074,7 +2081,8 @@ task_groups:
   tasks:
     - e2e_multi_cluster_replica_set
     - e2e_multi_cluster_replica_set_deletion
-    - e2e_multi_cluster_replica_set_scale
+    - e2e_multi_cluster_replica_set_scale_up
+    - e2e_multi_cluster_replica_set_scale_down
     - e2e_multi_cluster_mtls_test
     - e2e_multi_cluster_scram
     - e2e_multi_sts_override

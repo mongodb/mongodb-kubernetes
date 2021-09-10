@@ -123,7 +123,7 @@ run_tests() {
     test_pod_cluster="${operator_context}"
     if [[ "${kube_environment_name}" = "multi" ]]; then
         operator_context="${central_cluster}"
-        # shellcheck disable=SC2154
+        # shellcheck disable=SC2154,SC2269
         test_pod_cluster="${test_pod_cluster}"
     fi
 

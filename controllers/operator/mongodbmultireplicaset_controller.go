@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -39,7 +40,7 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -90,7 +91,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	// Fetch the MongoDBMulti instance
 	mrs := mdbmultiv1.MongoDBMulti{}
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, &mrs, log); err != nil {
-		if errors.IsNotFound(err) {
+		if apiErrors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
 		log.Errorf("error preparing resource for reconciliation: %s", err)
@@ -99,34 +100,121 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, log)
 	if err != nil {
-		log.Errorf("error reading project config and credentials: %s", err)
 		return r.updateStatus(&mrs, workflow.Failed("Error reading project config and credentials: %s", err), log)
 	}
 
 	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
 	if err != nil {
-		log.Errorf("error establishing connection to Ops Manager: %s", err)
-		return reconcile.Result{}, err
+		return r.updateStatus(&mrs, workflow.Failed("error establishing connection to Ops Manager: %s", err), log)
 	}
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
+	err = r.reconcileServices(log, mrs)
+	if err != nil {
+		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+	}
+
+	// create configmap with the hostnameoverride
+	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
+	if err != nil {
+		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+	}
+
+	needToPublishStateFirst, err := needToPublishStateFirstMultiCluster(&mrs, log)
+	if err != nil {
+		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+	}
+
+	status := workflow.RunInGivenOrder(needToPublishStateFirst,
+		func() workflow.Status {
+			if err := updateOmDeploymentRs(conn, mrs, log); err != nil {
+				return workflow.Failed(err.Error())
+			}
+			return workflow.OK()
+		},
+		func() workflow.Status {
+			err = r.reconcileStatefulSets(mrs, log, conn)
+			if err != nil {
+				return workflow.Failed(err.Error())
+			}
+			return workflow.OK()
+		})
+
+	if !status.IsOK() {
+		return r.updateStatus(&mrs, status, log)
+	}
+
+	desiredSpecList := mrs.Spec.GetOrderedClusterSpecList()
+	actualSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+	}
+
+	if err := r.saveLastAchievedSpec(mrs); err != nil {
+		return r.updateStatus(&mrs, workflow.Failed("Failed to set annotation: %s", err), log)
+	}
+
+	needToRequeue := !reflect.DeepEqual(desiredSpecList, actualSpecList)
+	if needToRequeue {
+		return r.updateStatus(&mrs, workflow.Pending("MongoDBMulti deployment is not yet ready, requeing reconciliation."), log)
+	}
+
+	log.Infof("Finished reconciliation for MultiReplicaSetSpec: %+v", mrs.Spec)
+	return r.updateStatus(&mrs, workflow.OK(), log)
+}
+
+// needToPublishStateFirstMultiCluster returns a boolean indicating whether or not Ops Manager
+// needs to be updated before the StatefulSets are created for this resource.
+func needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (bool, error) {
+	scalingDown, err := isScalingDown(mrs)
+	if err != nil {
+		return false, errors.New(fmt.Sprintf("failed determining if the resource is scaling down: %s", err))
+	}
+
+	if scalingDown {
+		log.Infof("Scaling down in progress, updating Ops Manager state first.")
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// isScalingDown returns true if the MongoDBMulti is attempting to scale down.
+func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
+	desiredSpec := mrs.Spec.GetOrderedClusterSpecList()
+	specThisReconciliation, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return false, err
+	}
+
+	// TODO: CLOUDP-99971 handle case where desiredSpec and specThisReconciliation are not the same size
+	for i := 0; i < len(desiredSpec); i++ {
+		specItem := desiredSpec[i]
+		reconciliationItem := specThisReconciliation[i]
+		if specItem.Members < reconciliationItem.Members {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection) error {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
-		return r.updateStatus(&mrs, workflow.Failed(fmt.Sprintf("Failed to read cluster spec list: %s", err)), log)
+		return errors.New(fmt.Sprintf("failed to read cluster spec list: %s", err))
 	}
 
 	for i, item := range clusterSpecList {
 		memberClient := r.memberClusterClientsMap[item.ClusterName]
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(&mrs, item)
 		if err != nil {
-			return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+			return err
 		}
 
 		// Ensure TLS for multi-cluster statefulset
 		if status := certs.EnsureSSLCertsForStatefulSet(memberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
-			log.Error("failed to ensure Statefulset for MDB Multi")
-			return r.updateStatus(&mrs, status, log)
+			return errors.New("failed to ensure Statefulset for MDB Multi")
 		}
 
 		// TODO: add multi cluster label to these secrets.
@@ -137,8 +225,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		)
 
 		if err != nil {
-			log.Errorf(err.Error())
-			return reconcile.Result{}, err
+			return err
 		}
 
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
@@ -146,50 +233,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
-			if !errors.IsAlreadyExists(err) {
-				log.Errorf("Failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
-				return reconcile.Result{}, err
+			if !apiErrors.IsAlreadyExists(err) {
+				return errors.New(fmt.Sprintf("failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err))
 			}
 		}
 		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
 	}
-
-	err = r.reconcileServices(log, mrs)
-	if err != nil {
-		log.Error(err)
-		return reconcile.Result{}, err
-	}
-
-	// create configmap with the hostnameoverride
-	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
-	if err != nil {
-		log.Error(err)
-		return reconcile.Result{}, err
-	}
-
-	if err := updateOmDeploymentRs(conn, mrs, log); err != nil {
-		log.Errorf(err.Error())
-		return reconcile.Result{}, err
-	}
-
-	desiredSpecList := mrs.Spec.GetOrderedClusterSpecList()
-	actualSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
-	}
-
-	if err := r.saveLastAchievedSpec(mrs); err != nil {
-		log.Errorf("Failed to set annotation: %s", err)
-		return reconcile.Result{}, err
-	}
-
-	needToRequeue := !reflect.DeepEqual(desiredSpecList, actualSpecList)
-	if needToRequeue {
-		return r.updateStatus(&mrs, workflow.Pending("MongoDBMulti deployment is not yet ready, requeing reconciliation."), log)
-	}
-
-	log.Infof("Finished reconciliation for MultiReplicaSetSpec: %v", mrs.Spec)
-	return r.updateStatus(&mrs, workflow.OK(), log)
+	return nil
 }
 
 // getMembersForClusterSpecItemThisReconciliation returns the value members should have for a given cluster spec item
@@ -326,7 +376,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 					svc := getService(mrs, clusterNum, podNum)
 					err := service.CreateOrUpdateService(v, svc)
 
-					if err != nil && !errors.IsAlreadyExists(err) {
+					if err != nil && !apiErrors.IsAlreadyExists(err) {
 						return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, k, err)
 					}
 					log.Infof("Successfully created service: %s in cluster: %s", svc.Name, k)
@@ -347,7 +397,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		for podNum := 0; podNum < e.Members; podNum++ {
 			svc := getService(mrs, clusterNum, podNum)
 			err := service.CreateOrUpdateService(client, svc)
-			if err != nil && !errors.IsAlreadyExists(err) {
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, e.ClusterName, err)
 			}
 			log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
@@ -390,7 +440,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 		cm := getHostnameOverrideConfigMap(mrs, i, e.Members)
 
 		err := configmap.CreateOrUpdate(client, cm)
-		if err != nil && !errors.IsAlreadyExists(err) {
+		if err != nil && !apiErrors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create configmap: %s in cluster: %s, err: %v", cm.Name, e.ClusterName, err)
 		}
 		log.Infof("Successfully ensured configmap: %s in cluster: %s", cm.Name, e.ClusterName)
@@ -529,7 +579,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(mrs mdbmultiv1.
 func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesClient.Client, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
 	var errs error
 
-	// cleanup resources in the namespace as the MongoDBMuliti with the corresponding label.
+	// cleanup resources in the namespace as the MongoDBMulti with the corresponding label.
 	cleanupOptions := mongodbMultiCleanUpOptions{
 		namesapce: mrs.Namespace,
 		labels: map[string]string{

@@ -230,6 +230,7 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 		return clusterSpecs, nil
 	}
 
+	// TODO: CLOUDP-99971 handle case spec lists are of different size. (currently panicks)
 	prevSpecs := prevSpec.GetOrderedClusterSpecList()
 	for i, item := range clusterSpecs {
 		prevItem := prevSpecs[i]

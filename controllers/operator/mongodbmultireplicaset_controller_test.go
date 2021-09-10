@@ -338,7 +338,7 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
-	// fetch the resource after reconciliation
+	//fetch the resource after reconciliation
 	err := client.Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.Name), mrs)
 	assert.NoError(t, err)
 
