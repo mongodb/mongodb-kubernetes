@@ -257,7 +257,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return AutomationConfigTester(config_json, **kwargs)
 
     def get_or_create_mongodb_connection_config_map(
-        self, mongodb_name: str, project_name: str, namespace=None
+        self,
+        mongodb_name: str,
+        project_name: str,
+        namespace=None,
+        api_client: Optional[client.ApiClient] = None,
     ) -> str:
         config_map_name = f"{mongodb_name}-config"
         data = {"baseUrl": self.om_status().get_url(), "projectName": project_name}

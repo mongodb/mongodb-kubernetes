@@ -2,7 +2,7 @@ from operator import attrgetter
 from typing import Optional, Dict, Callable
 
 from kubernetes import client
-from kubetester import get_default_storage_class
+from kubetester import create_configmap, get_default_storage_class
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
@@ -23,6 +23,15 @@ HEAD_PATH = "/head/"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
+
+
+def create_project_config_map(
+    om: MongoDBOpsManager, mdb_name, project_name, client
+) -> str:
+    name = f"{mdb_name}-config"
+    data = {"baseUrl": om.om_status().get_url(), "projectName": project_name}
+
+    create_configmap(om.namespace, name, data, client)
 
 
 def new_om_data_store(
@@ -74,7 +83,9 @@ def ops_manager(
     )
 
     resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
-    resource["spec"]["backup"]["members"] = 2
+    resource["spec"]["backup"]["members"] = 1
+    # remove s3 config
+    del resource["spec"]["backup"]["s3Stores"]
 
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
@@ -95,8 +106,17 @@ def oplog_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
-    ).configure(ops_manager, "development")
+    )
 
+    create_project_config_map(
+        om=ops_manager,
+        project_name="development",
+        mdb_name=OPLOG_RS_NAME,
+        client=central_cluster_client,
+    )
+
+    resource["spec"]["opsManager"]["configMapRef"]["name"] = "my-mongodb-oplog-config"
+    resource["spec"]["credentials"] = "ops-manager-om-backup-admin-key"
     resource["spec"]["version"] = custom_mdb_version
 
     resource["spec"]["security"] = {
@@ -118,10 +138,20 @@ def blockstore_replica_set(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
-    ).configure(ops_manager, "blockstore")
+    )
+
+    create_project_config_map(
+        om=ops_manager,
+        project_name="blockstore",
+        mdb_name=BLOCKSTORE_RS_NAME,
+        client=central_cluster_client,
+    )
 
     resource["spec"]["version"] = custom_mdb_version
-
+    resource["spec"]["opsManager"]["configMapRef"][
+        "name"
+    ] = "my-mongodb-blockstore-config"
+    resource["spec"]["credentials"] = "ops-manager-om-backup-admin-key"
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     yield resource.create()
 
@@ -141,12 +171,13 @@ def blockstore_user(
     print(
         f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
     )
-    KubernetesTester.create_secret(
+    create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {
             "password": USER_PASSWORD,
         },
+        api_client=central_cluster_client,
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -172,12 +203,13 @@ def oplog_user(
     print(
         f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
     )
-    KubernetesTester.create_secret(
+    create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {
             "password": USER_PASSWORD,
         },
+        api_client=central_cluster_client,
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -217,8 +249,8 @@ class TestOpsManagerCreation:
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset(central_cluster_client)
             return (
-                stateful_set.status.ready_replicas == 2
-                and stateful_set.status.current_replicas == 2
+                stateful_set.status.ready_replicas == 1
+                and stateful_set.status.current_replicas == 1
             )
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
