@@ -3,15 +3,12 @@ from typing import Dict
 
 import pytest
 from kubernetes import client
-from kubernetes.client.rest import ApiException
-from kubetester import read_secret, create_secret
+from kubetester import create_secret, read_secret
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    create_testing_namespace,
-)
-from kubetester.mongodb import Phase, MongoDB
+from kubetester.kubetester import create_testing_namespace
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import generic_replicaset, MongoDB, Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
@@ -36,6 +33,11 @@ def mdb_namespace(evergreen_task_id: str) -> str:
 
 
 @fixture(scope="module")
+def unmanaged_namespace(evergreen_task_id: str) -> str:
+    return create_testing_namespace(evergreen_task_id, "unmanaged-namespace")
+
+
+@fixture(scope="module")
 def ops_manager(ops_manager_namespace: str, custom_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=ops_manager_namespace
@@ -47,7 +49,7 @@ def ops_manager(ops_manager_namespace: str, custom_version: str) -> MongoDBOpsMa
 
 
 @fixture(scope="module")
-def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str):
+def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str) -> MongoDB:
     # we need to copy credentials secret - as the global api key secret exists in Operator namespace only
     data = read_secret(namespace, ops_manager.api_key_secret(namespace))
     # we are now copying the secret from operator to mdb_namespace and the api_key_secret should therefore check for mdb_namespace, later
@@ -65,9 +67,38 @@ def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str):
     )
 
 
+@fixture(scope="module")
+def unmanaged_mdb(ops_manager: MongoDBOpsManager, unmanaged_namespace: str) -> MongoDB:
+    rs = generic_replicaset(
+        unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager
+    ).create()
+
+    yield rs
+
+    rs.delete()
+
+
 @pytest.mark.e2e_operator_clusterwide
 def test_install_clusterwide_operator(operator_clusterwide: Operator):
     operator_clusterwide.assert_is_running()
+
+
+@pytest.mark.e2e_operator_multi_namespaces
+def test_install_multi_namespace_operator(
+    operator_installation_config: Dict[str, str],
+    ops_manager_namespace: str,
+    mdb_namespace: str,
+    namespace: str,
+):
+    """
+    Installs the operator in default namespace and watches over both OM and MDB
+    namespaces.
+    """
+
+    helm_args = operator_installation_config.copy()
+    helm_args["operator.watchNamespace"] = ops_manager_namespace + "," + mdb_namespace
+
+    Operator(namespace=namespace, helm_args=helm_args).install().assert_is_running()
 
 
 @pytest.mark.e2e_operator_clusterwide
@@ -88,6 +119,7 @@ def test_configure_ops_manager_namespace(
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_create_image_pull_secret_ops_manager_namespace(
     namespace: str,
     ops_manager_namespace: str,
@@ -118,6 +150,7 @@ def test_configure_mdb_namespace(
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_create_image_pull_secret_mdb_namespace(
     namespace: str, mdb_namespace: str, operator_installation_config: Dict[str, str]
 ):
@@ -129,6 +162,7 @@ def test_create_image_pull_secret_mdb_namespace(
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
     ops_manager.create_admin_secret()
     ops_manager.backup_status().assert_reaches_phase(
@@ -138,6 +172,7 @@ def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_check_k8s_resources(
     ops_manager: MongoDBOpsManager, ops_manager_namespace: str, namespace: str
 ):
@@ -157,6 +192,7 @@ def test_check_k8s_resources(
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_create_mdb_in_separate_namespace(mdb: MongoDB, mdb_namespace: str):
     mdb.assert_reaches_phase(Phase.Running, timeout=350)
     mdb.assert_connectivity()
@@ -164,6 +200,7 @@ def test_create_mdb_in_separate_namespace(mdb: MongoDB, mdb_namespace: str):
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_upgrade_mdb(mdb: MongoDB):
     mdb["spec"]["version"] = "4.2.2"
 
@@ -175,9 +212,22 @@ def test_upgrade_mdb(mdb: MongoDB):
 
 
 @pytest.mark.e2e_operator_clusterwide
+@pytest.mark.e2e_operator_multi_namespaces
 def test_delete_mdb(mdb: MongoDB):
     mdb.delete()
 
     time.sleep(10)
     with pytest.raises(client.rest.ApiException):
         mdb.read_statefulset()
+
+
+@pytest.mark.e2e_operator_multi_namespaces
+def test_resources_on_unmanaged_namespaces_stay_cold(unmanaged_mdb: MongoDB):
+    """
+    For an unmanaged resource, the status should not be updated!
+    """
+    for i in range(10):
+        time.sleep(5)
+
+        unmanaged_mdb.reload()
+        assert "status" not in unmanaged_mdb

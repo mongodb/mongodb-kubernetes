@@ -1,3 +1,4 @@
+apiVersion: v2
 name: mongodb-enterprise-operator
 description: MongoDB Kubernetes Enterprise Operator
 version: 1.12.0

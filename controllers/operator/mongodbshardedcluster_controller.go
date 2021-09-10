@@ -71,7 +71,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}

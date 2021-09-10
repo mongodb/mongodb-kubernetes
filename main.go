@@ -10,11 +10,13 @@ import (
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"go.uber.org/zap"
@@ -103,32 +105,31 @@ func main() {
 
 	initializeEnvironment()
 
-	// get watch namespace from environment variable
-	namespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
-
-	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
-	if !nsSpecified {
-		namespace = env.ReadOrPanic(util.CurrentNamespace)
-	}
-
-	// if namespace is set to the wildcard then use the empty string to represent all namespaces
-	if namespace == "*" {
-		log.Info("Watching all namespaces")
-		namespace = ""
-	}
-
-	// The case when the Operator is watching only a single namespace different from the current
-	if env.ReadOrPanic(util.CurrentNamespace) != namespace {
-		log.Infof("Watching namespace %s", namespace)
-	}
-
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:    scheme,
-		Namespace: namespace,
-	})
+	managerOptions := ctrl.Options{
+		Scheme: scheme,
+	}
+
+	// Namespace where the operator is installed
+	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
+
+	namespacesToWatch := operator.GetWatchedNamespace()
+	if len(namespacesToWatch) == 1 {
+		// This will be the name of 1 namespace to watch, or the empty string
+		// for an operator that watches the whole cluster
+		managerOptions.Namespace = namespacesToWatch[0]
+	} else {
+		if !stringutil.Contains(namespacesToWatch, currentNamespace) {
+			namespacesToWatch = append(namespacesToWatch, currentNamespace)
+		}
+		// In multi-namespace scenarios, the namespace where the Operator
+		// resides needs to be part of the Cache as well.
+		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
+	}
+
+	mgr, err := ctrl.NewManager(cfg, managerOptions)
 	if err != nil {
 		log.Fatal(err)
 	}

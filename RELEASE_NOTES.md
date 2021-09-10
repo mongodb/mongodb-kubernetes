@@ -7,6 +7,8 @@
   * The Operator no longer generates certificates for TLS resources.
 * When deploying to multiple namespaces, imagePullSecrets has to be created only in the namespace where the Operator is installed. From here, the Operator will be sync this secret across all watched namespaces.
 * The credentials secret used by the Operator now accepts the pair of fields `publicKey` and `privateKey`. These should be preferred to the existent `user` and `publicApiKey` when using Programmatic API Keys in Ops Manager.
+* The Operator can now watch over a list of Namespaces. To install the Operator in this mode, you need to set the value `operator.watchNamespace` to a comma-separated list of Namespaces.
+  The Helm install process will create Roles and Service Accounts required, in the Namespaces that the Operator will be watching.
 
 ## MongoDB Resource
 * Bug fixes

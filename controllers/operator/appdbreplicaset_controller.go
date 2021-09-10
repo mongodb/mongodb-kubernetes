@@ -613,14 +613,17 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsM
 
 // allAgentsReachedGoalState checks if all the AppDB Agents have reached the goal state.
 func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(manager omv1.MongoDBOpsManager, targetConfigVersion int, log *zap.SugaredLogger) workflow.Status {
-	appdbSize := manager.Spec.AppDB.Members
 	// We need to read the current StatefulSet to find the real number of pods - we cannot rely on OpsManager resource
 	set, err := r.client.GetStatefulSet(manager.AppDBStatefulSetObjectKey())
-	if err == nil {
-		appdbSize = int(set.Status.Replicas)
-	} else if !apiErrors.IsNotFound(err) {
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// If the StatefulSet could not be found, do not check agents during this reconcile.
+			return workflow.OK()
+		}
 		return workflow.Failed(err.Error())
 	}
+
+	appdbSize := int(set.Status.Replicas)
 	goalState, err := agent.AllReachedGoalState(set, r.client, appdbSize, targetConfigVersion, log)
 	if err != nil {
 		return workflow.Failed(err.Error())

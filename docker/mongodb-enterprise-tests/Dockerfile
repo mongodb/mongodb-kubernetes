@@ -27,7 +27,7 @@ RUN apt-get -qq update \
         libsasl2-dev \
         git
 
-ENV HELM_NAME "helm-v3.2.4-linux-amd64.tar.gz"
+ENV HELM_NAME "helm-v3.6.3-linux-amd64.tar.gz"
 # install Helm
 RUN curl --fail --retry 3 -L -o "${HELM_NAME}" "https://get.helm.sh/${HELM_NAME}" \
     && tar -xzf "${HELM_NAME}" \

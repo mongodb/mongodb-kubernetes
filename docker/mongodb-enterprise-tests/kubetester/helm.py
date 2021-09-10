@@ -1,8 +1,9 @@
+import logging
 import os
+import re
 import subprocess
 import uuid
-from typing import Dict, Optional, List, Tuple
-import logging
+from typing import Dict, List, Optional, Tuple
 
 
 def helm_template(
@@ -24,7 +25,7 @@ def helm_template(
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
     with open(yaml_file_name, "w") as output:
-        subprocess.run(args, stdout=output, check=True)
+        subprocess.run(" ".join(args), stdout=output, check=True, shell=True)
 
     return yaml_file_name
 
@@ -39,7 +40,9 @@ def helm_install(
     args = ("helm", "install", *(command_args), name, _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
-    process_check(subprocess.run(args, check=True, capture_output=True))
+    process_check(
+        subprocess.run(" ".join(args), check=True, capture_output=True, shell=True)
+    )
 
 
 def helm_install_from_chart(
@@ -101,19 +104,36 @@ def helm_upgrade(
     args = ("helm", "upgrade", *(command_args), name, _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
-    process_check(subprocess.run(args, check=True, capture_output=True))
+    process_check(
+        subprocess.run(" ".join(args), check=True, capture_output=True, shell=True)
+    )
 
 
 def helm_uninstall(name):
     args = ("helm", "uninstall", name)
     logging.info(args)
-    process_check(subprocess.run(args, check=True, capture_output=True))
+    process_check(
+        subprocess.run(" ".join(args), check=True, capture_output=True, shell=True)
+    )
 
 
-def _create_helm_args(helm_args, helm_options: Optional[List[str]] = None) -> List[str]:
+def _create_helm_args(
+    helm_args: Dict[str, str], helm_options: Optional[List[str]] = None
+) -> List[str]:
+
     command_args = []
     for (key, value) in helm_args.items():
         command_args.append("--set")
+
+        if "," in value:
+            if not re.match("^{.+}$", value):
+                # Commas in values, but no lists, should be escaped
+                value = value.replace(",", "\,")
+
+            # and when commas are present, we should quote "key=value"
+            key = '"' + key
+            value = value + '"'
+
         command_args.append("{}={}".format(key, value))
 
     if "useRunningOperator" in helm_args:
@@ -121,6 +141,7 @@ def _create_helm_args(helm_args, helm_options: Optional[List[str]] = None) -> Li
         command_args.append("--dry-run")
 
     command_args.append("--create-namespace")
+    command_args.append("--debug")
 
     if helm_options:
         command_args.extend(helm_options)

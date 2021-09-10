@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
@@ -341,18 +340,6 @@ func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string)
 			WithRetry(3)
 	}
 	return workflow.OK()
-}
-
-func getWatchedNamespace() string {
-	// get watch namespace from environment variable
-	namespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
-
-	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
-	if !nsSpecified {
-		// the current namespace is expected to be always specified as main.go performs the hard check of this
-		namespace = env.ReadOrDefault(util.CurrentNamespace, "")
-	}
-	return namespace
 }
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource

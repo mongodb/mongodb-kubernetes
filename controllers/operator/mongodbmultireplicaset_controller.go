@@ -83,7 +83,7 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	// TODO: uncomment this after CLOUDP-96054 is resolved
-	// agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+	// agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")

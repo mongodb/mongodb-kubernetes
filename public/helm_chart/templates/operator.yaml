@@ -62,7 +62,7 @@ spec:
         - name: OPERATOR_ENV
           value: {{ .Values.operator.env }}
         - name: WATCH_NAMESPACE
-{{- if .Values.operator.watchNamespace}}
+{{- if .Values.operator.watchNamespace }}
           value: "{{ .Values.operator.watchNamespace }}"
 {{- else }}
           valueFrom:

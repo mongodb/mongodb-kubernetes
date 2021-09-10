@@ -109,7 +109,7 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, getWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}

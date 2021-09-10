@@ -27,7 +27,9 @@ elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
         fatal "Could not communicate with Kind cluster"
     fi
 else
-    fatal "CLUSTER_TYPE=${CLUSTER_TYPE} not recognized"
+    if ! kubectl get nodes &> /dev/null; then
+        fatal "Could not communicate with ${CLUSTER_TYPE} cluster"
+    fi
 fi
 
 # making sure the namespace is created

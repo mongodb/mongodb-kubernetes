@@ -2,10 +2,10 @@ import random
 import string
 import time
 from base64 import b64decode
-from typing import Dict, Optional, List, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
+import kubernetes.client
 from kubernetes import client, utils
-from kubernetes.client.rest import ApiException
 
 from kubetester.kubetester import run_periodically
 
@@ -16,8 +16,6 @@ from .security_context import (
     assert_pod_container_security_context,
     assert_pod_security_context,
 )
-
-import kubernetes.client
 
 
 def create_secret(
@@ -138,6 +136,11 @@ def delete_secret(namespace: str, name: str):
 
 def delete_pod(namespace: str, name: str):
     client.CoreV1Api().delete_namespaced_pod(name, namespace)
+
+
+def delete_namespace(name: str):
+    c = client.CoreV1Api()
+    c.delete_namespace(name, body=c.V1DeleteOptions())
 
 
 def delete_deployment(namespace: str, name: str):

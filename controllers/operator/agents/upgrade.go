@@ -38,7 +38,7 @@ func init() {
 // for all existing MongoDB resources before proceeding. This could be a critical thing when the major version OM upgrade
 // happens and all existing MongoDBs are required to get agents upgraded (otherwise the "You need to upgrade the
 // automation agent before publishing other changes" error happens for automation config pushes from the Operator)
-func UpgradeAllIfNeeded(client kubernetesClient.Client, omConnectionFactory om.ConnectionFactory, watchNamespace string) {
+func UpgradeAllIfNeeded(client kubernetesClient.Client, omConnectionFactory om.ConnectionFactory, watchNamespace []string) {
 	mux.Lock()
 	defer mux.Unlock()
 
@@ -47,6 +47,7 @@ func UpgradeAllIfNeeded(client kubernetesClient.Client, omConnectionFactory om.C
 	}
 	log := zap.S()
 	log.Info("Performing a regular upgrade of Agents for all the MongoDB resources in the cluster...")
+
 	allMDBs, err := readAllMongoDBs(client, watchNamespace)
 	if err != nil {
 		log.Errorf("Failed to read MongoDB resources to ensure Agents have the latest version: %s", err)
@@ -57,6 +58,7 @@ func UpgradeAllIfNeeded(client kubernetesClient.Client, omConnectionFactory om.C
 	if err != nil {
 		log.Errorf("Failed to perform upgrade of Agents: %s", err)
 	}
+
 	log.Info("The upgrade of Agents for all the MongoDB resources in the cluster is finished.")
 
 	nextScheduledTime = nextScheduledTime.Add(pause)
@@ -100,11 +102,16 @@ func doUpgrade(cl kubernetesClient.Client, factory om.ConnectionFactory, mdbs []
 	return nil
 }
 
-func readAllMongoDBs(cl client.Client, watchNamespace string) ([]mdbv1.MongoDB, error) {
+// readAllMongoDBs returns a list of all the MongoDB resources found in the
+// `watchNamespace` list.
+//
+// If the `watchNamespace` contains only the "" string, the MongoDB resources
+// will be searched in every Namespace of the cluster.
+func readAllMongoDBs(cl client.Client, watchNamespace []string) ([]mdbv1.MongoDB, error) {
 	var namespaces []string
 
-	// 1. Read all namespaces to traverse. This will be a single namespace in case of a namespaced Operator
-	if watchNamespace == "*" {
+	// 1. Find which Namespaces to look for MongoDB resources
+	if len(watchNamespace) == 1 && watchNamespace[0] == "" {
 		namespaceList := corev1.NamespaceList{}
 		if err := cl.List(context.TODO(), &namespaceList); err != nil {
 			return []mdbv1.MongoDB{}, err
@@ -113,7 +120,7 @@ func readAllMongoDBs(cl client.Client, watchNamespace string) ([]mdbv1.MongoDB, 
 			namespaces = append(namespaces, item.Name)
 		}
 	} else {
-		namespaces = append(namespaces, watchNamespace)
+		namespaces = watchNamespace
 	}
 
 	mdbs := []mdbv1.MongoDB{}
