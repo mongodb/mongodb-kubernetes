@@ -41,7 +41,7 @@ type Options struct {
 func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
+		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
 		Namespace:                    mdb.Namespace,
 		ServiceName:                  mdb.ServiceName(),
 		Replicas:                     1,
@@ -54,7 +54,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
+		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(&mdb),
 		ServiceName:                  mdb.ServiceName(),
@@ -68,7 +68,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ShardRsName(shardNum),
-		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.ShardRsName(shardNum)),
+		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.ShardRsName(shardNum)),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ShardServiceName(),
@@ -81,7 +81,7 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int) Options {
 	return Options{
 		ResourceName:   mdbm.MultiStatefulsetName(clusterNum),
-		CertSecretName: getCertNameWithPrefixOrDefault(*mdbm.Spec.GetSecurity(), mdbm.Name),
+		CertSecretName: GetCertNameWithPrefixOrDefault(*mdbm.Spec.GetSecurity(), mdbm.Name),
 		Namespace:      mdbm.Namespace,
 		Replicas:       replicas,
 		ClusterDomain:  mdbm.Spec.GetClusterDomain(),
@@ -93,7 +93,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int)
 func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.MongosRsName(),
-		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.MongosRsName()),
+		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.MongosRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ServiceName(),
@@ -106,7 +106,7 @@ func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ConfigRsName(),
-		CertSecretName:               getCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.ConfigRsName()),
+		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.ConfigRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ConfigSrvServiceName(),
@@ -116,9 +116,9 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	}
 }
 
-// getCertNameWithPrefixOrDefault returns the name of the cert that will store certificates for the given resource.
+// GetCertNameWithPrefixOrDefault returns the name of the cert that will store certificates for the given resource.
 // this takes into account the tlsConfig.prefix option.
-func getCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
+func GetCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
 	tlsConfig := ms.TLSConfig
 	if tlsConfig != nil {
 		// use old behaviour if name is specified

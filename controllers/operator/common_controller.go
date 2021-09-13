@@ -10,6 +10,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
@@ -19,7 +20,6 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"crypto/x509"
@@ -31,6 +31,7 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -71,13 +72,16 @@ type ReconcileCommonController struct {
 	// that reads objects from the cache and writes to the apiserver
 	client kubernetesClient.Client
 	scheme *runtime.Scheme
+
+	watch.ResourceWatcher
 }
 
 func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(mgr.GetClient())
 	return &ReconcileCommonController{
-		client: newClient,
-		scheme: mgr.GetScheme(),
+		client:          newClient,
+		scheme:          mgr.GetScheme(),
+		ResourceWatcher: watch.NewResourceWatcher(),
 	}
 }
 

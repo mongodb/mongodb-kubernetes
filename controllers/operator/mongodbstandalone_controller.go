@@ -308,7 +308,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 		return err
 	}
 
-	r.RemoveMongodbWatchedResources(s.ObjectKey())
+	r.RemoveDependentWatchedResources(s.ObjectKey())
 
 	log.Info("Removed standalone from Ops Manager!")
 	return nil

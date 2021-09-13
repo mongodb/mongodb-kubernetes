@@ -1,7 +1,7 @@
 import pytest
 from pytest import fixture
 
-from kubetester import MongoDB
+from kubetester import MongoDB, delete_secret
 from kubetester.kubetester import (
     KubernetesTester,
     skip_if_local,
@@ -147,3 +147,15 @@ def test_replica_set_is_not_reachable_over_ssl_with_ssl_disabled(
 ):
     tester = tls_replica_set.tester(use_ssl=True)
     tester.assert_no_connection()
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+@pytest.mark.xfail(
+    reason="Changing the TLS secret should not cause reconciliations after TLS is disabled"
+)
+def test_changes_to_secret_do_not_cause_reconciliation(
+    tls_replica_set: MongoDB, namespace: str
+):
+
+    delete_secret(namespace, f"{MDB_RESOURCE_NAME}-cert")
+    tls_replica_set.assert_abandons_phase(Phase.Running, timeout=60)

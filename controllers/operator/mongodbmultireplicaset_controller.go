@@ -56,7 +56,6 @@ const (
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
 type ReconcileMongoDbMultiReplicaSet struct {
 	*ReconcileCommonController
-	watch.ResourceWatcher
 	omConnectionFactory     om.ConnectionFactory
 	memberClusterClientsMap map[string]kubernetesClient.Client // holds the client for each of the memberclusters(where the MongoDB ReplicaSet is deployed)
 }
@@ -73,7 +72,6 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 
 	return &ReconcileMongoDbMultiReplicaSet{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		omConnectionFactory:       omFunc,
 		memberClusterClientsMap:   clientsMap,
 	}
@@ -611,7 +609,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesCli
 		log.Infof("Removed Secrets associated with %s/%s", mrs.Namespace, mrs.Name)
 	}
 
-	r.RemoveMongodbWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
+	r.RemoveDependentWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
 
 	return errs
 }

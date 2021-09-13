@@ -81,6 +81,88 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	assert.NotContains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
 }
 
+//TestOMTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
+//map that allows to watch them for changes
+func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: false,
+	}).SetAppDBTLSConfig(mdbv1.TLSConfig{
+		Enabled: true,
+		CA:      "custom-ca-appdb",
+		SecretRef: mdbv1.TLSSecretRef{
+			Name: "om-appdb-tls-secret",
+		},
+	}).SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+		SecretRef: omv1.TLSSecretRef{
+			Name: "om-tls-secret",
+		},
+		CA: "custom-ca",
+	}).Build()
+
+	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
+
+	appDBCAKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "custom-ca-appdb",
+		},
+	}
+	omCAKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "custom-ca",
+		},
+	}
+	appdbTLSSecretKey := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "om-tls-secret",
+		},
+	}
+	omTLSSecretKey := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "om-tls-secret",
+		},
+	}
+
+	assert.Contains(t, reconciler.WatchedResources, appDBCAKey)
+	assert.Contains(t, reconciler.WatchedResources, omCAKey)
+	assert.Contains(t, reconciler.WatchedResources, appdbTLSSecretKey)
+	assert.Contains(t, reconciler.WatchedResources, omTLSSecretKey)
+
+	testOm.Spec.Security.TLS.SecretRef.Name = ""
+
+	err := client.Update(context.TODO(), &testOm)
+	assert.NoError(t, err)
+
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.Equal(t, reconcile.Result{}, res)
+	assert.NoError(t, err)
+
+	assert.NotContains(t, reconciler.WatchedResources, omTLSSecretKey)
+	assert.NotContains(t, reconciler.WatchedResources, omCAKey)
+
+	testOm.Spec.AppDB.Security.TLSConfig.Enabled = false
+	testOm.Spec.AppDB.Security.TLSConfig.SecretRef.Name = ""
+
+	err = client.Update(context.TODO(), &testOm)
+	assert.NoError(t, err)
+
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.Equal(t, reconcile.Result{}, res)
+	assert.NoError(t, err)
+
+	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
+	assert.NotContains(t, reconciler.WatchedResources, appdbTLSSecretKey)
+
+}
+
 func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	resourceName := "oplog1"
 	testOm := DefaultOpsManagerBuilder().Build()

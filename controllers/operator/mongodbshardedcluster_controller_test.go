@@ -757,6 +757,63 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
+//TestShardedClusterTLSResourcesWatched verifies that TLS config map and secret are added to the internal
+//map that allows to watch them for changes
+func TestShardedClusterTLSResourcesWatched(t *testing.T) {
+	sc := DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
+
+	reconciler, client := defaultClusterReconciler(sc)
+
+	addKubernetesTlsResources(client, sc)
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	shard_secret := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: sc.Namespace,
+			Name:      sc.Name + "-0-cert",
+		},
+	}
+	config_secret := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: sc.Namespace,
+			Name:      sc.Name + "-config-cert",
+		},
+	}
+	mongos_secret := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: sc.Namespace,
+			Name:      sc.Name + "-mongos-cert",
+		},
+	}
+	caKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Namespace: sc.Namespace,
+			Name:      "custom-ca",
+		},
+	}
+	assert.Contains(t, reconciler.WatchedResources, shard_secret)
+	assert.Contains(t, reconciler.WatchedResources, config_secret)
+	assert.Contains(t, reconciler.WatchedResources, mongos_secret)
+	assert.Contains(t, reconciler.WatchedResources, caKey)
+
+	sc.Spec.Security.TLSConfig.Enabled = false
+	err := client.Update(context.TODO(), sc)
+	assert.NoError(t, err)
+
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
+	assert.Equal(t, reconcile.Result{}, res)
+	assert.NoError(t, err)
+	assert.NotContains(t, reconciler.WatchedResources, shard_secret)
+	assert.NotContains(t, reconciler.WatchedResources, config_secret)
+	assert.NotContains(t, reconciler.WatchedResources, mongos_secret)
+	assert.NotContains(t, reconciler.WatchedResources, caKey)
+
+}
+
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	sc := mdbv1.NewClusterBuilder().
 		SetNamespace(mock.TestNamespace).
@@ -959,7 +1016,6 @@ func newShardedClusterReconcilerFromResource(sc mdbv1.MongoDB, omFunc om.Connect
 	mgr := mock.NewManager(&sc)
 	r := &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		omConnectionFactory:       omFunc,
 	}
 	r.initCountsForThisReconciliation(sc)

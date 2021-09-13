@@ -164,6 +164,9 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	}
 	return ""
 }
+func (m MongoDBOpsManager) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(m.Namespace, m.Name)
+}
 
 func (m MongoDBOpsManager) AppDBStatefulSetObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Spec.AppDB.Name())
@@ -537,15 +540,26 @@ func (m *MongoDBOpsManager) APIKeySecretName(client secret.Getter) (string, erro
 	return oldAPISecretName, nil
 }
 
+func (m *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
+	if m.Spec.Security == nil {
+		return MongoDBOpsManagerSecurity{}
+	}
+	return *m.Spec.Security
+}
+
 func (m *MongoDBOpsManager) BackupStatefulSetName() string {
 	return fmt.Sprintf("%s-backup-daemon", m.GetName())
 }
 
 func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
-	if m.Spec.Security != nil && m.Spec.Security.TLS.SecretRef.Name != "" {
+	if m.IsTLSEnabled() {
 		return SchemePortFromAnnotation("https")
 	}
 	return SchemePortFromAnnotation("http")
+}
+
+func (m MongoDBOpsManager) IsTLSEnabled() bool {
+	return m.Spec.Security != nil && m.Spec.Security.TLS.SecretRef.Name != ""
 }
 
 func (m MongoDBOpsManager) CentralURL() string {

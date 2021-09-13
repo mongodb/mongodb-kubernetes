@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -63,7 +64,6 @@ const (
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
-	watch.ResourceWatcher
 	omInitializer          api.Initializer
 	omAdminProvider        api.AdminProvider
 	omConnectionFactory    om.ConnectionFactory
@@ -80,7 +80,6 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 		omConnectionFactory:       omFunc,
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		versionMappingProvider:    versionMappingProvider,
 		oldestSupportedVersion:    semver.MustParse(oldestSupportedOpsManagerVersion),
 		programmaticKeyVersion:    semver.MustParse(programmaticKeyVersion),
@@ -113,6 +112,8 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
 
+	r.RemoveDependentWatchedResources(opsManager.ObjectKey())
+	r.RemoveDependentWatchedResources(opsManager.AppDBStatefulSetObjectKey())
 	// We perform this check here and not inside the validation because we don't want to put OM in failed state
 	// just log the error and put in the "Unsupported" state
 	semverVersion, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
@@ -142,6 +143,16 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed("Error ensuring Ops Manager user password: %s", err), log, opsManagerExtraStatusParams)
+	}
+
+	if opsManager.IsTLSEnabled() {
+		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetSecurity().TLS.CA, []string{opsManager.GetSecurity().TLS.SecretRef.Name})
+	}
+
+	// Make sure we watch the AppDB TLS secret
+	rs := opsManager.Spec.AppDB
+	if rs.GetSecurity().IsTLSEnabled() {
+		r.RegisterWatchedTLSResources(opsManager.AppDBStatefulSetObjectKey(), rs.GetTLSConfig().CA, []string{certs.GetCertNameWithPrefixOrDefault(*rs.GetSecurity(), rs.Name())})
 	}
 
 	// 1. Reconcile AppDB
@@ -623,6 +634,12 @@ func AddOpsManagerController(mgr manager.Manager) error {
 	// watch the secret with the Ops Manager user password
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}

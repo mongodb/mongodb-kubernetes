@@ -24,9 +24,22 @@ func (r *ResourceWatcher) RegisterWatchedMongodbResources(mongodbResourceNsName 
 	r.AddWatchedResourceIfNotAdded(secret, defaultNamespace, Secret, mongodbResourceNsName)
 }
 
-// RemoveMongodbWatchedResources stops watching mongodb related resources
-func (r *ResourceWatcher) RemoveMongodbWatchedResources(mongodbResourceNsName types.NamespacedName) {
-	r.RemoveAllDependentWatchedResources(mongodbResourceNsName.Namespace, mongodbResourceNsName)
+// RegisterWatchedTLSResources adds the CA configMap and a slice of TLS secrets to the list of watched resources.
+func (r *ResourceWatcher) RegisterWatchedTLSResources(mongodbResourceNsName types.NamespacedName, caConfigMap string, tlsSecrets []string) {
+	defaultNamespace := mongodbResourceNsName.Namespace
+
+	if caConfigMap != "" {
+		r.AddWatchedResourceIfNotAdded(caConfigMap, defaultNamespace, ConfigMap, mongodbResourceNsName)
+	}
+
+	for _, tlsSecret := range tlsSecrets {
+		r.AddWatchedResourceIfNotAdded(tlsSecret, defaultNamespace, Secret, mongodbResourceNsName)
+	}
+}
+
+// RemoveDependentWatchedResources stops watching resources related to the input resource
+func (r *ResourceWatcher) RemoveDependentWatchedResources(resourceNsName types.NamespacedName) {
+	r.RemoveAllDependentWatchedResources(resourceNsName.Namespace, resourceNsName)
 }
 
 // AddWatchedResourceIfNotAdded adds the given resource to the list of watched

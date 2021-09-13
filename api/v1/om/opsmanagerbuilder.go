@@ -48,6 +48,15 @@ func (b *OpsManagerBuilder) SetAppDBTLSConfig(config mdbv1.TLSConfig) *OpsManage
 	return b
 }
 
+func (b *OpsManagerBuilder) SetTLSConfig(config MongoDBOpsManagerTLS) *OpsManagerBuilder {
+	if b.om.Spec.Security == nil {
+		b.om.Spec.Security = &MongoDBOpsManagerSecurity{}
+	}
+
+	b.om.Spec.Security.TLS = config
+	return b
+}
+
 func (b *OpsManagerBuilder) AddS3Config(s3ConfigName, credentialsName string) *OpsManagerBuilder {
 	if b.om.Spec.Backup == nil {
 		b.om.Spec.Backup = &MongoDBOpsManagerBackup{Enabled: true}

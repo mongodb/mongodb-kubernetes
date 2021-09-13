@@ -466,6 +466,36 @@ func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
+//TestTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
+//map that allows to watch them for changes
+func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	addKubernetesTlsResources(client, rs)
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "custom-ca")}:                   {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.GetName()+"-cert")}:             {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+	}
+
+	assert.Equal(t, reconciler.WatchedResources, expected)
+
+	rs.Spec.Security.TLSConfig.Enabled = false
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	expected = map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+	}
+
+	assert.Equal(t, reconciler.WatchedResources, expected)
+}
+
 func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().
 		SetNamespace(mock.TestNamespace).

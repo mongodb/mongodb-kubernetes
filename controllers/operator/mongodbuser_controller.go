@@ -38,14 +38,12 @@ const (
 
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
-	watch.ResourceWatcher
 	omConnectionFactory om.ConnectionFactory
 }
 
 func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *MongoDBUserReconciler {
 	return &MongoDBUserReconciler{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		omConnectionFactory:       omFunc,
 	}
 }

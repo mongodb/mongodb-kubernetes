@@ -55,7 +55,6 @@ import (
 // ReconcileMongoDbShardedCluster
 type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
-	watch.ResourceWatcher
 	configSrvScaler       shardedClusterScaler
 	mongosScaler          shardedClusterScaler
 	mongodsPerShardScaler shardedClusterScaler
@@ -65,7 +64,6 @@ type ReconcileMongoDbShardedCluster struct {
 func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		omConnectionFactory:       omFunc,
 	}
 }
@@ -162,7 +160,23 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return nil, status
 	}
+
+	r.RemoveDependentWatchedResources(sc.ObjectKey())
 	r.RegisterWatchedMongodbResources(sc.ObjectKey(), sc.Spec.GetProject(), sc.Spec.Credentials)
+
+	// In case of Sharded Cluster we have to watch a bunch of different secrets
+	if sc.GetSecurity().IsTLSEnabled() {
+		secretNames := []string{}
+		secretNames = append(secretNames,
+			certs.GetCertNameWithPrefixOrDefault(*sc.GetSecurity(), sc.MongosRsName()),
+			certs.GetCertNameWithPrefixOrDefault(*sc.GetSecurity(), sc.ConfigRsName()),
+		)
+
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			secretNames = append(secretNames, certs.GetCertNameWithPrefixOrDefault(*sc.GetSecurity(), sc.ShardRsName(i)))
+		}
+		r.RegisterWatchedTLSResources(sc.ObjectKey(), sc.Spec.GetTLSConfig().CA, secretNames)
+	}
 
 	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
 	if !reconcileResult.IsOK() {
@@ -421,7 +435,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 		return err
 	}
 
-	r.RemoveMongodbWatchedResources(sc.ObjectKey())
+	r.RemoveDependentWatchedResources(sc.ObjectKey())
 
 	log.Info("Removed sharded cluster from Ops Manager!")
 

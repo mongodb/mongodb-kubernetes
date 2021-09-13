@@ -47,7 +47,6 @@ import (
 // ReconcileMongoDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileMongoDbReplicaSet struct {
 	*ReconcileCommonController
-	watch.ResourceWatcher
 	omConnectionFactory om.ConnectionFactory
 }
 
@@ -56,7 +55,6 @@ var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
 func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		omConnectionFactory:       omFunc,
 	}
 }
@@ -114,7 +112,16 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
+	// We remove all watched resources
+	r.RemoveDependentWatchedResources(rs.ObjectKey())
+
+	// And then add the ones we care about
 	r.RegisterWatchedMongodbResources(rs.ObjectKey(), rs.Spec.GetProject(), rs.Spec.Credentials)
+
+	// And TLS if needed
+	if rs.GetSecurity().IsTLSEnabled() {
+		r.RegisterWatchedTLSResources(rs.ObjectKey(), rs.Spec.GetTLSConfig().CA, []string{certs.GetCertNameWithPrefixOrDefault(*rs.Spec.Security, rs.Name)})
+	}
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
 	if !reconcileResult.IsOK() {
@@ -394,7 +401,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 		return err
 	}
 
-	r.RemoveMongodbWatchedResources(rs.ObjectKey())
+	r.RemoveDependentWatchedResources(rs.ObjectKey())
 
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
