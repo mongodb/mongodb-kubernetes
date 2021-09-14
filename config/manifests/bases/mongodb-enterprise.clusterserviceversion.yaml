@@ -7,7 +7,9 @@ metadata:
     categories: Database
     certified: "true"
     createdAt: ""
-    description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB into Kubernetes clusters, using our management, monitoring and backup platforms, Ops Manager and Cloud Manager.
+    description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
+      MongoDB into Kubernetes clusters, using our management, monitoring and backup
+      platforms, Ops Manager and Cloud Manager.
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
     support: support@mongodb.com
   name: mongodb-enterprise.v0.0.0
@@ -52,7 +54,10 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfig
         - urn:alm:descriptor:io.kubernetes:Secret
-      - description: Project configuration for this deployment. This allows you to
+      - description: Project configuration for this deployment
+        displayName: Ops Manager project configuration
+        path: opsManager
+      - description: Name of the ConfigMap with the configuration for this project
         displayName: Ops Manager Project Configuration
         path: opsManager.configMapRef.name
         x-descriptors:
@@ -98,6 +103,18 @@ spec:
         - urn:alm:descriptor:com.tectonic.ui:select:X509
         - urn:alm:descriptor:com.tectonic.ui:select:SCRAM
         - urn:alm:descriptor:com.tectonic.ui:select:LDAP
+      - description: Number of Config Servers in Replica
+        displayName: Number of Config Servers
+        path: configServerCount
+      - description: Number of Shards in a Sharded Cluster
+        displayName: Number of Shards
+        path: shardCount
+      - description: Number of MongoDB Servers per Shard
+        displayName: Number of MongoDB Servers
+        path: mongodsPerShardCount
+      - description: Number of Mongo routers, in total, for the whole cluster
+        displayName: Number of Mongos
+        path: mongosCount
       statusDescriptors:
       - description: |
           Phase the MongoDB Deployment is currently on. It can be any of Running, Pending, Failed.
@@ -152,6 +169,17 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:text
         - urn:alm:descriptor:com.tectonic.ui:arrayFieldGroup:Roles
+      - description: MongoDB resource this user belongs to
+        displayName: MongoDB resource
+        path: mongodbResourceRef
+      - description: Roles this user will have
+        displayName: MongoDB roles
+        path: roles
+      statusDescriptors:
+      - description: |
+          The current state of the MongoDB User
+        displayName: State
+        path: phase
       version: v1
     - description: MongoDB Ops Manager
       displayName: MongoDB Ops Manager
@@ -173,7 +201,7 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration
-      - displayName: The number of Ops Manager instances.
+      - displayName: Number of Ops Manager instances.
         path: replicas
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
@@ -183,7 +211,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfiguration
-      - displayName: Secret to enable TLS for Ops Manager allowing it to serve traffic over HTTPS.
+      - displayName: Secret to enable TLS for Ops Manager allowing it to serve traffic
+          over HTTPS.
         path: security.tls.secretRef.name
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
@@ -193,7 +222,8 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ApplicationDatabase
-      - displayName: Secret containing the TLS certificate signed by known or custom CA.
+      - displayName: Secret containing the TLS certificate signed by known or custom
+          CA.
         path: applicationDatabase.security.tls.secretRef.name
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes:Secret
@@ -208,6 +238,23 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:BackupInfrastructure
+      - description: Application Database configuration
+        displayName: Application Database
+        path: applicationDatabase
+      - description: configuration
+        displayName: configuration
+        path: configuration
+      - description: Configures external connectivity
+        displayName: External Connectivity
+        path: externalConnectivity
+      statusDescriptors:
+      - description: |
+          The current state of the MongoDBOpsManager.
+        displayName: Phase
+        path: opsManager.phase
+      - description: Type of deployment
+        displayName: Type
+        path: type
       version: v1
   description: |
     The MongoDB Enterprise Kubernetes Operator enables easy deploys of MongoDB

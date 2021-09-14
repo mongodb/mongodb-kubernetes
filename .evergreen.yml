@@ -560,6 +560,17 @@ functions:
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       command: scripts/evergreen/operator-sdk/run-bundle.sh
 
+  operator-sdk-scorecard-test:
+  - command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      env:
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+      command: scripts/evergreen/operator-sdk/scorecard-test.sh
+
 tasks:
 - name: unit_tests
   tags: ["unit_tests"]
@@ -578,6 +589,14 @@ tasks:
   - func: download_kube_tools
   - func: operator-sdk-make-bundle
   - func: operator-sdk-run-bundle
+
+- name: operator-sdk-scorecard-test
+  tags: ["patch-run"]
+  commands:
+  - func: clone
+  - func: download_kube_tools
+  - func: operator-sdk-make-bundle
+  - func: operator-sdk-scorecard-test
 
 - name: release_blocker
   git_tag_only: true
@@ -2638,11 +2657,8 @@ buildvariants:
   expansions:
     <<: [ *kubernetes_environment_kind ]
   tasks:
-  # CLOUDP-84081
   - name: operator-sdk-run-bundle
-
-  # CLOUDP-84082
-  # - name: operator-sdk-run-scorecard
+  - name: operator-sdk-scorecard-test
 
 ### Build variants for manual patch only
 
