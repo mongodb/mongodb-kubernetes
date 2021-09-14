@@ -14,6 +14,16 @@
 ## MongoDB Resource
 * Breaking Changes:
   * The field `spec.project` has been removed from MongoDB spec, this field has been deprecated since operator version `1.3.0`. Make sure to specify the project configmap name under `spec.opsManager.configMapRef.name` or ``spec.cloudManager.configMapRef.name`` before upgrading the operator.
+* Changes:
+  * A new field has been added: `spec.security.certsSecretPrefix`. This string is now used to determine the name of the secrets containing various TLS certificates:
+    * For TLS member certificates, the secret name is `<spec.security.certsSecretPrefix>-<resource-name>-cert`
+      * Note: If either `spec.security.tls.secretRef.name` or `spec.security.tls.secretRef.prefix` are specified, these will take precedence over the new field
+      * Note: if none of these three fields are specified, the secret name is `<resource-name>-cert`
+    * For agent certificates, if `spec.security.certsSecretPrefix` is specified, the secret name is`<spec.security.certsSecretPrefix>-<resource-name>-agent-certs`
+      * Note: if `spec.authentication.agents.clientCertificateSecretRef` is specified, this will take precedence over the new field
+      * If none of these fields are set, the secret name is still `agent-certs`
+    * For internal cluster authentication certificates, if `spec.security.certsSecretPrefix` is specified, the secret name is `<spec.security.certsSecretPrefix>-<resource-name>-clusterfile`
+      * Otherwise, it is still `<resource-name>-clusterfile`
 * Bug fixes
   * Fixes an issue where Sharded Cluster backups could not be correctly configured using the MongoDB CR.
 

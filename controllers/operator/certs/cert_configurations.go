@@ -54,7 +54,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
+		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.Name),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(&mdb),
 		ServiceName:                  mdb.ServiceName(),
@@ -81,7 +81,7 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int) Options {
 	return Options{
 		ResourceName:   mdbm.MultiStatefulsetName(clusterNum),
-		CertSecretName: GetCertNameWithPrefixOrDefault(*mdbm.Spec.GetSecurity(), mdbm.Name),
+		CertSecretName: mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
 		Namespace:      mdbm.Namespace,
 		Replicas:       replicas,
 		ClusterDomain:  mdbm.Spec.GetClusterDomain(),

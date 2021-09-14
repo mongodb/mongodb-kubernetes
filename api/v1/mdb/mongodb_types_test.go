@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -159,4 +160,51 @@ func TestMongoDB_AddWarningIfNotExists(t *testing.T) {
 	resource.AddWarningIfNotExists("my test warning")
 	resource.AddWarningIfNotExists("my other test warning")
 	assert.Equal(t, []status.Warning{"my test warning;", "my other test warning"}, resource.Status.Warnings)
+}
+
+func TestMemberCertificateSecretName(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
+
+	// If nothing is specified, we return <name>-cert
+	assert.Equal(t, fmt.Sprintf("%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
+
+	// If the top-level prefix is specified, we use it
+	rs.Spec.Security.CertificatesSecretsPrefix = "top-level-prefix"
+	assert.Equal(t, fmt.Sprintf("top-level-prefix-%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
+
+	// If the nested prefix is specified, we use it
+	rs.Spec.Security.TLSConfig.SecretRef.Prefix = "nested-prefix"
+	assert.Equal(t, fmt.Sprintf("nested-prefix-%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
+
+	// If name is specified, it takes the precedence over anything (deprecated)
+	rs.Spec.Security.TLSConfig.SecretRef.Name = "custom-name"
+	assert.Equal(t, "custom-name", rs.GetSecurity().MemberCertificateSecretName(rs.Name))
+}
+
+func TestAgentClientCertificateSecretName(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().EnableAuth([]string{util.X509}).Build()
+
+	// Default is the hardcoded "agent-certs"
+	assert.Equal(t, util.AgentSecretName, rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
+
+	// If the top-level prefix is there, we use it
+	rs.Spec.Security.CertificatesSecretsPrefix = "prefix"
+	assert.Equal(t, fmt.Sprintf("prefix-%s-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
+
+	// If the name is provided (deprecated) we return it
+	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "foo"
+	assert.Equal(t, "foo", rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
+
+}
+
+func TestInternalClusterAuthSecretName(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
+
+	// Default is  <resource-name>-clusterfile
+	assert.Equal(t, fmt.Sprintf("%s-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
+
+	// IF there is a prefix, use it
+	rs.Spec.Security.CertificatesSecretsPrefix = "prefix"
+	assert.Equal(t, fmt.Sprintf("prefix-%s-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
+
 }

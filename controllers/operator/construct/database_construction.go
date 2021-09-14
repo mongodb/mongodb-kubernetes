@@ -361,18 +361,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	if mdb.GetSecurity() != nil {
 		tlsConfig := mdb.GetSecurity().TLSConfig
 		if mdb.GetSecurity().TLSConfig.IsEnabled() {
-
-			// In this location the certificates will be linked -s into server.pem
-			secretName := fmt.Sprintf("%s-cert", databaseOpts.Name)
-
-			if tlsConfig.SecretRef.Prefix != "" {
-				// Certificates will be used from the secret with the corresponding prefix.
-				secretName = fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, databaseOpts.Name)
-			}
-
-			if tlsConfig.SecretRef.Name != "" {
-				secretName = tlsConfig.SecretRef.Name
-			}
+			secretName := mdb.GetSecurity().MemberCertificateSecretName(databaseOpts.Name)
 
 			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -405,7 +394,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	if mdb.GetSecurity() != nil {
 		if mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.GetSecurity().AgentClientCertificateSecretName().Name)
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: agentCertMountPath,
 				Name:      agentSecretVolume.Name,
@@ -417,7 +406,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	// add volume for x509 cert used in internal cluster authentication
 	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
-		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, toInternalClusterAuthName(databaseOpts.Name))
+		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, mdb.GetSecurity().InternalClusterAuthSecretName(databaseOpts.Name))
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.InternalClusterAuthMountPath,
 			Name:      internalClusterAuthVolume.Name,
@@ -669,12 +658,6 @@ func DefaultSecurityContext() *corev1.SecurityContext {
 // the secret associated with it.
 func agentApiKeySecretName(project string) string {
 	return fmt.Sprintf("%s-group-secret", project)
-}
-
-// toInternalClusterAuthName takes a hostname e.g. my-replica-set and converts
-// it into the name of the secret which will hold the internal clusterFile
-func toInternalClusterAuthName(name string) string {
-	return fmt.Sprintf("%s-%s", name, util.ClusterFileName)
 }
 
 // TODO: temprorary duplication to avoid circular imports

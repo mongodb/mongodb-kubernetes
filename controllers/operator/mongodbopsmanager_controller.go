@@ -16,7 +16,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -152,7 +151,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	// Make sure we watch the AppDB TLS secret
 	rs := opsManager.Spec.AppDB
 	if rs.GetSecurity().IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.AppDBStatefulSetObjectKey(), rs.GetTLSConfig().CA, []string{certs.GetCertNameWithPrefixOrDefault(*rs.GetSecurity(), rs.Name())})
+		r.RegisterWatchedTLSResources(opsManager.AppDBStatefulSetObjectKey(), rs.GetTLSConfig().CA, []string{rs.GetSecurity().MemberCertificateSecretName(rs.Name())})
 	}
 
 	// 1. Reconcile AppDB

@@ -366,6 +366,34 @@ type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
 	Roles          []MongoDbRole   `json:"roles,omitempty"`
+
+	// +optional
+	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
+}
+
+// MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
+func (s Security) MemberCertificateSecretName(defaultName string) string {
+	tlsConfig := s.TLSConfig
+	if tlsConfig == nil {
+		return ""
+	}
+	prefix := ""
+	// If the old field, Name, is specified, it takes the precedence
+	if tlsConfig.SecretRef.Name != "" {
+		return tlsConfig.SecretRef.Name
+	}
+
+	// The prefix is either the top-level spec.certsSecretPrefix or
+	// the specific one in tlsConfig.secretRef.prefix
+	if s.CertificatesSecretsPrefix != "" {
+		prefix = fmt.Sprintf("%s-", s.CertificatesSecretsPrefix)
+	}
+	if tlsConfig.SecretRef.Prefix != "" {
+		prefix = fmt.Sprintf("%s-", tlsConfig.SecretRef.Prefix)
+	}
+
+	// If none are specified, we just use tje `defaultname-cert format`
+	return fmt.Sprintf("%s%s-cert", prefix, defaultName)
 }
 
 func (spec MongoDbSpec) GetSecurity() *Security {
@@ -417,8 +445,12 @@ func (s *Security) ShouldUseX509(currentAgentAuthMode string) bool {
 // AgentClientCertificateSecretName returns the name of the Secret that holds the agent
 // client TLS certificates.
 // If no custom name has been defined, it returns the default one.
-func (s Security) AgentClientCertificateSecretName() corev1.SecretKeySelector {
+func (s Security) AgentClientCertificateSecretName(resourceName string) corev1.SecretKeySelector {
 	secretName := util.AgentSecretName
+
+	if s.CertificatesSecretsPrefix != "" {
+		secretName = fmt.Sprintf("%s-%s-%s", s.CertificatesSecretsPrefix, resourceName, util.AgentSecretName)
+	}
 	if s.ShouldUseClientCertificates() {
 		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
 	}
@@ -433,6 +465,14 @@ func (s Security) AgentClientCertificateSecretName() corev1.SecretKeySelector {
 // even when no x509 agent-auth has been enabled.
 func (s Security) ShouldUseClientCertificates() bool {
 	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
+}
+
+func (s Security) InternalClusterAuthSecretName(defaultName string) string {
+	secretName := fmt.Sprintf("%s-clusterfile", defaultName)
+	if s.CertificatesSecretsPrefix != "" {
+		secretName = fmt.Sprintf("%s-%s", s.CertificatesSecretsPrefix, secretName)
+	}
+	return secretName
 }
 
 // RequiresClientTLSAuthentication checks if client TLS authentication is required, depending

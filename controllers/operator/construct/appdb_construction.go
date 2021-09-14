@@ -124,17 +124,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) (
 	if appDb.Security != nil {
 		tlsConfig := appDb.Security.TLSConfig
 		if tlsConfig.IsEnabled() {
-			// In this location the certificates will be linked -s into server.pem
-			secretName := fmt.Sprintf("%s-cert", appDb.Name())
-
-			if tlsConfig.SecretRef.Prefix != "" {
-				// Certificates will be used from the secret with the corresponding prefix.
-				secretName = fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, appDb.Name())
-			}
-
-			if tlsConfig.SecretRef.Name != "" {
-				secretName = tlsConfig.SecretRef.Name
-			}
+			secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
 			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				MountPath: util.SecretVolumeMountPath + "/certs",

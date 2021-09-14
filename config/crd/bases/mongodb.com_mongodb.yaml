@@ -504,6 +504,8 @@ spec:
                     required:
                     - enabled
                     type: object
+                  certsSecretPrefix:
+                    type: string
                   roles:
                     items:
                       properties:

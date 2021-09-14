@@ -120,7 +120,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	// And TLS if needed
 	if rs.GetSecurity().IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(rs.ObjectKey(), rs.Spec.GetTLSConfig().CA, []string{certs.GetCertNameWithPrefixOrDefault(*rs.Spec.Security, rs.Name)})
+		r.RegisterWatchedTLSResources(rs.ObjectKey(), rs.Spec.GetTLSConfig().CA, []string{rs.GetSecurity().MemberCertificateSecretName(rs.Name)})
 	}
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)

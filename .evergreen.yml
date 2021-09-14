@@ -1242,6 +1242,12 @@ tasks:
   commands:
   - func: "e2e_test"
 
+- name: e2e_replica_set_tls_certs_secret_prefix
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
+
 - name: e2e_disable_tls_scale_up
   tags: ["patch-run"]
   exec_timeout_secs: 1800
@@ -1850,6 +1856,7 @@ task_groups:
     - e2e_sharded_cluster_mongod_options
     - e2e_tls_rs_external_access
     - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_certs_secret_prefix
     - e2e_disable_tls_scale_up
     - e2e_replica_set_tls_require_and_disable
     # e2e_x509_task_group
@@ -1993,6 +2000,7 @@ task_groups:
     - e2e_sharded_cluster_mongod_options
     - e2e_tls_rs_external_access
     - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_certs_secret_prefix
     - e2e_disable_tls_scale_up
     - e2e_replica_set_tls_require_and_disable
     # e2e_tls_task_group

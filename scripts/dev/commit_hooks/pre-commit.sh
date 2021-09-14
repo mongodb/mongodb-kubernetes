@@ -59,7 +59,7 @@ fi
 
 # Makes sure there are not erroneous kubebuilder annotations that can
 # end up in CRDs as descriptions.
-if grep "// kubebuilder" ./* -r --include=\*.go ; then
+if grep "// kubebuilder" ./* -r --exclude-dir=vendor --include=\*.go ; then
     echo "Found an erroneous kubebuilder annotation"
     exit 1
 fi

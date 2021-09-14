@@ -264,7 +264,7 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 // ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
 func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) error {
-	secretName := certs.ToInternalClusterAuthName(opts.ResourceName) // my-replica-set-clusterfile
+	secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.ResourceName)
 
 	if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
 		return fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err)
@@ -452,7 +452,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		log.Info("Configuring authentication for MongoDB resource")
 
 		if mdb.Spec.Security.ShouldUseX509(ac.Auth.AutoAuthMechanism) || mdb.Spec.Security.ShouldUseClientCertificates() {
-			authOpts, err = r.configureAgentSubjects(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(), authOpts, log)
+			authOpts, err = r.configureAgentSubjects(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name), authOpts, log)
 			if err != nil {
 				return workflow.Failed("error configuring agent subjects: %v", err), false
 			}
@@ -486,7 +486,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	} else {
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
-		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(), log)
+		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name), log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
 			return workflow.Failed(err.Error()), true
@@ -568,7 +568,7 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 }
 
 func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
-	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(), log)
+	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name), log)
 	err = client.IgnoreNotFound(err)
 	if err != nil {
 		return err
