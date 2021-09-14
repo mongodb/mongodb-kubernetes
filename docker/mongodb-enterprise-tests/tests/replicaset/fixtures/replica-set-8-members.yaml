@@ -7,7 +7,9 @@ spec:
   members: 8
   version: 4.0.17
   type: ReplicaSet
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   persistent: false
 

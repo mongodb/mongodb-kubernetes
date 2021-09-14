@@ -356,10 +356,6 @@ type ConnectionSpec struct {
 	OpsManagerConfig   *PrivateCloudConfig `json:"opsManager,omitempty"`
 	CloudManagerConfig *PrivateCloudConfig `json:"cloudManager,omitempty"`
 
-	// Deprecated: This has been replaced by the PrivateCloudConfig which should be
-	// used instead
-	Project string `json:"project,omitempty"`
-
 	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
 
 	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
@@ -747,7 +743,8 @@ func (m MongoDB) GetStatusPath(...status.Option) string {
 	return "/status"
 }
 
-// GetProject returns the name of the ConfigMap containing the information about connection to OM/CM
+// GetProject returns the name of the ConfigMap containing the information about connection to OM/CM, returns empty string if
+// neither CloudManager not OpsManager configmap is set
 func (c *ConnectionSpec) GetProject() string {
 	// the contract is that either ops manager or cloud manager must be provided - the controller must validate this
 	if c.OpsManagerConfig.ConfigMapRef.Name != "" {
@@ -756,8 +753,7 @@ func (c *ConnectionSpec) GetProject() string {
 	if c.CloudManagerConfig.ConfigMapRef.Name != "" {
 		return c.CloudManagerConfig.ConfigMapRef.Name
 	}
-	// failback to the deprecated field
-	return c.Project
+	return ""
 }
 
 // InitDefaults makes sure the MongoDB resource has correct state after initialization:

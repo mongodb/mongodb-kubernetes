@@ -499,7 +499,6 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 		},
 		Spec: userv1.MongoDBUserSpec{
 			Roles:                b.roles,
-			Project:              b.project,
 			PasswordSecretKeyRef: b.passwordRef,
 			Username:             b.username,
 			Database:             b.database,

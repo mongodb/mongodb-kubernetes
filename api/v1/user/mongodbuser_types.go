@@ -79,11 +79,6 @@ type MongoDBUserSpec struct {
 	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
 	// +optional
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
-
-	// Deprecated: This has been replaced by the MongoDBResourceRef which should
-	// be used instead
-	// +optional
-	Project string `json:"project"`
 }
 
 type MongoDBUserStatus struct {

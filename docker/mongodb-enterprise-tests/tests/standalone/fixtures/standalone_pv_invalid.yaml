@@ -6,7 +6,9 @@ metadata:
 spec:
   type: Standalone
   version: 4.4.0-ent
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   persistent: true
   podSpec:

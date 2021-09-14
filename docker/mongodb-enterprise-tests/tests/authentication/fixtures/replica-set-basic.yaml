@@ -8,5 +8,7 @@ spec:
   version: 4.2.2
   type: ReplicaSet
   credentials: my-credentials
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   persistent: false

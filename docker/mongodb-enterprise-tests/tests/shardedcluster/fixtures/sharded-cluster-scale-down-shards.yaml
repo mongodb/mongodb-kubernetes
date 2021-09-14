@@ -9,6 +9,8 @@ spec:
   mongosCount: 2
   configServerCount: 2
   version: 4.4.0
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   persistent: false

@@ -105,33 +105,11 @@ class TestShardedClusterSchemaAdditionalMongodConfigNotAllowed(KubernetesTester)
 
 
 @pytest.mark.e2e_sharded_cluster_schema_validation
-class TestShardedClusterInvalidWithProjectAndCloudManager(KubernetesTester):
-    init = {
-        "create": {
-            "file": "sharded-cluster.yaml",
-            "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
-                {
-                    "op": "add",
-                    "path": "/spec/cloudManager",
-                    "value": {"configMapRef": {"name": "something"}},
-                },
-            ],
-            "exception": "must validate one and only one schema",
-        },
-    }
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_sharded_cluster_schema_validation
 class TestShardedClusterInvalidWithProjectAndOpsManager(KubernetesTester):
     init = {
         "create": {
             "file": "sharded-cluster.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/opsManager",
@@ -152,7 +130,6 @@ class TestShardedClusterInvalidWithCloudAndOpsManagerAndProject(KubernetesTester
         "create": {
             "file": "sharded-cluster.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",

@@ -6,6 +6,8 @@ spec:
   members: 2
   version: 4.4.0-ent
   type: ReplicaSet
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   persistent: false

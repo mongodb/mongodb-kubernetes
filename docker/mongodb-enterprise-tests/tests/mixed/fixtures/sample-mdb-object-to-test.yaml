@@ -5,6 +5,8 @@ metadata:
 spec:
   version: 4.0.15
   type: Standalone
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   persistent: false

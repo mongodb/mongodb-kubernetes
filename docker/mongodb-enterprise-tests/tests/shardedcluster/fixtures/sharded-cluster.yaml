@@ -10,7 +10,9 @@ spec:
   mongosCount: 2
   configServerCount: 3
   version: 4.0.15
-  project: my-project
+  cloudManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   logLevel: WARN
   persistent: true

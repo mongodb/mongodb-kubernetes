@@ -160,9 +160,6 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(ms MongoDbSpec) v1.ValidationResult {
 	count := 0
-	if ms.Project != "" {
-		count += 1
-	}
 	if *ms.OpsManagerConfig != (PrivateCloudConfig{}) {
 		count += 1
 	}

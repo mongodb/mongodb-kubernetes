@@ -12,6 +12,8 @@
   The Helm install process will create Roles and Service Accounts required, in the Namespaces that the Operator will be watching.
 
 ## MongoDB Resource
+* Breaking Changes:
+  * The field `spec.project` has been removed from MongoDB spec, this field has been deprecated since operator version `1.3.0`. Make sure to specify the project configmap name under `spec.opsManager.configMapRef.name` or ``spec.cloudManager.configMapRef.name`` before upgrading the operator.
 * Bug fixes
   * Fixes an issue where Sharded Cluster backups could not be correctly configured using the MongoDB CR.
 
@@ -21,6 +23,9 @@
 * It is now possible to disable creation of "LoadBalancer" Type service for queryable backup by setting `spec.backup.externalServiceEnabled` to `false` in OM CR. By default, the operator would create the LoadBalancer type service object.
 * The operator will now automatically upgrade the used API Key to a programmatic one when deploying OM >= 5.0.0. It is now possible to upgrade from older versions of OM to OM 5.0 without manual intervention.
 
+## MongoDBUser Resource
+* Breaking Changes:
+  * The field `spec.project` has been removed from User spec, this field has been deprecated since operator version `1.3.0`. Make sure to specify the MongoDB resource name under `spec.MongoDBResourceRef.name` before upgrading the operator.
 ## Miscellaneous
 * Ops Manager versions 4.4.7, 4.4.9, 4.4.10, 4.4.11, 4.4.12 and 4.4.13 base images have been updated to Ubuntu 20.04.
 * Ops Manager versions 4.4.16 and 5.0.1 are now supported

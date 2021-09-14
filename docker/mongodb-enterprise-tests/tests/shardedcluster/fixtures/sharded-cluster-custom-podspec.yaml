@@ -9,7 +9,9 @@ spec:
   mongosCount: 1
   configServerCount: 1
   type: ShardedCluster
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   logLevel: DEBUG
   persistent: false

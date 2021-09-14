@@ -172,10 +172,6 @@ spec:
                 type: object
               persistent:
                 type: boolean
-              project:
-                description: 'Deprecated: This has been replaced by the PrivateCloudConfig
-                  which should be used instead'
-                type: string
               security:
                 properties:
                   authentication:

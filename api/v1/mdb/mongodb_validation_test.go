@@ -77,17 +77,16 @@ func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
 
 func TestSpecProjectOnlyOneValue(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
-	rs.Spec.Project = "some-project"
 	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
 		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
 	}
 	err := rs.ValidateCreate()
-	assert.Errorf(t, err, "must validate one and only one schema")
+	assert.NoError(t, err)
 }
 
 func TestMongoDB_ProcessValidations(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
-	assert.Equal(t, rs.ProcessValidationsOnReconcile(nil), nil)
+	assert.Error(t, rs.ProcessValidationsOnReconcile(nil), nil)
 }
 
 func TestMongoDB_ValidateAdditionalMongodConfig(t *testing.T) {

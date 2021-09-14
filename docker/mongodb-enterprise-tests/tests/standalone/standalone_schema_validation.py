@@ -78,31 +78,9 @@ class TestStandaloneInvalidWithProjectAndCloudManager(KubernetesTester):
         "create": {
             "file": "standalone.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": {"name": "something"}},
-                },
-            ],
-            "exception": "must validate one and only one schema",
-        },
-    }
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_standalone_schema_validation
-class TestStandaloneInvalidWithProjectAndOpsManager(KubernetesTester):
-    init = {
-        "create": {
-            "file": "standalone.yaml",
-            "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
-                {
-                    "op": "add",
-                    "path": "/spec/opsManager",
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
@@ -120,7 +98,6 @@ class TestStandaloneInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
         "create": {
             "file": "standalone.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",

@@ -10,7 +10,9 @@ spec:
   mongosCount: 2
   configServerCount: 3
   version: 3.6.20 # versions < 4.0 will use SCRAM-SHA-1
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   logLevel: WARN
   persistent: false

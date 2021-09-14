@@ -117,31 +117,9 @@ class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",
-                    "value": {"configMapRef": {"name": "something"}},
-                },
-            ],
-            "exception": "must validate one and only one schema",
-        },
-    }
-
-    def test_validation_ok(self):
-        assert True
-
-
-@pytest.mark.e2e_replica_set_schema_validation
-class TestReplicaSetInvalidWithProjectAndOpsManager(KubernetesTester):
-    init = {
-        "create": {
-            "file": "replica-set.yaml",
-            "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
-                {
-                    "op": "add",
-                    "path": "/spec/opsManager",
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
@@ -159,7 +137,6 @@ class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
         "create": {
             "file": "replica-set.yaml",
             "patch": [
-                {"op": "add", "path": "/spec/project", "value": "something"},
                 {
                     "op": "add",
                     "path": "/spec/cloudManager",

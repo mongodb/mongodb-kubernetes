@@ -5,7 +5,9 @@ metadata:
   name: my-standalone-custom-podspec
 spec:
   type: Standalone
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   logLevel: DEBUG
   persistent: false

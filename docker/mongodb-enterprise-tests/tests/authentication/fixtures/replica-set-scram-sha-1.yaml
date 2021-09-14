@@ -9,7 +9,9 @@ spec:
   # pre 3.6.7 versions might hit https://jira.mongodb.org/browse/SERVER-32639
   version: 3.6.20
   type: ReplicaSet
-  project: my-project
+  opsManager:
+    configMapRef:
+      name: my-project
   credentials: my-credentials
   logLevel: DEBUG
   persistent: false
