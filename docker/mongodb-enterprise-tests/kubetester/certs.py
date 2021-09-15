@@ -346,6 +346,7 @@ def create_sharded_cluster_certs(
     internal_auth: bool = False,
     x509_certs: bool = False,
     additional_domains: Optional[List[str]] = None,
+    secret_prefix: Optional[str] = None,
 ):
     cert_generation_func = create_mongodb_tls_certs
     if x509_certs:
@@ -361,11 +362,14 @@ def create_sharded_cluster_certs(
                         f"{resource_name}-{i}-{j}.{domain}"
                     )
 
+        secret_name = f"{resource_name}-{i}-cert"
+        if secret_prefix is not None:
+            secret_name = secret_prefix + secret_name
         cert_generation_func(
             ISSUER_CA_NAME,
             namespace,
             f"{resource_name}-{i}",
-            f"{resource_name}-{i}-cert",
+            secret_name,
             replicas=mongos_per_shard,
             service_name=resource_name + "-sh",
             additional_domains=additional_domains_for_shard,
@@ -383,11 +387,14 @@ def create_sharded_cluster_certs(
                     f"{resource_name}-config-{j}.{domain}"
                 )
 
+    secret_name = f"{resource_name}-config-cert"
+    if secret_prefix is not None:
+        secret_name = secret_prefix + secret_name
     cert_generation_func(
         ISSUER_CA_NAME,
         namespace,
         resource_name + "-config",
-        f"{resource_name}-config-cert",
+        secret_name,
         replicas=config_servers,
         service_name=resource_name + "-cs",
         additional_domains=additional_domains_for_config,
@@ -405,11 +412,14 @@ def create_sharded_cluster_certs(
                     f"{resource_name}-mongos-{j}.{domain}"
                 )
 
+    secret_name = f"{resource_name}-mongos-cert"
+    if secret_prefix is not None:
+        secret_name = secret_prefix + secret_name
     cert_generation_func(
         ISSUER_CA_NAME,
         namespace,
         resource_name + "-mongos",
-        f"{resource_name}-mongos-cert",
+        secret_name,
         service_name=resource_name + "-svc",
         replicas=mongos,
         additional_domains=additional_domains_for_mongos,

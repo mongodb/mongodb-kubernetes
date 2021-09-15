@@ -168,12 +168,12 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	if sc.GetSecurity().IsTLSEnabled() {
 		secretNames := []string{}
 		secretNames = append(secretNames,
-			certs.GetCertNameWithPrefixOrDefault(*sc.GetSecurity(), sc.MongosRsName()),
-			certs.GetCertNameWithPrefixOrDefault(*sc.GetSecurity(), sc.ConfigRsName()),
+			sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName()),
+			sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName()),
 		)
 
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, certs.GetCertNameWithPrefixOrDefault(*sc.GetSecurity(), sc.ShardRsName(i)))
+			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
 		}
 		r.RegisterWatchedTLSResources(sc.ObjectKey(), sc.Spec.GetTLSConfig().CA, secretNames)
 	}
