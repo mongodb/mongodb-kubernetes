@@ -14,6 +14,3 @@ spec:
     configMapRef:
       name: my-project
   shardCount: 1
-status:
-  phase: Running
-  type: ShardedCluster

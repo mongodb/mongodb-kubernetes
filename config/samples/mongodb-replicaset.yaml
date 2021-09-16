@@ -11,6 +11,3 @@ spec:
   type: ReplicaSet
   version: 4.4.0-ent
   persistent: true
-status: 
-  phase: Running
-  type: ReplicaSet
