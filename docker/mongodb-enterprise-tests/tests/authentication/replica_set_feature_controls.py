@@ -28,9 +28,14 @@ def test_authentication_is_owned_by_opsmanager(replicaset: MongoDB):
     fc = replicaset.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
 
-    assert len(fc["policies"]) == 1
-    assert fc["policies"][0]["policy"] == "EXTERNALLY_MANAGED_LOCK"
-    assert fc["policies"][0]["disabledParams"] == []
+    assert len(fc["policies"]) == 2
+    policies = [p["policy"] for p in fc["policies"]]
+    assert "EXTERNALLY_MANAGED_LOCK" in policies
+    assert "DISABLE_SET_MONGOD_VERSION" in policies
+
+    for p in fc["policies"]:
+        if p["policy"] == "EXTERNALLY_MANAGED_LOCK":
+            assert p["disabledParams"] == []
 
 
 @mark.e2e_feature_controls_authentication
@@ -49,13 +54,16 @@ def test_authentication_disabled_is_owned_by_operator(replicaset: MongoDB):
     fc = replicaset.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
 
-    assert len(fc["policies"]) == 2
-    assert fc["policies"][0]["disabledParams"] == []
-    assert fc["policies"][1]["disabledParams"] == []
+    policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
+    assert len(fc["policies"]) == 3
+
+    assert policies[0]["disabledParams"] == []
+    assert policies[2]["disabledParams"] == []
 
     policies = [p["policy"] for p in fc["policies"]]
     assert "EXTERNALLY_MANAGED_LOCK" in policies
     assert "DISABLE_AUTHENTICATION_MECHANISMS" in policies
+    assert "DISABLE_SET_MONGOD_VERSION" in policies
 
 
 @mark.e2e_feature_controls_authentication
@@ -70,19 +78,22 @@ def test_authentication_enabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset.update()
 
     replicaset.assert_abandons_phase(Phase.Running)
-    replicaset.assert_reaches_phase(Phase.Running, timeout=400)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=500)
 
     fc = replicaset.get_om_tester().get_feature_controls()
 
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
 
-    assert len(fc["policies"]) == 2
-    assert fc["policies"][0]["disabledParams"] == []
-    assert fc["policies"][1]["disabledParams"] == []
+    assert len(fc["policies"]) == 3
+    # sort the policies to have pre-determined order
+    policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
+    assert policies[0]["disabledParams"] == []
+    assert policies[2]["disabledParams"] == []
 
     policies = [p["policy"] for p in fc["policies"]]
     assert "EXTERNALLY_MANAGED_LOCK" in policies
     assert "DISABLE_AUTHENTICATION_MECHANISMS" in policies
+    assert "DISABLE_SET_MONGOD_VERSION" in policies
 
 
 @mark.e2e_feature_controls_authentication
@@ -101,6 +112,9 @@ def test_authentication_disabled_owned_by_opsmanager(replicaset: MongoDB):
 
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
 
-    assert len(fc["policies"]) == 1
-    assert fc["policies"][0]["policy"] == "EXTERNALLY_MANAGED_LOCK"
-    assert fc["policies"][0]["disabledParams"] == []
+    # sort the policies to have pre-determined order
+    policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
+    assert len(fc["policies"]) == 2
+    assert policies[0]["policy"] == "DISABLE_SET_MONGOD_VERSION"
+    assert policies[1]["policy"] == "EXTERNALLY_MANAGED_LOCK"
+    assert policies[1]["disabledParams"] == []

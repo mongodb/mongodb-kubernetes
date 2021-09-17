@@ -13,6 +13,7 @@ func buildFeatureControlsByMdb(mdb mdbv1.MongoDB) *ControlledFeature {
 	controlledFeatures := []func(*ControlledFeature){OptionExternallyManaged}
 	controlledFeatures = append(controlledFeatures, authentication(mdb)...)
 	controlledFeatures = append(controlledFeatures, mongodbParams(mdb)...)
+	controlledFeatures = append(controlledFeatures, mdbVersion()...)
 
 	cf = newControlledFeature(controlledFeatures...)
 
@@ -52,4 +53,8 @@ func authentication(mdb mdbv1.MongoDB) []func(*ControlledFeature) {
 		return []func(*ControlledFeature){OptionDisableAuthenticationMechanism}
 	}
 	return []func(*ControlledFeature){}
+}
+
+func mdbVersion() []func(*ControlledFeature) {
+	return []func(*ControlledFeature){OptionDisableMongodbVersion}
 }

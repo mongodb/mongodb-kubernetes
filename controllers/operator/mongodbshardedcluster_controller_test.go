@@ -456,11 +456,12 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	mockedConn := om.CurrMockedConnection
 	cf, _ := mockedConn.GetControlledFeature()
 
-	assert.Len(t, cf.Policies, 1)
+	assert.Len(t, cf.Policies, 2)
 
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
 	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
 	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
+	assert.Equal(t, cf.Policies[1].PolicyType, controlledfeature.DisableMongodVersion)
 	assert.Len(t, cf.Policies[0].DisabledParams, 0)
 
 }
@@ -635,7 +636,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	mockedConn := om.CurrMockedConnection
 	cf, _ := mockedConn.GetControlledFeature()
 
-	assert.Len(t, cf.Policies, 2)
+	assert.Len(t, cf.Policies, 3)
 
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
 	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
@@ -647,6 +648,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 
 	assert.Contains(t, policies, controlledfeature.ExternallyManaged)
 	assert.Contains(t, policies, controlledfeature.DisableAuthenticationMechanisms)
+	assert.Contains(t, policies, controlledfeature.DisableMongodVersion)
 }
 
 func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing.T) {

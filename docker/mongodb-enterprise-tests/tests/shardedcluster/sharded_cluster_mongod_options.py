@@ -59,11 +59,12 @@ def test_sharded_cluster_feature_controls(sharded_cluster: MongoDB):
     fc = sharded_cluster.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
 
-    assert len(fc["policies"]) == 2
+    assert len(fc["policies"]) == 3
     # unfortunately OM uses a HashSet for policies...
     policies = sorted(fc["policies"], key=lambda policy: policy["policy"])
     assert policies[0]["policy"] == "DISABLE_SET_MONGOD_CONFIG"
-    assert policies[1]["policy"] == "EXTERNALLY_MANAGED_LOCK"
+    assert policies[1]["policy"] == "DISABLE_SET_MONGOD_VERSION"
+    assert policies[2]["policy"] == "EXTERNALLY_MANAGED_LOCK"
     # OM stores the params into a set - we need to sort to compare
     disabled_params = sorted(policies[0]["disabledParams"])
     assert disabled_params == [

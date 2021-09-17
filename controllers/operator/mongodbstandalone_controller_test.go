@@ -111,7 +111,7 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 	mockedConn := om.CurrMockedConnection
 	cf, _ := mockedConn.GetControlledFeature()
 
-	assert.Len(t, cf.Policies, 1)
+	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
 	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
 	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
@@ -135,7 +135,7 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 	mockedConn := om.CurrMockedConnection
 	cf, _ := mockedConn.GetControlledFeature()
 
-	assert.Len(t, cf.Policies, 2)
+	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
 	assert.Equal(t, cf.ManagementSystem.Name, util.OperatorName)
 

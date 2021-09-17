@@ -25,6 +25,7 @@ const (
 	ExternallyManaged               PolicyType = "EXTERNALLY_MANAGED_LOCK"
 	DisableAuthenticationMechanisms PolicyType = "DISABLE_AUTHENTICATION_MECHANISMS"
 	DisableMongodConfig             PolicyType = "DISABLE_SET_MONGOD_CONFIG"
+	DisableMongodVersion            PolicyType = "DISABLE_SET_MONGOD_VERSION"
 )
 
 type Policy struct {
@@ -59,6 +60,10 @@ func OptionDisableMongodbConfig(disabledParams []string) func(*ControlledFeature
 	return func(cf *ControlledFeature) {
 		cf.Policies = append(cf.Policies, Policy{PolicyType: DisableMongodConfig, DisabledParams: disabledParams})
 	}
+}
+
+func OptionDisableMongodbVersion(cf *ControlledFeature) {
+	cf.Policies = append(cf.Policies, Policy{PolicyType: DisableMongodVersion})
 }
 
 type Updater interface {
