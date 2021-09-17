@@ -24,7 +24,7 @@ RUN mkdir /build && go build -i -o /build/mongodb-enterprise-operator \
 ADD https://us-east-1.aws.webhooks.mongodb-realm.com/api/client/v2.0/app/kubernetes-version-mappings-aarzq/service/ops_manager_version_to_minimum_agent_version/incoming_webhook/list /data/om_version_mapping.json
 RUN chmod +r /data/om_version_mapping.json
 
-RUN go get -u github.com/go-delve/delve/cmd/dlv
+RUN go get github.com/go-delve/delve/cmd/dlv
 
 FROM scratch
 
