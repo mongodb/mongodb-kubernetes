@@ -7,7 +7,7 @@ go env
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
     echo "installing gotools..."
-    GOFLAGS="" go get -u honnef.co/go/tools/...
+    GOFLAGS="" go get honnef.co/go/tools/...
   else
     echo "go tools are already installed"
 fi

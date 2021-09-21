@@ -37,6 +37,8 @@ const (
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 )
 
+// getContainerIndexByName returns the index of a container with the given name in a slice of containers.
+// It returns -1 if it doesn't exist
 func getContainerIndexByName(containers []corev1.Container, name string) int {
 	for i, container := range containers {
 		if container.Name == name {
@@ -46,6 +48,16 @@ func getContainerIndexByName(containers []corev1.Container, name string) int {
 	return -1
 }
 
+// removeContainerByName removes the container with the given name from the input slice, if it exists.
+func removeContainerByName(containers []corev1.Container, name string) []corev1.Container {
+	index := getContainerIndexByName(containers, name)
+	if index == -1 {
+		return containers
+	}
+	return append(containers[:index], containers[index+1:]...)
+}
+
+// appDbLabels returns a statefulset modification which adds labels that are specific to the appDB.
 func appDbLabels(opsManager om.MongoDBOpsManager) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opsManager.Spec.AppDB.ServiceName(),
@@ -62,7 +74,11 @@ func appDbLabels(opsManager om.MongoDBOpsManager) statefulset.Modification {
 	)
 }
 
+// appDbPodSpec return the podtemplatespec modification required for the AppDB statefulset.
 func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
+
+	// The following sets almost the exact same values for the containers
+	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
 	mongoPodSpec := appdbPodSpec
 	mongoPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
@@ -75,7 +91,8 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*appdbPodSpec)),
 	)
 
-	// the appdb will have a single init container, all of the necessary binaries will be copied into the various
+	// the appdb will have a single init container,
+	// all of the necessary binaries will be copied into the various
 	// volumes of different containers.
 	updateInitContainers := func(templateSpec *corev1.PodTemplateSpec) {
 		templateSpec.Spec.InitContainers = []corev1.Container{}
@@ -91,7 +108,7 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 	)
 }
 
-// buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image
+// buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image.
 func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modification {
 	version := env.ReadOrDefault(initAppdbVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitAppdbImageUrlEnv), version)
@@ -118,6 +135,8 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 	)
 }
 
+// getTLSVolumesAndVolumeMounts returns the slices of volumes and volumemounts
+// that the AppDB STS needs for TLS resources.
 func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
@@ -146,6 +165,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) (
 	}
 
 	if podVars != nil && podVars.SSLMMSCAConfigMap != "" {
+		// This volume wil contain the OM CA
 		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, podVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: caCertMountPath,
@@ -157,6 +177,8 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) (
 	return volumesToAdd, volumeMounts
 }
 
+// tlsVolumes returns the podtemplatespec modification that adds all needed volumes
+// and volumemounts for TLS.
 func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars) podtemplatespec.Modification {
 
 	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars)
@@ -179,8 +201,12 @@ func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars) podtemplatespec.Mod
 	)
 }
 
+// customPersistenceConfig applies to the statefulset the modifications
+// provided by the user through spec.persistence.
 func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 	defaultPodSpecPersistence := newDefaultPodSpec().Persistence
+	// Two main branches - as the user can either define a single volume for data, logs and journal
+	// or three different volumes
 	if !appDb.HasSeparateDataAndLogsVolumes() {
 		var config *mdbv1.PersistenceConfig
 		if appDb.PodSpec.Persistence != nil && appDb.PodSpec.Persistence.SingleConfig != nil {
@@ -189,6 +215,8 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 		// Single persistence, needs to modify the only pvc we have
 		pvcModification := pvcFunc(appDb.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig)
 
+		// We already have, by default, the data volume mount,
+		// here we also create the logs and journal one, as subpath from the same volume
 		logsVolumeMount := statefulset.CreateVolumeMount(appDb.DataVolumeName(), util.PvcMountPathLogs, statefulset.WithSubPath(appDb.LogsVolumeName()))
 		journalVolumeMount := statefulset.CreateVolumeMount(appDb.DataVolumeName(), util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal))
 		volumeMounts := []corev1.VolumeMount{journalVolumeMount, logsVolumeMount}
@@ -207,7 +235,8 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 		)
 
 	} else {
-		// need to modify data, logs, and create journal
+		// Here need to modify data and logs volumes,
+		// and create the journal one (which doesn't exist in Community, where this original STS is built)
 		dataModification := pvcFunc(appDb.DataVolumeName(), appDb.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data)
 		logsModification := pvcFunc(appDb.LogsVolumeName(), appDb.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs)
 
@@ -232,14 +261,6 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 	}
 }
 
-func removeContainerByName(containers []corev1.Container, name string) []corev1.Container {
-	index := getContainerIndexByName(containers, name)
-	if index == -1 {
-		return containers
-	}
-	return append(containers[:index], containers[index+1:]...)
-}
-
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
 func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, monitoringAgentVersion string) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
@@ -251,11 +272,13 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		monitoringModification = addMonitoringContainer(*appDb, *podVars, monitoringAgentVersion)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
+		// We will apply them when enabling monitoring
 		if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
 			appDb.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers = removeContainerByName(appDb.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers, monitoringAgentContainerName)
 		}
 	}
 
+	// We copy the Automation Agent command from community and add the agent startup parameters
 	automationAgentCommand := construct.AutomationAgentCommand()
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
@@ -289,6 +312,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	return sts, nil
 }
 
+// getVolumeMountIndexByName returns the volume mount with the given name from the inut slice.
+// It returns -1 if this doesn't exist
 func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
 	for i, mount := range mounts {
 		if mount.Name == name {
@@ -305,16 +330,28 @@ func replaceImageTag(image string, newTag string) string {
 	return strings.Join(imageSplit, ":")
 }
 
+// addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
+// Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
+// this was deemed to be an acceptable compromise to make code clearer and more maintainable.
 func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitoringAgentVerison string) podtemplatespec.Modification {
+
+	// Create a volume to store the monitoring automation config.
+	// This is different from the AC for the automation agent, since:
+	// - It contains entries for "MonitoringVersions"
+	// - It has empty entries for ReplicaSets and Processes
 	monitoringAcVolume := statefulset.CreateVolumeFromSecret("monitoring-automation-config", appDB.MonitoringAutomationConfigSecretName())
 
+	// Construct the command by concatenating:
+	// 1. The base command - from community
 	command := construct.MongodbUserCommand + construct.BaseAgentCommand()
 
+	// 2. Startup parameters for the agent to enable monitoring
 	startupParams := mdbv1.StartupParameters{
 		"mmsApiKey":  "$(AGENT_API_KEY)",
 		"mmsGroupId": podVars.ProjectID,
 	}
 
+	// 3. Startup parameters for the agent to enable TLS
 	if podVars.SSLMMSCAConfigMap != "" {
 		trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
 		startupParams["sslTrustedMMSServerCertificate"] = trustedCACertLocation
@@ -324,6 +361,9 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 		startupParams["sslRequireValidMMSServerCertificates"] = ""
 	}
 
+	// 4. Custom startup parameters provided in the CR
+	// By default appDB.AutomationAgent.StartupParameters apply to both agents
+	// if appDB.MonitoringAgent.StartupParamters is specified, it overrides the former
 	monitoringStartupParams := appDB.AutomationAgent.StartupParameters
 	if appDB.MonitoringAgent.StartupParameters != nil {
 		monitoringStartupParams = appDB.MonitoringAgent.StartupParameters
@@ -337,9 +377,12 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
+	// Add additional TLS volumes if needed
 	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars)
 	return podtemplatespec.Apply(
 		podtemplatespec.WithVolume(monitoringAcVolume),
+		// This is a function that reads the automation agent containers, copies it and modifies it.
+		// We do this since the two containers are very similar with just a few differences
 		func(podTemplateSpec *corev1.PodTemplateSpec) {
 			monitoringContainer := podtemplatespec.FindContainerByName(construct.AgentName, podTemplateSpec).DeepCopy()
 			monitoringContainer.Name = monitoringAgentContainerName
@@ -348,12 +391,16 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 			if monitoringAgentVerison != "" {
 				monitoringContainer.Image = replaceImageTag(monitoringContainer.Image, monitoringAgentVerison)
 			}
+
+			// Replace the automation config volume
 			volumeMounts := monitoringContainer.VolumeMounts
 			acMountIndex := getVolumeMountIndexByName(volumeMounts, "automation-config")
 			if acMountIndex == -1 {
 				return
 			}
 			volumeMounts[acMountIndex].Name = monitoringAcVolume.Name
+
+			// Set up custom persistence options - see customPersistenceConfig() for an explanation
 			if appDB.HasSeparateDataAndLogsVolumes() {
 				journalVolumeMounts := statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal)
 				volumeMounts = append(volumeMounts, journalVolumeMounts)
@@ -374,6 +421,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	)
 }
 
+// appdbContainerEnv returns the set of env var needed by the AppDB.
 func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
 		{
@@ -381,7 +429,6 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1
 			ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
 		},
 		{
-			// TODO CLOUDP-85548 the readiness would need the correct name for monitoring
 			Name:  automationConfigMapEnv,
 			Value: appDbSpec.Name() + "-config",
 		},
