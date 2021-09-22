@@ -94,10 +94,7 @@ func (m *MongoDB) GetCredentialsSecretName() string {
 }
 
 func (m *MongoDB) GetSecurity() *Security {
-	if m.Spec.Security == nil {
-		m.Spec.Security = &Security{}
-	}
-	return m.Spec.Security
+	return m.Spec.GetSecurity()
 }
 
 func (m *MongoDB) AddValidationToManager(mgr manager.Manager) error {
@@ -397,9 +394,6 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 }
 
 func (spec MongoDbSpec) GetSecurity() *Security {
-	if spec.Security == nil {
-		return &Security{}
-	}
 	return spec.Security
 }
 
@@ -1059,7 +1053,7 @@ func newOpsManagerConfig() *PrivateCloudConfig {
 
 func EnsureSecurity(sec *Security) *Security {
 	if sec == nil {
-		return newSecurity()
+		sec = newSecurity()
 	}
 	if sec.TLSConfig == nil {
 		sec.TLSConfig = &TLSConfig{}
