@@ -145,7 +145,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	if status := r.ensureX509InKubernetes(rs, currentAgentAuthMode, log); !status.IsOK() {
+	if status := r.ensureX509InKubernetes(rs, currentAgentAuthMode, getReplicaSetCertsOption, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
@@ -198,6 +198,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs))
+}
+
+func getReplicaSetCertsOption(mdb mdbv1.MongoDB) []certs.Options {
+	return []certs.Options{certs.ReplicaSetConfig(mdb)}
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -405,28 +409,6 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
-}
-
-func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, currentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
-	authSpec := mdb.Spec.Security.Authentication
-	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
-		return workflow.OK()
-	}
-	if mdb.Spec.Security.ShouldUseX509(currentAuthMechanism) {
-		if err := certs.VerifyClientCertificatesForAgents(r.client, mdb.Namespace); err != nil {
-			return workflow.Failed(err.Error())
-		}
-		if !mdb.Spec.Security.TLSConfig.Enabled {
-			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
-		}
-	}
-
-	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		if err := r.ensureInternalClusterCerts(*mdb, certs.ReplicaSetConfig(*mdb), log); err != nil {
-			return workflow.Failed("Failed ensuring internal cluster authentication certs %s", err)
-		}
-	}
-	return workflow.OK()
 }
 
 func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int) []string {

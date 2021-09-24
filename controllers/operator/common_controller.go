@@ -582,6 +582,35 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.C
 	return authentication.Disable(conn, disableOpts, true, log)
 }
 
+func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, currentAuthMechanism string, certsProvider func(mdbv1.MongoDB) []certs.Options, log *zap.SugaredLogger) workflow.Status {
+	authSpec := mdb.Spec.Security.Authentication
+	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
+		return workflow.OK()
+	}
+	if mdb.Spec.Security.ShouldUseX509(currentAuthMechanism) {
+		if !mdb.Spec.Security.TLSConfig.Enabled {
+			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
+		}
+		if err := certs.VerifyClientCertificatesForAgents(r.client, mdb.Namespace); err != nil {
+			return workflow.Failed(err.Error())
+		}
+
+	}
+
+	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
+		errors := make([]error, 0)
+		for _, certOption := range certsProvider(*mdb) {
+			if err := r.ensureInternalClusterCerts(*mdb, certOption, log); err != nil {
+				errors = append(errors, err)
+			}
+		}
+		if len(errors) > 0 {
+			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
+		}
+	}
+	return workflow.OK()
+}
+
 // canConfigureAuthentication determines if based on the existing state of Ops Manager
 // it is possible to configure the authentication mechanisms specified by the given MongoDB resource
 // during this reconciliation. This function may return a different value on the next reconciliation

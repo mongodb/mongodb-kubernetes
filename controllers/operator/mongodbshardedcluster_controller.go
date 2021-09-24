@@ -212,7 +212,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	if status := r.ensureX509InKubernetes(sc, currentAgentAuthMode, log); !status.IsOK() {
+	if status := r.ensureX509InKubernetes(sc, currentAgentAuthMode, r.getAllCertOptions, log); !status.IsOK() {
 		return nil, status
 	}
 
@@ -256,37 +256,6 @@ func (r ReconcileMongoDbShardedCluster) getAllConfigs(sc mdbv1.MongoDB, podVars 
 	allConfigs = append(allConfigs, r.getConfigServerOptions(sc, podVars, currentAgentAuthMechanism, log))
 	allConfigs = append(allConfigs, r.getMongosOptions(sc, podVars, currentAgentAuthMechanism, log))
 	return allConfigs
-}
-
-func (r *ReconcileMongoDbShardedCluster) ensureX509InKubernetes(sc *mdbv1.MongoDB, currentAgentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
-	security := sc.Spec.Security
-	if security.Authentication != nil && !security.Authentication.Enabled {
-		return workflow.OK()
-	}
-
-	if sc.Spec.Security.ShouldUseX509(currentAgentAuthMechanism) {
-		if err := certs.VerifyClientCertificatesForAgents(r.client, sc.Namespace); err != nil {
-			return workflow.Failed(err.Error())
-		}
-
-		if !sc.Spec.Security.TLSConfig.Enabled {
-			return workflow.Failed("authentication mode for project is x509 but this MDB resource is not TLS enabled")
-		}
-	}
-
-	if sc.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
-		errors := make([]error, 0)
-		allCertOptions := r.getAllCertOptions(*sc)
-		for _, certOption := range allCertOptions {
-			if err := r.ensureInternalClusterCerts(*sc, certOption, log); err != nil {
-				errors = append(errors, err)
-			}
-		}
-		if len(errors) > 0 {
-			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
-		}
-	}
-	return workflow.OK()
 }
 
 func (r *ReconcileMongoDbShardedCluster) removeUnusedStatefulsets(sc *mdbv1.MongoDB, log *zap.SugaredLogger) {

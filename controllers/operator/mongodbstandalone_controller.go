@@ -176,7 +176,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.ensureX509InKubernetes(s, currentAgentAuthMode, log); !status.IsOK() {
+	if status := r.ensureX509InKubernetes(s, currentAgentAuthMode, getStandaloneCertOptions, log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -218,6 +218,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 
 	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
+}
+
+func getStandaloneCertOptions(mdb mdbv1.MongoDB) []certs.Options {
+	return []certs.Options{certs.StandaloneConfig(mdb)}
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
