@@ -224,6 +224,12 @@ functions:
     params:
       command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
+  rh_login:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "sh -c 'docker login scan.connect.redhat.com -u unused -p ${project_id} || true'"
+
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
     command: subprocess.exec
@@ -571,6 +577,22 @@ functions:
         KUBECONFIG: ${workdir}/${kube_environment_name}_config
       command: scripts/evergreen/operator-sdk/scorecard-test.sh
 
+  operator-sdk-bundle-push:
+  - command: subprocess.exec
+    type: test
+    params:
+      command: scripts/evergreen/operator-sdk/bundle-push.sh
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+
+      add_to_path:
+      - *go_bin
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      env:
+        <<: [ *go_options ]
+
+
 tasks:
 - name: unit_tests
   tags: ["unit_tests"]
@@ -597,6 +619,14 @@ tasks:
   - func: download_kube_tools
   - func: operator-sdk-make-bundle
   - func: operator-sdk-scorecard-test
+
+- name: operator-sdk-bundle-push
+  commands:
+  - func: clone
+  - func: rh_login
+    vars:
+      project_id: ${rhc_operator_bundle_pid}
+  - func: operator-sdk-bundle-push
 
 - name: release_blocker
   git_tag_only: true
@@ -2667,6 +2697,14 @@ buildvariants:
   tasks:
   - name: operator-sdk-run-bundle
   - name: operator-sdk-scorecard-test
+
+- name: marketplace-release
+  display_name: marketplace-release
+  run_on:
+  - ubuntu1804-small
+  tasks:
+  - name: operator-sdk-bundle-push
+
 
 ### Build variants for manual patch only
 
