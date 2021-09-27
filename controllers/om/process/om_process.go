@@ -40,7 +40,6 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) ([]om.Proc
 	hostnames := make([]string, 0)
 	clusterNums := make([]int, 0)
 	podNum := make([]int, 0)
-
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return nil, err

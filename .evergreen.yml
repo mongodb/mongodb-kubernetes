@@ -1743,7 +1743,6 @@ tasks:
   commands:
     - func: e2e_test
 
-
 - name: e2e_multi_cluster_replica_set_deletion
   tags: ["patch-run"]
   exec_timeout_secs: 2800

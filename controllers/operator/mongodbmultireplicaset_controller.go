@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
@@ -119,7 +123,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
 	}
 
-	needToPublishStateFirst, err := needToPublishStateFirstMultiCluster(&mrs, log)
+	needToPublishStateFirst, err := r.needToPublishStateFirstMultiCluster(&mrs, log)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
 	}
@@ -164,7 +168,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 // needToPublishStateFirstMultiCluster returns a boolean indicating whether or not Ops Manager
 // needs to be updated before the StatefulSets are created for this resource.
-func needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (bool, error) {
 	scalingDown, err := isScalingDown(mrs)
 	if err != nil {
 		return false, errors.New(fmt.Sprintf("failed determining if the resource is scaling down: %s", err))
@@ -173,6 +177,39 @@ func needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMulti, log *zap.
 	if scalingDown {
 		log.Infof("Scaling down in progress, updating Ops Manager state first.")
 		return true, nil
+	}
+
+	items, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return false, err
+	}
+
+	// it doesn't matter which statefulset we pick, any one of them should have the tls volume if tls is enabled.
+	firstMemberClient := r.memberClusterClientsMap[items[0].ClusterName]
+
+	nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(0))
+	firstStatefulSet, err := firstMemberClient.GetStatefulSet(nsName)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			// No need to publish state as this is a new StatefulSet
+			log.Debugf("New StatefulSet %s", nsName)
+			return false, nil
+		}
+		return false, errors.New(fmt.Sprintf("Error getting StatefulSet %s: %s", nsName, err))
+	}
+
+	databaseContainer := container.GetByName(util.DatabaseContainerName, firstStatefulSet.Spec.Template.Spec.Containers)
+	volumeMounts := databaseContainer.VolumeMounts
+	if mrs.Spec.Security != nil {
+		if !mrs.Spec.Security.TLSConfig.IsEnabled() && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
+			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
+			return true, nil
+		}
+
+		if mrs.Spec.Security.TLSConfig.CA == "" && statefulset.VolumeMountWithNameExists(volumeMounts, tls.ConfigMapVolumeCAName) {
+			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
+			return true, nil
+		}
 	}
 
 	return false, nil
