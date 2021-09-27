@@ -90,6 +90,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		if desiredConfig.Status == config.Status {
 			log.Debug("Config is already in the desired state, not updating configuration")
+
 			// we are already in the desired state, nothing to change
 			// if we attempt to send the desired state again we get
 			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.

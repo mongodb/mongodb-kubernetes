@@ -10,17 +10,18 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -33,58 +34,6 @@ func init() {
 var (
 	clusters = []string{"api.kube.com", "api2.kube.com", "api3.kube.com"}
 )
-
-type multiReplicaSetBuilder struct {
-	*mdbmulti.MongoDBMulti
-}
-
-func DefaultMultiReplicaSetBuilder() *multiReplicaSetBuilder {
-	spec := mdbmulti.MongoDBMultiSpec{
-		Version:                 "5.0.0",
-		DuplicateServiceObjects: util.BooleanRef(false),
-		Persistent:              util.BooleanRef(false),
-		ConnectionSpec: mdbv1.ConnectionSpec{
-			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: mock.TestProjectConfigMapName,
-				},
-			},
-			Credentials: mock.TestCredentialsSecretName,
-		},
-		ResourceType: mdbv1.ReplicaSet,
-		Security: &mdbv1.Security{
-			TLSConfig: &mdbv1.TLSConfig{},
-			Authentication: &mdbv1.Authentication{
-				Modes: []string{},
-			},
-			Roles: []mdbv1.MongoDbRole{},
-		},
-		ClusterSpecList: mdbmulti.ClusterSpecList{
-			ClusterSpecs: []mdbmulti.ClusterSpecItem{
-				{
-					ClusterName: clusters[0],
-					Members:     3,
-				},
-				{
-					ClusterName: clusters[1],
-					Members:     2,
-				},
-				{
-					ClusterName: clusters[2],
-					Members:     5,
-				},
-			},
-		},
-	}
-
-	mrs := &mdbmulti.MongoDBMulti{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}
-	return &multiReplicaSetBuilder{mrs}
-}
-
-func (m *multiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *multiReplicaSetBuilder {
-	m.Spec.Security = s
-	return m
-}
 
 func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMulti, client *mock.MockedClient, shouldRequeue bool) {
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(m))
@@ -101,7 +50,7 @@ func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler
 }
 
 func TestCreateMultiReplicaSet(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -109,7 +58,7 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 }
 
 func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 
@@ -122,7 +71,7 @@ func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 }
 
 func TestServiceCreation_WithoutDuplicates(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -154,7 +103,7 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 }
 
 func TestServiceCreation_WithDuplicates(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
 
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
@@ -179,7 +128,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 }
 
 func TestResourceDeletion(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -270,7 +219,7 @@ func TestResourceDeletion(t *testing.T) {
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -287,9 +236,9 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 }
 
 func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
 		Authentication: &mdbv1.Authentication{Enabled: true, Modes: []string{"SCRAM"}},
-	}).Build()
+	}).SetClusterSpecList(clusters).Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 
@@ -313,7 +262,7 @@ func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 }
 
 func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetSecurity(&mdbv1.Security{
 		TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "some-ca", SecretRef: mdbv1.TLSSecretRef{Prefix: "some-prefix"}},
 	}).Build()
 
@@ -334,7 +283,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 }
 
 func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
-	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -356,7 +305,7 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 func TestScaling(t *testing.T) {
 
 	t.Run("Can scale to max amount when creating the resource", func(t *testing.T) {
-		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -374,7 +323,7 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
-		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
 		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
@@ -413,7 +362,7 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling down", func(t *testing.T) {
-		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
 		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 2
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
@@ -457,6 +406,76 @@ func TestScaling(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 1)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 3)
+	})
+}
+
+func TestBackupConfigurationReplicaSet(t *testing.T) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).
+		SetConnectionSpec(testConnectionSpec()).
+		SetBackup(mdbv1.Backup{
+			Mode: "enabled",
+		}).Build()
+
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+	uuidStr := uuid.New().String()
+
+	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
+	om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
+		ClusterId: uuidStr,
+		Status:    backup.Inactive,
+	})
+
+	// add the Replicaset cluster to OM
+	om.CurrMockedConnection.BackupHostClusters[uuidStr] = &backup.HostCluster{
+		ReplicaSetName: mrs.Name,
+		ClusterName:    mrs.Name,
+		TypeName:       "REPLICA_SET",
+	}
+
+	t.Run("Backup can be started", func(t *testing.T) {
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+
+		assert.Len(t, configResponse.Configs, 1)
+		config := configResponse.Configs[0]
+
+		assert.Equal(t, backup.Started, config.Status)
+		assert.Equal(t, uuidStr, config.ClusterId)
+		assert.Equal(t, "PRIMARY", config.SyncSource)
+	})
+
+	t.Run("Backup can be stopped", func(t *testing.T) {
+		mrs.Spec.Backup.Mode = "disabled"
+		err := client.Update(context.TODO(), mrs)
+		assert.NoError(t, err)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		assert.Len(t, configResponse.Configs, 1)
+
+		config := configResponse.Configs[0]
+
+		assert.Equal(t, backup.Stopped, config.Status)
+		assert.Equal(t, uuidStr, config.ClusterId)
+		assert.Equal(t, "PRIMARY", config.SyncSource)
+	})
+
+	t.Run("Backup can be terminated", func(t *testing.T) {
+		mrs.Spec.Backup.Mode = "terminated"
+		err := client.Update(context.TODO(), mrs)
+		assert.NoError(t, err)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		configResponse, _ := om.CurrMockedConnection.ReadBackupConfigs()
+		assert.Len(t, configResponse.Configs, 1)
+
+		config := configResponse.Configs[0]
+
+		assert.Equal(t, backup.Terminating, config.Status)
+		assert.Equal(t, uuidStr, config.ClusterId)
+		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
 }
 
@@ -517,13 +536,6 @@ func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMulti,
 
 	memberClusterMap := getFakeMultiClusterMap()
 	return newMultiClusterReplicaSetReconciler(manager, connectionFunc, memberClusterMap), manager.Client, memberClusterMap
-}
-
-func (m *multiReplicaSetBuilder) Build() *mdbmulti.MongoDBMulti {
-	// initialize defaults
-	res := m.MongoDBMulti.DeepCopy()
-	res.InitDefaults()
-	return res
 }
 
 func getFakeMultiClusterMap() map[string]cluster.Cluster {

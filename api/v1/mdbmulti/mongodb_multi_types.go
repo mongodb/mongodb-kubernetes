@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -24,8 +23,6 @@ func init() {
 const (
 	lastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 )
-
-var _ backup.ConfigReaderUpdater = (*MongoDBMulti)(nil)
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
 // multiple clusters

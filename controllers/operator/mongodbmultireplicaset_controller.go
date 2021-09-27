@@ -130,7 +130,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	status := workflow.RunInGivenOrder(needToPublishStateFirst,
 		func() workflow.Status {
-			if err := updateOmDeploymentRs(conn, mrs, log); err != nil {
+			if err := r.updateOmDeploymentRs(conn, mrs, log); err != nil {
 				return workflow.Failed(err.Error())
 			}
 			return workflow.OK()
@@ -318,7 +318,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
 	hostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -362,6 +362,11 @@ func updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMulti, log *
 	if additionalReconciliationRequired {
 		// TODO: fix this decide when to use Pending vs Reconciling
 		return fmt.Errorf("failed to complete reconciliation")
+	}
+
+	status = r.ensureBackupConfigurationAndUpdateStatus(conn, &mrs, log)
+	if !status.IsOK() {
+		return fmt.Errorf("failed to configure backup for MongoDBMulti RS")
 	}
 
 	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), log); err != nil {
