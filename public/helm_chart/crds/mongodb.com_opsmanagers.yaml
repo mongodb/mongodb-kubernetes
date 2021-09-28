@@ -560,6 +560,11 @@ spec:
                   s3Stores:
                     items:
                       properties:
+                        irsaEnabled:
+                          description: 'This is only set to "true" when user is running
+                            in EKS and is using AWS IRSA to configure S3 snapshot
+                            store. For more details refer this: https://aws.amazon.com/blogs/opensource/introducing-fine-grained-iam-roles-service-accounts/'
+                          type: boolean
                         mongodbResourceRef:
                           properties:
                             name:

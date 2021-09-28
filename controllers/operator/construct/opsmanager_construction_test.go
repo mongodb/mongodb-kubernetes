@@ -122,6 +122,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 
 		// env vars are in sorted order
 		expectedVars := []corev1.EnvVar{
+			{Name: "ENABLE_IRP", Value: "true"},
 			{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
 			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
@@ -156,6 +157,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		sts, err := OpsManagerStatefulSet(om)
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
+			{Name: "ENABLE_IRP", Value: "true"},
 			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
 			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m -DDAEMON.DEBUG.PORT=8090"},
 		}

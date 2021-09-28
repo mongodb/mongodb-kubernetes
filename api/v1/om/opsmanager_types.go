@@ -273,6 +273,10 @@ type S3Config struct {
 	PathStyleAccessEnabled bool                       `json:"pathStyleAccessEnabled"`
 	S3BucketEndpoint       string                     `json:"s3BucketEndpoint"`
 	S3BucketName           string                     `json:"s3BucketName"`
+	// This is only set to "true" when user is running in EKS and is using AWS IRSA to configure
+	// S3 snapshot store. For more details refer this: https://aws.amazon.com/blogs/opensource/introducing-fine-grained-iam-roles-service-accounts/
+	// +optional
+	IRSAEnabled bool `json:"irsaEnabled"`
 }
 
 func (s S3Config) Identifier() interface{} {

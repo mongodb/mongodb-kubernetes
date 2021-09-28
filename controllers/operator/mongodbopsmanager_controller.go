@@ -1358,27 +1358,30 @@ func shouldUseAppDb(config omv1.S3Config) bool {
 }
 
 // buildAppDbOMS3Config creates a backup.S3Config which is configured to use The AppDb.
-func (r *OpsManagerReconciler) buildAppDbOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
+func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, config omv1.S3Config,
 	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
 
-	password, err := r.getAppDBPassword(opsManager, log)
+	password, err := r.getAppDBPassword(om, log)
 	if err != nil {
 		return backup.S3Config{}, workflow.Failed(err.Error())
 	}
+	var s3Creds *backup.S3Credentials
 
-	s3Creds, err := r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
-	if err != nil {
-		return backup.S3Config{}, workflow.Failed(err.Error())
+	if !config.IRSAEnabled {
+		s3Creds, err = r.readS3Credentials(config.S3SecretRef.Name, om.Namespace)
+		if err != nil {
+			return backup.S3Config{}, workflow.Failed(err.Error())
+		}
 	}
 
-	uri := buildMongoConnectionUrl(opsManager, password)
+	uri := buildMongoConnectionUrl(om, password)
 
 	bucket := backup.S3Bucket{
 		Endpoint: config.S3BucketEndpoint,
 		Name:     config.S3BucketName,
 	}
 
-	return backup.NewS3Config(opsManager, config.Name, uri, bucket, *s3Creds), workflow.OK()
+	return backup.NewS3Config(om, config.Name, uri, bucket, s3Creds), workflow.OK()
 }
 
 // buildMongoDbOMS3Config creates a backup.S3Config which is configured to use a referenced
@@ -1397,10 +1400,14 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 	if !status.IsOK() {
 		return backup.S3Config{}, status
 	}
+	var s3Creds *backup.S3Credentials
+	var err error
 
-	s3Creds, err := r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
-	if err != nil {
-		return backup.S3Config{}, workflow.Failed(err.Error())
+	if !config.IRSAEnabled {
+		s3Creds, err = r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
+		if err != nil {
+			return backup.S3Config{}, workflow.Failed(err.Error())
+		}
 	}
 
 	uri := mongodb.ConnectionURL(userName, password, map[string]string{})
@@ -1410,7 +1417,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		Name:     config.S3BucketName,
 	}
 
-	return backup.NewS3Config(opsManager, config.Name, uri, bucket, *s3Creds), workflow.OK()
+	return backup.NewS3Config(opsManager, config.Name, uri, bucket, s3Creds), workflow.OK()
 }
 
 // buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to

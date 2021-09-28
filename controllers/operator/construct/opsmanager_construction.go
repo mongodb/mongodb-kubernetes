@@ -130,6 +130,7 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 						container.WithName(util.OpsManagerContainerName),
 						container.WithReadinessProbe(opsManagerReadinessProbe(getURIScheme(opts.HTTPSCertSecretName))),
 						container.WithLifecycle(buildOpsManagerLifecycle()),
+						container.WithEnvs(corev1.EnvVar{Name: "ENABLE_IRP", Value: "true"}),
 					),
 				),
 			)),
@@ -210,8 +211,8 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				podtemplatespec.WithAnnotations(map[string]string{
 					"connectionStringHash": opts.AppDBConnectionStringHash,
 				}),
-				podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
 				configurePodSpecSecurityContext,
+				podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
 				pullSecretsConfigurationFunc,
 				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 				podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
@@ -228,8 +229,8 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 						container.WithEnvs(opts.EnvVars...),
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName)...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
-						container.WithVolumeMounts(omVolumeMounts),
 						configureContainerSecurityContext,
+						container.WithVolumeMounts(omVolumeMounts),
 					),
 				),
 			),
@@ -270,7 +271,6 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 func buildOpsManagerAndBackupInitContainer() container.Modification {
 	version := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitOpsManagerImageUrl), version)
-
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configureContainerSecurityContext := container.NOOP()

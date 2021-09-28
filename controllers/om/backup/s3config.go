@@ -9,6 +9,13 @@ import (
 	"github.com/blang/semver"
 )
 
+type authmode string
+
+const (
+	KEYS authmode = "KEYS"
+	IAM  authmode = "IAM_ROLE"
+)
+
 type S3ConfigResponse struct {
 	S3Configs []S3Config `json:"results"`
 }
@@ -45,8 +52,7 @@ type S3Config struct {
 	Labels               []string `json:"labels,omitempty"`
 	LoadFactor           int      `json:"loadFactor,omitempty"`
 
-	// ErrorCode: INVALID_ATTRIBUTE, Detail: Invalid attribute s3AuthMethod specified
-	//AuthMethod           string   `json:"s3AuthMethod"`
+	AuthMethod string `json:"s3AuthMethod"`
 
 	WriteConcern string `json:"writeConcern,omitempty"`
 
@@ -79,10 +85,18 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Bucket, s3Creds S3Credentials) S3Config {
+func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
+	authMode := IAM
+	cred := S3Credentials{}
+
+	if s3Creds != nil {
+		authMode = KEYS
+		cred = *s3Creds
+	}
+
 	config := S3Config{
 		S3Bucket:               bucket,
-		S3Credentials:          s3Creds,
+		S3Credentials:          cred,
 		AcceptedTos:            true,
 		AssignmentEnabled:      true, // default to enabled. This will not be overridden on merge so it can be manually disabled in UI.
 		SseEnabled:             false,
@@ -93,6 +107,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Buc
 		Labels:                 []string{},
 		EncryptedCredentials:   false,
 		PathStyleAccessEnabled: true,
+		AuthMethod:             string(authMode),
 	}
 
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
