@@ -171,7 +171,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (bool, error) {
 	scalingDown, err := isScalingDown(mrs)
 	if err != nil {
-		return false, errors.New(fmt.Sprintf("failed determining if the resource is scaling down: %s", err))
+		return false, fmt.Errorf("failed determining if the resource is scaling down: %s", err)
 	}
 
 	if scalingDown {
@@ -195,7 +195,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mr
 			log.Debugf("New StatefulSet %s", nsName)
 			return false, nil
 		}
-		return false, errors.New(fmt.Sprintf("Error getting StatefulSet %s: %s", nsName, err))
+		return false, fmt.Errorf("error getting StatefulSet %s: %s", nsName, err)
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, firstStatefulSet.Spec.Template.Spec.Containers)
@@ -237,7 +237,7 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection) error {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
-		return errors.New(fmt.Sprintf("failed to read cluster spec list: %s", err))
+		return fmt.Errorf("failed to read cluster spec list: %s", err)
 	}
 
 	for i, item := range clusterSpecList {
@@ -269,7 +269,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
 			if !apiErrors.IsAlreadyExists(err) {
-				return errors.New(fmt.Sprintf("failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err))
+				return fmt.Errorf("failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
 			}
 		}
 		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
@@ -335,11 +335,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return err
 	}
 
-	processMap, err := process.CreateMongodProcessesWithLimitPerCluster(mrs)
+	processIds, err := getExistingProcessIds(conn, mrs)
 	if err != nil {
 		return err
 	}
-	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processMap)
+
+	log.Debugf("Existing process Ids: %+v", processIds)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(mrs)
+	if err != nil {
+		return err
+	}
+
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, processIds)
 
 	status, additionalReconciliationRequired := updateOmMultiSCRAMAuthentication(conn, rs.GetProcessNames(), &mrs, log)
 	if !status.IsOK() {
@@ -373,6 +380,24 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return err
 	}
 	return nil
+}
+
+func getExistingProcessIds(conn om.Connection, mrs mdbmultiv1.MongoDBMulti) (map[string]int, error) {
+	existingDeployment, err := conn.ReadDeployment()
+	if err != nil {
+		return nil, err
+	}
+
+	processIds := map[string]int{}
+	for _, rs := range existingDeployment.ReplicaSetsCopy() {
+		if rs.Name() != mrs.Name {
+			continue
+		}
+		for _, m := range rs.Members() {
+			processIds[m.Name()] = m.Id()
+		}
+	}
+	return processIds, nil
 }
 
 func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Service {

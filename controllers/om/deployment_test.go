@@ -58,7 +58,7 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	assert.Len(t, d.getProcesses(), 3)
 	assert.Len(t, d.getReplicaSets(), 1)
-	assert.Len(t, d.getReplicaSets()[0].members(), 3)
+	assert.Len(t, d.getReplicaSets()[0].Members(), 3)
 	assert.Equal(t, d.getReplicaSets()[0], expectedRs.Rs)
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
@@ -68,9 +68,9 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.getProcesses()[0]["processType"] = ProcessTypeMongos                 // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
 	d.getReplicaSets()[0]["protocolVersion"] = 10                          // this field will be overriden by Operator
-	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].members()[0:2]) // "removing" the last node in replicaset
+	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].Members()[0:2]) // "removing" the last node in replicaset
 	d.getReplicaSets()[0].addMember(newProcess, "")                        // "adding" some new node
-	d.getReplicaSets()[0].members()[0]["arbiterOnly"] = true               // changing data for first node
+	d.getReplicaSets()[0].Members()[0]["arbiterOnly"] = true               // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
@@ -78,7 +78,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	assert.Len(t, d.getReplicaSets(), 1)
 
 	expectedRs = buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
-	expectedRs.Rs.members()[0]["arbiterOnly"] = true
+	expectedRs.Rs.Members()[0]["arbiterOnly"] = true
 	expectedRs.Processes[1].EnsureNetConfig()["MaxIncomingConnections"] = 20
 
 	checkReplicaSet(t, d, expectedRs)
@@ -90,14 +90,14 @@ func TestMergeReplica_ScaleDown(t *testing.T) {
 
 	mergeReplicaSet(d, "someRs", createReplicaSetProcesses("someRs"))
 	assert.Len(t, d.getProcesses(), 3)
-	assert.Len(t, d.getReplicaSets()[0].members(), 3)
+	assert.Len(t, d.getReplicaSets()[0].Members(), 3)
 
 	// "scale down"
 	scaledDownRsProcesses := createReplicaSetProcesses("someRs")[0:2]
 	mergeReplicaSet(d, "someRs", scaledDownRsProcesses)
 
 	assert.Len(t, d.getProcesses(), 2)
-	assert.Len(t, d.getReplicaSets()[0].members(), 2)
+	assert.Len(t, d.getReplicaSets()[0].Members(), 2)
 
 	// checking that the last member was removed
 	rsProcesses := buildRsByProcesses("someRs", createReplicaSetProcesses("someRs")).Processes
@@ -178,8 +178,8 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	checkNumberOfVotingMembers(t, rs, 7, 8)
 
 	// Now OM user "has changed" votes for some of the members - this must stay the same after merge
-	omDeployment.getReplicaSets()[0].members()[2].setVotes(0).setPriority(0)
-	omDeployment.getReplicaSets()[0].members()[4].setVotes(0).setPriority(0)
+	omDeployment.getReplicaSets()[0].Members()[2].setVotes(0).setPriority(0)
+	omDeployment.getReplicaSets()[0].Members()[4].setVotes(0).setPriority(0)
 
 	omDeployment.MergeReplicaSet(rs, zap.S())
 	checkNumberOfVotingMembers(t, rs, 5, 8)
@@ -192,10 +192,10 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	// only as 7 is the upper limit
 	omDeployment.MergeReplicaSet(buildRsByProcesses("my-rs", createReplicaSetProcessesCount(11, "my-rs")), zap.S())
 	checkNumberOfVotingMembers(t, rs, 7, 11)
-	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].members()[2].Votes())
-	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].members()[4].Votes())
-	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].members()[2].Priority())
-	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].members()[4].Priority())
+	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[2].Votes())
+	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[4].Votes())
+	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[2].Priority())
+	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[4].Priority())
 }
 
 func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
@@ -624,13 +624,13 @@ func checkProcessRemoved(t *testing.T, d Deployment, p string) {
 
 func checkNumberOfVotingMembers(t *testing.T, rs ReplicaSetWithProcesses, expectedNumberOfVotingMembers, totalNumberOfMembers int) {
 	count := 0
-	for _, m := range rs.Rs.members() {
+	for _, m := range rs.Rs.Members() {
 		if m.Votes() > 0 && m.Priority() > 0 {
 			count++
 		}
 	}
 	assert.Equal(t, expectedNumberOfVotingMembers, count)
-	assert.Len(t, rs.Rs.members(), totalNumberOfMembers)
+	assert.Len(t, rs.Rs.Members(), totalNumberOfMembers)
 }
 
 func createShards(name string) []ReplicaSetWithProcesses {

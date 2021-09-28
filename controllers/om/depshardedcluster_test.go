@@ -23,7 +23,7 @@ func TestMergeShardedCluster_New(t *testing.T) {
 	require.Len(t, d.getProcesses(), 15)
 	require.Len(t, d.getReplicaSets(), 4)
 	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].members(), 3)
+		require.Len(t, d.getReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
@@ -75,7 +75,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	(*d.getReplicaSetByName("configSrv")).addMember(
 		NewMongodProcess("foo", "bar", mdbv1.AdditionalMongodConfig{Object: nil}, mdbv1.NewStandaloneBuilder().Build().GetSpec()), "",
 	)
-	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").members()[0:2])
+	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").Members()[0:2])
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result
@@ -88,7 +88,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	require.Len(t, d.getProcesses(), 15)
 	require.Len(t, d.getReplicaSets(), 4)
 	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].members(), 3)
+		require.Len(t, d.getReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
@@ -130,7 +130,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	require.Len(t, d.getProcesses(), 18)
 	require.Len(t, d.getReplicaSets(), 5)
 	for i := 0; i < 4; i++ {
-		require.Len(t, d.getReplicaSets()[i].members(), 3)
+		require.Len(t, d.getReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.getProcesses(), createMongosProcesses(3, "pretty", "cluster"))
 	checkReplicaSet(t, d, createConfigSrvRs("configSrv", true))
@@ -217,7 +217,7 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 	// Emulating changes to current shards by OM
 	for _, s := range d.getShardedClusters()[0].shards() {
 		shardRs := d.getReplicaSetByName(s.rs())
-		for _, m := range shardRs.members() {
+		for _, m := range shardRs.Members() {
 			process := d.getProcessByName(m.Name())
 			process.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}
 		}

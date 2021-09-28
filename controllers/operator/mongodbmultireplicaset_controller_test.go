@@ -407,6 +407,65 @@ func TestScaling(t *testing.T) {
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 1)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 3)
 	})
+
+	t.Run("Added members don't have overlapping replica set member Ids", func(t *testing.T) {
+		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 3)
+
+		dep, err := om.CurrMockedConnection.ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets := dep.ReplicaSets()
+
+		assert.Len(t, replicaSets, 1)
+		members := replicaSets[0].Members()
+		assert.Len(t, members, 3)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+
+		assert.Equal(t, members[0].Id(), 0)
+		assert.Equal(t, members[1].Id(), 1)
+		assert.Equal(t, members[2].Id(), 2)
+
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 2
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		dep, err = om.CurrMockedConnection.ReadDeployment()
+		assert.NoError(t, err)
+
+		replicaSets = dep.ReplicaSets()
+
+		assert.Len(t, replicaSets, 1)
+		members = replicaSets[0].Members()
+		assert.Len(t, members, 4)
+
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-0", mrs.Name), 0)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-0-1", mrs.Name), 3)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
+		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
+	})
+}
+
+// assertMemberNameAndId makes sure that the member with the given name has the given id.
+// the processes are sorted and the order in the automation config is not necessarily the order
+// in which they appear in the CR.
+func assertMemberNameAndId(t *testing.T, members []om.ReplicaSetMember, name string, id int) {
+	for _, m := range members {
+		if m.Name() == name {
+			assert.Equal(t, id, m.Id())
+			return
+		}
+	}
+	t.Fatalf("Member with name %s not found in replica set members", name)
 }
 
 func TestBackupConfigurationReplicaSet(t *testing.T) {

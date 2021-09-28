@@ -143,7 +143,7 @@ func (r ReplicaSetMember) Priority() int {
 },*/
 
 func (r ReplicaSet) String() string {
-	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.members())
+	return fmt.Sprintf("\"%s\" (members: %v)", r.Name(), r.Members())
 }
 
 // ***************************************** Private methods ***********************************************************
@@ -159,7 +159,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
 func (r ReplicaSet) addMember(process Process, id string) {
-	members := r.members()
+	members := r.Members()
 	lastIndex := -1
 	if len(members) > 0 {
 		lastIndex = members[len(members)-1].Id()
@@ -225,7 +225,7 @@ func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
 // members returns all members of replica set. Note, that this should stay package-private as 'operator' package should
 // not have direct access to members.
 // The members returned are not copies and can be used direcly for mutations
-func (r ReplicaSet) members() []ReplicaSetMember {
+func (r ReplicaSet) Members() []ReplicaSetMember {
 	switch v := r["members"].(type) {
 	case []ReplicaSetMember:
 		return v
@@ -253,7 +253,7 @@ func (r ReplicaSet) clearMembers() {
 }
 
 func (r ReplicaSet) findMemberByName(name string) *ReplicaSetMember {
-	members := r.members()
+	members := r.Members()
 	for _, m := range members {
 		if m.Name() == name {
 			return &m
@@ -311,7 +311,7 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 // Builds the map[<process name>]<replica set member>. This makes intersection easier
 func buildMapOfRsNodes(rs ReplicaSet) map[string]ReplicaSetMember {
 	ans := make(map[string]ReplicaSetMember)
-	for _, r := range rs.members() {
+	for _, r := range rs.Members() {
 		ans[r.Name()] = r
 	}
 	return ans

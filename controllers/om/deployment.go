@@ -168,8 +168,8 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, l *zap.S
 	// If the new replica set is bigger than old one - we need to copy first member to positions of new members so that
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
-	if r != nil && len(operatorRs.Rs.members()) > len(r.members()) {
-		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.members()), l); err != nil {
+	if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
+		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
 			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
 			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
 				"existing replica set processes): %s", err)
@@ -230,6 +230,10 @@ func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool) {
 	}
 	d.AddMonitoring(log, tls)
 	d.addBackup(log)
+}
+
+func (d Deployment) ReplicaSets() []ReplicaSet {
+	return d["replicaSets"].([]ReplicaSet)
 }
 
 // AddMonitoring adds monitoring agents for all processes in the deployment
@@ -343,7 +347,7 @@ func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) 
 
 	d.setReplicaSets(toKeep)
 
-	members := rs.members()
+	members := rs.Members()
 	processNames := make([]string, len(members))
 	for i, el := range members {
 		processNames[i] = el.Name()
@@ -612,7 +616,7 @@ func (d Deployment) BackupVersionsCopy() []interface{} {
 func (d Deployment) getReplicaSetProcessNames(name string) []string {
 	processNames := make([]string, 0)
 	if rs := d.getReplicaSetByName(name); rs != nil {
-		for _, member := range rs.members() {
+		for _, member := range rs.Members() {
 			processNames = append(processNames, member.Name())
 		}
 	}
@@ -1077,7 +1081,7 @@ func (d Deployment) limitVotingMembers(rsName string) {
 	r := d.getReplicaSetByName(rsName)
 
 	numberOfVotingMembers := 0
-	for _, v := range r.members() {
+	for _, v := range r.Members() {
 		if v.Votes() > 0 {
 			numberOfVotingMembers++
 		}

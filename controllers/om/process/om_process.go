@@ -62,33 +62,6 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) ([]om.Proc
 	return processes, nil
 }
 
-// CreateMongodProcessesWithLimitPerCluster creates a mapping of cluster name to slice of processes
-// corresponding to that cluster.
-func CreateMongodProcessesWithLimitPerCluster(mrs mdbmultiv1.MongoDBMulti) (map[string][]om.Process, error) {
-	clusterSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		return nil, err
-	}
-
-	allProcesses, err := CreateMongodProcessesWithLimitMulti(mrs)
-	if err != nil {
-		return nil, err
-	}
-
-	processMap := map[string][]om.Process{}
-
-	idx := 0
-	for _, item := range clusterSpecList {
-		var itemProcesses []om.Process
-		for i := 0; i < item.Members; i++ {
-			itemProcesses = append(itemProcesses, allProcesses[idx])
-			idx++
-		}
-		processMap[item.ClusterName] = itemProcesses
-	}
-	return processMap, nil
-}
-
 func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
 	mdb omv1.AppDBSpec) []om.Process {
 

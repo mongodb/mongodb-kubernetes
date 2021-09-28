@@ -34,7 +34,7 @@ func TestMergeHorizonsAdd(t *testing.T) {
 	operatorRsWithProcesses.SetHorizons(horizons)
 
 	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs)
-	for i, member := range opsManagerRsWithProcesses.Rs.members() {
+	for i, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, horizons[i], member.getHorizonConfig())
 	}
 }
@@ -52,7 +52,7 @@ func TestMergeHorizonsRemove(t *testing.T) {
 	operatorRsWithProcesses := makeMinimalRsWithProcesses()
 
 	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs)
-	for _, member := range opsManagerRsWithProcesses.Rs.members() {
+	for _, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, mdbv1.MongoDBHorizonConfig{}, member.getHorizonConfig())
 	}
 }
@@ -76,7 +76,7 @@ func TestMergeHorizonsOverride(t *testing.T) {
 	operatorRsWithProcesses.SetHorizons(horizonsNew)
 
 	opsManagerRsWithProcesses.Rs.mergeFrom(operatorRsWithProcesses.Rs)
-	for i, member := range opsManagerRsWithProcesses.Rs.members() {
+	for i, member := range opsManagerRsWithProcesses.Rs.Members() {
 		assert.Equal(t, horizonsNew[i], member.getHorizonConfig())
 	}
 }

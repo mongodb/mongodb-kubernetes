@@ -1,13 +1,10 @@
 package om
 
 import (
-	"sort"
 	"strconv"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 )
-
-const maxMembersInReplicaSet = 50
 
 // ReplicaSetWithProcesses is a wrapper for replica set and processes that match to it
 // The contract for class is that both processes and replica set are guaranteed to match to each other
@@ -31,40 +28,46 @@ func NewReplicaSetWithProcesses(
 	return ReplicaSetWithProcesses{rs, processes}
 }
 
-// NewMultiClusterReplicaSetWithProcesses Creates processes for a multi cluster deployment.
-// The only difference from NewReplicaSetWithProcesses is that we ensure that there can be no overlapping values for _id.
-// E.g. if we have a multi cluster resource 1-1-1, if we scale the first cluster to 2, the _id value would overlap (1)
-// and the resource would not get into the ready state. This function offsets each cluster by 50 which is the maximum
-// number of replicaset members in any given replicasets. This ensures that there will be no overlapping values.
-func NewMultiClusterReplicaSetWithProcesses(
-	rs ReplicaSet,
-	processMap map[string][]Process,
-
-) ReplicaSetWithProcesses {
-	rs.clearMembers()
-
-	var clusterNames []string
-	for k := range processMap {
-		clusterNames = append(clusterNames, k)
-	}
-
-	// TODO: this particular approach will break if a new cluster is added that does not becomes the last member.
-	// One possible solution is to ensure order of cluster names once a resource has been deployed.
-	sort.SliceStable(clusterNames, func(i, j int) bool {
-		return clusterNames[i] < clusterNames[j]
-	})
-
-	var allProcesses []Process
-	for clusterNum, clusterName := range clusterNames {
-		processList := processMap[clusterName]
-		for i, p := range processList {
-			p.setReplicaSetName(rs.Name())
-			rs.addMember(p, strconv.Itoa(i+maxMembersInReplicaSet*clusterNum))
+// determineNextProcessIdStartingPoint returns the number which should be used as a starting
+// point for generating new _ids.
+func determineNextProcessIdStartingPoint(desiredProcesses []Process, existingProcessIds map[string]int) int {
+	var newProcesses []Process
+	for i := 0; i < len(desiredProcesses); i++ {
+		p := desiredProcesses[i]
+		if _, ok := existingProcessIds[p.Name()]; !ok {
+			newProcesses = append(newProcesses, p)
 		}
-		allProcesses = append(allProcesses, processList...)
 	}
 
-	return ReplicaSetWithProcesses{rs, allProcesses}
+	// determine the next id, it has to be higher than any previous value
+	newId := 0
+	for _, id := range existingProcessIds {
+		if id >= newId {
+			newId = id + 1
+		}
+	}
+	return newId
+}
+
+// NewMultiClusterReplicaSetWithProcesses Creates processes for a multi cluster deployment.
+// This function ensures that new proccesses which are added never have an overlapping _id with any existing process.
+// existing _ids are re-used, and when new processes are added, a new higher number is used.
+func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, existingProcessIds map[string]int) ReplicaSetWithProcesses {
+	newId := determineNextProcessIdStartingPoint(processes, existingProcessIds)
+	rs.clearMembers()
+	for _, p := range processes {
+		p.setReplicaSetName(rs.Name())
+		// ensure the process id is not changed if it already exists
+		if existingId, ok := existingProcessIds[p.Name()]; ok {
+			rs.addMember(p, strconv.Itoa(existingId))
+		} else {
+			// otherwise add a new id which is always incrementing
+			rs.addMember(p, strconv.Itoa(newId))
+			newId++
+		}
+	}
+
+	return ReplicaSetWithProcesses{rs, processes}
 }
 
 func (r ReplicaSetWithProcesses) GetProcessNames() []string {
@@ -76,8 +79,8 @@ func (r ReplicaSetWithProcesses) GetProcessNames() []string {
 }
 
 func (r ReplicaSetWithProcesses) SetHorizons(replicaSetHorizons []mdbv1.MongoDBHorizonConfig) {
-	if len(replicaSetHorizons) >= len(r.Rs.members()) {
-		for i, m := range r.Rs.members() {
+	if len(replicaSetHorizons) >= len(r.Rs.Members()) {
+		for i, m := range r.Rs.Members() {
 			m.setHorizonConfig(replicaSetHorizons[i])
 		}
 	}
