@@ -19,6 +19,38 @@ func Contains(slice []string, s string) bool {
 	return false
 }
 
+// CheckCertificateAddresses determines if the provided FQDN can match any of the addresses or
+// SubjectAltNames (SAN) in an array of FQDNs/wildcards/shortnames
+func CheckCertificateAddresses(availableAddressNames []string, testAddressName string) bool {
+	checkedTestAddressName := CheckWithLevelDomain(testAddressName)
+	star := "*"
+	for _, availableAddress := range availableAddressNames {
+		// Determine if the certificate name is a wildcard, FQDN, unqualified domain name, or shortname
+		// Strip the first character from the wildcard and hostname to determine if they match
+		// (wildcards only work for one level of domain)
+		if availableAddress[0:1] == star {
+			checkAddress := CheckWithLevelDomain(availableAddress)
+			if checkAddress == checkedTestAddressName {
+				return true
+			}
+		} 
+		if availableAddress == testAddressName {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckWithLevelDomain determines if the address is a shortname/top level domain 
+// or FQDN/Unqualified Domain Name
+func CheckWithLevelDomain(address string) (string) {
+	addressExploded := strings.Split(address, ".")
+	if len(addressExploded) < 2 {
+		return addressExploded[0]
+	}
+	return strings.Join(addressExploded[1:], ".")
+}
+
 func ContainsAny(slice []string, ss ...string) bool {
 	for _, s := range ss {
 		if Contains(slice, s) {

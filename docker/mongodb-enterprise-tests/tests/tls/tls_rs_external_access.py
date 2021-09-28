@@ -27,10 +27,7 @@ def server_certs(issuer: str, namespace: str):
         f"{mdb_resource}-cert",
         replicas=4,
         additional_domains=[
-            "mdb0-test-website.com",
-            "mdb1-test-website.com",
-            "mdb2-test-website.com",
-            "mdb3-test-website.com",
+            "*.website.com",
         ],
     )
 
@@ -45,12 +42,12 @@ def server_certs_multiple_horizons(issuer: str, namespace: str):
         f"{mdb_resource}-cert",
         replicas=4,
         additional_domains=[
-            "mdb0-test-1-website.com",
-            "mdb0-test-2-website.com",
-            "mdb1-test-1-website.com",
-            "mdb1-test-2-website.com",
-            "mdb2-test-1-website.com",
-            "mdb2-test-2-website.com",
+            "mdb0-test-1.website.com",
+            "mdb0-test-2.website.com",
+            "mdb1-test-1.website.com",
+            "mdb1-test-2.website.com",
+            "mdb2-test-1.website.com",
+            "mdb2-test-2.website.com",
         ],
     )
 
@@ -91,9 +88,9 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
         members = ac["replicaSets"][0]["members"]
         horizon_names = [m["horizons"] for m in members]
         assert horizon_names == [
-            {"test-horizon": "mdb0-test-website.com:1337"},
-            {"test-horizon": "mdb1-test-website.com:1337"},
-            {"test-horizon": "mdb2-test-website.com:1337"},
+            {"test-horizon": "mdb0-test.website.com:1337"},
+            {"test-horizon": "mdb1-test.website.com:1337"},
+            {"test-horizon": "mdb2-test.website.com:1337"},
         ]
 
     @skip_if_local
@@ -104,7 +101,7 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
         """
         host = f"test-tls-base-rs-external-access-svc.{self.namespace}.svc"
         assert any(
-            san.endswith("test-website.com") for san in self.get_mongo_server_sans(host)
+            san.endswith(".website.com") for san in self.get_mongo_server_sans(host)
         )
 
 
@@ -113,10 +110,10 @@ def test_scale_up_replica_set(mdb: MongoDB):
     mdb.load()
     mdb["spec"]["members"] = 4
     mdb["spec"]["connectivity"]["replicaSetHorizons"] = [
-        {"test-horizon": "mdb0-test-website.com:1337"},
-        {"test-horizon": "mdb1-test-website.com:1337"},
-        {"test-horizon": "mdb2-test-website.com:1337"},
-        {"test-horizon": "mdb3-test-website.com:1337"},
+        {"test-horizon": "mdb0-test.website.com:1337"},
+        {"test-horizon": "mdb1-test.website.com:1337"},
+        {"test-horizon": "mdb2-test.website.com:1337"},
+        {"test-horizon": "mdb3-test.website.com:1337"},
     ]
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=240)
@@ -126,10 +123,10 @@ def test_scale_up_replica_set(mdb: MongoDB):
 def tests_invalid_cert(mdb: MongoDB):
     mdb.load()
     mdb["spec"]["connectivity"]["replicaSetHorizons"] = [
-        {"test-horizon": "mdb0-test-website.com:1337"},
-        {"test-horizon": "mdb1-test-website.com:1337"},
-        {"test-horizon": "mdb2-test-website.com:1337"},
-        {"test-horizon": "mdb5-test-website.com:1337"},
+        {"test-horizon": "mdb0-test.website.com:1337"},
+        {"test-horizon": "mdb1-test.website.com:1337"},
+        {"test-horizon": "mdb2-test.website.com:1337"},
+        {"test-horizon": "mdb5-test.wrongwebsite.com:1337"},
     ]
     mdb.update()
     mdb.assert_reaches_phase(
@@ -176,16 +173,16 @@ class TestReplicaSetWithMultipleHorizons(KubernetesTester):
         horizons = [m["horizons"] for m in members]
         assert horizons == [
             {
-                "test-horizon-1": "mdb0-test-1-website.com:1337",
-                "test-horizon-2": "mdb0-test-2-website.com:2337",
+                "test-horizon-1": "mdb0-test-1.website.com:1337",
+                "test-horizon-2": "mdb0-test-2.website.com:2337",
             },
             {
-                "test-horizon-1": "mdb1-test-1-website.com:1338",
-                "test-horizon-2": "mdb1-test-2-website.com:2338",
+                "test-horizon-1": "mdb1-test-1.website.com:1338",
+                "test-horizon-2": "mdb1-test-2.website.com:2338",
             },
             {
-                "test-horizon-1": "mdb2-test-1-website.com:1339",
-                "test-horizon-2": "mdb2-test-2-website.com:2339",
+                "test-horizon-1": "mdb2-test-1.website.com:1339",
+                "test-horizon-2": "mdb2-test-2.website.com:2339",
             },
         ]
 

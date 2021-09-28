@@ -20,6 +20,6 @@ spec:
 
   connectivity:
     replicaSetHorizons:
-      - "test-horizon": "mdb0-test-website.com:1337"
-      - "test-horizon": "mdb1-test-website.com:1337"
-      - "test-horizon": "mdb2-test-website.com:1337"
+      - "test-horizon": "mdb0-test.website.com:1337"
+      - "test-horizon": "mdb1-test.website.com:1337"
+      - "test-horizon": "mdb2-test.website.com:1337"

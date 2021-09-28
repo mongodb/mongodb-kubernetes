@@ -109,7 +109,7 @@ func validatePemSecret(secret corev1.Secret, key string, additionalDomains []str
 	}
 
 	for _, domain := range additionalDomains {
-		if !stringutil.Contains(cert.DNSNames, domain) {
+		if !stringutil.CheckCertificateAddresses(cert.DNSNames, domain) {
 			return fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
 		}
 	}
