@@ -134,6 +134,9 @@ type MongoDBOpsManagerSpec struct {
 type MongoDBOpsManagerSecurity struct {
 	// +optional
 	TLS MongoDBOpsManagerTLS `json:"tls"`
+
+	// +optional
+	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
 }
 
 type MongoDBOpsManagerTLS struct {
@@ -559,7 +562,18 @@ func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
 }
 
 func (m MongoDBOpsManager) IsTLSEnabled() bool {
-	return m.Spec.Security != nil && m.Spec.Security.TLS.SecretRef.Name != ""
+	return m.Spec.Security != nil && (m.Spec.Security.TLS.SecretRef.Name != "" || m.Spec.Security.CertificatesSecretsPrefix != "")
+}
+
+func (m MongoDBOpsManager) TLSCertificateSecretName() string {
+	// The old field has the precedence
+	if m.GetSecurity().TLS.SecretRef.Name != "" {
+		return m.GetSecurity().TLS.SecretRef.Name
+	}
+	if m.GetSecurity().CertificatesSecretsPrefix != "" {
+		return fmt.Sprintf("%s-%s-cert", m.GetSecurity().CertificatesSecretsPrefix, m.Name)
+	}
+	return ""
 }
 
 func (m MongoDBOpsManager) CentralURL() string {

@@ -145,7 +145,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	}
 
 	if opsManager.IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetSecurity().TLS.CA, []string{opsManager.GetSecurity().TLS.SecretRef.Name})
+		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetSecurity().TLS.CA, []string{opsManager.TLSCertificateSecretName()})
 	}
 
 	// Make sure we watch the AppDB TLS secret

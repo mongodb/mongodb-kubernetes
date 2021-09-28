@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -161,6 +162,20 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
 	assert.NotContains(t, reconciler.WatchedResources, appdbTLSSecretKey)
 
+}
+
+func TestOpsManagerPrefixForTLSSecret(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: false,
+	}).SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+		CA: "custom-ca",
+	}).Build()
+
+	testOm.Spec.Security.CertificatesSecretsPrefix = "prefix"
+	assert.Equal(t, fmt.Sprintf("prefix-%s-cert", testOm.Name), testOm.TLSCertificateSecretName())
+
+	testOm.Spec.Security.TLS.SecretRef.Name = "om-tls-secret"
+	assert.Equal(t, "om-tls-secret", testOm.TLSCertificateSecretName())
 }
 
 func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {

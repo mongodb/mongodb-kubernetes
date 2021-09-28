@@ -32,6 +32,10 @@
 * Operator will report status of FileSystemSnaphot store names configured under `spec.backup.fileSystemStores` in OM CR. The FS however needs to be manually configured.
 * It is now possible to disable creation of "LoadBalancer" Type service for queryable backup by setting `spec.backup.externalServiceEnabled` to `false` in OM CR. By default, the operator would create the LoadBalancer type service object.
 * The operator will now automatically upgrade the used API Key to a programmatic one when deploying OM >= 5.0.0. It is now possible to upgrade from older versions of OM to OM 5.0 without manual intervention.
+* A new field has been added: `spec.security.certSecretPrefix`. This is string is now used to determine the name of the secret containing the TLS certificate for OpsManager.
+  * If the existing field `spec.security.tls.secretRef.Name` is specified, it will take the precedence
+    * Please note that this field is now **deprecated** and will be removed in a future release
+  * Otherwise, if `spec.security.certSecretPrefix` is specified, the secret name will be `<spec.security.certSecretPrefix>-<om-resource-name>-cert`
 
 ## MongoDBUser Resource
 * Breaking Changes:

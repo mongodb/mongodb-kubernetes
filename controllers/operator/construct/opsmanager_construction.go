@@ -79,14 +79,11 @@ func OpsManagerStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts ...
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
-	tlsSecret := ""
-	if opsManager.Spec.Security != nil {
-		tlsSecret = opsManager.Spec.Security.TLS.SecretRef.Name
-	}
+
 	return OpsManagerStatefulSetOptions{
 		OwnerReference:          kube.BaseOwnerReference(&opsManager),
 		OwnerName:               opsManager.Name,
-		HTTPSCertSecretName:     tlsSecret,
+		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Version:                 opsManager.Spec.Version,

@@ -673,6 +673,8 @@ spec:
               security:
                 description: Configure HTTPS.
                 properties:
+                  certsSecretPrefix:
+                    type: string
                   tls:
                     properties:
                       ca:
