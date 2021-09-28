@@ -409,7 +409,7 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Added members don't have overlapping replica set member Ids", func(t *testing.T) {
-		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
 		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
 		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1

@@ -33,7 +33,7 @@ func CheckCertificateAddresses(availableAddressNames []string, testAddressName s
 			if checkAddress == checkedTestAddressName {
 				return true
 			}
-		} 
+		}
 		if availableAddress == testAddressName {
 			return true
 		}
@@ -41,9 +41,9 @@ func CheckCertificateAddresses(availableAddressNames []string, testAddressName s
 	return false
 }
 
-// CheckWithLevelDomain determines if the address is a shortname/top level domain 
+// CheckWithLevelDomain determines if the address is a shortname/top level domain
 // or FQDN/Unqualified Domain Name
-func CheckWithLevelDomain(address string) (string) {
+func CheckWithLevelDomain(address string) string {
 	addressExploded := strings.Split(address, ".")
 	if len(addressExploded) < 2 {
 		return addressExploded[0]
