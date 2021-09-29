@@ -1736,6 +1736,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_member_cluster_watch
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_replica_set_scale_up
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2158,6 +2164,7 @@ task_groups:
     - e2e_multi_cluster_scram
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
+    - e2e_multi_cluster_member_cluster_watch
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
