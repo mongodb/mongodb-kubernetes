@@ -213,9 +213,11 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 }
 
 // GetClusterSpecItems returns the cluster spec items that should be used for reconciliation.
-// These may not be the values specified in the spec directly,  scaling is taken into account
-// and the members of each cluster items are the ones that should be used for StatefulSet replicas
-// and when updating the Ops Manger automation config.
+// These may not be the values specified in the spec directly, scaling of both clusters and replica set members taken
+// into account. The return value should be used in the reconciliation loop when determining which processes
+// should be added to the automation config and which services need to be created and how many replicas
+// each StatefulSet should have.
+// This function should always be used instead of accessing the struct fields directly in the Reconcile function.
 func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	clusterSpecs := m.Spec.GetOrderedClusterSpecList()
 	prevSpec, err := m.ReadLastAchievedSpec()
@@ -227,21 +229,74 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 		return clusterSpecs, nil
 	}
 
-	// TODO: CLOUDP-99971 handle case spec lists are of different size. (currently panicks)
 	prevSpecs := prevSpec.GetOrderedClusterSpecList()
-	for i, item := range clusterSpecs {
-		prevItem := prevSpecs[i]
-		// can only scale one member at a time
-		if item.Members > prevItem.Members {
-			prevSpecs[i].Members += 1
-			return prevSpecs, nil
-		}
-		if item.Members < prevItem.Members {
-			prevSpecs[i].Members -= 1
-			return prevSpecs, nil
+
+	var specsForThisReconciliation []ClusterSpecItem
+	specsForThisReconciliation = append(specsForThisReconciliation, prevSpecs...)
+
+	// When we remove a cluster, this means that there will be an entry in the resource annotation (the previous spec)
+	// but not in the current spec. In order to make scaling work, we add an entry for the removed cluster that has
+	// 0 members. This allows the following scaling logic to handle the transition from n -> 0 members, with a
+	// decrementing value of one with each reconciliation. After this, we delete the StatefulSet if the spec item
+	// was removed.
+
+	// E.g.
+	// Reconciliation 1:
+	//    3 clusters all with 3 members
+	// Reconciliation 2:
+	//    2 clusters with 3 members (we removed the last cluster.
+	//    The spec has 2 members, but we add a third with 0 members.
+	//    This "dummy" item will be handled the same as another spec item.
+	//    This is only relevant for the first reconciliation after removal since this cluster spec will be saved
+	//    in an annotation, and the regular scaling logic will happen in subsequent reconciliations.
+	//    We go from members 3-3-3 to 3-3-2
+	// Reconciliation 3:
+	//   We go from 3-3-2 to 3-3-1
+	// Reconciliation 4:
+	//   We go from 3-3-1 to 3-3-0 (and then delete the StatefulSet in this final reconciliation)
+
+	clusterSpecsMap := clusterSpecItemListToMap(clusterSpecs)
+	for _, previousItem := range prevSpecs {
+		if _, ok := clusterSpecsMap[previousItem.ClusterName]; !ok {
+			previousItem.Members = 0
+			clusterSpecs = append(clusterSpecs, previousItem)
 		}
 	}
-	return prevSpecs, nil
+
+	prevSpecsMap := clusterSpecItemListToMap(prevSpecs)
+	for i, item := range clusterSpecs {
+		// if a spec item exists but was not there previously, we add it with a single member.
+		// this allows subsequent reconciliations to go from 1-> n  one member at a time as usual.
+		// it will never be possible to add a new member at the maximum members since scaling can only ever be done
+		// one at a time. Adding the item with 1 member allows the regular logic to handle scaling one a time until
+		// we reach the desired member count.
+		prevItem, ok := prevSpecsMap[item.ClusterName]
+		if !ok {
+			item.Members = 1
+			return append(specsForThisReconciliation, item), nil
+		}
+
+		// can only scale one member at a time so we return early on each increment.
+		if item.Members > prevItem.Members {
+			specsForThisReconciliation[i].Members += 1
+			return specsForThisReconciliation, nil
+		}
+		if item.Members < prevItem.Members {
+			specsForThisReconciliation[i].Members -= 1
+			return specsForThisReconciliation, nil
+		}
+	}
+
+	return specsForThisReconciliation, nil
+}
+
+// clusterSpecItemListToMap converts a slice of cluster spec items into a map using the name as the key.
+func clusterSpecItemListToMap(clusterSpecItems []ClusterSpecItem) map[string]ClusterSpecItem {
+	m := map[string]ClusterSpecItem{}
+	for _, c := range clusterSpecItems {
+		m[c.ClusterName] = c
+	}
+	return m
 }
 
 // ReadLastAchievedSpec fetches the previously achieved spec.

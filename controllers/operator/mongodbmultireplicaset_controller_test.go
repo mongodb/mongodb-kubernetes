@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -19,7 +21,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -453,6 +454,82 @@ func TestScaling(t *testing.T) {
 		assertMemberNameAndId(t, members, fmt.Sprintf("%s-1-0", mrs.Name), 1)
 		assertMemberNameAndId(t, members, fmt.Sprintf("%s-2-0", mrs.Name), 2)
 	})
+
+	t.Run("Cluster can be added", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.ClusterSpecList.ClusterSpecs = mrs.Spec.ClusterSpecList.ClusterSpecs[:len(mrs.Spec.ClusterSpecList.ClusterSpecs)-1]
+
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
+
+		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1)
+
+		// scale one member and add a new cluster
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
+		mrs.Spec.ClusterSpecList.ClusterSpecs = append(mrs.Spec.ClusterSpecList.ClusterSpecs, mdbmulti.ClusterSpecItem{
+			ClusterName: clusters[2],
+			Members:     3,
+		})
+
+		err := client.Update(context.TODO(), mrs)
+		assert.NoError(t, err)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 1)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 2)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 3)
+	})
+
+	t.Run("Cluster can be removed", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 2
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
+
+		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 2, 3)
+
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs = mrs.Spec.ClusterSpecList.ClusterSpecs[:len(mrs.Spec.ClusterSpecList.ClusterSpecs)-1]
+
+		err := client.Update(context.TODO(), mrs)
+		assert.NoError(t, err)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 2, 3)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2, 3)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2, 2)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2, 1)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2)
+
+		// can reconcile again and it succeeds.
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2)
+	})
 }
 
 // assertMemberNameAndId makes sure that the member with the given name has the given id.
@@ -539,13 +616,11 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 }
 
 func assertStatefulSetReplicas(t *testing.T, mrs *mdbmulti.MongoDBMulti, memberClusters map[string]cluster.Cluster, expectedReplicas ...int) {
-	if len(expectedReplicas) != len(memberClusters) {
-		panic("must provide a replica count for each statefulset!")
-	}
 	statefulSets := readStatefulSets(mrs, memberClusters)
-	assert.Equal(t, expectedReplicas[0], int(*statefulSets[clusters[0]].Spec.Replicas))
-	assert.Equal(t, expectedReplicas[1], int(*statefulSets[clusters[1]].Spec.Replicas))
-	assert.Equal(t, expectedReplicas[2], int(*statefulSets[clusters[2]].Spec.Replicas), "We should only scale one member at a time")
+
+	for i := range expectedReplicas {
+		assert.Equal(t, expectedReplicas[i], int(*statefulSets[clusters[i]].Spec.Replicas))
+	}
 }
 
 func readStatefulSets(mrs *mdbmulti.MongoDBMulti, memberClusters map[string]cluster.Cluster) map[string]appsv1.StatefulSet {
@@ -558,10 +633,9 @@ func readStatefulSets(mrs *mdbmulti.MongoDBMulti, memberClusters map[string]clus
 		memberClient := memberClusters[item.ClusterName]
 		sts := appsv1.StatefulSet{}
 		err := memberClient.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(i)), &sts)
-		if err != nil {
-			panic(err)
+		if err == nil {
+			allStatefulSets[item.ClusterName] = sts
 		}
-		allStatefulSets[item.ClusterName] = sts
 	}
 	return allStatefulSets
 }

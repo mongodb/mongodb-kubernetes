@@ -157,12 +157,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, workflow.Failed("Failed to set annotation: %s", err), log)
 	}
 
-	needToRequeue := !reflect.DeepEqual(desiredSpecList, actualSpecList)
+	// for purposes of comparison, we don't want to compare entries with 0 members since they will not be present
+	// as a desired entry.
+	effectiveSpecList := filterClusterSpecItem(actualSpecList, func(item mdbmultiv1.ClusterSpecItem) bool {
+		return item.Members > 0
+	})
+
+	needToRequeue := !reflect.DeepEqual(desiredSpecList, effectiveSpecList)
 	if needToRequeue {
 		return r.updateStatus(&mrs, workflow.Pending("MongoDBMulti deployment is not yet ready, requeing reconciliation."), log)
 	}
 
-	log.Infof("Finished reconciliation for MultiReplicaSetSpec: %+v", mrs.Spec)
+	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
 	return r.updateStatus(&mrs, workflow.OK(), log)
 }
 
@@ -223,8 +229,12 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 		return false, err
 	}
 
-	// TODO: CLOUDP-99971 handle case where desiredSpec and specThisReconciliation are not the same size
-	for i := 0; i < len(desiredSpec); i++ {
+	if len(desiredSpec) < len(specThisReconciliation) {
+		return true, nil
+	}
+
+	// TODO: we might need to compare based on name.
+	for i := 0; i < len(specThisReconciliation); i++ {
 		specItem := desiredSpec[i]
 		reconciliationItem := specThisReconciliation[i]
 		if specItem.Members < reconciliationItem.Members {
@@ -263,18 +273,61 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return err
 		}
 
+		errorStringFormatStr := "failed to create StatefulSet in cluster: %s, err: %s"
+
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
-		sts := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn)
+		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn)
+		if err != nil {
+			return fmt.Errorf(errorStringFormatStr, item.ClusterName, err)
+		}
+
+		deleteSts, err := shouldDeleteStatefulSet(mrs, item)
+		if err != nil {
+			return fmt.Errorf(errorStringFormatStr, item.ClusterName, err)
+		}
+
+		if deleteSts {
+			if err := memberClient.Delete(context.TODO(), &sts); err != nil {
+				return fmt.Errorf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
+			}
+			continue
+		}
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
 			if !apiErrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
+				return fmt.Errorf(errorStringFormatStr, item.ClusterName, err)
 			}
 		}
 		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
 	}
 	return nil
+}
+
+// shouldDeleteStatefulSet returns a boolean value indicating whether or not the StatefulSet associated with
+// the given cluster spec item should be deleted or not.
+func shouldDeleteStatefulSet(mrs mdbmultiv1.MongoDBMulti, item mdbmultiv1.ClusterSpecItem) (bool, error) {
+	for _, specItem := range mrs.Spec.ClusterSpecList.ClusterSpecs {
+		if item.ClusterName == specItem.ClusterName {
+			// this spec value has been explicitly defined, don't delete it.
+			return false, nil
+		}
+	}
+
+	items, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return false, err
+	}
+
+	for _, specItem := range items {
+		if item.ClusterName == specItem.ClusterName {
+			// we delete only if we have fully scaled down and are at 0 members
+			return specItem.Members == 0, nil
+		}
+	}
+
+	// we are in the process of scaling down to 0, and should not yet delete the statefulset
+	return false, nil
 }
 
 // getMembersForClusterSpecItemThisReconciliation returns the value members should have for a given cluster spec item
@@ -740,4 +793,15 @@ type mongodbMultiCleanUpOptions struct {
 func (m *mongodbMultiCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
 	opts.Namespace = m.namesapce
 	opts.LabelSelector = labels.SelectorFromValidatedSet(m.labels)
+}
+
+// filterClusterSpecItem filters items out of a list based on provided predicate.
+func filterClusterSpecItem(items []mdbmultiv1.ClusterSpecItem, fn func(item mdbmultiv1.ClusterSpecItem) bool) []mdbmultiv1.ClusterSpecItem {
+	var result []mdbmultiv1.ClusterSpecItem
+	for _, item := range items {
+		if fn(item) {
+			result = append(result, item)
+		}
+	}
+	return result
 }

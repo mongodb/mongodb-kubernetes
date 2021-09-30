@@ -153,7 +153,7 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) appsv1.StatefulSet {
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) (appsv1.StatefulSet, error) {
 	// create the statefulSet modifications
 	stsModifications := statefulset.Apply(
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
@@ -204,9 +204,14 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 		}
 	}
 
-	stsOverride := mdbm.Spec.ClusterSpecList.ClusterSpecs[clusterNum].StatefulSetConfiguration.SpecWrapper.Spec
+	items, err := mdbm.GetClusterSpecItems()
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+
+	stsOverride := items[clusterNum].StatefulSetConfiguration.SpecWrapper.Spec
 	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, stsOverride)
 	sts.Spec = stsSpecFinal
 
-	return sts
+	return sts, nil
 }
