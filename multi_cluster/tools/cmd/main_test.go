@@ -17,14 +17,16 @@ import (
 )
 
 func testFlags(cleanup bool) flags {
+	memberClusters := []string{"member-cluster-0", "member-cluster-1", "member-cluster-2"}
 	return flags{
-		memberClusters:          []string{"member-cluster-0", "member-cluster-1", "member-cluster-2"},
-		serviceAccount:          "test-service-account",
-		centralCluster:          "central-cluster",
-		memberClusterNamespace:  "member-namespace",
-		centralClusterNamespace: "central-namespace",
-		cleanup:                 cleanup,
-		clusterScoped:           false,
+		memberClusterApiServerUrls: getMemberClusterApiServerUrls("", memberClusters),
+		memberClusters:             memberClusters,
+		serviceAccount:             "test-service-account",
+		centralCluster:             "central-cluster",
+		memberClusterNamespace:     "member-namespace",
+		centralClusterNamespace:    "central-namespace",
+		cleanup:                    cleanup,
+		clusterScoped:              false,
 	}
 }
 
@@ -269,6 +271,44 @@ func TestChangingOneServiceAccountToken_ChangesOnlyThatEntry_InKubeConfig(t *tes
 
 	assert.Equal(t, kubeConfigBefore.Users[2], kubeConfigAfter.Users[2], "Cluster 2 users should have remained unchanged")
 	assert.Equal(t, kubeConfigBefore.Clusters[2], kubeConfigAfter.Clusters[2], "Cluster 2 clusters should have remained unchanged")
+}
+
+func TestGetMemberClusterApiServerUrls(t *testing.T) {
+	t.Run("Test comma separated string returns correct values", func(t *testing.T) {
+		apiUrls := getMemberClusterApiServerUrls("cluster1-url,cluster2-url,cluster3-url", []string{"cluster1", "cluster2", "cluster3"})
+		assert.Len(t, apiUrls, 3)
+		assert.Equal(t, apiUrls[0], "cluster1-url")
+		assert.Equal(t, apiUrls[1], "cluster2-url")
+		assert.Equal(t, apiUrls[2], "cluster3-url")
+	})
+
+	t.Run("Test empty string returns correct values", func(t *testing.T) {
+		apiUrls := getMemberClusterApiServerUrls("", []string{"cluster1", "cluster2", "cluster3"})
+		assert.Len(t, apiUrls, 3)
+		assert.Equal(t, apiUrls[0], "https://api.cluster1")
+		assert.Equal(t, apiUrls[1], "https://api.cluster2")
+		assert.Equal(t, apiUrls[2], "https://api.cluster3")
+	})
+}
+
+func TestMemberClusterUris(t *testing.T) {
+	t.Run("Uses server values set in flags", func(t *testing.T) {
+		flags := testFlags(false)
+		flags.memberClusterApiServerUrls = []string{"cluster1-url", "cluster2-url", "cluster3-url"}
+		clientMap := getClientResources(flags)
+
+		err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
+		assert.NoError(t, err)
+
+		kubeConfig, err := readKubeConfig(clientMap[flags.centralCluster], flags.centralClusterNamespace)
+		assert.NoError(t, err)
+
+		for i, c := range kubeConfig.Clusters {
+			assert.Equal(t, flags.memberClusterApiServerUrls[i], c.Cluster.Server)
+		}
+
+		assert.NoError(t, err)
+	})
 }
 
 // assertMemberClusterNamespacesExist asserts the Namespace in the member clusters exists.
