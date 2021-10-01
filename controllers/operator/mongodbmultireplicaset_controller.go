@@ -112,7 +112,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
-	err = r.reconcileServices(log, mrs)
+	err = r.reconcileServices(log, &mrs)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
 	}
@@ -364,7 +364,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		mrs.Annotations = map[string]string{}
 	}
 
+	clusterIndexBytes, err := json.Marshal(mrs.Spec.Mapping)
+	if err != nil {
+		return err
+	}
+
 	mrs.Annotations[lastSuccessfulMultiClusterConfiguration] = string(achievedSpecBytes)
+	mrs.Annotations[mdbmultiv1.LastClusterIndexMapping] = string(clusterIndexBytes)
 
 	return r.client.Update(context.TODO(), &mrs)
 }
@@ -379,8 +385,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return err
 	}
 
-	for clusterNum, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, clusterNum, spec.Members)...)
+	for _, spec := range clusterSpecList {
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterIndex(spec.ClusterName), spec.Members)...)
 	}
 
 	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
@@ -453,20 +459,20 @@ func getExistingProcessIds(conn om.Connection, mrs mdbmultiv1.MongoDBMulti) (map
 	return processIds, nil
 }
 
-func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Service {
+func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterIndex(clusterName), podNum),
 		"controller":                         "mongodb-enterprise-operator",
 		"mongodbmulti":                       fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
 	}
 
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterIndex(clusterName), podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
 
 	return service.Builder().
-		SetName(dns.GetServiceName(mrs.Name, clusterNum, podNum)).
+		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterIndex(clusterName), podNum)).
 		SetNamespace(mrs.Namespace).
 		SetPort(27017).
 		SetPortName("mongodb").
@@ -478,7 +484,7 @@ func getService(mrs mdbmultiv1.MongoDBMulti, clusterNum, podNum int) corev1.Serv
 
 // reconcileServices make sure that we have a service object corresponding to each statefulset pod
 // in the member clusters
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti) error {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogger, mrs *mdbmultiv1.MongoDBMulti) error {
 	// by default we would create the duplicate services
 	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
 	if shouldCreateDuplicates {
@@ -489,9 +495,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 				return err
 			}
 
-			for clusterNum, e := range clusterSpecList {
+			for _, e := range clusterSpecList {
 				for podNum := 0; podNum < e.Members; podNum++ {
-					svc := getService(mrs, clusterNum, podNum)
+					svc := getService(mrs, e.ClusterName, podNum)
 					err := service.CreateOrUpdateService(v, svc)
 
 					if err != nil && !apiErrors.IsAlreadyExists(err) {
@@ -510,14 +516,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 	}
 
 	// create non-duplicate service objects
-	for clusterNum, e := range clusterSpecList {
+	for _, e := range clusterSpecList {
 		client := r.memberClusterClientsMap[e.ClusterName]
 		for podNum := 0; podNum < e.Members; podNum++ {
-			svc := getService(mrs, clusterNum, podNum)
+			svc := getService(mrs, e.ClusterName, podNum)
 			err := service.CreateOrUpdateService(client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, e.ClusterName, err)
 			}
+
 			log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
 		}
 	}

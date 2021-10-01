@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -22,6 +23,7 @@ func init() {
 
 const (
 	lastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastClusterIndexMapping                 = "mongodb.com/v1.lastClusterIndexMapping"
 )
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
@@ -65,8 +67,8 @@ func (m MongoDBMulti) GetMultiClusterAgentHostnames() ([]string, error) {
 		return nil, err
 	}
 
-	for clusterNum, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, clusterNum, spec.Members)...)
+	for _, spec := range clusterSpecList {
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterIndex(spec.ClusterName), spec.Members)...)
 	}
 	return hostnames, nil
 }
@@ -183,6 +185,8 @@ type MongoDBMultiSpec struct {
 	// +optional
 	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 	ClusterSpecList        ClusterSpecList              `json:"clusterSpecList,omitempty"`
+	// Mapping stores the deterministic index for a given cluster-name.
+	Mapping map[string]int `json:"-"`
 }
 
 func (m MongoDBMulti) GetPlural() string {
@@ -264,7 +268,7 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	}
 
 	prevSpecsMap := clusterSpecItemListToMap(prevSpecs)
-	for i, item := range clusterSpecs {
+	for _, item := range clusterSpecs {
 		// if a spec item exists but was not there previously, we add it with a single member.
 		// this allows subsequent reconciliations to go from 1-> n  one member at a time as usual.
 		// it will never be possible to add a new member at the maximum members since scaling can only ever be done
@@ -278,11 +282,11 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 
 		// can only scale one member at a time so we return early on each increment.
 		if item.Members > prevItem.Members {
-			specsForThisReconciliation[i].Members += 1
+			specsForThisReconciliation[m.ClusterIndex(item.ClusterName)].Members += 1
 			return specsForThisReconciliation, nil
 		}
 		if item.Members < prevItem.Members {
-			specsForThisReconciliation[i].Members -= 1
+			specsForThisReconciliation[m.ClusterIndex(item.ClusterName)].Members -= 1
 			return specsForThisReconciliation, nil
 		}
 	}
@@ -325,7 +329,6 @@ func (m *MongoDBMulti) UnmarshalJSON(data []byte) error {
 	}
 
 	m.InitDefaults()
-
 	return nil
 }
 
@@ -422,4 +425,40 @@ func (m *MongoDBMultiSpec) GetOrderedClusterSpecList() []ClusterSpecItem {
 		return clusterSpecs[i].ClusterName < clusterSpecs[j].ClusterName
 	})
 	return clusterSpecs
+}
+
+// ClusterIndex returns the index associated with a given clusterName, it assigns a unique id to each
+// clustername taking into account addition and removal of clusters. We don't reuse cluster indexes since
+// the clusters can be removed and then added back.
+func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
+	if m.Spec.Mapping == nil {
+		m.Spec.Mapping = make(map[string]int)
+	}
+	// first check if the entry exists in local map before making any API call
+	if val, ok := m.Spec.Mapping[clusterName]; ok {
+		return val
+	}
+
+	// next check if the clusterName is present in the annotations
+	if bytes, ok := m.Annotations[LastClusterIndexMapping]; ok {
+		json.Unmarshal([]byte(bytes), &m.Spec.Mapping)
+
+		if val, ok := m.Spec.Mapping[clusterName]; ok {
+			return val
+		}
+	}
+
+	index := getNextIndex(m.Spec.Mapping)
+	m.Spec.Mapping[clusterName] = index
+	return index
+}
+
+// getNextIndex returns the next higher index from the current cluster indexes
+func getNextIndex(m map[string]int) int {
+	maxi := -1
+
+	for _, val := range m {
+		maxi = intp.Max(maxi, val)
+	}
+	return maxi + 1
 }
