@@ -479,10 +479,10 @@ func TestScaling(t *testing.T) {
 		assert.NoError(t, err)
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
-		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 0)
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
-		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 0)
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 1)
@@ -530,6 +530,37 @@ func TestScaling(t *testing.T) {
 		// can reconcile again and it succeeds.
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 2)
+	})
+
+	t.Run("Multiple clusters can be removed", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+
+		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 2
+		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
+		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 2
+
+		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 2)
+
+		// remove first and last
+		mrs.Spec.ClusterSpecList.ClusterSpecs = []mdbmulti.ClusterSpecItem{mrs.Spec.ClusterSpecList.ClusterSpecs[1]}
+
+		err := client.Update(context.TODO(), mrs)
+		assert.NoError(t, err)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1, 2)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 0, 1, 2)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 0, 1, 1)
+
+		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+		assertStatefulSetReplicas(t, mrs, memberClusters, 0, 1, 0)
 	})
 }
 
@@ -720,7 +751,9 @@ func assertStatefulSetReplicas(t *testing.T, mrs *mdbmulti.MongoDBMulti, memberC
 	statefulSets := readStatefulSets(mrs, memberClusters)
 
 	for i := range expectedReplicas {
-		assert.Equal(t, expectedReplicas[i], int(*statefulSets[clusters[i]].Spec.Replicas))
+		if val, ok := statefulSets[clusters[i]]; ok {
+			assert.Equal(t, expectedReplicas[i], int(*val.Spec.Replicas))
+		}
 	}
 }
 

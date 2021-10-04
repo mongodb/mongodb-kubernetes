@@ -276,7 +276,9 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 		// we reach the desired member count.
 		prevItem, ok := prevSpecsMap[item.ClusterName]
 		if !ok {
-			item.Members = 1
+			if item.Members > 1 {
+				item.Members = 1
+			}
 			return append(specsForThisReconciliation, item), nil
 		}
 

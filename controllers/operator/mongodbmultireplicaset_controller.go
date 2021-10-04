@@ -287,7 +287,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		}
 
 		if deleteSts {
-			if err := memberClient.Delete(context.TODO(), &sts); err != nil {
+			if err := memberClient.Delete(context.TODO(), &sts); err != nil && !apiErrors.IsNotFound(err) {
 				return fmt.Errorf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
 			}
 			continue
@@ -295,9 +295,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
-			if !apiErrors.IsAlreadyExists(err) {
-				return fmt.Errorf(errorStringFormatStr, item.ClusterName, err)
-			}
+			return fmt.Errorf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
 		}
 		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
 	}
