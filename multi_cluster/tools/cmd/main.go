@@ -19,12 +19,18 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+type clusterType string
+
 // This tool handles the creation of ServiceAccounts and roles across multiple clusters.
 // Service Accounts, Roles and RoleBindings are created in all of the member clusters and the central cluster.
 // The Service Account token secrets from the member clusters are merged into a KubeConfig file which is then
 // created in the central cluster.
 
-const kubeConfigEnv = "KUBECONFIG"
+const (
+	kubeConfigEnv              = "KUBECONFIG"
+	centralCluster clusterType = "CENTRAL"
+	memberCluster  clusterType = "MEMBER"
+)
 
 // flags holds all of the fields provided by the user.
 type flags struct {
@@ -510,38 +516,90 @@ func createKubeConfigSecret(centralClusterClient kubernetes.Interface, kubeConfi
 	}
 }
 
-func buildRole(namespace string) rbacv1.Role {
+func getCentralRules() []rbacv1.PolicyRule {
+	return []rbacv1.PolicyRule{
+		{
+			Verbs: []string{"*"},
+			Resources: []string{"mongodbmulti", "mongodbmulti/finalizers", "mongousers",
+				"opsmanagers", "opsmanagers/finalizers",
+				"mongodb", "mongodb/finalizers"},
+			APIGroups: []string{"mongodb.com"},
+		},
+	}
+}
+
+func buildCentralEntityRole(namespace string) rbacv1.Role {
 	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mongodb-enterprise-operator-multi-role",
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
-		// TODO: correctly specify the rules for the role.
-		Rules: []rbacv1.PolicyRule{
-			{
-				Verbs:     []string{"*"},
-				Resources: []string{"*"},
-				APIGroups: []string{"*"},
-			},
-		},
+		Rules: getCentralRules(),
 	}
 }
 
-func buildClusterRole() rbacv1.ClusterRole {
+func buildCentralEntityClusterRole() rbacv1.ClusterRole {
+	rules := make([]rbacv1.PolicyRule, 0)
+	rules = append(getCentralRules(), rbacv1.PolicyRule{
+		Verbs:     []string{"list", "watch"},
+		Resources: []string{"namespaces"},
+		APIGroups: []string{""},
+	})
+
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "mongodb-enterprise-operator-multi-cluster-role",
 			Labels: multiClusterLabels(),
 		},
-		// TODO: correctly specify the rules for the cluster role.
-		Rules: []rbacv1.PolicyRule{
-			{
-				Verbs:     []string{"*"},
-				Resources: []string{"*"},
-				APIGroups: []string{"*"},
-			},
+		Rules: rules,
+	}
+}
+func getMemberRules() []rbacv1.PolicyRule {
+	return []rbacv1.PolicyRule{
+		{
+			Verbs:     []string{"get", "list", "create", "update", "delete", "watch", "deletecollection"},
+			Resources: []string{"secrets", "configmaps", "services"},
+			APIGroups: []string{""},
 		},
+		{
+			Verbs:     []string{"get", "list", "create", "update", "delete", "watch", "deletecollection"},
+			Resources: []string{"statefulsets"},
+			APIGroups: []string{"apps"},
+		},
+		{
+			Verbs:     []string{"get", "list", "watch"},
+			Resources: []string{"pods"},
+			APIGroups: []string{""},
+		},
+	}
+}
+
+func buildMemberEntityRole(namespace string) rbacv1.Role {
+	return rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mongodb-enterprise-operator-multi-role",
+			Namespace: namespace,
+			Labels:    multiClusterLabels(),
+		},
+		Rules: getMemberRules(),
+	}
+}
+
+func buildMemberEntityClusterRole() rbacv1.ClusterRole {
+	rules := make([]rbacv1.PolicyRule, 0)
+	rules = append(getMemberRules(), rbacv1.PolicyRule{
+		Verbs:     []string{"list", "watch"},
+		Resources: []string{"namespaces"},
+		APIGroups: []string{""},
+	})
+
+	return rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "mongodb-enterprise-operator-multi-cluster-role",
+			Labels: multiClusterLabels(),
+		},
+		Rules: rules,
 	}
 }
 
@@ -593,18 +651,18 @@ func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, sa corev1.ServiceAc
 // createMemberServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required
 // for the member clusters.
 func createMemberServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, f flags) error {
-	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.memberClusterNamespace, f.clusterScoped)
+	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.memberClusterNamespace, f.clusterScoped, memberCluster)
 }
 
 // createCentralClusterServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required
 // for the central cluster.
 func createCentralClusterServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, f flags) error {
 	// central cluster always uses Roles. Never Cluster Roles.
-	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.centralClusterNamespace, f.clusterScoped)
+	return createServiceAccountAndRoles(ctx, c, f.serviceAccount, f.centralClusterNamespace, f.clusterScoped, centralCluster)
 }
 
 // createServiceAccountAndRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required.
-func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, serviceAccountName, namespace string, clusterScoped bool) error {
+func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, serviceAccountName, namespace string, clusterScoped bool, clusterType clusterType) error {
 	sa := corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceAccountName,
@@ -619,7 +677,13 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 	}
 
 	if !clusterScoped {
-		role := buildRole(sa.Namespace)
+		var role rbacv1.Role
+		if clusterType == centralCluster {
+			role = buildCentralEntityRole(sa.Namespace)
+		} else {
+			role = buildMemberEntityRole(sa.Namespace)
+		}
+
 		_, err = c.RbacV1().Roles(sa.Namespace).Create(ctx, &role, metav1.CreateOptions{})
 		if !errors.IsAlreadyExists(err) && err != nil {
 			return fmt.Errorf("error creating role: %s", err)
@@ -633,8 +697,12 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 		return nil
 	}
 
-	// Create cluster roles instead if specified.
-	clusterRole := buildClusterRole()
+	var clusterRole rbacv1.ClusterRole
+	if clusterType == centralCluster {
+		clusterRole = buildCentralEntityClusterRole()
+	} else {
+		clusterRole = buildMemberEntityClusterRole()
+	}
 	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return fmt.Errorf("error creating cluster role: %s", err)

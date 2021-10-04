@@ -9,6 +9,7 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -212,7 +213,7 @@ func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
 	assert.NotNil(t, kubeConfigSecret)
 }
 
-func TestKubeConfigSecret_IsNotCreated_InWorkerClusters(t *testing.T) {
+func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
 	flags := testFlags(false)
 	clientMap := getClientResources(flags)
 
@@ -354,18 +355,24 @@ func assertServiceAccountsExist(t *testing.T, clientMap map[string]kubernetes.In
 
 // assertMemberClusterRolesExist should be used when member cluster cluster roles should exist.
 func assertMemberClusterRolesExist(t *testing.T, clientMap map[string]kubernetes.Interface, flags flags) {
-	assertClusterRoles(t, clientMap, flags, true)
+	assertClusterRoles(t, clientMap, flags, true, memberCluster)
 }
 
 // assertMemberClusterRolesDoNotExist should be used when member cluster cluster roles should not exist.
 func assertMemberClusterRolesDoNotExist(t *testing.T, clientMap map[string]kubernetes.Interface, flags flags) {
-	assertClusterRoles(t, clientMap, flags, false)
+	assertClusterRoles(t, clientMap, flags, false, centralCluster)
 }
 
 // assertClusterRoles should be used to assert the existence of member cluster cluster roles. The boolean
 // shouldExist should be true for roles existing, and false for cluster roles not existing.
-func assertClusterRoles(t *testing.T, clientMap map[string]kubernetes.Interface, flags flags, shouldExist bool) {
-	expectedClusterRole := buildClusterRole()
+func assertClusterRoles(t *testing.T, clientMap map[string]kubernetes.Interface, flags flags, shouldExist bool, clusterType clusterType) {
+	var expectedClusterRole rbacv1.ClusterRole
+	if clusterType == centralCluster {
+		expectedClusterRole = buildCentralEntityClusterRole()
+	} else {
+		expectedClusterRole = buildMemberEntityClusterRole()
+	}
+
 	for _, clusterName := range flags.memberClusters {
 		client := clientMap[clusterName]
 		role, err := client.RbacV1().ClusterRoles().Get(context.TODO(), expectedClusterRole.Name, metav1.GetOptions{})
@@ -401,7 +408,8 @@ func assertMemberRolesDoNotExist(t *testing.T, clientMap map[string]kubernetes.I
 // assertMemberRolesAreCorrect should be used to assert the existence of member cluster roles. The boolean
 // shouldExist should be true for roles existing, and false for roles not existing.
 func assertMemberRolesAreCorrect(t *testing.T, clientMap map[string]kubernetes.Interface, flags flags, shouldExist bool) {
-	expectedRole := buildRole(flags.memberClusterNamespace)
+	expectedRole := buildMemberEntityRole(flags.memberClusterNamespace)
+
 	for _, clusterName := range flags.memberClusters {
 		client := clientMap[clusterName]
 		role, err := client.RbacV1().Roles(flags.memberClusterNamespace).Get(context.TODO(), expectedRole.Name, metav1.GetOptions{})
@@ -432,13 +440,13 @@ func assertCentralRolesAreCorrect(t *testing.T, clientMap map[string]kubernetes.
 	client := clientMap[flags.centralCluster]
 
 	// should never have a cluster role
-	clusterRole := buildClusterRole()
+	clusterRole := buildCentralEntityClusterRole()
 	cr, err := client.RbacV1().ClusterRoles().Get(context.TODO(), clusterRole.Name, metav1.GetOptions{})
 
 	assert.True(t, errors.IsNotFound(err))
 	assert.Nil(t, cr)
 
-	expectedRole := buildRole(flags.centralClusterNamespace)
+	expectedRole := buildCentralEntityRole(flags.centralClusterNamespace)
 	role, err := client.RbacV1().Roles(flags.centralClusterNamespace).Get(context.TODO(), expectedRole.Name, metav1.GetOptions{})
 
 	if shouldExist {
@@ -509,12 +517,12 @@ func createResourcesForCluster(centralCluster bool, flags flags, clusterName str
 	}
 
 	if containsResourceType(resourceTypes, roleResourceType) {
-		role := buildRole(namespace)
+		role := buildMemberEntityRole(namespace)
 		resources = append(resources, &role)
 	}
 
 	if containsResourceType(resourceTypes, roleBindingResourceType) {
-		role := buildRole(namespace)
+		role := buildMemberEntityRole(namespace)
 		roleBinding := buildRoleBinding(role, namespace)
 		resources = append(resources, &roleBinding)
 	}
