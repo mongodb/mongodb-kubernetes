@@ -71,6 +71,8 @@ rules:
   - get
   - list
   - watch
+  - delete
+  - deletecollection
 - apiGroups:
   - ""
   resources:

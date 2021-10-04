@@ -16,9 +16,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/hashicorp/go-multierror"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -703,8 +701,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesCli
 	var errs error
 
 	// cleanup resources in the namespace as the MongoDBMulti with the corresponding label.
-	cleanupOptions := mongodbMultiCleanUpOptions{
-		namesapce: mrs.Namespace,
+	cleanupOptions := mongodbCleanUpOptions{
+		namespace: mrs.Namespace,
 		labels: map[string]string{
 			"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
 		},
@@ -785,19 +783,6 @@ func updateOmMultiSCRAMAuthentication(conn om.Connection, processName []string, 
 	}
 
 	return workflow.OK(), false
-}
-
-// mongodbMultiCleanUpOptions implements the required interface to be passed
-// to the DeleteAllOf function, this cleans up resources of a given type with
-// the provided labels in a specific namespace.
-type mongodbMultiCleanUpOptions struct {
-	namesapce string
-	labels    map[string]string
-}
-
-func (m *mongodbMultiCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
-	opts.Namespace = m.namesapce
-	opts.LabelSelector = labels.SelectorFromValidatedSet(m.labels)
 }
 
 // filterClusterSpecItem filters items out of a list based on provided predicate.

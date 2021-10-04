@@ -19,7 +19,7 @@ def ops_manager(
     namespace: str, custom_version: Optional[str], custom_appdb_version: str
 ) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
-        find_fixture("om_ops_manager_upgrade.yaml"),
+        find_fixture("om_appdb_configure_all_images.yaml"),
         namespace=namespace,
         name="om-configure-all-appdb-images",
     )

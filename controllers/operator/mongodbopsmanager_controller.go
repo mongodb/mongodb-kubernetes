@@ -41,6 +41,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -464,6 +465,11 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 		log.Warn("Not triggering an Ops Manager version changed event: %s", err)
 	}
 
+	// 5. Stop backup daemon if necessary
+	if err = r.stopBackupDaemonIfNeeded(*opsManager, log); err != nil {
+		return workflow.Failed(err.Error()), nil
+	}
+
 	if _, err = r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
@@ -489,7 +495,34 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 		log.Infof("Ops Manager version has upgraded from %s to %s - scheduling the upgrade for all the Agents in the system", oldVersion, newVersion)
 		agents.ScheduleUpgrade()
 	}
+
 	return nil
+}
+
+// stopBackupDaemonIfNeeded stops the backup daemon when OM is upgraded.
+// Otherwise the backup daemon will remain in a broken state (because of version missmatch between OM and backup daemon)
+// due to this STS limitation: https://github.com/kubernetes/kubernetes/issues/67250.
+// Later, the normal reconcile process will update the STS and start the backup daemon.
+func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
+		return nil
+	}
+
+	if _, err := r.scaleStatefulSet(opsManager.Namespace, opsManager.BackupStatefulSetName(), 0); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	// delete all backup daemon pods, scaling down the statefulSet to 0 does not terminate the pods,
+	// if the number of pods is greater than 1 and all of them are in a unhealthy state
+	cleanupOptions := mongodbCleanUpOptions{
+		namespace: opsManager.Namespace,
+		labels: map[string]string{
+			"app": opsManager.BackupServiceName(),
+		},
+	}
+	err := r.client.DeleteAllOf(context.TODO(), &corev1.Pod{}, &cleanupOptions)
+
+	return client.IgnoreNotFound(err)
 }
 
 func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {

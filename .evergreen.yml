@@ -1663,7 +1663,7 @@ tasks:
 
 - name: e2e_om_ops_manager_upgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
+  exec_timeout_secs: 3000
   commands:
     - func: "e2e_test"
 

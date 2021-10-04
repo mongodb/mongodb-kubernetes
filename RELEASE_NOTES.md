@@ -26,6 +26,7 @@
       * Otherwise, it is still `<resource-name>-clusterfile`
 * Bug fixes
   * Fixes an issue where Sharded Cluster backups could not be correctly configured using the MongoDB CR.
+  * Fixes an issue where Backup Daemon fails to start after OpsManager version upgrade.
 
 
 ## MongoDBOpsManager Resource

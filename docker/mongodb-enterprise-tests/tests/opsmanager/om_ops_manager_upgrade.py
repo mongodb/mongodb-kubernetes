@@ -10,8 +10,17 @@ from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.awss3client import AwsS3Client
 from pytest import fixture
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
+from tests.opsmanager.om_ops_manager_backup import (
+    HEAD_PATH,
+    OPLOG_RS_NAME,
+    new_om_data_store,
+    create_aws_secret,
+    S3_SECRET_NAME,
+    create_s3_bucket,
+)
 
 OM_CURRENT_VERSION = "4.4.15"
 MDB_CURRENT_VERSION = "4.4.0-ent"
@@ -22,13 +31,31 @@ MDB_CURRENT_VERSION = "4.4.0-ent"
 
 
 @fixture(scope="module")
-def ops_manager(namespace) -> MongoDBOpsManager:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+    create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
+    yield from create_s3_bucket(aws_s3_client)
+
+
+@fixture(scope="module")
+def ops_manager(namespace, s3_bucket: str) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
     resource.allow_mdb_rc_versions()
     resource.set_version(OM_CURRENT_VERSION)
     resource.set_appdb_version(MDB_CURRENT_VERSION)
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
+
+    return resource.create()
+
+
+@fixture(scope="module")
+def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=OPLOG_RS_NAME,
+    ).configure(ops_manager, "development-oplog")
 
     return resource.create()
 
@@ -68,11 +95,6 @@ class TestOpsManagerCreation:
         assert "publicKey" in data
         assert "privateKey" in data
 
-    def test_backup_not_enabled(self, ops_manager: MongoDBOpsManager):
-        """Backup is deliberately disabled so no statefulset should be created"""
-        with pytest.raises(client.rest.ApiException):
-            ops_manager.read_backup_statefulset()
-
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
@@ -110,6 +132,35 @@ class TestOpsManagerCreation:
         assert ops_manager.appdb_status().get_observed_generation() == 1
         assert ops_manager.om_status().get_observed_generation() == 1
         assert ops_manager.backup_status().get_observed_generation() == 1
+
+@pytest.mark.e2e_om_ops_manager_upgrade
+class TestBackupCreation:
+    def test_oplog_mdb_created(
+        self,
+        oplog_replica_set: MongoDB,
+    ):
+        oplog_replica_set.assert_reaches_phase(Phase.Running)
+
+    def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["backup"]["opLogStores"] = [
+            {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
+        ]
+        ops_manager.update()
+
+    def test_backup_is_enabled(self, ops_manager: MongoDBOpsManager):
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running,
+            timeout=500,
+            ignore_errors=True,
+        )
+
+    def test_generations(self, ops_manager: MongoDBOpsManager):
+        ops_manager.reload()
+
+        assert ops_manager.appdb_status().get_observed_generation() == 2
+        assert ops_manager.om_status().get_observed_generation() == 2
+        assert ops_manager.backup_status().get_observed_generation() == 2
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -173,9 +224,9 @@ class TestOpsManagerConfigurationChange:
     def test_generations(self, ops_manager: MongoDBOpsManager):
         ops_manager.reload()
 
-        assert ops_manager.appdb_status().get_observed_generation() == 2
-        assert ops_manager.om_status().get_observed_generation() == 2
-        assert ops_manager.backup_status().get_observed_generation() == 2
+        assert ops_manager.appdb_status().get_observed_generation() == 3
+        assert ops_manager.om_status().get_observed_generation() == 3
+        assert ops_manager.backup_status().get_observed_generation() == 3
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -298,6 +349,26 @@ class TestAppDBScramShaUpdated:
         automation_config_tester.assert_authentication_mechanism_disabled(
             "MONGODB-CR", False
         )
+
+
+@pytest.mark.e2e_om_ops_manager_upgrade
+class TestBackupDaemonVersionUpgrade:
+    def test_upgrade_backup_daemon(
+        self,
+        ops_manager: MongoDBOpsManager,
+    ):
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running,
+            timeout=600,
+            ignore_errors=True,
+        )
+
+    def test_backup_daemon_image_url(
+        self,
+        ops_manager: MongoDBOpsManager,
+    ):
+        pods = ops_manager.read_backup_pods()
+        assert ops_manager.get_version() in pods[0].spec.containers[0].image
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade

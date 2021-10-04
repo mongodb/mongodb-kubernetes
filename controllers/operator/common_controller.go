@@ -47,8 +47,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -315,6 +317,17 @@ func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
 		}
 	}
 	return workflow.OK()
+}
+
+// scaleStatefulSet sets the number of replicas for a StatefulSet and returns a reference of the updated resource.
+func (r *ReconcileCommonController) scaleStatefulSet(namespace, name string, replicas int32) (appsv1.StatefulSet, error) {
+	if set, err := r.client.GetStatefulSet(kube.ObjectKey(namespace, name)); err != nil {
+		return set, err
+	} else {
+		set.Spec.Replicas = &replicas
+		return r.client.UpdateStatefulSet(set)
+	}
+
 }
 
 // getStatefulSetStatus returns the workflow.Status based on the status of the StatefulSet.
@@ -701,4 +714,17 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated
 func completionMessage(url, projectID string) string {
 	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, projectID)
+}
+
+// mongodbCleanUpOptions implements the required interface to be passed
+// to the DeleteAllOf function, this cleans up resources of a given type with
+// the provided labels in a specific namespace.
+type mongodbCleanUpOptions struct {
+	namespace string
+	labels    map[string]string
+}
+
+func (m *mongodbCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
+	opts.Namespace = m.namespace
+	opts.LabelSelector = labels.SelectorFromValidatedSet(m.labels)
 }
