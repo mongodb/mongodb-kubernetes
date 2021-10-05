@@ -1655,6 +1655,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_feature_controls
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_ops_manager_scale
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2228,6 +2234,7 @@ task_groups:
     - e2e_om_update_before_reconciliation
     - e2e_om_multiple
     - e2e_om_appdb_configure_all_images
+    - e2e_om_feature_controls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
