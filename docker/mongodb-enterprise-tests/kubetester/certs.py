@@ -29,7 +29,6 @@ SUBJECT = {
     # (unknown and "unpredictable"), random string. Even if someone was able to
     # generate the certificates themselves, they would still require this
     # value to do so.
-    "serialNumber": "TO-BE-REPLACED",
 }
 
 # Defines properties of a set of servers, like a Shard, or Replica Set holding config servers.
@@ -323,7 +322,6 @@ def create_x509_mongodb_tls_certs(
 def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
     agents = ["automation", "monitoring", "backup"]
     subject = copy.deepcopy(SUBJECT)
-    subject["serialNumber"] = KubernetesTester.random_k8s_name(prefix="sn-")
     subject["organizationalUnits"] = [namespace]
 
     spec = {

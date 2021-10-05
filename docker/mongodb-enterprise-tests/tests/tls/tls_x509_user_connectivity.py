@@ -52,7 +52,6 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
         for subject in users:
             names = dict(name.split("=") for name in subject.split(","))
 
-            assert "SERIALNUMBER" in names
             assert "OU" in names
             assert "CN" in names
 

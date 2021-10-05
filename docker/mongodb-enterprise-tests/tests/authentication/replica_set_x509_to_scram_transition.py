@@ -55,6 +55,15 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
         tester.assert_authentication_enabled()
         tester.assert_expected_users(2)
 
+    def test_deployment_is_reachable(self, replica_set: MongoDB):
+        tester = replica_set.tester()
+        # Due to what we found out in
+        # https://jira.mongodb.org/browse/CLOUDP-68873
+        # the agents might report being in goal state, the MDB resource
+        # would report no errors but the deployment would be unreachable
+        # See the comment inside the function for further details
+        tester.assert_deployment_reachable(attempts=10)
+
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 def test_enable_scram_and_x509(replica_set: MongoDB):
