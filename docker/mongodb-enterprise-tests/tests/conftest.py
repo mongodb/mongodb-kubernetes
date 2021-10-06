@@ -2,7 +2,7 @@ import logging
 import os
 import subprocess
 import tempfile
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 
 from kubernetes import client
 from urllib3.util.retry import Retry
@@ -313,16 +313,20 @@ def central_cluster_client(
 
 
 @fixture(scope="module")
-def member_cluster_clients(
-    cluster_clients: Dict[str, kubernetes.client.ApiClient]
-) -> List[MultiClusterClient]:
+def member_cluster_names() -> List[str]:
     member_clusters = os.environ.get("MEMBER_CLUSTERS")
     if not member_clusters:
         raise ValueError(
             "No member clusters specified in environment variable MEMBER_CLUSTERS!"
         )
-    member_cluster_names = member_clusters.split()
+    return sorted(member_clusters.split())
 
+
+@fixture(scope="module")
+def member_cluster_clients(
+    cluster_clients: Dict[str, kubernetes.client.ApiClient],
+    member_cluster_names: List[str],
+) -> List[MultiClusterClient]:
     member_cluster_clients = []
     for (i, member_cluster) in enumerate(sorted(member_cluster_names)):
         member_cluster_clients.append(
@@ -338,19 +342,60 @@ def multi_cluster_operator(
     multi_cluster_operator_installation_config: Dict[str, str],
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+    run_kube_config_creation_tool(member_cluster_names, namespace)
+    return _install_multi_cluster_operator(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            # override the serviceAccountName for the operator deployment
+            "operator.createOperatorServiceAccount": "false",
+        },
+    )
+
+
+@fixture(scope="module")
+def install_multi_cluster_operator_set_members_fn(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+) -> Callable[[List[str]], Operator]:
+    def _fn(member_cluster_names: List[str]) -> Operator:
+        os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+        return _install_multi_cluster_operator(
+            namespace,
+            multi_cluster_operator_installation_config,
+            central_cluster_client,
+            member_cluster_clients,
+            {
+                "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+                # override the serviceAccountName for the operator deployment
+                "operator.createOperatorServiceAccount": "false",
+                "multiCluster.clusters": ",".join(member_cluster_names),
+            },
+        )
+
+    return _fn
+
+
+def _install_multi_cluster_operator(
+    namespace: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    helm_opts: Dict[str, str],
 ) -> Operator:
     prepare_multi_cluster_namespaces(
         namespace, multi_cluster_operator_installation_config, member_cluster_clients
     )
-    # ensure we install the operator in the central cluster.
-    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    # override the serviceAccountName for the operator deployment
-    multi_cluster_operator_installation_config[
-        "operator.name"
-    ] = MULTI_CLUSTER_OPERATOR_NAME
-    multi_cluster_operator_installation_config[
-        "operator.createOperatorServiceAccount"
-    ] = "false"
+    multi_cluster_operator_installation_config.update(helm_opts)
 
     return Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
@@ -362,7 +407,10 @@ def multi_cluster_operator(
 
 
 @fixture(scope="module")
-def operator_deployment_name(image_type: str) -> str:
+def operator_deployment_name(image_type: str, is_multi: bool = False) -> str:
+    if is_multi:
+        return MULTI_CLUSTER_OPERATOR_NAME
+
     if image_type == "ubi":
         return "enterprise-operator"
 
@@ -561,12 +609,25 @@ def install_cert_manager(
 def cluster_clients(
     namespace: str,
 ) -> Dict[str, kubernetes.client.api_client.ApiClient]:
-    central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters = [
         _read_multi_cluster_config_value("member_cluster_1"),
         _read_multi_cluster_config_value("member_cluster_2"),
         _read_multi_cluster_config_value("member_cluster_3"),
     ]
+    return get_clients_for_clusters(member_clusters, namespace)
+
+
+def get_clients_for_clusters(
+    member_cluster_names: List[str], namespace: str
+) -> Dict[str, kubernetes.client.ApiClient]:
+    central_cluster = _read_multi_cluster_config_value("central_cluster")
+    return {
+        c: _get_client_for_cluster(c) for c in [central_cluster] + member_cluster_names
+    }
+
+
+def run_kube_config_creation_tool(member_clusters: List[str], namespace: str):
+    central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
     subprocess.call(
         [
@@ -583,4 +644,3 @@ def cluster_clients(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    return {c: _get_client_for_cluster(c) for c in [central_cluster] + member_clusters}
