@@ -154,8 +154,7 @@ func main() {
 		// get cluster clients for the member clusters
 		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames)
 		if err != nil {
-			// TODO: fatal out
-			log.Infof("This should fatal: %s", err)
+			log.Fatal(err)
 		}
 
 		kubeConfig, err := multicluster.LoadKubeConfigFile()

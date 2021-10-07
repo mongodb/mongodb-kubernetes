@@ -41,6 +41,9 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 		if err != nil {
 			return nil, fmt.Errorf("failed to create clientset map: %s", err)
 		}
+		if clientset == nil {
+			return nil, fmt.Errorf("failed to get clientset for cluster: %s", c)
+		}
 		clusterClientsMap[c] = clientset
 	}
 	return clusterClientsMap, nil
