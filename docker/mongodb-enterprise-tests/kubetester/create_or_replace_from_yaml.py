@@ -79,9 +79,7 @@ def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **k
         # fetching the old CRD to make the replace working (has conflict resolution based on 'resourceVersion')
         # TODO this is prone to race conditions - we need to either loop or use patch with json merge
         # see https://github.com/helm/helm/pull/6092/files#diff-a483d6c0863082c3df21f4aad513afe2R663
-        resource = client.ApiextensionsV1beta1Api().read_custom_resource_definition(
-            name
-        )
+        resource = client.ApiextensionsV1Api().read_custom_resource_definition(name)
 
         yml_object["metadata"]["resourceVersion"] = resource.metadata.resource_version
         method = "replace"

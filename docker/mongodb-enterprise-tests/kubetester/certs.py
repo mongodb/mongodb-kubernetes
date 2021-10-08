@@ -41,7 +41,7 @@ CertificateType = CustomObject.define(
     kind="Certificate",
     plural="certificates",
     group="cert-manager.io",
-    version="v1alpha3",
+    version="v1",
 )
 
 
@@ -70,7 +70,7 @@ class Certificate(CertificateType, WaitForConditions):
 
 
 IssuerType = CustomObject.define(
-    "Issuer", plural="issuers", group="cert-manager.io", version="v1alpha2"
+    "Issuer", kind="Issuer", plural="issuers", group="cert-manager.io", version="v1"
 )
 
 

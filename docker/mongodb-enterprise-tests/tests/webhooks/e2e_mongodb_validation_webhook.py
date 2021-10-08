@@ -102,7 +102,7 @@ class TestWebhookValidation(KubernetesTester):
     def _assert_validates_without_webhook(
         self, webhook_name: str, fixture: str, expected_msg: str
     ):
-        webhook_api = self.client.AdmissionregistrationV1beta1Api()
+        webhook_api = self.client.AdmissionregistrationV1Api()
 
         # break the existing webhook
         webhook = webhook_api.read_validating_webhook_configuration(webhook_name)

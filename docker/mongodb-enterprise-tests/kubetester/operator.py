@@ -206,14 +206,14 @@ class Operator(object):
 
     def wait_for_webhook(self):
         time.sleep(20)
-        webhook_api = client.AdmissionregistrationV1beta1Api()
+        webhook_api = client.AdmissionregistrationV1Api()
         client.CoreV1Api().read_namespaced_service("operator-webhook", self.namespace)
 
         # make sure the validating_webhook is installed.
         webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
 
     def disable_webhook(self):
-        webhook_api = client.AdmissionregistrationV1beta1Api()
+        webhook_api = client.AdmissionregistrationV1Api()
 
         # break the existing webhook
         webhook = webhook_api.read_validating_webhook_configuration(
@@ -231,7 +231,7 @@ class Operator(object):
 def delete_operator_crds():
     for crd_name in OPERATOR_CRDS:
         try:
-            client.ApiextensionsV1beta1Api().delete_custom_resource_definition(crd_name)
+            client.ApiextensionsV1Api().delete_custom_resource_definition(crd_name)
         except ApiException as e:
             if e.status != 404:
                 raise e
@@ -241,7 +241,7 @@ def list_operator_crds() -> List[V1beta1CustomResourceDefinition]:
     return sorted(
         [
             crd
-            for crd in client.ApiextensionsV1beta1Api()
+            for crd in client.ApiextensionsV1Api()
             .list_custom_resource_definition()
             .items
             if crd.metadata.name in OPERATOR_CRDS

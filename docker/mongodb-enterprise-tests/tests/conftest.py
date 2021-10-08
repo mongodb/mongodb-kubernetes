@@ -10,7 +10,7 @@ from requests.adapters import HTTPAdapter
 
 import kubernetes
 import requests
-from kubernetes.client import ApiextensionsV1beta1Api
+from kubernetes.client import ApiextensionsV1Api
 from kubetester import get_pod_when_ready, create_configmap
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer
@@ -109,12 +109,12 @@ def aws_s3_client() -> AwsS3Client:
 
 @fixture(scope="session")
 def crd_api():
-    return ApiextensionsV1beta1Api()
+    return ApiextensionsV1Api()
 
 
 @fixture(scope="module")
 def cert_manager(namespace: str) -> str:
-    """Installs cert-manager v0.15.2 using Helm."""
+    """Installs cert-manager v1.5.4 using Helm."""
     return install_cert_manager(namespace)
 
 
@@ -574,7 +574,7 @@ def install_cert_manager(
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
     name="cert-manager",
-    version="v0.15.2",
+    version="v1.5.4",
 ) -> str:
 
     if cluster_name is not None:

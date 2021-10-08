@@ -5,10 +5,10 @@ https://kubernetes.io/docs/tasks/access-kubernetes-api/custom-resources/custom-r
 
 from pytest import mark
 
-from kubernetes.client import ApiextensionsV1beta1Api, V1beta1CustomResourceDefinition
+from kubernetes.client import ApiextensionsV1Api, V1CustomResourceDefinition
 
 
-def crd_has_expected_conditions(resource: V1beta1CustomResourceDefinition) -> bool:
+def crd_has_expected_conditions(resource: V1CustomResourceDefinition) -> bool:
     for condition in resource.status.conditions:
         if condition.type == "NonStructuralSchema":
             return False
@@ -17,18 +17,18 @@ def crd_has_expected_conditions(resource: V1beta1CustomResourceDefinition) -> bo
 
 
 @mark.e2e_crd_validation
-def test_mongodb_crd_is_valid(crd_api: ApiextensionsV1beta1Api):
+def test_mongodb_crd_is_valid(crd_api: ApiextensionsV1Api):
     resource = crd_api.read_custom_resource_definition("mongodb.mongodb.com")
     assert crd_has_expected_conditions(resource)
 
 
 @mark.e2e_crd_validation
-def test_mongodb_users_crd_is_valid(crd_api: ApiextensionsV1beta1Api):
+def test_mongodb_users_crd_is_valid(crd_api: ApiextensionsV1Api):
     resource = crd_api.read_custom_resource_definition("mongodbusers.mongodb.com")
     assert crd_has_expected_conditions(resource)
 
 
 @mark.e2e_crd_validation
-def test_opsmanagers_crd_is_valid(crd_api: ApiextensionsV1beta1Api):
+def test_opsmanagers_crd_is_valid(crd_api: ApiextensionsV1Api):
     resource = crd_api.read_custom_resource_definition("opsmanagers.mongodb.com")
     assert crd_has_expected_conditions(resource)
