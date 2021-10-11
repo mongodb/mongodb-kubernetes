@@ -1,6 +1,7 @@
 package multicluster
 
 import (
+	"os"
 	"testing"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -86,6 +87,8 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			},
 		},
 	}
+	os.Setenv(util.AutomationAgentImage, "some-registry")
+	os.Setenv(util.InitDatabaseImageUrlEnv, "some-registry")
 
 	for _, tt := range tests {
 		mdbm := getMultiClusterMongoDB()

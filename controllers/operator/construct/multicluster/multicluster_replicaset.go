@@ -161,6 +161,13 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	if !managedSecurityContext {
 		configureContainerSecurityContext = container.WithSecurityContext(construct.DefaultSecurityContext())
 	}
+	// create image for init database container
+	version := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
+	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
+
+	// create image for database container
+	databaseImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
+	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
 	// create the statefulSet modifications
 	stsModifications := statefulset.Apply(
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
@@ -177,7 +184,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 			podtemplatespec.WithContainerByIndex(0,
 				container.Apply(
 					container.WithName(util.DatabaseContainerName),
-					container.WithImage("quay.io/mongodb/mongodb-enterprise-database:2.0.0"),
+					container.WithImage(databaseImageUrl),
 					container.WithImagePullPolicy(corev1.PullAlways),
 					container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort, Protocol: "TCP"}}),
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
@@ -192,7 +199,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 			podtemplatespec.WithTerminationGracePeriodSeconds(600),
 			podtemplatespec.WithInitContainerByIndex(0,
 				container.WithName(construct.InitDatabaseContainerName),
-				container.WithImage("268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-init-database:latest"),
+				container.WithImage(initContainerImageURL),
 				container.WithImagePullPolicy(corev1.PullAlways),
 				container.WithVolumeMounts(mongodbInitVolumeMount()),
 				configureContainerSecurityContext,

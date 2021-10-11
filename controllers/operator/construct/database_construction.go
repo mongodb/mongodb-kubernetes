@@ -45,8 +45,8 @@ const (
 	InitDatabaseContainerName = "mongodb-enterprise-init-database"
 
 	// Database environment variable names
-	initDatabaseVersionEnv = "INIT_DATABASE_VERSION"
-	databaseVersionEnv     = "DATABASE_VERSION"
+	InitDatabaseVersionEnv = "INIT_DATABASE_VERSION"
+	DatabaseVersionEnv     = "DATABASE_VERSION"
 
 	// PodAntiAffinityLabelKey defines the anti affinity rule label. The main rule is to spread entities inside one statefulset
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
@@ -421,7 +421,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
 	// Database image version, should be a specific version to avoid using stale 'non-empty' versions (before versioning)
-	databaseImageVersion := env.ReadOrDefault(databaseVersionEnv, "latest")
+	databaseImageVersion := env.ReadOrDefault(DatabaseVersionEnv, "latest")
 	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
 	// scripts volume is shared by the init container and the AppDB so the startup
 	// script can be copied over
@@ -546,7 +546,7 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 
 // buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
 func buildDatabaseInitContainer() container.Modification {
-	version := env.ReadOrDefault(initDatabaseVersionEnv, "latest")
+	version := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
 
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)

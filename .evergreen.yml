@@ -2558,17 +2558,11 @@ buildvariants:
   depends_on:
     - name: build_operator_ubuntu
       variant: init_test_run
-    - name: build_om_images
-      variant: build_om50_images
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
     - name: build_test_image
       variant: init_test_run
     - name: prepare_multi_cluster
       variant: init_test_run
-    - name: build_init_om_images_ubuntu
-      variant: init_test_run
-    - name: build_init_appdb_images_ubuntu
+    - name: build_init_database_image_ubuntu
       variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
