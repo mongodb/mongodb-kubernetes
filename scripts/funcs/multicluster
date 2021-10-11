@@ -57,6 +57,16 @@ EOF
     kubectl --context "${central_cluster}" --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
             --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${OM_BASE_URL}" \
             --from-literal=orgId="${OM_ORGID:-}"
+    
+    echo "Creating/updating pull secret from docker configured file"
+    kubectl -n "${PROJECT_NAMESPACE}" delete secret image-registries-secret --ignore-not-found
+    kubectl -n "${PROJECT_NAMESPACE}" create secret generic image-registries-secret \
+     --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+    for member_cluster in ${member_clusters}; do
+      kubectl --context "${member_cluster}" -n "${PROJECT_NAMESPACE}" delete secret image-registries-secret --ignore-not-found
+      kubectl --context "${member_cluster}" -n "${PROJECT_NAMESPACE}" create secret generic image-registries-secret \
+     --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+    done
 
     echo "Creating credentials secret"
     # delete `my-credentials` if it exists

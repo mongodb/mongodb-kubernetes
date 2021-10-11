@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -154,6 +155,12 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) (appsv1.StatefulSet, error) {
+	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
+
+	configureContainerSecurityContext := container.NOOP()
+	if !managedSecurityContext {
+		configureContainerSecurityContext = container.WithSecurityContext(construct.DefaultSecurityContext())
+	}
 	// create the statefulSet modifications
 	stsModifications := statefulset.Apply(
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
@@ -172,13 +179,13 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithName(util.DatabaseContainerName),
 					container.WithImage("quay.io/mongodb/mongodb-enterprise-database:2.0.0"),
 					container.WithImagePullPolicy(corev1.PullAlways),
-					container.WithSecurityContext(construct.DefaultSecurityContext()),
 					container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort, Protocol: "TCP"}}),
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 					container.WithVolumeMounts(mongodbVolumeMount()),
 					container.WithEnvs(mongodbEnv(conn)...),
+					configureContainerSecurityContext,
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap("hostname-override", "hostname-override")),
@@ -187,8 +194,8 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 				container.WithName(construct.InitDatabaseContainerName),
 				container.WithImage("268558157000.dkr.ecr.eu-west-1.amazonaws.com/raj/ubuntu/mongodb-enterprise-init-database:latest"),
 				container.WithImagePullPolicy(corev1.PullAlways),
-				container.WithSecurityContext(construct.DefaultSecurityContext()),
 				container.WithVolumeMounts(mongodbInitVolumeMount()),
+				configureContainerSecurityContext,
 			),
 		)),
 		statefulset.WithVolumeClaimTemplates(statefulSetVolumeClaimTemplates()),
