@@ -82,8 +82,7 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	// TODO: uncomment this after CLOUDP-96054 is resolved
-	// agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
