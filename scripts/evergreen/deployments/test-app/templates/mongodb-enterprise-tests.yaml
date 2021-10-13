@@ -80,12 +80,14 @@ spec:
       value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
     - name: POD_NAME
       value: 'mongodb-enterprise-operator-testing-pod'
+    {{- if .Values.multiCluster.memberClusters }}
     - name: KUBECONFIG
       value: /etc/config/kubeconfig
     - name: MEMBER_CLUSTERS
       value: {{ .Values.multiCluster.memberClusters }}
     - name: CENTRAL_CLUSTER
       value: {{ .Values.multiCluster.centralCluster }}
+    {{- end }}
     {{ if .Values.customOmVersion }}
     - name: CUSTOM_OM_VERSION
       value: {{ .Values.customOmVersion }}
