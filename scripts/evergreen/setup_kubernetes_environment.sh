@@ -52,7 +52,7 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
 
 elif [ "${kube_environment_name}" = "kind" ]; then
     echo "Starting Kind"
-    kubernetes_image="kindest/node:v1.22.0"
+    kubernetes_image="kindest/node:v${kubernetes_kind_version:?}"
     kind create cluster \
         --image "${kubernetes_image}" \
         --kubeconfig "${context_config}"

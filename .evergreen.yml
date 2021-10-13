@@ -34,6 +34,10 @@ variables:
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20
 
+  # Latest available version of Kubernetes
+  # https://kubernetes.io/releases/
+  - &kubernetes_kind_version 1.22.0
+
     # This is the automation agent version used for the AppDB
   - &agent_version 10.29.0.6830-1
     # Agent version used in OM50
@@ -347,6 +351,8 @@ functions:
       - mms_eng_test_aws_region
       - openshift43_cluster_kubeconfig
       - workdir
+      env:
+        kubernetes_kind_version: *kubernetes_kind_version
       add_to_path:
       - ${workdir}/bin
       binary: scripts/evergreen/setup_kubernetes_environment.sh
