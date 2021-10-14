@@ -35,6 +35,12 @@ MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
 MONITOR_APPDB_E2E_DEFAULT = "false"
 MULTI_CLUSTER_OPERATOR_NAME = "mongodb-enterprise-operator-multi-cluster"
+CLUSTER_HOST_MAPPING = {
+    "us-central1-c_central": "https://35.232.85.244",
+    "us-east1-b_member-1a": "https://35.243.222.230",
+    "us-east1-c_member-2a": "https://34.75.94.207",
+    "us-west1-a_member-3a": "https://35.230.121.15",
+}
 
 
 @fixture(scope="module")
@@ -555,6 +561,7 @@ def _get_client_for_cluster(
     cluster_name: str,
 ) -> kubernetes.client.api_client.ApiClient:
     token = _read_multi_cluster_config_value(cluster_name)
+
     if not token:
         raise ValueError(f"No token found for cluster {cluster_name}")
 
@@ -563,7 +570,11 @@ def _get_client_for_cluster(
         config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
     )
     configuration = kubernetes.client.Configuration()
-    configuration.host = f"https://api.{cluster_name}"
+
+    configuration.host = CLUSTER_HOST_MAPPING.get(
+        cluster_name, f"https://api.{cluster_name}"
+    )
+
     configuration.verify_ssl = False
     configuration.api_key = {"authorization": f"Bearer {token}"}
     return kubernetes.client.api_client.ApiClient(configuration=configuration)

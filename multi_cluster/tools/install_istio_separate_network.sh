@@ -3,9 +3,9 @@
 set -eux
 
 # change the clusternames as per your need
-export CTX_CLUSTER1=gke_k8s-rdas_us-east1-b_member-1
-export CTX_CLUSTER2=gke_k8s-rdas_us-east1-c_member-2
-export CTX_CLUSTER3=gke_k8s-rdas_us-west1-a_member-3
+export CTX_CLUSTER1=gke_k8s-rdas_us-east1-b_member-1a
+export CTX_CLUSTER2=gke_k8s-rdas_us-east1-c_member-2a
+export CTX_CLUSTER3=gke_k8s-rdas_us-west1-a_member-3a
 export VERSION=1.10.3
 
 # download Istio 1.10.3 under the path
