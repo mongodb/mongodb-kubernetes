@@ -15,12 +15,60 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
-func testFlags(cleanup bool) flags {
+const testKubeconfig = `apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: ZHNqaA==
+    server: https://api.member-cluster-0
+  name: member-cluster-0
+- cluster:
+    certificate-authority-data: ZHNqaA==
+    server: https://api.member-cluster-1
+  name: member-cluster-1
+- cluster:
+    certificate-authority-data: ZHNqaA==
+    server: https://api.member-cluster-2
+  name: member-cluster-2
+contexts:
+- context:
+    cluster: member-cluster-0
+    namespace: citi
+    user: member-cluster-0
+  name: member-cluster-0
+- context:
+    cluster: member-cluster-1
+    namespace: citi
+    user: member-cluster-1
+  name: member-cluster-1
+- context:
+    cluster: member-cluster-2
+    namespace: citi
+    user: member-cluster-2
+  name: member-cluster-2
+current-context: member-cluster-0
+kind: Config
+preferences: {}
+users:
+- name: member-cluster-0
+  user:
+    client-certificate-data: ZHNqaA==
+    client-key-data: ZHNqaA==
+`
+
+func testFlags(t *testing.T, cleanup bool) flags {
 	memberClusters := []string{"member-cluster-0", "member-cluster-1", "member-cluster-2"}
+
+	kubeconfig, err := clientcmd.Load([]byte(testKubeconfig))
+	assert.NoError(t, err)
+
+	memberClusterApiServerUrls, err := getMemberClusterApiServerUrls(kubeconfig, memberClusters)
+	assert.NoError(t, err)
+
 	return flags{
-		memberClusterApiServerUrls: getMemberClusterApiServerUrls("", memberClusters),
+		memberClusterApiServerUrls: memberClusterApiServerUrls,
 		memberClusters:             memberClusters,
 		serviceAccount:             "test-service-account",
 		centralCluster:             "central-cluster",
@@ -29,10 +77,11 @@ func testFlags(cleanup bool) flags {
 		cleanup:                    cleanup,
 		clusterScoped:              false,
 	}
+
 }
 
 func TestNamespaces_GetsCreated_WhenTheyDoNotExit(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
@@ -43,7 +92,7 @@ func TestNamespaces_GetsCreated_WhenTheyDoNotExit(t *testing.T) {
 }
 
 func TestExistingNamespaces_DoNotCause_AlreadyExistsErrors(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags, namespaceResourceType)
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
@@ -54,7 +103,7 @@ func TestExistingNamespaces_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 }
 
 func TestServiceAccount_GetsCreate_WhenTheyDoNotExit(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
@@ -63,7 +112,7 @@ func TestServiceAccount_GetsCreate_WhenTheyDoNotExit(t *testing.T) {
 }
 
 func TestExistingServiceAccounts_DoNotCause_AlreadyExistsErrors(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags, serviceAccountResourceType)
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
@@ -72,7 +121,7 @@ func TestExistingServiceAccounts_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 }
 
 func TestRoles_GetsCreated_WhenTheyDoesNotExit(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
@@ -81,7 +130,7 @@ func TestRoles_GetsCreated_WhenTheyDoesNotExit(t *testing.T) {
 }
 
 func TestExistingRoles_DoNotCause_AlreadyExistsErrors(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags, roleResourceType)
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
 
@@ -90,7 +139,7 @@ func TestExistingRoles_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 }
 
 func TestClusterRoles_DoNotGetCreated_WhenNotSpecified(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	flags.clusterScoped = false
 
 	clientMap := getClientResources(flags)
@@ -102,7 +151,7 @@ func TestClusterRoles_DoNotGetCreated_WhenNotSpecified(t *testing.T) {
 }
 
 func TestClusterRoles_GetCreated_WhenSpecified(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	flags.clusterScoped = true
 
 	clientMap := getClientResources(flags)
@@ -114,7 +163,7 @@ func TestClusterRoles_GetCreated_WhenSpecified(t *testing.T) {
 }
 
 func TestCentralCluster_GetsRegularRoleCreated_WhenClusterScoped_IsSpecified(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	flags.clusterScoped = true
 
 	clientMap := getClientResources(flags)
@@ -124,7 +173,7 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenClusterScoped_IsSpecified(t *
 }
 
 func TestCentralCluster_GetsRegularRoleCreated_WhenNonClusterScoped_IsSpecified(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	flags.clusterScoped = false
 
 	clientMap := getClientResources(flags)
@@ -135,7 +184,7 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenNonClusterScoped_IsSpecified(
 }
 
 func TestPerformCleanup(t *testing.T) {
-	flags := testFlags(true)
+	flags := testFlags(t, true)
 	flags.clusterScoped = true
 
 	clientMap := getClientResources(flags)
@@ -166,7 +215,7 @@ func TestPerformCleanup(t *testing.T) {
 }
 
 func TestCreateKubeConfig_IsComposedOf_ServiceAccountTokens_InAllClusters(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
@@ -200,7 +249,7 @@ func TestCreateKubeConfig_IsComposedOf_ServiceAccountTokens_InAllClusters(t *tes
 }
 
 func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
@@ -214,7 +263,7 @@ func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
 }
 
 func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
@@ -229,7 +278,7 @@ func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
 }
 
 func TestChangingOneServiceAccountToken_ChangesOnlyThatEntry_InKubeConfig(t *testing.T) {
-	flags := testFlags(false)
+	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
 	err := ensureMultiClusterResources(flags, getFakeClientFunction(clientMap, nil))
@@ -276,25 +325,29 @@ func TestChangingOneServiceAccountToken_ChangesOnlyThatEntry_InKubeConfig(t *tes
 
 func TestGetMemberClusterApiServerUrls(t *testing.T) {
 	t.Run("Test comma separated string returns correct values", func(t *testing.T) {
-		apiUrls := getMemberClusterApiServerUrls("cluster1-url,cluster2-url,cluster3-url", []string{"cluster1", "cluster2", "cluster3"})
+		kubeconfig, err := clientcmd.Load([]byte(testKubeconfig))
+		assert.NoError(t, err)
+
+		apiUrls, err := getMemberClusterApiServerUrls(kubeconfig, []string{"member-cluster-0", "member-cluster-1", "member-cluster-2"})
+		assert.Nil(t, err)
 		assert.Len(t, apiUrls, 3)
-		assert.Equal(t, apiUrls[0], "cluster1-url")
-		assert.Equal(t, apiUrls[1], "cluster2-url")
-		assert.Equal(t, apiUrls[2], "cluster3-url")
+		assert.Equal(t, apiUrls[0], "https://api.member-cluster-0")
+		assert.Equal(t, apiUrls[1], "https://api.member-cluster-1")
+		assert.Equal(t, apiUrls[2], "https://api.member-cluster-2")
 	})
 
-	t.Run("Test empty string returns correct values", func(t *testing.T) {
-		apiUrls := getMemberClusterApiServerUrls("", []string{"cluster1", "cluster2", "cluster3"})
-		assert.Len(t, apiUrls, 3)
-		assert.Equal(t, apiUrls[0], "https://api.cluster1")
-		assert.Equal(t, apiUrls[1], "https://api.cluster2")
-		assert.Equal(t, apiUrls[2], "https://api.cluster3")
+	t.Run("Test missing cluster lookup returns error", func(t *testing.T) {
+		kubeconfig, err := clientcmd.Load([]byte(testKubeconfig))
+		assert.NoError(t, err)
+
+		_, err = getMemberClusterApiServerUrls(kubeconfig, []string{"member-cluster-0", "member-cluster-1", "member-cluster-missing"})
+		assert.Error(t, err)
 	})
 }
 
 func TestMemberClusterUris(t *testing.T) {
 	t.Run("Uses server values set in flags", func(t *testing.T) {
-		flags := testFlags(false)
+		flags := testFlags(t, false)
 		flags.memberClusterApiServerUrls = []string{"cluster1-url", "cluster2-url", "cluster3-url"}
 		clientMap := getClientResources(flags)
 

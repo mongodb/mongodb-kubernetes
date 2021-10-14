@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/util/homedir"
 )
 
@@ -46,8 +47,7 @@ type flags struct {
 }
 
 var (
-	memberClusters              string
-	memberClustersApiServerUrls string
+	memberClusters string
 )
 
 const (
@@ -59,7 +59,6 @@ const (
 func parseFlags() (flags, error) {
 	flags := flags{}
 	flag.StringVar(&memberClusters, "member-clusters", "", "Comma separated list of member clusters. [required]")
-	flag.StringVar(&memberClustersApiServerUrls, "member-cluster-api-server-urls", "", "Comma separated list of member cluster api server URLs. [optional default https://api.<cluster-name> ]")
 	flag.StringVar(&flags.serviceAccount, "service-account", "mongodb-enterprise-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-enterprise-operator-multi-cluster]")
 	flag.StringVar(&flags.centralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [required]")
 	flag.StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
@@ -73,26 +72,29 @@ func parseFlags() (flags, error) {
 	}
 
 	flags.memberClusters = strings.Split(memberClusters, ",")
-	flags.memberClusterApiServerUrls = getMemberClusterApiServerUrls(memberClustersApiServerUrls, flags.memberClusters)
-
-	if len(flags.memberClusters) != len(flags.memberClusterApiServerUrls) {
-		return flags, fmt.Errorf("the number of entries in member-cluster-api-server-urls must equal the number of entries in member-clusters")
+	configFilePath := loadKubeConfigFilePath()
+	kubeconfig, err := clientcmd.LoadFromFile(configFilePath)
+	if err != nil {
+		return flags, fmt.Errorf("error loading kubeconfig file '%s': %s", configFilePath, err)
+	}
+	if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
+		return flags, err
 	}
 
 	return flags, nil
 }
 
 // getMemberClusterApiServerUrls returns the slice of member cluster api urls that should be used.
-// it will default to https://api.<clustername> if an empty string is provided.
-func getMemberClusterApiServerUrls(commaSeparatedApiUrls string, clusterNames []string) []string {
-	if commaSeparatedApiUrls != "" {
-		return strings.Split(commaSeparatedApiUrls, ",")
-	}
+func getMemberClusterApiServerUrls(kubeconfig *clientcmdapi.Config, clusterNames []string) ([]string, error) {
 	var urls []string
 	for _, name := range clusterNames {
-		urls = append(urls, fmt.Sprintf("https://api.%s", name))
+		if cluster := kubeconfig.Clusters[name]; cluster != nil {
+			urls = append(urls, cluster.Server)
+		} else {
+			return nil, fmt.Errorf("cluster '%s' not found in kubeconfig", name)
+		}
 	}
-	return urls
+	return urls, nil
 }
 
 // KubeConfigFile represents the contents of a KubeConfig file.
@@ -541,8 +543,7 @@ func buildCentralEntityRole(namespace string) rbacv1.Role {
 }
 
 func buildCentralEntityClusterRole() rbacv1.ClusterRole {
-	rules := make([]rbacv1.PolicyRule, 0)
-	rules = append(getCentralRules(), rbacv1.PolicyRule{
+	rules := append(getCentralRules(), rbacv1.PolicyRule{
 		Verbs:     []string{"list", "watch"},
 		Resources: []string{"namespaces"},
 		APIGroups: []string{""},
@@ -588,8 +589,7 @@ func buildMemberEntityRole(namespace string) rbacv1.Role {
 }
 
 func buildMemberEntityClusterRole() rbacv1.ClusterRole {
-	rules := make([]rbacv1.PolicyRule, 0)
-	rules = append(getMemberRules(), rbacv1.PolicyRule{
+	rules := append(getMemberRules(), rbacv1.PolicyRule{
 		Verbs:     []string{"list", "watch"},
 		Resources: []string{"namespaces"},
 		APIGroups: []string{""},
