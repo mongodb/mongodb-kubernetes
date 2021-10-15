@@ -57,7 +57,7 @@ func podLabel(mdbmName string) map[string]string {
 	}
 }
 
-func mongodbVolumeMount() []corev1.VolumeMount {
+func mongodbVolumeMount(cmName string) []corev1.VolumeMount {
 	return []corev1.VolumeMount{
 		{
 			Name:      "data",
@@ -80,20 +80,20 @@ func mongodbVolumeMount() []corev1.VolumeMount {
 			ReadOnly:  true,
 		},
 		{
-			Name:      "hostname-override",
+			Name:      cmName,
 			MountPath: "/opt/scripts/config",
 		},
 	}
 }
 
-func mongodbInitVolumeMount() []corev1.VolumeMount {
+func mongodbInitVolumeMount(cmName string) []corev1.VolumeMount {
 	return []corev1.VolumeMount{
 		{
 			Name:      "database-scripts",
 			MountPath: "/opt/scripts",
 		},
 		{
-			Name:      "hostname-override",
+			Name:      cmName,
 			MountPath: "/opt/scripts/config",
 		},
 	}
@@ -190,18 +190,18 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-					container.WithVolumeMounts(mongodbVolumeMount()),
+					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
 					container.WithEnvs(mongodbEnv(conn)...),
 					configureContainerSecurityContext,
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
-			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap("hostname-override", "hostname-override")),
+			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(mdbm.GetHostNameOverrideConfigmapName(), mdbm.GetHostNameOverrideConfigmapName())),
 			podtemplatespec.WithTerminationGracePeriodSeconds(600),
 			podtemplatespec.WithInitContainerByIndex(0,
 				container.WithName(construct.InitDatabaseContainerName),
 				container.WithImage(initContainerImageURL),
 				container.WithImagePullPolicy(corev1.PullAlways),
-				container.WithVolumeMounts(mongodbInitVolumeMount()),
+				container.WithVolumeMounts(mongodbInitVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
 				configureContainerSecurityContext,
 			),
 		)),

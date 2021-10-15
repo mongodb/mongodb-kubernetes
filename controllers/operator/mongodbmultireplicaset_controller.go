@@ -537,7 +537,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 
 	cm := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "hostname-override",
+			Name:      fmt.Sprintf("%s-hostname-override", mrs.Name),
 			Namespace: mrs.Namespace,
 			Labels: map[string]string{
 				"controller":   "mongodb-enterprise-operator",

@@ -73,7 +73,9 @@ class MongoDBMulti(MongoDB):
         for mcc in clients:
             configmaps[mcc.cluster_name] = client.CoreV1Api(
                 api_client=mcc.api_client
-            ).read_namespaced_config_map("hostname-override", self.namespace)
+            ).read_namespaced_config_map(
+                f"{self.name}-hostname-override", self.namespace
+            )
         return configmaps
 
     def service_names(self) -> List[str]:

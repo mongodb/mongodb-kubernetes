@@ -89,6 +89,10 @@ func (m MongoDBMulti) GetResourceName() string {
 	return m.Name
 }
 
+func (m MongoDBMulti) GetHostNameOverrideConfigmapName() string {
+	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBMultiList struct {
 	metav1.TypeMeta `json:",inline"`
