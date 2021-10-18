@@ -301,22 +301,16 @@ def create_x509_mongodb_tls_certs(
         ],
     }
 
-    cert_and_pod_names = create_tls_certs(
+    return create_mongodb_tls_certs(
         issuer,
         namespace,
         resource_name,
+        bundle_secret_name,
         replicas,
         service_name,
         spec,
         additional_domains,
     )
-    data = {}
-    for pod_name, cert_secret_name in cert_and_pod_names.items():
-        secret = read_secret(namespace, cert_secret_name)
-        data[pod_name + "-pem"] = secret["tls.crt"] + secret["tls.key"]
-
-    create_secret(namespace, bundle_secret_name, data)
-    return bundle_secret_name
 
 
 def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
