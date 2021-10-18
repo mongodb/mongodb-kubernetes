@@ -114,7 +114,7 @@ func mongodbEnv(conn om.Connection) []corev1.EnvVar {
 		},
 		{
 			Name:  "AGENT_FLAGS",
-			Value: fmt.Sprintf("-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,"),
+			Value: "-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,",
 		},
 		{
 			Name:  util.ENV_VAR_BASE_URL,

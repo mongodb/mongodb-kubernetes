@@ -51,10 +51,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-const (
-	lastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
-)
-
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
 type ReconcileMongoDbMultiReplicaSet struct {
 	*ReconcileCommonController
@@ -365,7 +361,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		return err
 	}
 
-	mrs.Annotations[lastSuccessfulMultiClusterConfiguration] = string(achievedSpecBytes)
+	mrs.Annotations[mdbmultiv1.LastSuccessfulMultiClusterConfiguration] = string(achievedSpecBytes)
 	mrs.Annotations[mdbmultiv1.LastClusterIndexMapping] = string(clusterIndexBytes)
 
 	return r.client.Update(context.TODO(), &mrs)
@@ -532,7 +528,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 	data := make(map[string]string)
 
 	for podNum := 0; podNum < members; podNum++ {
-		key := fmt.Sprintf("%s", dns.GetMultiPodName(mrs.Name, clusterNum, podNum))
+		key := dns.GetMultiPodName(mrs.Name, clusterNum, podNum)
 		value := fmt.Sprintf("%s.%s.svc.cluster.local", dns.GetServiceName(mrs.Name, clusterNum, podNum), mrs.Namespace)
 		data[key] = value
 	}
@@ -586,8 +582,8 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMulti)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMulti)
 
-			oldSpecAnnotation := oldResource.GetAnnotations()[lastSuccessfulMultiClusterConfiguration]
-			newSpecAnnotation := newResource.GetAnnotations()[lastSuccessfulMultiClusterConfiguration]
+			oldSpecAnnotation := oldResource.GetAnnotations()[mdbmultiv1.LastSuccessfulMultiClusterConfiguration]
+			newSpecAnnotation := newResource.GetAnnotations()[mdbmultiv1.LastSuccessfulMultiClusterConfiguration]
 
 			// don't handle an update to just the previous spec annotation if they are not the same.
 			// this prevents the operator triggering reconciliations on resource that it is updating itself.

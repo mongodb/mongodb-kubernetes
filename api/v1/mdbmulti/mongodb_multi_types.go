@@ -22,7 +22,7 @@ func init() {
 }
 
 const (
-	lastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastClusterIndexMapping                 = "mongodb.com/v1.lastClusterIndexMapping"
 )
 
@@ -314,7 +314,7 @@ func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
 	if m.Annotations == nil {
 		return nil, nil
 	}
-	specBytes, ok := m.Annotations[lastSuccessfulMultiClusterConfiguration]
+	specBytes, ok := m.Annotations[LastSuccessfulMultiClusterConfiguration]
 	if !ok {
 		return nil, nil
 	}
