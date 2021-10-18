@@ -8,6 +8,8 @@ import (
 	_ "k8s.io/client-go/discovery/fake"
 	_ "k8s.io/client-go/testing"
 
+	// must to be imported, the corresponding go.sum entry is required.
+	_ "cloud.google.com/go"
 	// code-generator that does not support go modules yet
 	_ "k8s.io/code-generator"
 )
