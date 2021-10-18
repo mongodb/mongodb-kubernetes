@@ -79,6 +79,9 @@ class MongoDBMulti(MongoDB):
         return configmaps
 
     def service_names(self) -> List[str]:
+        # TODO: this function does not account for previous
+        # clusters being removed, the indices do not line up
+        # and as a result the incorrect service name will be returned.
         service_names = []
         cluster_specs = sorted(
             self["spec"]["clusterSpecList"]["clusterSpecs"],
@@ -94,9 +97,12 @@ class MongoDBMulti(MongoDB):
         ca_path: Optional[str] = None,
         srv: bool = False,
         use_ssl: Optional[bool] = None,
+        service_names: Optional[List[str]] = None
     ) -> MongoTester:
+        if service_names is None:
+            service_names = self.service_names()
         return MultiReplicaSetTester(
-            service_names=self.service_names(),
+            service_names=service_names,
             namespace=self.namespace,
             # TODO: tls, ca_path
         )

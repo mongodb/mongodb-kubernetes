@@ -104,8 +104,8 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
-    # remove last cluster
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"].pop()
+    # remove first and last cluster
+    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"] = [mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][1]]
     mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
@@ -116,11 +116,11 @@ def test_statefulsets_have_been_scaled_down_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients[:-1])
+    statefulsets = mongodb_multi.read_statefulsets([member_cluster_clients[1]])
 
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
+    with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
+        mongodb_multi.read_statefulsets([member_cluster_clients[0]])
+        assert e.value.reason == "Not Found"
 
     # there should only be one statefulset in the second cluster
     cluster_two_client = member_cluster_clients[1]
@@ -136,11 +136,12 @@ def test_statefulsets_have_been_scaled_down_correctly(
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
 def test_ops_manager_has_been_updated_correctly_after_scaling():
     ac = AutomationConfigTester()
-    ac.assert_processes_size(3)
+    ac.assert_processes_size(1)
 
 
 @skip_if_local
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
-    tester = mongodb_multi.tester()
+    # there should only be one member in cluster 2 so there is just a single service.
+    tester = mongodb_multi.tester(service_names=[f"{mongodb_multi.name}-1-0-svc"])
     tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
