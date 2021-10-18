@@ -630,7 +630,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 
 	r.ensureConfiguration(&opsManager, log)
 
-	sts, err := construct.OpsManagerStatefulSet(opsManager,
+	sts, err := construct.OpsManagerStatefulSet(r.client, opsManager, log,
 		construct.WithConnectionStringHash(hashConnectionString(connectionString)),
 	)
 
@@ -721,7 +721,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 
 	r.ensureConfiguration(&opsManager, log)
 
-	sts, err := construct.BackupDaemonStatefulSet(opsManager, construct.WithConnectionStringHash(hashConnectionString(connectionString)))
+	sts, err := construct.BackupDaemonStatefulSet(r.client, opsManager, log, construct.WithConnectionStringHash(hashConnectionString(connectionString)))
 	if err != nil {
 		return workflow.Failed(fmt.Sprintf("error building stateful set: %v", err))
 	}

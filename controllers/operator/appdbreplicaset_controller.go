@@ -15,12 +15,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 	"github.com/stretchr/objx"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -108,13 +111,18 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 		return r.updateStatus(opsManager, workflow.Failed("Error reading monitoring agent version: %s", err), log, appDbStatusOption)
 	}
 
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, monitoringAgentVersion)
+	workflowStatus, certSecretType := r.ensureTLSSecretAndCreatePEMIfNeeded(*opsManager, log)
+	if !workflowStatus.IsOK() {
+		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
+	}
+
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, monitoringAgentVersion, certSecretType)
 	if err != nil {
 
 		return r.updateStatus(opsManager, workflow.Failed("can't construct AppDB Statefulset: %s", err), log, omStatusOption)
 	}
 
-	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, certSecretType, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -145,7 +153,7 @@ func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager,
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
 	currentAc, err := automationconfig.ReadFromSecret(r.client, types.NamespacedName{
@@ -176,13 +184,13 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
 			log.Infof("Deploying Automation Config\n")
-			return r.deployAutomationConfig(opsManager, appDbSts, log)
+			return r.deployAutomationConfig(opsManager, appDbSts, certSecretType, log)
 		},
 		func() workflow.Status {
 
 			// in the case of an upgrade from the 1 to 3 container architecture, when the stateful set is updated before the agent automation config
 			// the monitoring agent automation config needs to exist for the volumes to mount correctly.
-			if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, log); err != nil {
+			if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, certSecretType, log); err != nil {
 				return workflow.Failed(err.Error())
 			}
 
@@ -196,6 +204,48 @@ func getDomain(service, namespace, clusterName string) string {
 		clusterName = "cluster.local"
 	}
 	return fmt.Sprintf("%s.%s.svc.%s", service, namespace, clusterName)
+}
+
+// ensureTLSSecretAndCreatePEMIfNeeded checks that the needed TLS secrets are present, and creates the concatenated PEM if needed.
+// This means that the secret referenced can either already contain a concatenation of certificate and private key
+// or it can be of type kubernetes.io/tls. In this case the operator will read the tls.crt and tls.key entries and it will
+// generate a new secret containing their concatenation
+func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, corev1.SecretType) {
+	rs := om.Spec.AppDB
+	if !rs.IsSecurityTLSConfigEnabled() {
+		return workflow.OK(), corev1.SecretTypeTLS
+	}
+	secretName := rs.Security.MemberCertificateSecretName(rs.Name())
+
+	secretGetUpdateCreator, ok := r.client.(secret.GetUpdateCreator)
+
+	if !ok {
+		// This should never happen!
+		return workflow.Failed("can't convert client to secret getter/updater/creator"), corev1.SecretTypeOpaque
+	}
+
+	s, err := secretGetUpdateCreator.GetSecret(kube.ObjectKey(rs.Namespace, secretName))
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return workflow.Failed("TLS enabled but secret %s is not present", secretName), corev1.SecretTypeOpaque
+		}
+		return workflow.Failed("can't check the secret containing TLS certificates: %s", err), corev1.SecretTypeOpaque
+	}
+
+	if s.Type == corev1.SecretTypeTLS {
+		data, err := certs.VerifyTLSSecretForStatefulSet(s, certs.AppDBReplicaSetConfig(om))
+		if err != nil {
+			return workflow.Failed("TLS secret %s is invalid: %s", secretName, err), corev1.SecretTypeOpaque
+		}
+
+		secretHash := enterprisepem.ReadHashFromSecret(secretGetUpdateCreator, om.Namespace, secretName, log)
+		secretStringData := map[string]string{secretHash: data}
+		err = certs.CreatePEMSecret(secretGetUpdateCreator, kube.ObjectKey(rs.Namespace, secretName), secretStringData, om.OwnerReferences, log)
+		if err != nil {
+			return workflow.Failed("can't create secret with the concatenation of tls.crt and tls.key fields: %s", err), corev1.SecretTypeOpaque
+		}
+	}
+	return workflow.OK(), s.Type
 }
 
 // publishAutomationConfig publishes the automation config to the Secret if necessary. Note that it's done only
@@ -212,7 +262,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.Mongo
 	return ac.Version, err
 }
 
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, certSecretType corev1.SecretType, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
 	auth := automationconfig.Auth{}
@@ -233,6 +283,12 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 	fcVersion := ""
 	if rs.FeatureCompatibilityVersion != nil {
 		fcVersion = *rs.FeatureCompatibilityVersion
+	}
+
+	certHash := ""
+	if certSecretType == corev1.SecretTypeTLS {
+		tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
+		certHash = enterprisepem.ReadHashFromSecret(r.client, opsManager.Namespace, tlsSecretName, log)
 	}
 
 	return automationconfig.NewBuilder().
@@ -272,7 +328,11 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 			p.SetStoragePath(automationconfig.DefaultMongoDBDataDir)
 			if rs.GetTlsCertificatesSecretName() != "" {
 
-				certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, p.Name)
+				certFileName := certHash
+				if certFileName == "" {
+					certFileName = fmt.Sprintf("%s-pem", p.Name)
+				}
+				certFile := fmt.Sprintf("%s/certs/%s", util.SecretVolumeMountPath, certFileName)
 
 				p.Args26.Set("net.tls.mode", string(tls.Require))
 
@@ -563,11 +623,11 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
 
 	rs := opsManager.Spec.AppDB
 
-	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, automation, log)
+	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, automation, certSecretType, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -577,11 +637,11 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 		return workflow.Failed(err.Error())
 	}
 
-	if _, err = r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log); err != nil {
+	if _, err = r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, certSecretType, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
-	if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, log); err != nil {
+	if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, certSecretType, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -589,8 +649,8 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 }
 
 // deployMonitoringAgentAutomationConfig deploys the monitoring agent's automation config.
-func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) error {
-	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log)
+func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) error {
+	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, certSecretType, log)
 	if err != nil {
 		return err
 	}

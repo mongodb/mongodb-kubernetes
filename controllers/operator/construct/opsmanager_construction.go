@@ -4,18 +4,23 @@ import (
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	appsv1 "k8s.io/api/apps/v1"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -34,6 +39,7 @@ const (
 type OpsManagerStatefulSetOptions struct {
 	OwnerReference            []metav1.OwnerReference
 	HTTPSCertSecretName       string
+	CertHash                  string
 	AppDBTlsCAConfigMapName   string
 	AppDBConnectionSecretName string
 	AppDBConnectionStringHash string
@@ -57,10 +63,52 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 	}
 }
 
+// updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
+func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCreattor secret.GetUpdateCreator, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
+	// Return immediately if no Certificate is provided
+	if opts.HTTPSCertSecretName == "" {
+		return nil
+	}
+
+	s, err := secretGetterCreattor.GetSecret(kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName))
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// If the secret is not of type kubernetes.io/tls, we just assume it's the "old" design, which is a
+	// secret containing a server.pem key, whose value is a concatenated PEM
+	if s.Type != corev1.SecretTypeTLS {
+		return nil
+	}
+
+	// Basic validation of the PEM data.
+	data, err := certs.VerifyTLSSecretForStatefulSet(s, certs.Options{})
+	if err != nil {
+		return err
+	}
+
+	certHash := enterprisepem.ReadHashFromSecret(secretGetterCreattor, opts.Namespace, s.Name, log)
+
+	// The operator concatenates the two fields of the secret into a PEM secret
+	err = certs.CreatePEMSecret(secretGetterCreattor, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, log)
+	if err != nil {
+		return err
+	}
+
+	opts.HTTPSCertSecretName = fmt.Sprintf("%s%s", opts.HTTPSCertSecretName, certs.OperatorGeneratedCertSuffix)
+	opts.CertHash = certHash
+
+	return nil
+}
+
 // OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
-func OpsManagerStatefulSet(opsManager omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func OpsManagerStatefulSet(secretGetterCreator secret.GetUpdateCreateDeleter, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := opsManagerOptions(additionalOpts...)(opsManager)
+
+	if err := opts.updateHTTPSCertSecret(secretGetterCreator, opsManager.OwnerReferences, log); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
 	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
 	var err error
 	if opts.StatefulSetSpecOverride != nil {
@@ -227,7 +275,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 						container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.OpsManagerPullPolicy))),
 						container.WithImage(omImageURL),
 						container.WithEnvs(opts.EnvVars...),
-						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName)...),
+						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName, opts.CertHash)...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						configureContainerSecurityContext,
 						container.WithVolumeMounts(omVolumeMounts),
@@ -297,13 +345,17 @@ func buildOpsManagerLifecycle() lifecycle.Modification {
 	return lifecycle.WithPrestopCommand([]string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"})
 }
 
-func getOpsManagerHTTPSEnvVars(httpsSecretName string) []corev1.EnvVar {
+func getOpsManagerHTTPSEnvVars(httpsSecretName string, certHash string) []corev1.EnvVar {
 	if httpsSecretName != "" {
+		path := "server.pem"
+		if certHash != "" {
+			path = certHash
+		}
 		// Before creating the podTemplate, we need to add the new PemKeyFile
 		// configuration if required.
 		return []corev1.EnvVar{{
 			Name:  omv1.ConvertNameToEnvVarFormat(util.MmsPEMKeyFile),
-			Value: util.MmsPemKeyFileDirInContainer + "/server.pem",
+			Value: fmt.Sprintf("%s/%s", util.MmsPemKeyFileDirInContainer, path),
 		}}
 	}
 	return []corev1.EnvVar{}

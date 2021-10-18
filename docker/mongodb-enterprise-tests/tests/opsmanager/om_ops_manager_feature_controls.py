@@ -35,7 +35,7 @@ def replica_set(
 @mark.e2e_om_feature_controls
 def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    
+
 
 @mark.e2e_om_feature_controls
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):

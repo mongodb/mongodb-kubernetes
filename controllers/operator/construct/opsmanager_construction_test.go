@@ -57,7 +57,7 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 		Build()
 	om.Spec.JVMParams = []string{"-DFakeOptionEnabled"}
 
-	omSts, err := OpsManagerStatefulSet(om)
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), om, zap.S())
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -96,7 +96,7 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 		Build()
 
-	omSts, err := OpsManagerStatefulSet(om)
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), om, zap.S())
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -117,7 +117,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 			Build()
 
-		sts, err := OpsManagerStatefulSet(om)
+		sts, err := OpsManagerStatefulSet(mock.NewClient(), om, zap.S())
 		assert.NoError(t, err)
 
 		// env vars are in sorted order
@@ -154,7 +154,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			SetStatefulSetSpec(statefulSet.Spec).
 			Build()
 
-		sts, err := OpsManagerStatefulSet(om)
+		sts, err := OpsManagerStatefulSet(mock.NewClient(), om, zap.S())
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
 			{Name: "ENABLE_IRP", Value: "true"},
@@ -168,7 +168,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 }
 
 func Test_buildOpsManagerStatefulSet(t *testing.T) {
-	sts, err := OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
+	sts, err := OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om", sts.ObjectMeta.Name)
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
@@ -178,7 +178,7 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 
 func Test_buildOpsManagerStatefulSet_Secrets(t *testing.T) {
 	opsManager := omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build()
-	sts, err := OpsManagerStatefulSet(opsManager)
+	sts, err := OpsManagerStatefulSet(mock.NewClient(), opsManager, zap.S())
 	assert.NoError(t, err)
 
 	expectedSecretVolumeNames := []string{"test-om-gen-key", opsManager.AppDBMongoConnectionStringSecretName()}
@@ -215,7 +215,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 
-	omSts, err := OpsManagerStatefulSet(om)
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), om, zap.S())
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -248,7 +248,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 
 // TestOpsManagerPodTemplate_PodSpec verifies that StatefulSetSpec is applied correctly to OpsManager/Backup pod template.
 func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
-	omSts, err := OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 
 	resourceLimits := buildSafeResourceList("1.0", "500M")
@@ -305,7 +305,7 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
-	omSts, err := OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 
 	podSpecTemplate := omSts.Spec.Template
@@ -317,14 +317,14 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	omSts, err = OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err = OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 }
 
 func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
-	omSts, err := OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 	podSpecTemplate := omSts.Spec.Template
 	assert.Equal(t, int64(300), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
@@ -333,7 +333,7 @@ func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
 func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
-	omSts, err := OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err := OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 
 	podSpecTemplate := omSts.Spec.Template
@@ -342,7 +342,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	os.Setenv(util.ImagePullSecrets, "my-cool-secret")
-	omSts, err = OpsManagerStatefulSet(omv1.NewOpsManagerBuilderDefault().Build())
+	omSts, err = OpsManagerStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
 	spec = podSpecTemplate.Spec
@@ -354,7 +354,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 // TestOpsManagerPodTemplate_Container verifies the default OM container built by 'opsManagerPodTemplate' method
 func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
-	sts, err := OpsManagerStatefulSet(om)
+	sts, err := OpsManagerStatefulSet(mock.NewClient(), om, zap.S())
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 

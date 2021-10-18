@@ -254,8 +254,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return err
 		}
 
+		// TODO in a separate PR
 		// Ensure TLS for multi-cluster statefulset
-		if status := certs.EnsureSSLCertsForStatefulSet(memberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
+		if status, _ := certs.EnsureSSLCertsForStatefulSet(memberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
 			return errors.New("failed to ensure Statefulset for MDB Multi")
 		}
 
@@ -410,8 +411,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, log)
-			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().TLSConfig.IsEnabled())
-			d.ConfigureTLS(mrs.Spec.GetSecurity().TLSConfig)
+			// TODO change last argument in separate PR
+			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().TLSConfig.IsEnabled(), util.CAFilePathInContainer)
+			d.ConfigureTLS(mrs.Spec.GetSecurity().TLSConfig, util.CAFilePathInContainer)
 			return nil
 		},
 		log,

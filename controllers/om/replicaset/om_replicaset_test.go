@@ -25,6 +25,7 @@ func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 			opsManager,
 			nil,
 			"",
+			"",
 		)
 		assert.NoError(t, err)
 		omRs := BuildAppDBFromStatefulSet(appDbSts, omv1.AppDBSpec{Version: "4.4.0"})

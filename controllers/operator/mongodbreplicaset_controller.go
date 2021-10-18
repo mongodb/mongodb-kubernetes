@@ -132,7 +132,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	if status := certs.EnsureSSLCertsForStatefulSet(r.client, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log); !status.IsOK() {
+	status, newTLSDesignMemberCert := certs.EnsureSSLCertsForStatefulSet(r.client, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
@@ -145,16 +146,26 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	if status := r.ensureX509InKubernetes(rs, currentAgentAuthMode, getReplicaSetCertsOption, log); !status.IsOK() {
+	status, newTLSDesignForCerts := r.ensureX509SecretAndCheckTLSType(rs, currentAgentAuthMode, getReplicaSetCertsOption, log)
+	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
 
-	rsCertSecretName := certs.ReplicaSetConfig(*rs).CertSecretName
+	rsCertsConfig := certs.ReplicaSetConfig(*rs)
+
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertSecretName, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.CertSecretName, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.InternalClusterSecretName, log)),
+		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
+		NewTLSDesignMap(newTLSDesignForCerts),
 	)
+
+	caFilePath := util.CAFilePathInContainer
+	if newTLSDesignMemberCert {
+		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+	}
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
 
@@ -168,9 +179,15 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	status := workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *rs, rsConfig, log),
+	rsStsOption := rsConfig(*rs)
+	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
+	if rsStsOption.CertSecretTypes.IsCertTLSType(agentCertSecretName) {
+		agentCertSecretName += certs.OperatorGeneratedCertSuffix
+	}
+
+	status = workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *rs, rsConfig, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
@@ -251,8 +268,9 @@ func AddReplicaSetController(mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
-	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+	set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string) workflow.Status {
 
+	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
@@ -263,7 +281,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, membersNumberBefore, rs, set, log)
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, membersNumberBefore, rs, set, log, caFilePath)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -280,11 +298,15 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), updatedMembers)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, agentCertSecretName, caFilePath, log)
 	if !status.IsOK() {
 		return status
 	}
 
+	internalClusterPath := ""
+	if hash, ok := set.Annotations[util.InternalCertAnnotationKey]; ok {
+		internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
+	}
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			// it is not possible to disable internal cluster authentication once enabled
@@ -297,9 +319,9 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			}
 
 			d.MergeReplicaSet(replicaSet, nil)
-			d.AddMonitoringAndBackup(log, rs.Spec.GetTLSConfig().IsEnabled())
-			d.ConfigureTLS(rs.Spec.GetTLSConfig())
-			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode())
+			d.AddMonitoringAndBackup(log, rs.Spec.GetTLSConfig().IsEnabled(), caFilePath)
+			d.ConfigureTLS(rs.Spec.GetTLSConfig(), caFilePath)
+			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode(), internalClusterPath)
 			return nil
 		},
 		log,
@@ -334,7 +356,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 // updateOmDeploymentDisableTLSConfiguration checks if TLS configuration needs
 // to be disabled. In which case it will disable it and inform to the calling
 // function.
-func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
+func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB, set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string) (bool, error) {
 	tlsConfigWasDisabled := false
 
 	err := conn.ReadUpdateDeployment(
@@ -344,7 +366,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 			}
 
 			tlsConfigWasDisabled = true
-			d.ConfigureTLS(rs.Spec.GetTLSConfig())
+			d.ConfigureTLS(rs.Spec.GetTLSConfig(), caFilePath)
 
 			// configure as much agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).

@@ -63,7 +63,7 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	newProcess := NewMongodProcess("foo", "bar", mdbv1.AdditionalMongodConfig{Object: nil}, &mdbv1.NewStandaloneBuilder().Build().Spec)
+	newProcess := NewMongodProcess("foo", "bar", mdbv1.AdditionalMongodConfig{Object: nil}, &mdbv1.NewStandaloneBuilder().Build().Spec, "")
 
 	d.getProcesses()[0]["processType"] = ProcessTypeMongos                 // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
@@ -143,25 +143,25 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 
 func TestConfigureSSL_Deployment(t *testing.T) {
 	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true})
+	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true}, util.CAFilePathInContainer)
 	expectedSSLConfig := map[string]interface{}{
 		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
 	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]interface{}))
 
-	d.ConfigureTLS(&mdbv1.TLSConfig{})
+	d.ConfigureTLS(&mdbv1.TLSConfig{}, util.CAFilePathInContainer)
 	assert.Empty(t, d["tls"])
 }
 
 func TestTLSConfigurationWillBeDisabled(t *testing.T) {
 	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: false})
+	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: false}, util.CAFilePathInContainer)
 
 	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: false}))
 	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: true}))
 
 	d = Deployment{}
-	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true})
+	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true}, util.CAFilePathInContainer)
 
 	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: true}))
 	assert.True(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: false}))
@@ -438,7 +438,7 @@ func TestAddMonitoring(t *testing.T) {
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, zap.S())
-	d.AddMonitoring(zap.S(), false)
+	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
@@ -448,7 +448,7 @@ func TestAddMonitoring(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false)
+	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
@@ -457,7 +457,7 @@ func TestAddMonitoringTls(t *testing.T) {
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, zap.S())
-	d.AddMonitoring(zap.S(), true)
+	d.AddMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	expectedAdditionalParams := map[string]string{
 		"useSslForAllConnections":      "true",
@@ -472,7 +472,7 @@ func TestAddMonitoringTls(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), true)
+	d.AddMonitoring(zap.S(), true, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
@@ -667,7 +667,7 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 }
 
 func createStandalone() Process {
-	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", mdbv1.AdditionalMongodConfig{Object: nil}, defaultMongoDBVersioned("3.6.3"))
+	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", mdbv1.AdditionalMongodConfig{Object: nil}, defaultMongoDBVersioned("3.6.3"), "")
 }
 
 func createMongosProcesses(num int, name, clusterName string) []Process {
@@ -675,7 +675,7 @@ func createMongosProcesses(num int, name, clusterName string) []Process {
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"))
+		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "")
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -691,7 +691,7 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), mdbv1.AdditionalMongodConfig{Object: nil}, defaultMongoDBVersioned("3.6.3"))
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), mdbv1.AdditionalMongodConfig{Object: nil}, defaultMongoDBVersioned("3.6.3"), "")
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
@@ -701,7 +701,7 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), mdbv1.AdditionalMongodConfig{Object: nil}, defaultMongoDBVersioned("3.6.3-ent"))
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), mdbv1.AdditionalMongodConfig{Object: nil}, defaultMongoDBVersioned("3.6.3-ent"), "")
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers

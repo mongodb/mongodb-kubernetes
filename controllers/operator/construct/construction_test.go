@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -24,18 +25,18 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 6)
 
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 6)
 
 	// If no persistence is set then we still mount init scripts
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 3)
 }
 
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
@@ -54,6 +55,8 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
+		{Name: tls.ConfigMapVolumeCAName, MountPath: util.TLSCaMountPath, ReadOnly: true},
+		{Name: util.SecretVolumeName, MountPath: util.TLSCertMountPath},
 	})
 }
 
@@ -82,6 +85,8 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
 		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
 		{Name: util.PvcNameLogs, MountPath: util.PvcMountPathLogs},
+		{Name: tls.ConfigMapVolumeCAName, MountPath: util.TLSCaMountPath, ReadOnly: true},
+		{Name: util.SecretVolumeName, MountPath: util.TLSCertMountPath},
 	})
 }
 
@@ -107,11 +112,13 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
 		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
 		{Name: util.PvcNameLogs, MountPath: util.PvcMountPathLogs},
+		{Name: tls.ConfigMapVolumeCAName, MountPath: util.TLSCaMountPath, ReadOnly: true},
+		{Name: util.SecretVolumeName, MountPath: util.TLSCertMountPath},
 	})
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts, err := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build(), nil, "")
+	appDbSts, err := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build(), nil, "", "")
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)

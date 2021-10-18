@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
@@ -65,12 +66,39 @@ type DatabaseStatefulSetOptions struct {
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
 	CertificateHash         string
+	InternalClusterHash     string
 	ServicePort             int32
 	Persistent              *bool
 	OwnerReference          []metav1.OwnerReference
 	AgentConfig             mdbv1.AgentConfig
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	Annotations             map[string]string
+
+	CertSecretTypes CertSecretTypesMapping
+}
+
+type CertSecretTypesMapping struct {
+	// CertSecretIsTLSType is a map between certificate names and booleans that tell us
+	// whether the given certificate is formatted with the new design (tls.crt and tls.key entries)
+	// rather than the old one (concatenated PEM file)
+	certSecretIsTLSType map[string]bool
+}
+
+func (c *CertSecretTypesMapping) SetCertType(certName string, isTLS bool) {
+	if c.certSecretIsTLSType == nil {
+		c.certSecretIsTLSType = map[string]bool{}
+	}
+	c.certSecretIsTLSType[certName] = isTLS
+}
+
+func (c CertSecretTypesMapping) IsCertTLSType(certName string) bool {
+	isTLS, ok := c.certSecretIsTLSType[certName]
+	return ok && isTLS
+}
+
+func (c CertSecretTypesMapping) IsTLSTypeOrUndefined(certName string) bool {
+	isTLS, ok := c.certSecretIsTLSType[certName]
+	return !ok || isTLS
 }
 
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
@@ -155,6 +183,7 @@ func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStateful
 			Persistent:              mdb.Spec.Persistent,
 			StatefulSetSpecOverride: stsSpec,
 		}
+
 		for _, opt := range additionalOpts {
 			opt(&opts)
 		}
@@ -183,6 +212,7 @@ func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOpti
 			AgentConfig:             mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
 		}
+
 		for _, opt := range additionalOpts {
 			opt(&opts)
 		}
@@ -209,6 +239,7 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 			AgentConfig:             mdb.Spec.MongosSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
 		}
+
 		for _, opt := range additionalOpts {
 			opt(&opts)
 		}
@@ -222,7 +253,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	dbSts := databaseStatefulSet(&mdb, &stsOptions)
 
 	if len(stsOptions.Annotations) > 0 {
-		dbSts.Annotations = stsOptions.Annotations
+		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
 	}
 
 	if stsOptions.StatefulSetSpecOverride != nil {
@@ -292,6 +323,21 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		appLabelKey: opts.ServiceName,
 	}
 
+	annotationFunc := statefulset.NOOP()
+	podTemplateAnnotationFunc := podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash))
+
+	if opts.CertSecretTypes.IsCertTLSType(mdb.GetSecurity().MemberCertificateSecretName(opts.Name)) {
+		annotationFunc = statefulset.WithAnnotations(defaultPodAnnotations(opts.CertificateHash))
+		podTemplateAnnotationFunc = podtemplatespec.NOOP()
+	}
+
+	if opts.CertSecretTypes.IsCertTLSType(mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)) {
+		annotationFunc = statefulset.Apply(
+			annotationFunc,
+			statefulset.WithAnnotations(map[string]string{util.InternalCertAnnotationKey: opts.InternalClusterHash}),
+		)
+	}
+
 	return statefulset.Apply(
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(opts.Name),
@@ -300,9 +346,10 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
 		statefulset.WithOwnerReference(opts.OwnerReference),
+		annotationFunc,
 		volumeClaimFuncs,
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-			podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash)),
+			podTemplateAnnotationFunc,
 			podtemplatespec.WithAffinity(mdb.GetName(), PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
@@ -355,33 +402,67 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 	)
 }
 
-func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
-	var volumesToAdd []corev1.Volume
-	var volumeMounts []corev1.VolumeMount
-	if mdb.GetSecurity() != nil {
-		tlsConfig := mdb.GetSecurity().TLSConfig
-		if mdb.GetSecurity().TLSConfig.IsEnabled() {
-			secretName := mdb.GetSecurity().MemberCertificateSecretName(databaseOpts.Name)
+// getTLSVolumeAndVolumeMount returns the list of volume and volumeMounts that need to be created for TLS
+func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+	volumes := []corev1.Volume{}
+	volumeMounts := []corev1.VolumeMount{}
 
-			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: util.SecretVolumeMountPath + "/certs",
-				Name:      secretVolume.Name,
-				ReadOnly:  true,
-			})
-			volumesToAdd = append(volumesToAdd, secretVolume)
-		}
+	// We default each value to the the "old-design"
+	tlsConfig := security.TLSConfig
 
-		if tlsConfig.CA != "" {
-			caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, tlsConfig.CA)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: util.ConfigMapVolumeCAMountPath,
-				Name:      caVolume.Name,
-				ReadOnly:  true,
-			})
-			volumesToAdd = append(volumesToAdd, caVolume)
-		}
+	newTlsDesign := databaseOpts.CertSecretTypes.IsTLSTypeOrUndefined(security.MemberCertificateSecretName(databaseOpts.Name))
+	if !newTlsDesign && !tlsConfig.IsEnabled() {
+		return volumes, volumeMounts
 	}
+
+	secretName := security.MemberCertificateSecretName(databaseOpts.Name)
+
+	optionalSecretFunc := func(v *corev1.Volume) {}
+	optionalConfigMapFunc := func(v *corev1.Volume) {}
+
+	secretMountPath := util.SecretVolumeMountPath + "/certs"
+	configmapMountPath := util.ConfigMapVolumeCAMountPath
+
+	volumeSecretName := secretName
+
+	caName := fmt.Sprintf("%s-ca", databaseOpts.Name)
+	if tlsConfig.CA != "" {
+		caName = tlsConfig.CA
+	}
+
+	// Then we overwrite them if the sts has to be constructed with the new design
+	if newTlsDesign {
+		// This two functions modify the volumes to be optional (the assence of the referenced
+		// secret/configMap do not prevent the pods from starting)
+		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
+		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
+
+		secretMountPath = util.TLSCertMountPath
+		configmapMountPath = util.TLSCaMountPath
+		volumeSecretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+	}
+
+	secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		MountPath: secretMountPath,
+		Name:      secretVolume.Name,
+	})
+	volumes = append(volumes, secretVolume)
+
+	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		MountPath: configmapMountPath,
+		Name:      caVolume.Name,
+		ReadOnly:  true,
+	})
+	volumes = append(volumes, caVolume)
+	return volumes, volumeMounts
+
+}
+
+func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+	volumesToAdd, volumeMounts := getTLSVolumeAndVolumeMount(*mdb.GetSecurity(), databaseOpts)
+
 	if databaseOpts.PodVars != nil && databaseOpts.PodVars.SSLMMSCAConfigMap != "" {
 		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, databaseOpts.PodVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -392,21 +473,27 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	if mdb.GetSecurity() != nil {
-		if mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: agentCertMountPath,
-				Name:      agentSecretVolume.Name,
-				ReadOnly:  true,
-			})
-			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+	if mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
+		if databaseOpts.CertSecretTypes.IsCertTLSType(secretName) {
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		}
+		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, secretName)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: agentCertMountPath,
+			Name:      agentSecretVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, agentSecretVolume)
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
 	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
-		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, mdb.GetSecurity().InternalClusterAuthSecretName(databaseOpts.Name))
+		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(databaseOpts.Name)
+		if databaseOpts.CertSecretTypes.IsCertTLSType(secretName) {
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+		}
+		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, secretName)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.InternalClusterAuthMountPath,
 			Name:      internalClusterAuthVolume.Name,
@@ -432,7 +519,6 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 
 	return podtemplatespec.Apply(
 		sharedDatabaseConfiguration(opts),
-		podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash)),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(serviceAccountName),
 		podtemplatespec.WithVolume(scriptsVolume),

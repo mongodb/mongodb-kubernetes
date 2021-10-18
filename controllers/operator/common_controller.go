@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"reflect"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -32,6 +30,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -60,6 +59,10 @@ const (
 	ClusterDomain                   = "cluster.local"
 	TLSGenerationDeprecationWarning = "This feature has been DEPRECATED and should only be used in testing environments."
 )
+
+func automationConfigFirstMsg(resourceType string, valueToSet string) string {
+	return fmt.Sprintf("About to set `%s` to %s. automationConfig needs to be updated first", resourceType, valueToSet)
+}
 
 type patchValue struct {
 	Op    string      `json:"op"`
@@ -263,20 +266,26 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 }
 
-// ensureInternalClusterCerts ensures that all the x509 internal cluster certs exist.
+// validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) ensureInternalClusterCerts(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) error {
+func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (error, bool) {
+
 	secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.ResourceName)
 
-	if err := certs.VerifyCertificatesForStatefulSet(r.client, secretName, opts); err != nil {
-		return fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err)
+	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.client, secretName, opts, log)
+	if err != nil {
+		return fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err), true
+	}
+
+	if newTLSDesign {
+		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 	}
 
 	// Validates that the secret is valid
 	if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
-		return err
+		return err, false
 	}
-	return nil
+	return nil, newTLSDesign
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
@@ -401,7 +410,7 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
-func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, agentCertSecretName string, caFilepath string, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if mdb.Spec.Security == nil || mdb.Spec.Security.Authentication == nil {
 		return workflow.OK(), false
@@ -437,6 +446,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		ClientCertificates:  clientCerts,
 		AutoUser:            scramAgentUserName,
 		AutoLdapGroupDN:     mdb.Spec.Security.Authentication.Agents.AutomationLdapGroupDN,
+		CAFilePath:          caFilepath,
 	}
 
 	if mdb.IsLDAPEnabled() {
@@ -460,12 +470,17 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
+	agentSecretSelector := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
+	if agentCertSecretName != "" {
+		agentSecretSelector.Name = agentCertSecretName
+	}
 	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
 	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb.Spec.Security.Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
 		if mdb.Spec.Security.ShouldUseX509(ac.Auth.AutoAuthMechanism) || mdb.Spec.Security.ShouldUseClientCertificates() {
-			authOpts, err = r.configureAgentSubjects(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name), authOpts, log)
+
+			authOpts, err = r.configureAgentSubjects(mdb.Namespace, agentSecretSelector, authOpts, log)
 			if err != nil {
 				return workflow.Failed("error configuring agent subjects: %v", err), false
 			}
@@ -497,9 +512,18 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		log.Debug("Attempting to enable authentication, but Ops Manager state will not allow this")
 		return workflow.OK(), true
 	} else {
+		agentSecret := &corev1.Secret{}
+		if err := r.client.Get(context.TODO(), kube.ObjectKey(mdb.Namespace, agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+			return workflow.Failed(err.Error()), false
+		}
+
+		if agentSecret.Type == corev1.SecretTypeTLS {
+			agentSecretSelector.Name = fmt.Sprintf("%s%s", agentSecretSelector.Name, certs.OperatorGeneratedCertSuffix)
+		}
+
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
-		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name), log)
+		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, agentSecretSelector, log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
 			return workflow.Failed(err.Error()), true
@@ -528,6 +552,7 @@ func (r *ReconcileCommonController) configureAgentSubjects(namespace string, sec
 
 func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string, secretKeySelector corev1.SecretKeySelector, log *zap.SugaredLogger) (authentication.UserOptions, error) {
 	userOpts := authentication.UserOptions{}
+
 	agentCerts, err := secret.ReadStringData(r.client, kube.ObjectKey(namespace, secretKeySelector.Name))
 	if err != nil {
 		return userOpts, err
@@ -581,7 +606,17 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 }
 
 func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
-	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name), log)
+	secretKeySelector := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
+	agentSecret := &corev1.Secret{}
+	if err := r.client.Get(context.TODO(), kube.ObjectKey(mdb.Namespace, secretKeySelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+		return nil
+	}
+
+	if agentSecret.Type == corev1.SecretTypeTLS {
+		secretKeySelector.Name = fmt.Sprintf("%s%s", secretKeySelector.Name, certs.OperatorGeneratedCertSuffix)
+	}
+
+	userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, secretKeySelector, log)
 	err = client.IgnoreNotFound(err)
 	if err != nil {
 		return err
@@ -595,33 +630,41 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.C
 	return authentication.Disable(conn, disableOpts, true, log)
 }
 
-func (r *ReconcileCommonController) ensureX509InKubernetes(mdb *mdbv1.MongoDB, currentAuthMechanism string, certsProvider func(mdbv1.MongoDB) []certs.Options, log *zap.SugaredLogger) workflow.Status {
+// ensureX509SecretAndCheckTLSType checks if the secrets containingthe certificates are present and whether the certificate are of kubernetes.io/tls type.
+func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(mdb *mdbv1.MongoDB, currentAuthMechanism string, certsProvider func(mdbv1.MongoDB) []certs.Options, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
+	newTLSDesignMapping := map[string]bool{}
 	authSpec := mdb.Spec.Security.Authentication
 	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
-		return workflow.OK()
+		return workflow.OK(), newTLSDesignMapping
 	}
 	if mdb.Spec.Security.ShouldUseX509(currentAuthMechanism) {
 		if !mdb.Spec.Security.TLSConfig.Enabled {
-			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
+			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled"), newTLSDesignMapping
 		}
-		if err := certs.VerifyClientCertificatesForAgents(r.client, mdb.Namespace); err != nil {
-			return workflow.Failed(err.Error())
+		agentSecretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.Name).Name
+		err, tlsFormat := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(r.client, kube.ObjectKey(mdb.Namespace, agentSecretName), log)
+		if err != nil {
+			return workflow.Failed(err.Error()), newTLSDesignMapping
 		}
+
+		newTLSDesignMapping[mdb.GetSecurity().AgentClientCertificateSecretName(mdb.Name).Name] = tlsFormat
 
 	}
 
 	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		for _, certOption := range certsProvider(*mdb) {
-			if err := r.ensureInternalClusterCerts(*mdb, certOption, log); err != nil {
+			err, newDesign := r.validateInternalClusterCertsAndCheckTLSType(*mdb, certOption, log)
+			if err != nil {
 				errors = append(errors, err)
 			}
+			newTLSDesignMapping[certOption.InternalClusterSecretName] = newDesign
 		}
 		if len(errors) > 0 {
-			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
+			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0]), newTLSDesignMapping
 		}
 	}
-	return workflow.OK()
+	return workflow.OK(), newTLSDesignMapping
 }
 
 // canConfigureAuthentication determines if based on the existing state of Ops Manager
@@ -660,14 +703,116 @@ func newPodVars(conn om.Connection, projectConfig mdbv1.ProjectConfig, spec mdbv
 	return podVars
 }
 
+func getVolumeFromStatefulSet(sts appsv1.StatefulSet, name string) (corev1.Volume, error) {
+	for _, v := range sts.Spec.Template.Spec.Volumes {
+		if v.Name == name {
+			return v, nil
+		}
+	}
+	return corev1.Volume{}, fmt.Errorf("can't find volume %s in list of volumes: %v", name, sts.Spec.Template.Spec.Volumes)
+}
+
+func getVolumeMountFromMountLists(volumeMountsList []corev1.VolumeMount, name string) (corev1.VolumeMount, error) {
+	for _, v := range volumeMountsList {
+		if v.Name == name {
+			return v, nil
+		}
+	}
+	return corev1.VolumeMount{}, fmt.Errorf("can't find volumeMount %s in list of volumeMounts: %v", name, volumeMountsList)
+}
+
+func hasOldTLSDesign(volumeMounts []corev1.VolumeMount, volumeName string) bool {
+
+	vMount, err := getVolumeMountFromMountLists(volumeMounts, volumeName)
+	if err != nil {
+		return false
+	}
+
+	return vMount.MountPath == util.SecretVolumeMountPath+"/certs" || vMount.MountPath == util.ConfigMapVolumeCAMountPath
+
+}
+
+// wasTLSSecretMounted checks whether or not TLS was previously enabled by looking at the state of the volumeMounts of the pod.
+func wasTLSSecretMounted(secretGetter secret.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+
+	// If the volume has the "old-design" mount path, it means
+	// that it was mounted when TLS was enabled
+	if hasOldTLSDesign(volumeMounts, util.SecretVolumeName) {
+		log.Debugf("Old design volume mount exists: TLS was enabled")
+		return true
+	}
+	tlsVolume, err := getVolumeFromStatefulSet(currentSts, util.SecretVolumeName)
+	if err != nil {
+		return false
+	}
+
+	// With the new design, the volume is always mounted
+	// But it is marked with optional.
+	//
+	// TLS was enabled if the secret it refers to is present
+
+	secretName := tlsVolume.Secret.SecretName
+	exists, err := secret.Exists(secretGetter, types.NamespacedName{
+		Namespace: mdb.Namespace,
+		Name:      secretName},
+	)
+	if err != nil {
+		log.Warnf("can't determine whether the TLS certificate secret exists or not: %s. Will assume it doesn't", err)
+		return false
+	}
+	log.Debugf("checking if secret %s exists: %v", secretName, exists)
+
+	return exists
+
+}
+
+// wasCAConfigMapMounted checks whether or not the CA ConfigMap  by looking at the state of the volumeMounts of the pod.
+func wasCAConfigMapMounted(configMapGetter configmap.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+
+	// If the volume has the "old-design" mount path, it means
+	// that it was mounted when TLS was enabled
+	if hasOldTLSDesign(volumeMounts, tls.ConfigMapVolumeCAName) {
+		log.Debugf("Old design volume mount exists: TLS ConfigMap was mounted ")
+		return true
+	}
+	caVolume, err := getVolumeFromStatefulSet(currentSts, util.ConfigMapVolumeCAMountPath)
+	if err != nil {
+		return false
+	}
+
+	// With the new design, the volume is always mounted
+	// But it is marked with optional.
+	//
+	// The configMap was mounted if the configMap it refers to is present
+
+	cmName := caVolume.ConfigMap.Name
+	exists, err := configmap.Exists(configMapGetter, types.NamespacedName{
+		Namespace: mdb.Namespace,
+		Name:      cmName},
+	)
+	if err != nil {
+		log.Warnf("can't determine whether the TLS ConfigMap exists or not: %s. Will assume it doesn't", err)
+		return false
+	}
+	log.Debugf("checking if ConfigMap %s exists: %v", cmName, exists)
+
+	return exists
+}
+
+type ConfigMapStatefulSetSecretGetter interface {
+	statefulset.Getter
+	secret.Getter
+	configmap.Getter
+}
+
 // needToPublishStateFirst will check if the Published State of the StatfulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func needToPublishStateFirst(getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.Name)
-	currentSts, err := stsGetter.GetStatefulSet(namespacedName)
+	currentSts, err := getter.GetStatefulSet(namespacedName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// No need to publish state as this is a new StatefulSet
@@ -681,25 +826,25 @@ func needToPublishStateFirst(stsGetter statefulset.Getter, mdb mdbv1.MongoDB, co
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
 	volumeMounts := databaseContainer.VolumeMounts
-	if mdb.Spec.Security != nil {
-		if !mdb.Spec.Security.TLSConfig.IsEnabled() && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
-			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
-			return true
-		}
 
-		if mdb.Spec.Security.TLSConfig.CA == "" && statefulset.VolumeMountWithNameExists(volumeMounts, tls.ConfigMapVolumeCAName) {
-			log.Debug("About to set `security.tls.CA` to empty. automationConfig needs to be updated first")
-			return true
-		}
+	if !mdb.Spec.Security.TLSConfig.IsEnabled() && wasTLSSecretMounted(getter, currentSts, volumeMounts, mdb, log) {
+		log.Debug(automationConfigFirstMsg("security.tls.enabled", "false"))
+		return true
+	}
+
+	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(getter, currentSts, volumeMounts, mdb, log) {
+		log.Debug(automationConfigFirstMsg("security.tls.CA", "empty"))
+		return true
+
 	}
 
 	if opts.PodVars.SSLMMSCAConfigMap == "" && statefulset.VolumeMountWithNameExists(volumeMounts, construct.CaCertName) {
-		log.Debug("About to set `SSLMMSCAConfigMap` to empty. automationConfig needs to be updated first")
+		log.Debug(automationConfigFirstMsg("SSLMMSCAConfigMap", "empty"))
 		return true
 	}
 
 	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 && statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
-		log.Debug("About to set `project.AuthMode` to empty. automationConfig needs to be updated first")
+		log.Debug(automationConfigFirstMsg("project.AuthMode", "empty"))
 		return true
 	}
 

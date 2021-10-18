@@ -118,7 +118,7 @@ func (d Deployment) TLSConfigurationWillBeDisabled(tlsSpec *mdbv1.TLSConfig) boo
 
 // ConfigureTLS configures the deployment's TLS settings from the TLS
 // specification provided by the user in the mongodb resource spec.
-func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
+func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig, caFilePath string) {
 	if !tlsSpec.IsEnabled() {
 		delete(d, "tls") // unset TLS config
 		return
@@ -132,7 +132,7 @@ func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig) {
 	//sslConfig["ClientCertificateMode"] = "OPTIONAL"
 	//sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
 
-	tlsConfig["CAFilePath"] = util.CAFilePathInContainer
+	tlsConfig["CAFilePath"] = caFilePath
 }
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
@@ -224,11 +224,11 @@ func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, 
 // The automation agent will update the agents versions to the latest version automatically
 // Note, that these two are deliberately combined together as all clients (standalone, rs etc) need both backup and monitoring
 // together
-func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool) {
+func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
-	d.AddMonitoring(log, tls)
+	d.AddMonitoring(log, tls, caFilepath)
 	d.addBackup(log)
 }
 
@@ -237,7 +237,7 @@ func (d Deployment) ReplicaSets() []ReplicaSet {
 }
 
 // AddMonitoring adds monitoring agents for all processes in the deployment
-func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool) {
+func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
 	if len(d.getProcesses()) == 0 {
 		return
 	}
@@ -260,7 +260,7 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool) {
 			if tls {
 				additionalParams := map[string]string{
 					"useSslForAllConnections":      "true",
-					"sslTrustedServerCertificates": util.CAFilePathInContainer,
+					"sslTrustedServerCertificates": caFilePath,
 				}
 
 				pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
@@ -410,11 +410,10 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 
 // ConfigureInternalClusterAuthentication configures all processes in processNames to have the corresponding
 // clusterAuthenticationMode enabled
-func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string, clusterAuthenticationMode string) {
+func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string, clusterAuthenticationMode string, internalClusterPath string) {
 	for _, p := range processNames {
-		process := d.getProcessByName(p)
-		if process != nil {
-			process.ConfigureClusterAuthMode(clusterAuthenticationMode)
+		if process := d.getProcessByName(p); process != nil {
+			process.ConfigureClusterAuthMode(clusterAuthenticationMode, internalClusterPath)
 		}
 	}
 }
@@ -623,15 +622,48 @@ func (d Deployment) getReplicaSetProcessNames(name string) []string {
 	return processNames
 }
 
-func (d Deployment) getShardedClusterProcessNames(name string) []string {
+// GetShardedClusterShardProcessNames returns the process names for sharded cluster named "name" of index "shardNum".
+func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int) []string {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		if shardNum < 0 || shardNum >= len(sc.shards()) {
+			return nil
+		}
+		return d.getReplicaSetProcessNames(sc.shards()[shardNum].rs())
+	}
+	return nil
+}
+
+// getShardedClusterShardsProcessNames returns the process names  fo sharded cluster named "name".
+func (d Deployment) getShardedClusterShardsProcessNames(name string) []string {
 	processNames := make([]string, 0)
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		for _, shard := range sc.shards() {
-			processNames = append(processNames, d.getReplicaSetProcessNames(shard.rs())...)
+		for i := range sc.shards() {
+			processNames = append(processNames, d.GetShardedClusterShardProcessNames(name, i)...)
 		}
-		processNames = append(processNames, d.getReplicaSetProcessNames(sc.ConfigServerRsName())...)
-		processNames = append(processNames, d.getMongosProcessesNames(name)...)
 	}
+	return processNames
+}
+
+// GetShardedClusterConfigProcessNames returns the process names of config servers of the sharded cluster named "name"
+func (d Deployment) GetShardedClusterConfigProcessNames(name string) []string {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		return d.getReplicaSetProcessNames(sc.ConfigServerRsName())
+	}
+	return nil
+}
+
+// GetShardedClusterMongosProcessNames returns the process names of mongoso the sharded cluster named "name"
+func (d Deployment) GetShardedClusterMongosProcessNames(name string) []string {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		return d.getMongosProcessesNames(name)
+	}
+	return nil
+}
+
+func (d Deployment) getShardedClusterProcessNames(name string) []string {
+	processNames := d.getShardedClusterShardsProcessNames(name)
+	processNames = append(processNames, d.GetShardedClusterConfigProcessNames(name)...)
+	processNames = append(processNames, d.GetShardedClusterMongosProcessNames(name)...)
 	return processNames
 }
 

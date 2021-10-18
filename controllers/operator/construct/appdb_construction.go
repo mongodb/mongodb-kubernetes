@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -137,32 +138,9 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 
 // getTLSVolumesAndVolumeMounts returns the slices of volumes and volumemounts
 // that the AppDB STS needs for TLS resources.
-func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType corev1.SecretType) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
-	if appDb.Security != nil {
-		tlsConfig := appDb.Security.TLSConfig
-		if tlsConfig.IsEnabled() {
-			secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
-			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: util.SecretVolumeMountPath + "/certs",
-				Name:      secretVolume.Name,
-				ReadOnly:  true,
-			})
-			volumesToAdd = append(volumesToAdd, secretVolume)
-		}
-
-		if tlsConfig.CA != "" {
-			caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, tlsConfig.CA)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: util.ConfigMapVolumeCAMountPath,
-				Name:      caVolume.Name,
-				ReadOnly:  true,
-			})
-			volumesToAdd = append(volumesToAdd, caVolume)
-		}
-	}
 
 	if podVars != nil && podVars.SSLMMSCAConfigMap != "" {
 		// This volume wil contain the OM CA
@@ -174,14 +152,51 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars) (
 		})
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
+
+	tlsConfig := appDb.GetSecurity().TLSConfig
+	tlsTypeCert := certSecretType == corev1.SecretTypeTLS
+
+	if !tlsConfig.IsEnabled() && !tlsTypeCert {
+		return volumesToAdd, volumeMounts
+	}
+	optionalSecretFunc := func(v *corev1.Volume) {}
+	optionalConfigMapFunc := func(v *corev1.Volume) {}
+
+	secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
+	if tlsTypeCert {
+		secretName += certs.OperatorGeneratedCertSuffix
+		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
+		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
+	}
+	secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		MountPath: util.SecretVolumeMountPath + "/certs",
+		Name:      secretVolume.Name,
+		ReadOnly:  true,
+	})
+	volumesToAdd = append(volumesToAdd, secretVolume)
+
+	caName := fmt.Sprintf("%s-ca", appDb.Name())
+
+	if tlsConfig.CA != "" {
+		caName = tlsConfig.CA
+	}
+	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		MountPath: util.ConfigMapVolumeCAMountPath,
+		Name:      caVolume.Name,
+		ReadOnly:  true,
+	})
+	volumesToAdd = append(volumesToAdd, caVolume)
+
 	return volumesToAdd, volumeMounts
 }
 
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
 // and volumemounts for TLS.
-func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars) podtemplatespec.Modification {
+func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType corev1.SecretType) podtemplatespec.Modification {
 
-	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars)
+	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, certSecretType)
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumesToAdd {
 			podtemplatespec.WithVolume(v)(spec)
@@ -262,14 +277,14 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, monitoringAgentVersion string) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, monitoringAgentVersion string, certSecretType corev1.SecretType) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
 	monitoringModification := podtemplatespec.NOOP()
 	monitorAppDB := env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
 	if monitorAppDB && podVars != nil && podVars.ProjectID != "" {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, monitoringAgentVersion)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, monitoringAgentVersion, certSecretType)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -300,7 +315,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				),
 				appDbPodSpec(*appDb),
 				monitoringModification,
-				tlsVolumes(*appDb, podVars),
+				tlsVolumes(*appDb, podVars, certSecretType),
 			),
 		),
 		appDbLabels(opsManager),
@@ -333,7 +348,7 @@ func replaceImageTag(image string, newTag string) string {
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitoringAgentVerison string) podtemplatespec.Modification {
+func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitoringAgentVerison string, certSecretType corev1.SecretType) podtemplatespec.Modification {
 
 	// Create a volume to store the monitoring automation config.
 	// This is different from the AC for the automation agent, since:
@@ -378,7 +393,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars)
+	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, certSecretType)
 	return podtemplatespec.Apply(
 		podtemplatespec.WithVolume(monitoringAcVolume),
 		// This is a function that reads the automation agent containers, copies it and modifies it.

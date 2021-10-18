@@ -95,7 +95,7 @@ func NewProcessFromInterface(i interface{}) Process {
 }
 
 // NewMongosProcess
-func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec) Process {
+func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
@@ -106,12 +106,15 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.Additi
 
 	// default values for configurable values
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
-	p.ConfigureTLS(spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
+	if certificateFilePath == "" {
+		certificateFilePath = util.PEMKeyFilePathInContainer
+	}
+	p.ConfigureTLS(spec.GetTLSMode(), certificateFilePath)
 	return p
 }
 
 // NewMongodProcess
-func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec) Process {
+func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
@@ -125,7 +128,10 @@ func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMo
 	// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
 	// for all types of logs
 	p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
-	p.ConfigureTLS(spec.GetTLSMode(), util.PEMKeyFilePathInContainer)
+	if certificateFilePath == "" {
+		certificateFilePath = util.PEMKeyFilePathInContainer
+	}
+	p.ConfigureTLS(spec.GetTLSMode(), certificateFilePath)
 
 	return p
 }
@@ -252,11 +258,20 @@ func (p Process) EnsureSecurity() map[string]interface{} {
 	return util.ReadOrCreateMap(p.Args(), "security")
 }
 
-func (p Process) ConfigureClusterAuthMode(clusterAuthMode string) Process {
+// ConfigureClusterAuthMode sets the cluster auth mode for the process.
+// Only accepted value for now is X509.
+// internalClusterAuth is a parameter that overrides where the cert is located.
+// If provided with an empty string, the operator will set it to a c
+// concatenation of the default mounth path and the name of the process-pem
+func (p Process) ConfigureClusterAuthMode(clusterAuthMode string, internalClusterPath string) Process {
 	if strings.ToUpper(clusterAuthMode) == util.X509 { // Ops Manager value is "x509"
 		// the individual key per pod will be podname-pem e.g. my-replica-set-0-pem
 		p.setClusterAuthMode("x509")
-		p.setClusterFile(fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, p.Name()))
+		clusterFile := fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, p.Name())
+		if internalClusterPath != "" {
+			clusterFile = internalClusterPath
+		}
+		p.setClusterFile(clusterFile)
 	}
 	return p
 }

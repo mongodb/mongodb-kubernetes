@@ -153,7 +153,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 
 	r.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", map[string]bool{}, zap.S()))
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
 	// expected change of state: rs members are marked unvoted
@@ -196,7 +196,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 
 	r.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", map[string]bool{}, zap.S()))
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
 	expectedDeployment := createDeploymentFromShardedCluster(scBeforeScale)
@@ -233,7 +233,7 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	oldDeployment := createDeploymentFromShardedCluster(sc)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, sc, &env.PodEnvVars{}, "", zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, sc, &env.PodEnvVars{}, "", map[string]bool{}, zap.S()))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
 	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
@@ -272,7 +272,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, &env.PodEnvVars{}, "", zap.S()))
+	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, &env.PodEnvVars{}, "", "", "", map[string]bool{}, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -343,15 +343,18 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	allConfigs := reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", zap.S())
+	allConfigs := reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, zap.S())
 
 	assert.False(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 
 	// attempting to set tls to false
 	sc.Spec.Security.TLSConfig.Enabled = false
 
+	err = client.Update(context.TODO(), sc)
+	assert.NoError(t, err)
+
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	allConfigs = reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", zap.S())
+	allConfigs = reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, zap.S())
 	assert.True(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 }
 
@@ -990,19 +993,19 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 	sh := updatable.(*mdbv1.MongoDB)
 
 	mongosSts := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount)))
-	mongosProcesses := createMongosProcesses(mongosSts, sh)
+	mongosProcesses := createMongosProcesses(mongosSts, sh, util.PEMKeyFilePathInContainer)
 	configSvrSts := construct.DatabaseStatefulSet(*sh, construct.ConfigServerOptions(Replicas(sh.Spec.ConfigServerCount)))
 
-	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh), sh)
+	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh)
 	shards := make([]om.ReplicaSetWithProcesses, sh.Spec.ShardCount)
 	for i := 0; i < sh.Spec.ShardCount; i++ {
 		shardSts := construct.DatabaseStatefulSet(*sh, construct.ShardOptions(i, Replicas(sh.Spec.MongodsPerShardCount)))
-		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh), sh)
+		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh, ""), sh)
 	}
 
 	d := om.NewDeployment()
 	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards, false)
-	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetTLSConfig().IsEnabled())
+	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
 	return d
 }
 

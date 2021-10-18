@@ -24,7 +24,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 	}
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	om.Spec.AppDB.AutomationAgent.StartupParameters = agentStartupParameters
-	sts, err := AppDbStatefulSet(om, nil, "")
+	sts, err := AppDbStatefulSet(om, nil, "", "")
 	assert.NoError(t, err)
 
 	command := sts.Spec.Template.Spec.Containers[0].Command

@@ -345,7 +345,7 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 }
 
 func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism) {
-	_ = authMechanism.EnableDeploymentAuthentication(Options{})
+	_ = authMechanism.EnableDeploymentAuthentication(Options{CAFilePath: util.CAFilePathInContainer})
 	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured())
 }
 

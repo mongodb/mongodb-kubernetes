@@ -150,22 +150,22 @@ func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
 	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions())
 
 	// TLS Disabled -> TLS Disabled
-	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsNoTLS, stsNoTLS, zap.S())
+	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Disabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsWithTLS, stsWithTLS, zap.S())
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Enabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsWithTLS, stsWithTLS, zap.S())
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsWithTLS, stsWithTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.False(t, shouldLockMembers)
 
 	// TLS Enabled -> TLS Disabled
-	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsNoTLS, stsNoTLS, zap.S())
+	shouldLockMembers, err = updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentWithTLS), 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)
 	assert.NoError(t, err)
 	assert.True(t, shouldLockMembers)
 }

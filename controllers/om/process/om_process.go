@@ -25,8 +25,13 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, containerName string
 	processes := make([]om.Process, len(hostnames))
 	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, dbSpec.GetMongoDBVersion())
 
+	certificateFileName := ""
+	if certificateHash, ok := set.Annotations["certHash"]; ok {
+		certificateFileName = fmt.Sprintf("%s/%s", util.TLSCertMountPath, certificateHash)
+	}
+
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, dbSpec.GetAdditionalMongodConfig(), dbSpec)
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, dbSpec.GetAdditionalMongodConfig(), dbSpec, certificateFileName)
 		if wiredTigerCache != nil {
 			processes[idx].SetWiredTigerCache(*wiredTigerCache)
 		}
@@ -56,7 +61,8 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti) ([]om.Proc
 
 	processes := make([]om.Process, len(hostnames))
 	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec)
+		// TODO in a separate PR
+		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec, "")
 	}
 
 	return processes, nil

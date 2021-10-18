@@ -1,6 +1,7 @@
 package statefulset
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -103,9 +104,9 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 	}
 
 	// preserve existing certificate hash if new one is not statefulSetToCreate
-	existingCertHash := existingStatefulSet.Spec.Template.Annotations["certHash"]
-	newCertHash := statefulSetToCreate.Spec.Template.Annotations["certHash"]
-	if existingCertHash != "" && newCertHash == "" {
+	existingCertHash, okExisting := existingStatefulSet.Spec.Template.Annotations["certHash"]
+	newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations["certHash"]
+	if existingCertHash != "" && newCertHash == "" && okExisting && okNew {
 		statefulSetToCreate.Spec.Template.Annotations["certHash"] = existingCertHash
 	}
 
@@ -122,4 +123,16 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 		return nil, err
 	}
 	return &updatedSts, nil
+}
+
+// func GetFilePathFromAnnotationOrDefault returns a concatennation of a default path and an annotation, or a default value
+// if the annotation is not present.
+func GetFilePathFromAnnotationOrDefault(sts appsv1.StatefulSet, key string, path string, defaultValue string) string {
+	val, ok := sts.Annotations[key]
+
+	if ok {
+		return fmt.Sprintf("%s/%s", path, val)
+	}
+
+	return defaultValue
 }

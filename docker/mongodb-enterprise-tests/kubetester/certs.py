@@ -25,10 +25,6 @@ ISSUER_CA_NAME = "ca-issuer"
 SUBJECT = {
     # Organizational Units matches your namespace (to be overriden by test)
     "organizationalUnits": ["TO-BE-REPLACED"],
-    # For an additional layer of security, the certificates will have a random
-    # (unknown and "unpredictable"), random string. Even if someone was able to
-    # generate the certificates themselves, they would still require this
-    # value to do so.
 }
 
 # Defines properties of a set of servers, like a Shard, or Replica Set holding config servers.

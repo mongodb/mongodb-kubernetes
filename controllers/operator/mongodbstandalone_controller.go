@@ -172,11 +172,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
+	if status, _ := certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
-	if status := r.ensureX509InKubernetes(s, currentAgentAuthMode, getStandaloneCertOptions, log); !status.IsOK() {
+	// TODO separate PR
+	if status, _ := r.ensureX509SecretAndCheckTLSType(s, currentAgentAuthMode, getStandaloneCertOptions, log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -230,7 +231,8 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 		return workflow.Failed(err.Error())
 	}
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, log)
+	// TODO standalone PR
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, "", "", log)
 	if !status.IsOK() {
 		return status
 	}
@@ -243,8 +245,9 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 			d.MergeStandalone(standaloneOmObject, nil)
-			d.AddMonitoringAndBackup(log, s.Spec.GetTLSConfig().IsEnabled())
-			d.ConfigureTLS(s.Spec.GetTLSConfig())
+			// TODO change last argument in separate PR
+			d.AddMonitoringAndBackup(log, s.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
+			d.ConfigureTLS(s.Spec.GetTLSConfig(), util.CAFilePathInContainer)
 			return nil
 		},
 		log,
@@ -321,7 +324,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
 	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, s.Spec.GetMongoDBVersion())
-	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec())
+	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec(), "")
 	if wiredTigerCache != nil {
 		process.SetWiredTigerCache(*wiredTigerCache)
 	}

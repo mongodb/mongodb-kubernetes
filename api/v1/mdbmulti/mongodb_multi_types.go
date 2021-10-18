@@ -355,6 +355,10 @@ func (m *MongoDBMulti) InitDefaults() {
 	if m.Spec.Agent.StartupParameters == nil {
 		m.Spec.Agent.StartupParameters = map[string]string{}
 	}
+
+	if m.Spec.AdditionalMongodConfig.Object == nil {
+		m.Spec.AdditionalMongodConfig.Object = map[string]interface{}{}
+	}
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters

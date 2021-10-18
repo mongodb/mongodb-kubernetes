@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/imdario/mergo v0.3.12
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.1-0.20210902142921-a6117f6a5b41
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.1-0.20211012084548-ae1ca8fa4eb7
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.30.0
@@ -25,8 +25,8 @@ require (
 	k8s.io/api v0.22.2
 	k8s.io/apimachinery v0.22.2
 	k8s.io/client-go v0.22.2
-	k8s.io/code-generator v0.22.1
-	sigs.k8s.io/controller-runtime v0.9.6
+	k8s.io/code-generator v0.22.2
+	sigs.k8s.io/controller-runtime v0.10.1
 )
 
 go 1.16

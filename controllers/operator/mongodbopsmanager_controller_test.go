@@ -101,6 +101,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	}).Build()
 
 	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	addAppDBTLSResources(client, testOm.Spec.AppDB, "om-appdb-tls-secret")
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	appDBCAKey := watch.Object{
@@ -461,6 +462,7 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 
 	reconciler, mockedClient, _, _ := defaultTestOmReconciler(t, testOm)
 
+	addAppDBTLSResources(mockedClient, testOm.Spec.AppDB, fmt.Sprintf("%s-cert", testOm.Spec.AppDB.Name()))
 	configureBackupResources(mockedClient, testOm)
 
 	// initially requeued as monitoring needs to be configured
@@ -690,4 +692,23 @@ func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user a
 		PublicKey:  user.Username,
 		PrivateKey: user.Username + "-key",
 	}, nil
+}
+
+func addAppDBTLSResources(client *mock.MockedClient, rs omv1.AppDBSpec, secretName string) {
+	// Lets create a secret with Certificates and private keys!
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: mock.TestNamespace,
+		},
+	}
+
+	certs := map[string][]byte{}
+	for i := 0; i < rs.Members; i++ {
+		pemFile := createMockCertAndKeyBytes()
+		certs[fmt.Sprintf("%s-%d-pem", rs.Name(), i)] = pemFile
+	}
+
+	secret.Data = certs
+	_ = client.Create(context.TODO(), secret)
 }

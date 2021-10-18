@@ -5,7 +5,10 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type clustermode string
@@ -18,6 +21,9 @@ const (
 type Options struct {
 	// CertSecretName is the name of the secret which contains the certs.
 	CertSecretName string
+
+	// InternalClusterSecretName is the name of the secret which contains the certs of internal cluster auth.
+	InternalClusterSecretName string
 	// ResourceName is the name of the resource.
 	ResourceName string
 	// Replicas is the number of replicas.
@@ -35,6 +41,8 @@ type Options struct {
 	horizons []mdbv1.MongoDBHorizonConfig
 
 	ClusterMode clustermode
+
+	OwnerReference []metav1.OwnerReference
 }
 
 // StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
@@ -47,6 +55,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 		Replicas:                     1,
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+		OwnerReference:               mdb.GetOwnerReferences(),
 	}
 }
 
@@ -55,12 +64,29 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.Name),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(&mdb),
 		ServiceName:                  mdb.ServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
+		OwnerReference:               mdb.GetOwnerReferences(),
+	}
+}
+
+func AppDBReplicaSetConfig(om omv1.MongoDBOpsManager) Options {
+	mdb := om.Spec.AppDB
+	return Options{
+		ResourceName:                 mdb.Name(),
+		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.Name()),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name()),
+		Namespace:                    mdb.Namespace,
+		Replicas:                     scale.ReplicasThisReconciliation(&om),
+		ServiceName:                  mdb.ServiceName(),
+		ClusterDomain:                mdb.ClusterDomain,
+		additionalCertificateDomains: mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains,
+		OwnerReference:               om.GetOwnerReferences(),
 	}
 }
 
@@ -69,23 +95,27 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 	return Options{
 		ResourceName:                 mdb.ShardRsName(shardNum),
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ShardRsName(shardNum)),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ShardRsName(shardNum)),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ShardServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+		OwnerReference:               mdb.GetOwnerReferences(),
 	}
 }
 
 // MultiReplicaSetConfig returns a struct which provides all of thr configuration required for a given MongoDB Multi Replicaset.
 func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int) Options {
 	return Options{
-		ResourceName:   mdbm.MultiStatefulsetName(clusterNum),
-		CertSecretName: mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
-		Namespace:      mdbm.Namespace,
-		Replicas:       replicas,
-		ClusterDomain:  mdbm.Spec.GetClusterDomain(),
-		ClusterMode:    multi,
+		ResourceName:              mdbm.MultiStatefulsetName(clusterNum),
+		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
+		InternalClusterSecretName: mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
+		Namespace:                 mdbm.Namespace,
+		Replicas:                  replicas,
+		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
+		ClusterMode:               multi,
+		OwnerReference:            mdbm.GetOwnerReferences(),
 	}
 }
 
@@ -94,11 +124,13 @@ func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.MongosRsName(),
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.MongosRsName()),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.MongosRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+		OwnerReference:               mdb.GetOwnerReferences(),
 	}
 }
 
@@ -107,12 +139,14 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ConfigRsName(),
 		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ConfigRsName()),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ConfigRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
 		ServiceName:                  mdb.ConfigSrvServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
+		OwnerReference:               mdb.GetOwnerReferences(),
 	}
 }
 

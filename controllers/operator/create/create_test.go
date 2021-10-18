@@ -45,10 +45,10 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	sts, err := construct.OpsManagerStatefulSet(testOm)
+	client := mock.NewClient()
+	sts, err := construct.OpsManagerStatefulSet(client, testOm, zap.S())
 	assert.NoError(t, err)
 
-	client := mock.NewClient()
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
@@ -76,11 +76,10 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 			Port: 5000,
 		}).
 		Build()
-
-	sts, err := construct.OpsManagerStatefulSet(testOm)
+	client := mock.NewClient()
+	sts, err := construct.OpsManagerStatefulSet(client, testOm, zap.S())
 	assert.NoError(t, err)
 
-	client := mock.NewClient()
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
@@ -112,10 +111,10 @@ func TestBackupServiceCreated_ClusterIP(t *testing.T) {
 		}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	sts, err := construct.OpsManagerStatefulSet(testOm)
+	client := mock.NewClient()
+	sts, err := construct.OpsManagerStatefulSet(client, testOm, zap.S())
 	assert.NoError(t, err)
 
-	client := mock.NewClient()
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
@@ -132,7 +131,7 @@ func TestBackupServiceCreated_ClusterIP(t *testing.T) {
 		}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	sts, err = construct.OpsManagerStatefulSet(testOm)
+	sts, err = construct.OpsManagerStatefulSet(client, testOm, zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())

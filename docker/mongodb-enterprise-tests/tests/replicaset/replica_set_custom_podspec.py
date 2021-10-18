@@ -74,6 +74,22 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "mount_propagation": None,
                     "read_only": None,
                 },
+                {
+                    "name": "secret-certs",
+                    "mount_path": "/mongodb-automation/tls",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "secret-ca",
+                    "mount_path": "/mongodb-automation/tls/ca",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                },
             ],
         },
         {
@@ -107,6 +123,5 @@ def test_stateful_set_spec_updated(replica_set, namespace):
     assert len(host_aliases) == 1
     assert alias.ip == "1.2.3.4"
     assert alias.hostnames[0] == "hostname"
-    assert len(sts.spec.template.metadata.annotations) == 2
+    assert len(sts.spec.template.metadata.annotations) == 1
     assert sts.spec.template.metadata.annotations["key1"] == "val1"
-    assert sts.spec.template.metadata.annotations["certHash"] == ""  # added by operator

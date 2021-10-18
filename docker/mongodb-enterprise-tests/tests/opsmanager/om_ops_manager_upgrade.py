@@ -133,6 +133,7 @@ class TestOpsManagerCreation:
         assert ops_manager.om_status().get_observed_generation() == 1
         assert ops_manager.backup_status().get_observed_generation() == 1
 
+
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestBackupCreation:
     def test_oplog_mdb_created(

@@ -41,7 +41,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    util.AutomationAgentPemFilePath,
-			CAFilePath:            util.CAFilePathInContainer,
+			CAFilePath:            opts.CAFilePath,
 			ClientCertificateMode: opts.ClientCertificates,
 		}
 		// we want to ensure we don't have any SCRAM-1/256 agent users
@@ -116,14 +116,14 @@ func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error
 	}, log)
 }
 
-func (x ConnectionX509) EnableDeploymentAuthentication(Options) error {
+func (x ConnectionX509) EnableDeploymentAuthentication(opts Options) error {
 	ac := x.AutomationConfig
 	if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 	}
 	// AutomationConfig validation requires the CAFile path to be specified in the case of multiple auth
 	// mechanisms enabled. This is not required if only X509 is being configured
-	ac.AgentSSL.CAFilePath = util.CAFilePathInContainer
+	ac.AgentSSL.CAFilePath = opts.CAFilePath
 	return nil
 }
 
