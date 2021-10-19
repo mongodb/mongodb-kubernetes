@@ -134,6 +134,85 @@ spec:
         displayName: MongoDB Version
         path: version
       version: v1
+    - description: MongoDB Multi Deployment
+      displayName: MongoDB Multi Deployment
+      kind: MongoDBMulti
+      name: mongodbmulti.mongodb.com
+      resources:
+      - kind: StatefulSet
+        name: StatefulSet holding the Pod with MongoDB
+        version: apps/v1
+      - kind: Service
+        name: ""
+        version: v1
+      specDescriptors:
+      - displayName: MongoDB Deployment Type
+        path: type
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:select:ReplicaSet
+      - description: Version of MongoDB to use.
+        displayName: MongoDB Version
+        path: version
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
+      - description: In a Replica Set deployment type, specifies the amount of members.
+        displayName: Members of a Replica Set
+        path: members
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:podCount
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
+      - displayName: Cloud/Ops Manager credentials
+        path: credentials
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfig
+        - urn:alm:descriptor:io.kubernetes:Secret
+      - description: Project configuration for this deployment
+        displayName: Ops Manager project configuration
+        path: opsManager
+      - description: Name of the ConfigMap with the configuration for this project
+        displayName: Ops Manager Project Configuration
+        path: opsManager.configMapRef.name
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:OpsManagerConfig
+        - urn:alm:descriptor:io.kubernetes:ConfigMap
+      - description: Enable Persistent Storage with Volume Claims
+        displayName: Persistent Storage
+        path: persistent
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
+      - description: Optional. Name of a Kubernetes Cluster Domain.
+        displayName: Name of Kubernetes Cluster Domain
+        path: clusterDomain
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:text
+      - displayName: Enable TLS
+        path: security.tls.enabled
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:security
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - displayName: Custom CA Config Map
+        path: security.tls.ca
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:security
+        - urn:alm:descriptor:io.kubernetes:ConfigMap
+      - displayName: Enable authentication
+        path: security.authentication.enabled
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:Authentication
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - displayName: Authentication Mode
+        path: security.authentication.modes
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:Authentication
+        - urn:alm:descriptor:com.tectonic.ui:select:SCRAM
+      statusDescriptors:
+      - description: |
+          Phase the MongoDB Deployment is currently on. It can be any of Running, Pending, Failed.
+        displayName: Phase
+        path: phase
+      version: v1
     - description: MongoDB x509 User
       displayName: MongoDB User
       kind: MongoDBUser
