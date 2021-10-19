@@ -148,31 +148,37 @@ kubectl --context="${CTX_CLUSTER3}" apply -n istio-system -f \
 # enable endpoint discovery
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
+  -n istio-system \
   --name=cluster1 | \
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
+  -n istio-system \
   --name=cluster1 | \
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
+  -n istio-system \
   --name=cluster2 | \
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
+  -n istio-system \
   --name=cluster2 | \
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
+  -n istio-system \
   --name=cluster3 | \
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
+  -n istio-system \
   --name=cluster3 | \
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 
