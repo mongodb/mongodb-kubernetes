@@ -114,7 +114,7 @@ e2e: build-and-push-test-image
 	@ scripts/dev/launch_e2e.sh
 
 e2e-telepresence: build-and-push-test-image
-	telepresence connect --context ${test_pod_cluster}; scripts/dev/launch_e2e.sh
+	telepresence connect --context ${test_pod_cluster}; scripts/dev/launch_e2e.sh; telepresence quit
 
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:

@@ -62,7 +62,7 @@ EOF
     
     echo "Creating/updating pull secret from docker configured file"
     kubectl -n "${PROJECT_NAMESPACE}" delete secret image-registries-secret --ignore-not-found
-    kubectl -n "${PROJECT_NAMESPACE}" create secret generic image-registries-secret \
+    kubectl --context "${central_cluster}" -n "${PROJECT_NAMESPACE}" create secret generic image-registries-secret \
      --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
     for member_cluster in ${member_clusters}; do
       kubectl --context "${member_cluster}" -n "${PROJECT_NAMESPACE}" delete secret image-registries-secret --ignore-not-found
