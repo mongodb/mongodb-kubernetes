@@ -53,7 +53,12 @@ def helm_install_from_chart(
 ):
     """Installs a helm chart from a repo. It can accept a new custom_repo to add before the
     chart is installed. Also `helm_args` accepts a dictionary that will be passed as --set
-    arguments to `helm install`."""
+    arguments to `helm install`.
+
+    Some charts are clusterwide (like CertManager), and simultaneous installation can
+    fail. This function tolerates errors when installing the Chart if `stderr` of the
+    Helm process has the "release: already exists" string on it.
+    """
 
     args = [
         "helm",
@@ -74,7 +79,18 @@ def helm_install_from_chart(
     logging.info(helm_repo_add)
     process_run_and_check(helm_repo_add, capture_output=True)
     logging.info(args)
-    process_run_and_check(args, check=True, capture_output=True)
+
+    try:
+        # In shared clusters (Kops: e2e) multiple simultaneous cert-manager
+        # installations will fail. We tolerate errors in those cases.
+        process_run_and_check(args, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode("utf-8")
+        if "release: already exists" in stderr or \
+           "Error: UPGRADE FAILED: another operation" in stderr:
+            logging.info(f"Helm chart '{chart}' already installed in cluster.")
+        else:
+            raise
 
 
 def process_run_and_check(args, **kwargs):
@@ -136,7 +152,6 @@ def _create_helm_args(
         command_args.append("--dry-run")
 
     command_args.append("--create-namespace")
-    command_args.append("--debug")
 
     if helm_options:
         command_args.extend(helm_options)
