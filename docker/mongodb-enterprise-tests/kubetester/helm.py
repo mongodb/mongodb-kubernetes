@@ -25,7 +25,7 @@ def helm_template(
 
     yaml_file_name = "{}.yaml".format(str(uuid.uuid4()))
     with open(yaml_file_name, "w") as output:
-        subprocess.run(" ".join(args), stdout=output, check=True, shell=True)
+        process_run_and_check(" ".join(args), stdout=output, check=True, shell=True)
 
     return yaml_file_name
 
@@ -40,9 +40,7 @@ def helm_install(
     args = ("helm", "install", *(command_args), name, _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
-    process_check(
-        subprocess.run(" ".join(args), check=True, capture_output=True, shell=True)
-    )
+    process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
 
 def helm_install_from_chart(
@@ -74,20 +72,21 @@ def helm_install_from_chart(
 
     helm_repo_add = "helm repo add {} {}".format(custom_repo[0], custom_repo[1]).split()
     logging.info(helm_repo_add)
-    process_check(subprocess.run(helm_repo_add, capture_output=True))
+    process_run_and_check(helm_repo_add, capture_output=True)
     logging.info(args)
-    process_check(subprocess.run(args, check=True, capture_output=True))
+    process_run_and_check(args, check=True, capture_output=True)
 
 
-def process_check(completed_process: subprocess.CompletedProcess):
+def process_run_and_check(args, **kwargs):
     try:
+        completed_process = subprocess.run(args, **kwargs)
         completed_process.check_returncode()
-    except subprocess.CalledProcessError:
-        logging.info(completed_process.stdout)
-        logging.info(completed_process.stderr)
+    except subprocess.CalledProcessError as exc:
+        stdout = exc.stdout.decode("utf-8")
+        stderr = exc.stderr.decode("utf-8")
+        logging.info(stdout)
+        logging.info(stderr)
         raise
-
-    return completed_process
 
 
 def helm_upgrade(
@@ -104,17 +103,13 @@ def helm_upgrade(
     args = ("helm", "upgrade", *(command_args), name, _helm_chart_dir(helm_chart_path))
     logging.info(args)
 
-    process_check(
-        subprocess.run(" ".join(args), check=True, capture_output=True, shell=True)
-    )
+    process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
 
 def helm_uninstall(name):
     args = ("helm", "uninstall", name)
     logging.info(args)
-    process_check(
-        subprocess.run(" ".join(args), check=True, capture_output=True, shell=True)
-    )
+    process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
 
 def _create_helm_args(
