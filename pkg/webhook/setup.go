@@ -107,6 +107,35 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 				FailurePolicy:           &failurePolicy,
 			},
 			{
+				Name: "mdbmultipolicy.mongodb.com",
+				ClientConfig: admissionv1.WebhookClientConfig{
+					Service: &admissionv1.ServiceReference{
+						Name:      serviceLocation.Name,
+						Namespace: serviceLocation.Namespace,
+						Path:      &dbPath,
+						Port:      &port,
+					},
+					CABundle: caBytes,
+				},
+				Rules: []admissionv1.RuleWithOperations{
+					{
+						Operations: []admissionv1.OperationType{
+							admissionv1.Create,
+							admissionv1.Update,
+						},
+						Rule: admissionv1.Rule{
+							APIGroups:   []string{"mongodb.com"},
+							APIVersions: []string{"*"},
+							Resources:   []string{"mongodbmulti"},
+							Scope:       &scope,
+						},
+					},
+				},
+				AdmissionReviewVersions: []string{"v1"},
+				SideEffects:             &sideEffects,
+				FailurePolicy:           &failurePolicy,
+			},
+			{
 				Name: "ompolicy.mongodb.com",
 				ClientConfig: admissionv1.WebhookClientConfig{
 					Service: &admissionv1.ServiceReference{

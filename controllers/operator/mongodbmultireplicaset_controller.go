@@ -226,7 +226,6 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 		return true, nil
 	}
 
-	// TODO: we might need to compare based on name.
 	for i := 0; i < len(specThisReconciliation); i++ {
 		specItem := desiredSpec[i]
 		reconciliationItem := specThisReconciliation[i]
