@@ -977,13 +977,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_operator_upgrade_unsupported_ops_manager
-  tags: ["patch-run"]
-  exec_timeout_secs: 2400
-  commands:
-    - func: "e2e_test"
-
-
 - name: e2e_operator_upgrade_appdb_tls
   tags: ["patch-run"]
   exec_timeout_secs: 1800
@@ -2162,7 +2155,6 @@ task_groups:
   tasks:
     - e2e_operator_upgrade_replica_set
     - e2e_operator_upgrade_ops_manager
-    - e2e_operator_upgrade_unsupported_ops_manager
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
     - e2e_operator_multi_namespaces
