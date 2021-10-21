@@ -20,7 +20,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
-	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"strings"
@@ -390,19 +389,18 @@ func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status 
 func getSubjectFromCertificate(cert string) (string, error) {
 	block, rest := pem.Decode([]byte(cert))
 	if block != nil && block.Type == "CERTIFICATE" {
-		cert, err := x509.ParseCertificate(block.Bytes)
+		subjects, _, err := authentication.GetCertificateSubject(cert)
 		if err != nil {
 			return "", err
 		}
-		return cert.Subject.ToRDNSequence().String(), nil
+		return subjects, nil
 	}
 	if len(rest) > 0 {
-		block, _ = pem.Decode(rest)
-		cert, err := x509.ParseCertificate(block.Bytes)
+		subjects, _, err := authentication.GetCertificateSubject(string(rest))
 		if err != nil {
 			return "", err
 		}
-		return cert.Subject.ToRDNSequence().String(), nil
+		return subjects, nil
 	}
 	return "", fmt.Errorf("unable to extract the subject line from the provided certificate")
 }

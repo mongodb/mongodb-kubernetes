@@ -259,6 +259,10 @@ func TestReadSubjectFromKeyThenCertificate(t *testing.T) {
 	assertSubjectFromFileSucceeds(t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/key_then_certificate")
 }
 
+func TestReadSubjectFromCertInStrictlyRFC2253(t *testing.T) {
+	assertSubjectFromFileSucceeds(t, "CN=mms-agent-cert,O=MongoDB-agent,OU=TSE,L=New Delhi,ST=New Delhi,C=IN", "testdata/certificates/cert_rfc2253")
+}
+
 func TestReadSubjectNoCertificate(t *testing.T) {
 	assertSubjectFromFileFails(t, "testdata/certificates/just_key")
 }
