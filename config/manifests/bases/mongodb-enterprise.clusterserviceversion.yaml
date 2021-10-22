@@ -182,6 +182,12 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
+      - description: Optional. Specify whether to duplicate service objects among different Kubernetes clusters.
+        displayName: Duplicate Service Objects
+        path: duplicateServiceObjects
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
       - description: Optional. Name of a Kubernetes Cluster Domain.
         displayName: Name of Kubernetes Cluster Domain
         path: clusterDomain
@@ -207,6 +213,9 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:Authentication
         - urn:alm:descriptor:com.tectonic.ui:select:SCRAM
+      - description: Spec for each cluster that comprises MongoDB Replicaset
+        displayName: Cluster SpecList
+        path: clusterSpecList
       statusDescriptors:
       - description: |
           Phase the MongoDB Deployment is currently on. It can be any of Running, Pending, Failed.
