@@ -1814,7 +1814,7 @@ tasks:
     - func: e2e_test
 
 - name: release_appdb
-  patch_only: true
+  git_tag_only: true
   commands:
   - func: clone
   - func: setup_building_host
@@ -1827,7 +1827,7 @@ tasks:
       image_name: appdb
 
 - name: release_database
-  patch_only: true
+  git_tag_only: true
   commands:
   - func: clone
   - func: setup_building_host
