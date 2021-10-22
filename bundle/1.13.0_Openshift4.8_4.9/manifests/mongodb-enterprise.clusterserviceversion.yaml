@@ -2,7 +2,133 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   annotations:
-    alm-examples: '[]'
+    olm.skipRange: "<1.13.0"
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "my-replica-set"
+          },
+          "spec": {
+            "credentials": "my-credentials",
+            "members": 3,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": true,
+            "type": "ReplicaSet",
+            "version": "4.4.0-ent"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "sample-sharded-cluster"
+          },
+          "spec": {
+            "configServerCount": 3,
+            "credentials": "my-credentials",
+            "mongodsPerShardCount": 3,
+            "mongosCount": 2,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": true,
+            "shardCount": 1,
+            "type": "ShardedCluster",
+            "version": "4.4.0-ent"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBMulti",
+          "metadata": {
+            "name": "multi-replica-set"
+          },
+          "spec": {
+            "clusterSpecList": {
+              "clusterSpecs": [
+                {
+                  "clusterName": "e2e.cluster1.mongokubernetes.com",
+                  "members": 2
+                },
+                {
+                  "clusterName": "e2e.cluster2.mongokubernetes.com",
+                  "members": 1
+                },
+                {
+                  "clusterName": "e2e.cluster3.mongokubernetes.com",
+                  "members": 2
+                }
+              ]
+            },
+            "credentials": "my-credentials",
+            "duplicateServiceObjects": false,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": false,
+            "type": "ReplicaSet",
+            "version": "4.4.0-ent"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBOpsManager",
+          "metadata": {
+            "name": "ops-manager"
+          },
+          "spec": {
+            "adminCredentials": "ops-manager-admin",
+            "applicationDatabase": {
+              "members": 3,
+              "persistent": true,
+              "podSpec": {
+                "cpu": 1
+              }
+            },
+            "configuration": {
+              "mms.fromEmailAddr": "admin@thecompany.com"
+            },
+            "externalConnectivity": {
+              "type": "LoadBalancer"
+            },
+            "version": "4.4.1"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBUser",
+          "metadata": {
+            "name": "my-replica-set-x509-user"
+          },
+          "spec": {
+            "db": "$external",
+            "mongodbResourceRef": {
+              "name": "my-replica-set"
+            },
+            "roles": [
+              {
+                "db": "admin",
+                "name": "dbOwner"
+              }
+            ],
+            "username": "CN=my-replica-set-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
+          },
+          "status": {
+            "phase": "Updated"
+          }
+        }
+      ]
     capabilities: Deep Insights
     categories: Database
     certified: "true"
@@ -10,9 +136,11 @@ metadata:
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
       platforms, Ops Manager and Cloud Manager.
+    operators.operatorframework.io/builder: operator-sdk-v1.9.0
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
     support: support@mongodb.com
-  name: mongodb-enterprise.v0.0.0
+  name: mongodb-enterprise.v1.13.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -182,12 +310,6 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
-      - description: Optional. Specify whether to duplicate service objects among different Kubernetes clusters.
-        displayName: Duplicate Service Objects
-        path: duplicateServiceObjects
-        x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-        - urn:alm:descriptor:com.tectonic.ui:fieldGroup:ClusterConfiguration
       - description: Optional. Name of a Kubernetes Cluster Domain.
         displayName: Name of Kubernetes Cluster Domain
         path: clusterDomain
@@ -213,9 +335,6 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:fieldGroup:Authentication
         - urn:alm:descriptor:com.tectonic.ui:select:SCRAM
-      - description: Spec for each cluster that comprises MongoDB Replicaset
-        displayName: Cluster SpecList
-        path: clusterSpecList
       statusDescriptors:
       - description: |
           Phase the MongoDB Deployment is currently on. It can be any of Running, Pending, Failed.
@@ -398,12 +517,177 @@ spec:
     Kubernetes Operator  [docs](https://docs.mongodb.com/kubernetes-operator/stable/).
   displayName: MongoDB Enterprise Operator
   icon:
-  - base64data: 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mrIHXO4A/U+GbMqu5Kcp5HLA+xl9UwbovQWCq/XeGvs4fQBS1FXiBjg4BIbzlL3m8e7O1t7+PdPo7wdVb3KbaWTEXAAADRxpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+Cjx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IlhNUCBDb3JlIDQuNC4wLUV4aXYyIj4KIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIKICAgIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIgogICAgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIKICAgIHhtbG5zOmRjPSJodHRwOi8vcHVybC5vcmcvZGMvZWxlbWVudHMvMS4xLyIKICAgIHhtbG5zOkdJTVA9Imh0dHA6Ly93d3cuZ2ltcC5vcmcveG1wLyIKICAgIHhtbG5zOnRpZmY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vdGlmZi8xLjAvIgogICAgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIgogICB4bXBNTTpEb2N1bWVudElEPSJnaW1wOmRvY2lkOmdpbXA6ZDk1YjhmMjctMWM0NS00YjU1LWEwZTMtNmNmMjM0Yzk1ZWVkIgogICB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOmVhMGY5MTI5LWJlMDItNDVjOS1iNGU4LTU3N2MxZTBiZGJhNyIKICAgeG1wTU06T3JpZ2luYWxEb2N1bWVudElEPSJ4bXAuZGlkOjcyNmY4ZGFlLTM4ZTYtNGQ4Ni1hNTI4LWM0NTc4ZGE4ODA0NSIKICAgZGM6Rm9ybWF0PSJpbWFnZS9wbmciCiAgIEdJTVA6QVBJPSIyLjAiCiAgIEdJTVA6UGxhdGZvcm09Ik1hYyBPUyIKICAgR0lNUDpUaW1lU3RhbXA9IjE2MzQ4MzgwMTYyMTQ2MTMiCiAgIEdJTVA6VmVyc2lvbj0iMi4xMC4yNCIKICAgdGlmZjpPcmllbnRhdGlvbj0iMSIKICAgeG1wOkNyZWF0b3JUb29sPSJHSU1QIDIuMTAiPgogICA8eG1wTU06SGlzdG9yeT4KICAgIDxyZGY6U2VxPgogICAgIDxyZGY6bGkKICAgICAgc3RFdnQ6YWN0aW9uPSJzYXZlZCIKICAgICAgc3RFdnQ6Y2hhbmdlZD0iLyIKICAgICAgc3RFdnQ6aW5zdGFuY2VJRD0ieG1wLmlpZDo1YWNhZmVhMC0xZmY5LTRiMmUtYmY0NC02NTM3MzYwMGQzNjEiCiAgICAgIHN0RXZ0OnNvZnR3YXJlQWdlbnQ9IkdpbXAgMi4xMCAoTWFjIE9TKSIKICAgICAgc3RFdnQ6d2hlbj0iMjAyMS0xMC0yMVQxODo0MDoxNiswMTowMCIvPgogICAgPC9yZGY6U2VxPgogICA8L3htcE1NOkhpc3Rvcnk+CiAgPC9yZGY6RGVzY3JpcHRpb24+CiA8L3JkZjpSREY+CjwveDp4bXBtZXRhPgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgICAgCjw/eHBhY2tldCBlbmQ9InciPz6528V0AAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAABYlAAAWJQFJUiTwAAAAB3RJTUUH5QoVESgQ+iToFAAAA8xJREFUeNrlW01PU0EUPTPV+oqb4h+wENYKXbmzsjLEKPAHwB1xQ6N7adiboBtrSAT5AaQmBpuYSN25MS17k5Zf0MemFGznungttCkf782bmTels2w6mbnnnnPv3DvzYrBhrMytIT01gz9/f5temkVv/NMUwKsg1MFEGvlizeTy3ALj9zuuGAf4T2QzydEBACwHINXzwwSOE29N7iAWqe7BsoOYsEdITx2ZigcsIupnzqh/8SC0/6Wx+aNy8yTg6X7rWsfEbu96/71JAGQzyY7n/Rg2AcZ3dQdFswA0Exs+je8KYUZ3UDQXA1bmlgFsScwkMFrEx++F4QXgPN/LaZpQR6IxiY2SO6QSGMj3Qd00jpPE5+FkgDz1B3kAMYt8sTQ8AGQzSTTHyqG83z+qcBpplVLQK4Hm2KpC473U2BzLDgcDwgY+QwFRIwP4knLjuwFRIQv0MGB5PgnntKwFAMUs0MMA53Rem/Ge25I4ufvCXgkQVrVXsSSW7JTAq7lpCJQNnK4IEJNhW2jqGdDGsrH6QrB5GyXwWMKXLoi5gdnL8dwuCXjRvy4xs0vjVGDonMa9MNlALQPiJxlJOcvruOlM2yMBzuQ3Q3Al44BFADA8lJ9LrtSKnD2wBwAhe/hhIVIZpWxiQJgG5qHkohYBoPP4q6tks2Qfh1GBzu3xhWQckM0eWgAIfprrBE+SN4LZBACTNIQzF4KO5EAnmxgQwhtckj2WMeBA8gARpqQ9sAcAAfnrbLk4QGBUsQcAHmIzXFLLrbZFDMgXS1KZoN2W1DHVwj6iUH8O4FQKPCcWc3t6AkGCTin0dpUDQPhq6OREgNixD4BmvBBYBlKNTaqpuChVD8B2wQWj98EnOrVA3hf4YHExJLb1l3FUsBeAfLEG0Bef//Y8H28FqSW2VT2p1VgNUi5QLKC4z1qCqoBYt78fkC/WfMWCwMUM21H5oFrzA4n4xrUt724xQy0fxRRVkd/LKQ0lWgHYLrgAvfQXN1vXSYAAmlUeS7VH63yxBMIVUvDdB1jX8S2BmZbYp70scNkRmXtXaQkOXN4b3FJNfbMAAEDzzoLcFRhV4TReaztOGAPAiwdPLgDh8OqUR7M6XoiaB6CbGtts4cLzwbtv1N8Z7hiv+Rsi823xzb0KRB8T7gMA3jxj59dcZoz3snBUY+VpCmD7nautXGcva2Aog8Siqa/Hov1sbuAxJZXgHC/o1Hz0Ehgsmn71/FIxaXz0AAwS8sj0ihYAcBb5CVJ9weFnwLnR1K6PHgC9FyJsFCVwq+9afAQlIITbnxXMjv+6222dh4/VtAAAAABJRU5ErkJggg==
+  - base64data: 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
     mediatype: image/png
   install:
     spec:
-      deployments: null
-    strategy: ""
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - validatingwebhookconfigurations
+          verbs:
+          - create
+          - delete
+          - get
+          - update
+        - apiGroups:
+          - certificates.k8s.io
+          resources:
+          - certificatesigningrequests
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+        serviceAccountName: mongodb-enterprise-operator
+      deployments:
+      - name: mongodb-enterprise-controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              control-plane: controller-manager
+          strategy: {}
+          template:
+            metadata:
+              labels:
+                control-plane: controller-manager
+            spec:
+              containers:
+              - command:
+                - /usr/local/bin/mongodb-enterprise-operator
+                env:
+                - name: CURRENT_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: WATCH_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
+                - name: MANAGED_SECURITY_CONTEXT
+                  value: "true"
+                - name: OPERATOR_ENV
+                  value: prod
+                - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
+                  value: quay.io/mongodb/mongodb-enterprise-database
+                - name: INIT_DATABASE_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-init-database
+                - name: INIT_DATABASE_VERSION
+                  value: 1.0.2
+                - name: DATABASE_VERSION
+                  value: 2.0.1
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: OPS_MANAGER_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-ops-manager
+                - name: OPS_MANAGER_IMAGE_PULL_POLICY
+                  value: Always
+                - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-init-ops-manager
+                - name: INIT_OPS_MANAGER_VERSION
+                  value: 1.0.4
+                - name: INIT_APPDB_IMAGE_REPOSITORY
+                  value: quay.io/mongodb/mongodb-enterprise-init-appdb
+                - name: INIT_APPDB_VERSION
+                  value: 1.0.6
+                - name: AGENT_IMAGE
+                  value: quay.io/mongodb/mongodb-agent:11.0.5.6963-1
+                - name: MONGODB_IMAGE
+                  value: mongodb-enterprise-appdb-database
+                - name: MONGODB_REPO_URL
+                  value: quay.io/mongodb
+                image: registry.connect.redhat.com/mongodb/enterprise-operator:1.13.0
+                name: manager
+                resources:
+                  limits:
+                    cpu: 1100m
+                    memory: 1Gi
+                  requests:
+                    cpu: 500m
+                    memory: 200Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+              serviceAccountName: mongodb-enterprise-operator
+              terminationGracePeriodSeconds: 10
+      permissions:
+      - rules:
+        - apiGroups:
+          - apps
+          resources:
+          - statefulsets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - secrets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - namespaces
+          verbs:
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - pods
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - services
+          verbs:
+          - create
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - mongodb
+          - mongodb/finalizers
+          - mongodb/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - mongodbusers
+          - mongodbusers/finalizers
+          - mongodbusers/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - opsmanagers
+          - opsmanagers/finalizers
+          - opsmanagers/status
+          verbs:
+          - '*'
+        serviceAccountName: mongodb-enterprise-operator
+    strategy: deployment
   installModes:
   - supported: true
     type: OwnNamespace
@@ -427,5 +711,4 @@ spec:
   minKubeVersion: 1.16.0
   provider:
     name: MongoDB, Inc
-  replaces: mongodb-enterprise.v1.12.0
-  version: 0.0.0
+  version: 1.13.0

@@ -14,6 +14,8 @@ BUNDLE_IMG="scan.connect.redhat.com/ospid-52d1c6df-b3f6-432b-9646-adb7f689e581/o
 
 
 make bundle-annotated "VERSION=${VERSION}" IMG="registry.connect.redhat.com/mongodb/enterprise-operator:${VERSION}"
+cp "./config/rbac/appdb_role.yaml" "./bundle/${VERSION}/manifests/mongodb-enterprise-appdb_rbac.authorization.k8s.io_v1_role.yaml"
+cp "./config/rbac/appdb_role_binding.yaml" "./bundle/${VERSION}/manifests/mongodb-enterprise-appdb_rbac.authorization.k8s.io_v1_rolebinding.yaml"
 make bundle-build EXPIRES= "VERSION=${VERSION}" "BUNDLE_IMG=${BUNDLE_IMG}"
 make docker-push "VERSION=${VERSION}" "IMG=${BUNDLE_IMG}"
 

@@ -3,3 +3,4 @@ resources:
 - mongodb-sharded.yaml
 - mongodb-user.yaml
 - mongodb-om.yaml
+- mongodb-multi.yaml
