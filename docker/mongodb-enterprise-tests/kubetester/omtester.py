@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import logging
 import re
-import urllib.parse
-
-import semver
 import time
+import urllib.parse
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import pytest
 import requests
+import semver
+
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import build_auth
 from kubetester.mongotester import BackgroundHealthChecker
@@ -428,17 +429,32 @@ class OMTester(object):
         )
 
     def api_create_restore_job_from_snapshot(
-        self, cluster_id: str, snapshot_id: str
+        self, cluster_id: str, snapshot_id: str, retry: int = 3
     ) -> Dict:
-        """Creates a restore job that uses an existing snapshot as the source"""
+        """
+        Creates a restore job that uses an existing snapshot as the source
+
+        The restore job might fail to be created if
+        """
         data = self._restore_job_payload(cluster_id)
         data["snapshotId"] = snapshot_id
-        # Strange API: the create request returns the list of jobs consisting only of one job just created
-        return self.om_request(
-            "post",
-            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs",
-            data,
-        ).json()["results"][0]
+
+        for r in range(retry):
+            try:
+                result = self.om_request(
+                    "post",
+                    f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs",
+                    data,
+                )
+            except Exception as e:
+                logging.info(e)
+                logging.info(f"Could not create restore job, attempt {r + 1}")
+                time.sleep((r + 1) * 10)
+                continue
+
+            return result.json()["results"][0]
+
+        raise Exception(f"Could not create restore job after {retry} attempts")
 
     def api_get_restore_jobs(self, cluster_id: str) -> List:
         return self.om_request(
