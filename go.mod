@@ -4,7 +4,7 @@ module github.com/10gen/ops-manager-kubernetes
 
 require (
 	cloud.google.com/go v0.97.0
-	github.com/aws/aws-sdk-go v1.40.42
+	github.com/aws/aws-sdk-go v1.41.5
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
 	github.com/evanphx/json-patch v4.11.0+incompatible
