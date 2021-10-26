@@ -360,7 +360,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		return err
 	}
 
-	mrs.Annotations[mdbmultiv1.LastSuccessfulMultiClusterConfiguration] = string(achievedSpecBytes)
+	mrs.Annotations[util.LastAchievedSpec] = string(achievedSpecBytes)
 	mrs.Annotations[mdbmultiv1.LastClusterIndexMapping] = string(clusterIndexBytes)
 
 	return r.client.Update(context.TODO(), &mrs)
@@ -581,8 +581,8 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMulti)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMulti)
 
-			oldSpecAnnotation := oldResource.GetAnnotations()[mdbmultiv1.LastSuccessfulMultiClusterConfiguration]
-			newSpecAnnotation := newResource.GetAnnotations()[mdbmultiv1.LastSuccessfulMultiClusterConfiguration]
+			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
+			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
 
 			// don't handle an update to just the previous spec annotation if they are not the same.
 			// this prevents the operator triggering reconciliations on resource that it is updating itself.

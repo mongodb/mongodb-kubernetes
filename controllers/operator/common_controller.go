@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"reflect"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
@@ -54,11 +55,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	ClusterDomain                   = "cluster.local"
-	TLSGenerationDeprecationWarning = "This feature has been DEPRECATED and should only be used in testing environments."
-)
-
 func automationConfigFirstMsg(resourceType string, valueToSet string) string {
 	return fmt.Sprintf("About to set `%s` to %s. automationConfig needs to be updated first", resourceType, valueToSet)
 }
@@ -87,6 +83,17 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 		scheme:          mgr.GetScheme(),
 		ResourceWatcher: watch.NewResourceWatcher(),
 	}
+}
+
+// saveLastAchievedSpec saves the given spec as an annotation on the resource.
+func (c *ReconcileCommonController) saveLastAchievedSpec(spec interface{}, resource client.Object) error {
+	bytes, err := json.Marshal(spec)
+	if err != nil {
+		return err
+	}
+	return annotations.SetAnnotations(resource, map[string]string{
+		util.LastAchievedSpec: string(bytes),
+	}, c.client)
 }
 
 func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {

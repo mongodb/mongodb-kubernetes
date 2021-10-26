@@ -213,6 +213,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			mdbstatus.MembersOption(rs))
 	}
 
+	if err := r.saveLastAchievedSpec(rs.Spec, rs); err != nil {
+		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+	}
+
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs))
 }

@@ -216,8 +216,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
+	if err := r.saveLastAchievedSpec(s.Spec, s); err != nil {
+		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+	}
 
+	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
 }
 

@@ -182,6 +182,9 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
+	if err := r.saveLastAchievedSpec(opsManager.Spec, opsManager); err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log)
+	}
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success

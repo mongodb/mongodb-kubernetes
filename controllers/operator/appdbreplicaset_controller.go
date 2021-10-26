@@ -48,14 +48,7 @@ import (
 type agentType string
 
 const (
-	// PodAnnotationAgentVersion is the Pod Annotation key which contains the current version of the Automation Config
-	// the Agent on the Pod is on now
-	PodAnnotationAgentVersion = "agent.mongodb.com/version"
-	// This is the version of init appdb image which had a different agents reporting mechanism and didn't modify
-	// annotations
-	InitAppDBVersionBeforeBreakingChange = "1.0.4"
-	appdbCAFilePath                      = "/var/lib/mongodb-automation/secrets/ca/ca-pem"
-	lastSuccessfulConfiguration          = "mongodb.com/v1.lastSuccessfulAppDBConfiguration"
+	appdbCAFilePath = "/var/lib/mongodb-automation/secrets/ca/ca-pem"
 
 	monitoring agentType = "MONITORING"
 	automation agentType = "AUTOMATION"

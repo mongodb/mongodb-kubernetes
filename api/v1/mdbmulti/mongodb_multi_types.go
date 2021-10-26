@@ -3,6 +3,7 @@ package mdbmulti
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -22,8 +23,7 @@ func init() {
 }
 
 const (
-	LastSuccessfulMultiClusterConfiguration = "mongodb.com/v1.lastSuccessfulConfiguration"
-	LastClusterIndexMapping                 = "mongodb.com/v1.lastClusterIndexMapping"
+	LastClusterIndexMapping = "mongodb.com/v1.lastClusterIndexMapping"
 )
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
@@ -314,7 +314,7 @@ func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
 	if m.Annotations == nil {
 		return nil, nil
 	}
-	specBytes, ok := m.Annotations[LastSuccessfulMultiClusterConfiguration]
+	specBytes, ok := m.Annotations[util.LastAchievedSpec]
 	if !ok {
 		return nil, nil
 	}

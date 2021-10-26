@@ -13,7 +13,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/imdario/mergo v0.3.12
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.1-0.20211012084548-ae1ca8fa4eb7
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.1-0.20211021114900-6f390f2bc8f9
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.32.1

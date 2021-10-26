@@ -67,6 +67,10 @@ type AppDBSpec struct {
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }
 
+func (m *AppDBSpec) GetMongodConfiguration() map[string]interface{} {
+	return m.AdditionalMongodConfig.ToMap()
+}
+
 func (m *AppDBSpec) GetTLSMode() tls.Mode {
 	return m.GetTLSMode()
 }

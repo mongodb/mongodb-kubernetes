@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"reflect"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -18,6 +19,16 @@ func PredicatesForUser() predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*userv1.MongoDBUser)
 			newResource := e.ObjectNew.(*userv1.MongoDBUser)
+
+			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
+			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
+
+			// don't handle an update to just the previous spec annotation if they are not the same.
+			// this prevents the operator triggering reconciliations on resource that it is updating itself.
+			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
+				return false
+			}
+
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
 	}
@@ -29,6 +40,16 @@ func PredicatesForOpsManager() predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*omv1.MongoDBOpsManager)
 			newResource := e.ObjectNew.(*omv1.MongoDBOpsManager)
+
+			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
+			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
+
+			// don't handle an update to just the previous spec annotation if they are not the same.
+			// this prevents the operator triggering reconciliations on resource that it is updating itself.
+			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
+				return false
+			}
+
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
 	}
@@ -51,6 +72,15 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mdbv1.MongoDB)
 			newResource := e.ObjectNew.(*mdbv1.MongoDB)
+
+			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
+			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
+
+			// don't handle an update to just the previous spec annotation if they are not the same.
+			// this prevents the operator triggering reconciliations on resource that it is updating itself.
+			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
+				return false
+			}
 
 			// ignore events that aren't related to our target Resource and any changes done to the status
 			// (it's the controller that has made those changes, not user)

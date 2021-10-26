@@ -272,6 +272,10 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
+	if err := r.saveLastAchievedSpec(user.Spec, user); err != nil {
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+	}
+
 	log.Infof("Finished reconciliation for MongoDBUser!")
 	return r.updateStatus(user, workflow.OK(), log)
 }
@@ -304,6 +308,10 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser,
 			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
 		}
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
+	}
+
+	if err := r.saveLastAchievedSpec(user.Spec, user); err != nil {
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")

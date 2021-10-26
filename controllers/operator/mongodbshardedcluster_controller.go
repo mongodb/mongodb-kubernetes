@@ -119,6 +119,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 		r.removeUnusedStatefulsets(sc, log)
 	}
 
+	if err := r.saveLastAchievedSpec(sc.Spec, sc); err != nil {
+		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(sc, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())),
 		mdbstatus.MongodsPerShardOption(r.mongodsPerShardScaler), mdbstatus.ConfigServerOption(r.configSrvScaler), mdbstatus.MongosCountOption(r.mongosScaler))
