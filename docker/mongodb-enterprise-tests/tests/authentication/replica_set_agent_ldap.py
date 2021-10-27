@@ -128,7 +128,7 @@ def test_disable_agent_auth(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["agents"]["enabled"] = False
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -150,7 +150,7 @@ def test_change_version_to_4_2_8(replica_set: MongoDB):
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
 
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -189,7 +189,7 @@ def test_change_version_to_latest(replica_set: MongoDB, custom_mdb_version: str)
     replica_set["spec"]["version"] = ensure_ent_version(custom_mdb_version)
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
