@@ -58,7 +58,7 @@ echo "Installing Python packages"
 pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
 pip3 install -r requirements.txt
 
-echo "Adding git commit hooks"
-ln -s -f ../../scripts/dev/commit_hooks/pre-commit.sh .git/hooks/pre-commit
+echo "Configuring git hooks path"
+git config core.hooksPath .githooks
 
 title "Tools are installed"
