@@ -1,3 +1,8 @@
+* _Please visit [Automated Release Process](../../release.md) for updated docs._
+
+I'm leaving this here for historical reasons; and until `pct` can complete these
+tasks in a autonomous manner.
+
 # Operator Release
 
 The release procedure means building all necessary images and pushing them to
