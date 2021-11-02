@@ -30,6 +30,7 @@ type MockedOmAdmin struct {
 
 	daemonConfigs          []backup.DaemonConfig
 	s3Configs              map[string]backup.S3Config
+	s3OpLogConfigs         map[string]backup.S3Config
 	oplogConfigs           map[string]backup.DataStoreConfig
 	blockStoreConfigs      map[string]backup.DataStoreConfig
 	fileSystemStoreConfigs map[string]backup.DataStoreConfig
@@ -46,6 +47,7 @@ func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) Admin {
 
 	CurrMockedAdmin.daemonConfigs = make([]backup.DaemonConfig, 0)
 	CurrMockedAdmin.s3Configs = make(map[string]backup.S3Config)
+	CurrMockedAdmin.s3OpLogConfigs = make(map[string]backup.S3Config)
 	CurrMockedAdmin.oplogConfigs = make(map[string]backup.DataStoreConfig)
 	CurrMockedAdmin.blockStoreConfigs = make(map[string]backup.DataStoreConfig)
 	CurrMockedAdmin.apiKeys = []Key{{
@@ -146,6 +148,32 @@ func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
 		return errors.New("Failed to remove as the oplog doesn't exist!")
 	}
 	delete(a.oplogConfigs, id)
+	return nil
+}
+
+func (a *MockedOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
+	allConfigs := make([]backup.S3Config, 0)
+	for _, v := range a.s3OpLogConfigs {
+		allConfigs = append(allConfigs, v)
+	}
+
+	return allConfigs, nil
+}
+
+func (a *MockedOmAdmin) UpdateS3OplogConfig(s3Config backup.S3Config) error {
+	a.s3OpLogConfigs[s3Config.Id] = s3Config
+	return nil
+}
+
+func (a *MockedOmAdmin) CreateS3OplogStoreConfig(s3Config backup.S3Config) error {
+	return a.UpdateS3OplogConfig(s3Config)
+}
+
+func (a *MockedOmAdmin) DeleteS3OplogStoreConfig(id string) error {
+	if _, ok := a.s3OpLogConfigs[id]; !ok {
+		return errors.New("Failed to remove as the s3 oplog doesn't exist!")
+	}
+	delete(a.s3OpLogConfigs, id)
 	return nil
 }
 

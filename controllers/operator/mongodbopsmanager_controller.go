@@ -1215,7 +1215,11 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 		}
 	}
 
-	if len(operatorOplogConfigs) == 0 {
+	//operatorS3OplogConfigs := opsManager.Spec.Backup.S3OplogStoreConfigs
+
+	// TODO: handle the creation/update/deletion of S3OpLogStoreConfigs
+
+	if len(operatorOplogConfigs) == 0 /* && len(operatorS3OplogConfigs) == 0 */ {
 		return workflow.Invalid("Oplog Store configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending)
 	}
 	return workflow.OK()

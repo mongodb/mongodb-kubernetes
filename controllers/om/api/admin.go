@@ -69,6 +69,14 @@ type Admin interface {
 	// DeleteOplogStoreConfig removes the oplog store by its ID
 	DeleteOplogStoreConfig(id string) error
 
+	ReadS3OplogStoreConfigs() ([]backup.S3Config, error)
+
+	UpdateS3OplogConfig(s3Config backup.S3Config) error
+
+	CreateS3OplogStoreConfig(s3Config backup.S3Config) error
+
+	DeleteS3OplogStoreConfig(id string) error
+
 	// ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
 	ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error)
 
@@ -167,6 +175,34 @@ func (a *DefaultOmAdmin) UpdateOplogStoreConfig(config backup.DataStoreConfig) e
 // DeleteOplogStoreConfig removes the oplog store by its ID
 func (a *DefaultOmAdmin) DeleteOplogStoreConfig(id string) error {
 	return a.delete("admin/backup/oplog/mongoConfigs/%s", id)
+}
+
+func (a *DefaultOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
+	res, _, err := a.get("admin/backup/oplog/s3Configs/")
+	if err != nil {
+		return nil, err
+	}
+
+	s3Configs := &backup.S3ConfigResponse{}
+	if err = json.Unmarshal(res, s3Configs); err != nil {
+		return nil, apierror.New(err)
+	}
+
+	return s3Configs.S3Configs, nil
+}
+
+func (a *DefaultOmAdmin) UpdateS3OplogConfig(s3Config backup.S3Config) error {
+	_, _, err := a.put("admin/backup/oplog/s3Configs/%s", s3Config, s3Config.Id)
+	return err
+}
+
+func (a *DefaultOmAdmin) CreateS3OplogStoreConfig(s3Config backup.S3Config) error {
+	_, _, err := a.post("admin/backup/oplog/s3Configs", s3Config)
+	return err
+}
+
+func (a *DefaultOmAdmin) DeleteS3OplogStoreConfig(id string) error {
+	return a.delete("admin/backup/oplog/s3Configs/%s", id)
 }
 
 // ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
