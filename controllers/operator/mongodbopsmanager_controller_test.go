@@ -57,7 +57,7 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	otherTestOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "oplog1"}}}
 	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "oplog1"}}}
 
-	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, _, _ := defaultTestOmReconciler(t, testOm)
 	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
 	reconciler.watchMongoDBResourcesReferencedByBackup(otherTestOm)
 
@@ -100,7 +100,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 		CA: "custom-ca",
 	}).Build()
 
-	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 	addAppDBTLSResources(client, testOm.Spec.AppDB, "om-appdb-tls-secret")
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
@@ -185,7 +185,7 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	testOm.Spec.Backup.Enabled = true
 	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: resourceName}}}
 
-	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, _, _ := defaultTestOmReconciler(t, testOm)
 	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
 
 	key := watch.Object{
@@ -204,12 +204,12 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, client, initializer, admin := defaultTestOmReconciler(t, testOm)
+	reconciler, client, initializer := defaultTestOmReconciler(t, testOm)
 
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
-	assert.Equal(t, "jane.doe@g.com", admin.PublicKey)
+	assert.Equal(t, "jane.doe@g.com", api.CurrMockedAdmin.PublicKey)
 
 	// the user "created" in Ops Manager
 	assert.Len(t, initializer.currentUsers, 1)
@@ -233,7 +233,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 // OM api to create a user as the API secret already exists
 func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, client, initializer, admin := defaultTestOmReconciler(t, testOm)
+	reconciler, client, initializer := defaultTestOmReconciler(t, testOm)
 
 	reconciler.prepareOpsManager(testOm, zap.S())
 
@@ -246,7 +246,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
 	assert.Equal(t, workflow.OK(), reconcileStatus)
-	assert.Equal(t, "jane.doe@g.com-key", admin.PrivateKey)
+	assert.Equal(t, "jane.doe@g.com-key", api.CurrMockedAdmin.PrivateKey)
 
 	// the call to the api didn't happen
 	assert.Equal(t, 1, initializer.numberOfCalls)
@@ -263,7 +263,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 // user - the Operator will try to create a user again and this will result in UserAlreadyExists error
 func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, client, initializer, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, client, initializer := defaultTestOmReconciler(t, testOm)
 
 	reconciler.prepareOpsManager(testOm, zap.S())
 
@@ -298,7 +298,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 
 func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, _, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, _, _ := defaultTestOmReconciler(t, testOm)
 
 	password, err := reconciler.getAppDBPassword(testOm, zap.S())
 	assert.NoError(t, err)
@@ -307,7 +307,7 @@ func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
-	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
 	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
 		Data: map[string][]byte{
@@ -325,7 +325,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: true,
 	}).Build()
-	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
@@ -350,7 +350,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
-	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
 	s := secret.Builder().
 		SetName(testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
@@ -390,7 +390,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
 	}).Build()
-	reconciler, client, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
@@ -460,7 +460,7 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 		SetAppDBTLSConfig(mdbv1.TLSConfig{Enabled: true}).
 		Build()
 
-	reconciler, mockedClient, _, _ := defaultTestOmReconciler(t, testOm)
+	reconciler, mockedClient, _ := defaultTestOmReconciler(t, testOm)
 
 	addAppDBTLSResources(mockedClient, testOm.Spec.AppDB, fmt.Sprintf("%s-cert", testOm.Spec.AppDB.Name()))
 	configureBackupResources(mockedClient, testOm)
@@ -476,6 +476,134 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, false, res.Requeue)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+
+}
+
+func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3Config("s3-config-0", "s3-secret").
+		AddS3Config("s3-config-1", "s3-secret").
+		AddS3Config("s3-config-2", "s3-secret").
+		Build()
+
+	reconciler, mockedClient, _ := defaultTestOmReconciler(t, testOm)
+
+	configureBackupResources(mockedClient, testOm)
+
+	// initially requeued as monitoring needs to be configured
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+	assert.Equal(t, true, res.Requeue)
+
+	// monitoring is configured successfully
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	t.Run("Configs are created successfully", func(t *testing.T) {
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		assert.NoError(t, err)
+		assert.Len(t, s3Configs, 3)
+	})
+
+	testOm.Spec.Backup.S3Configs[0].Name = "new-name"
+	err = mockedClient.Update(context.TODO(), &testOm)
+	assert.NoError(t, err)
+
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	t.Run("Name change resulted in a different config being created", func(t *testing.T) {
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		assert.NoError(t, err)
+		assert.Len(t, s3Configs, 3)
+
+		assert.Equal(t, "new-name", s3Configs[0].Id)
+		assert.Equal(t, "s3-config-1", s3Configs[1].Id)
+		assert.Equal(t, "s3-config-2", s3Configs[2].Id)
+	})
+
+}
+
+func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().
+		AddS3Config("s3-config-0", "s3-secret").
+		AddS3Config("s3-config-1", "s3-secret").
+		AddS3Config("s3-config-2", "s3-secret").
+		AddOplogStoreConfig("oplog-store-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddOplogStoreConfig("oplog-store-1", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-1", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	reconciler, mockedClient, _ := defaultTestOmReconciler(t, testOm)
+
+	configureBackupResources(mockedClient, testOm)
+
+	// initially requeued as monitoring needs to be configured
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+	assert.Equal(t, true, res.Requeue)
+
+	// monitoring is configured successfully
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+
+	assert.NoError(t, err)
+	assert.Equal(t, false, res.Requeue)
+	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+
+	t.Run("Configs are created successfully", func(t *testing.T) {
+		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs()
+		assert.NoError(t, err)
+		assert.Len(t, configs, 3)
+
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		assert.NoError(t, err)
+		assert.Len(t, s3Configs, 3)
+
+		blockstores, err := api.CurrMockedAdmin.ReadBlockStoreConfigs()
+		assert.NoError(t, err)
+		assert.Len(t, blockstores, 3)
+	})
+
+	// remove the first entry
+	testOm.Spec.Backup.OplogStoreConfigs = testOm.Spec.Backup.OplogStoreConfigs[1:]
+
+	// remove middle element
+	testOm.Spec.Backup.S3Configs = []omv1.S3Config{testOm.Spec.Backup.S3Configs[0], testOm.Spec.Backup.S3Configs[2]}
+
+	// remove first and last
+	testOm.Spec.Backup.BlockStoreConfigs = []omv1.DataStoreConfig{testOm.Spec.Backup.BlockStoreConfigs[1]}
+
+	err = mockedClient.Update(context.TODO(), &testOm)
+	assert.NoError(t, err)
+
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	t.Run("Configs are removed successfully", func(t *testing.T) {
+		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs()
+		assert.NoError(t, err)
+		assert.Len(t, configs, 2)
+
+		assert.Equal(t, "oplog-store-1", configs[0].Id)
+		assert.Equal(t, "oplog-store-2", configs[1].Id)
+
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		assert.NoError(t, err)
+		assert.Len(t, s3Configs, 2)
+
+		assert.Equal(t, "s3-config-0", s3Configs[0].Id)
+		assert.Equal(t, "s3-config-2", s3Configs[1].Id)
+
+		blockstores, err := api.CurrMockedAdmin.ReadBlockStoreConfigs()
+		assert.NoError(t, err)
+		assert.Len(t, blockstores, 1)
+		assert.Equal(t, "block-store-config-1", blockstores[0].Id)
+
+	})
 
 }
 
@@ -597,7 +725,7 @@ func configureBackupResources(m *mock.MockedClient, testOm omv1.MongoDBOpsManage
 	}
 
 	// create MDB resource for oplog configs
-	for _, oplogConfig := range testOm.Spec.Backup.OplogStoreConfigs {
+	for _, oplogConfig := range append(testOm.Spec.Backup.OplogStoreConfigs, testOm.Spec.Backup.BlockStoreConfigs...) {
 		oplogStoreResource := mdbv1.NewReplicaSetBuilder().
 			SetName(oplogConfig.MongoDBResourceRef.Name).
 			SetNamespace(testOm.Namespace).
@@ -630,7 +758,7 @@ func configureBackupResources(m *mock.MockedClient, testOm omv1.MongoDBOpsManage
 // ******************************************* Helper methods *********************************************************
 
 func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*OpsManagerReconciler, *mock.MockedClient,
-	*MockedInitializer, *api.MockedOmAdmin) {
+	*MockedInitializer) {
 	manager := mock.NewManager(&opsManager)
 	// create an admin user secret
 	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
@@ -644,15 +772,16 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 		Build()
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
-
-	// It's important to clean the om state as soon as the reconciler is built!
-	admin := api.NewMockedAdmin()
-	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, api.NewMockedAdminProvider, func(s string) ([]byte, error) {
+	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, func(baseUrl, user, publicApiKey string) api.Admin {
+		if api.CurrMockedAdmin == nil {
+			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey).(*api.MockedOmAdmin)
+		}
+		return api.CurrMockedAdmin
+	}, func(s string) ([]byte, error) {
 		return nil, nil
 	})
 	reconciler.client.CreateSecret(s)
-	return reconciler,
-		manager.Client, initializer, admin
+	return reconciler, manager.Client, initializer
 }
 
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {

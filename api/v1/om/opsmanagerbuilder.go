@@ -93,6 +93,26 @@ func (b *OpsManagerBuilder) AddOplogStoreConfig(oplogStoreName, userName string,
 	return b
 }
 
+func (b *OpsManagerBuilder) AddBlockStoreConfig(blockStoreName, userName string, mdbNsName types.NamespacedName) *OpsManagerBuilder {
+	if b.om.Spec.Backup == nil {
+		b.om.Spec.Backup = &MongoDBOpsManagerBackup{Enabled: true}
+	}
+	if b.om.Spec.Backup.BlockStoreConfigs == nil {
+		b.om.Spec.Backup.BlockStoreConfigs = []DataStoreConfig{}
+	}
+	b.om.Spec.Backup.BlockStoreConfigs = append(b.om.Spec.Backup.BlockStoreConfigs, DataStoreConfig{
+		Name: blockStoreName,
+		MongoDBResourceRef: userv1.MongoDBResourceRef{
+			Name:      mdbNsName.Name,
+			Namespace: mdbNsName.Namespace,
+		},
+		MongoDBUserRef: &MongoDBUserRef{
+			Name: userName,
+		},
+	})
+	return b
+}
+
 func (b *OpsManagerBuilder) SetClusterDomain(clusterDomain string) *OpsManagerBuilder {
 	b.om.Spec.ClusterDomain = clusterDomain
 	return b

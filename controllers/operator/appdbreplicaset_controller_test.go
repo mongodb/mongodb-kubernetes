@@ -351,7 +351,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 		SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
 		SetAppDbMembers(1).
 		Build()
-	omReconciler, client, _, _ := defaultTestOmReconciler(t, opsManager)
+	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
 
 	checkOMReconcilliationSuccessful(t, omReconciler, &opsManager)
 
@@ -388,7 +388,7 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetAppDbMembers(1).
 		SetAdditionalMongodbConfig(mdb.NewAdditionalMongodConfig("net.port", 30000)).
 		Build()
-	omReconciler, client, _, _ := defaultTestOmReconciler(t, opsManager)
+	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
 
 	checkOMReconcilliationSuccessful(t, omReconciler, &opsManager)
 

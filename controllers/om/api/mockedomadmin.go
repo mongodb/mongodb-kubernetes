@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -38,9 +39,7 @@ type MockedOmAdmin struct {
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
 // if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
 func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) Admin {
-	if CurrMockedAdmin == nil {
-		CurrMockedAdmin = &MockedOmAdmin{}
-	}
+	CurrMockedAdmin = &MockedOmAdmin{}
 	CurrMockedAdmin.BaseURL = baseUrl
 	CurrMockedAdmin.PublicKey = publicApiKey
 	CurrMockedAdmin.PrivateKey = privateApiKey
@@ -88,10 +87,14 @@ func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
 }
 
 func (a *MockedOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
-	allConfigs := make([]backup.S3Config, len(a.s3Configs))
+	allConfigs := make([]backup.S3Config, 0)
 	for _, v := range a.s3Configs {
 		allConfigs = append(allConfigs, v)
 	}
+
+	sort.SliceStable(allConfigs, func(i, j int) bool {
+		return allConfigs[i].Id < allConfigs[j].Id
+	})
 
 	return allConfigs, nil
 }
@@ -114,10 +117,14 @@ func (a *MockedOmAdmin) UpdateS3Config(s3Config backup.S3Config) error {
 }
 
 func (a *MockedOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error) {
-	allConfigs := make([]backup.DataStoreConfig, len(a.oplogConfigs))
+	allConfigs := make([]backup.DataStoreConfig, 0)
 	for _, v := range a.oplogConfigs {
 		allConfigs = append(allConfigs, v)
 	}
+
+	sort.SliceStable(allConfigs, func(i, j int) bool {
+		return allConfigs[i].Id < allConfigs[j].Id
+	})
 
 	return allConfigs, nil
 }
@@ -143,10 +150,14 @@ func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
 }
 
 func (a *MockedOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error) {
-	allConfigs := make([]backup.DataStoreConfig, len(a.blockStoreConfigs))
+	allConfigs := make([]backup.DataStoreConfig, 0)
 	for _, v := range a.blockStoreConfigs {
 		allConfigs = append(allConfigs, v)
 	}
+
+	sort.SliceStable(allConfigs, func(i, j int) bool {
+		return allConfigs[i].Id < allConfigs[j].Id
+	})
 
 	return allConfigs, nil
 }
