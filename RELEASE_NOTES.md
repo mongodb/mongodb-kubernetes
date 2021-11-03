@@ -1,5 +1,21 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+
+# MongoDB Enterprise Kubernetes Operator 1.13.1
+
+## MongoDBOpsManager Resource
+
+* Changes
+  * Added support for configuring S3 Oplog Stores using the `spec.backup.s3OpLogStores` field.
+  
+*All the images can be found in:*
+
+https://quay.io/repository/mongodb (ubuntu-based)
+
+https://connect.redhat.com/ (rhel-based)
+
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.13.0
 
 ## Kubernetes Operator
@@ -54,7 +70,7 @@ The usage of generic secrets, manually created by concatenating certificate and 
 * Ops Manager versions 4.4.7, 4.4.9, 4.4.10, 4.4.11, 4.4.12 and 4.4.13 base images have been updated to Ubuntu 20.04.
 * Ops Manager versions 4.4.16 and 5.0.1 are now supported
 
-<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.12.0
 
 ## MongoDB Resource

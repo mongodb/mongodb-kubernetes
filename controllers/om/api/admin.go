@@ -35,16 +35,14 @@ type Whitelist struct {
 	Description string `json:"description"`
 }
 
-// Admin (imported as 'api.Admin') is the client to all "administrator" related operations with Ops Manager
-// which do not relate to specific groups (that's why it's different from 'om.Connection'). The only state expected
-// to be encapsulated is baseUrl, user and key
-type Admin interface {
-	// ReadDaemonConfig returns the daemon config by hostname and head db path
-	ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error)
+type S3OplogStoreAdmin interface {
+	ReadS3OplogStoreConfigs() ([]backup.S3Config, error)
+	UpdateS3OplogConfig(s3Config backup.S3Config) error
+	CreateS3OplogStoreConfig(s3Config backup.S3Config) error
+	DeleteS3OplogStoreConfig(id string) error
+}
 
-	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
-	CreateDaemonConfig(hostName, headDbDir string) error
-
+type S3StoreAdmin interface {
 	// CreateS3Config creates the given S3Config
 	CreateS3Config(s3Config backup.S3Config) error
 
@@ -56,27 +54,9 @@ type Admin interface {
 
 	// DeleteS3Config removes an s3config by id
 	DeleteS3Config(id string) error
+}
 
-	// ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
-	ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error)
-
-	// CreateOplogStoreConfig creates an oplog store in Ops Manager
-	CreateOplogStoreConfig(config backup.DataStoreConfig) error
-
-	// UpdateOplogStoreConfig updates the oplog store in Ops Manager
-	UpdateOplogStoreConfig(config backup.DataStoreConfig) error
-
-	// DeleteOplogStoreConfig removes the oplog store by its ID
-	DeleteOplogStoreConfig(id string) error
-
-	ReadS3OplogStoreConfigs() ([]backup.S3Config, error)
-
-	UpdateS3OplogConfig(s3Config backup.S3Config) error
-
-	CreateS3OplogStoreConfig(s3Config backup.S3Config) error
-
-	DeleteS3OplogStoreConfig(id string) error
-
+type BlockStoreAdmin interface {
 	// ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
 	ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error)
 
@@ -88,6 +68,35 @@ type Admin interface {
 
 	// DeleteBlockStoreConfig removes the Block store by its ID
 	DeleteBlockStoreConfig(id string) error
+}
+
+type OplogStoreAdmin interface {
+	// ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
+	ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error)
+
+	// CreateOplogStoreConfig creates an oplog store in Ops Manager
+	CreateOplogStoreConfig(config backup.DataStoreConfig) error
+
+	// UpdateOplogStoreConfig updates the oplog store in Ops Manager
+	UpdateOplogStoreConfig(config backup.DataStoreConfig) error
+
+	// DeleteOplogStoreConfig removes the oplog store by its ID
+	DeleteOplogStoreConfig(id string) error
+}
+
+// Admin (imported as 'api.Admin') is the client to all "administrator" related operations with Ops Manager
+// which do not relate to specific groups (that's why it's different from 'om.Connection'). The only state expected
+// to be encapsulated is baseUrl, user and key
+type Admin interface {
+	S3OplogStoreAdmin
+	S3StoreAdmin
+	BlockStoreAdmin
+	OplogStoreAdmin
+	// ReadDaemonConfig returns the daemon config by hostname and head db path
+	ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error)
+
+	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
+	CreateDaemonConfig(hostName, headDbDir string) error
 
 	// ReadFileSystemStoreConfig reads the FileSystemSnapshot store by its ID
 	ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error)

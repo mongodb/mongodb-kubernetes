@@ -214,7 +214,7 @@ type MongoDBOpsManagerBackup struct {
 	JVMParams []string                 `json:"jvmParameters,omitempty"`
 
 	// S3OplogStoreConfigs describes the list of s3 oplog store configs used for backup.
-	// S3OplogStoreConfigs []S3Config `json:"s3OpLogStores,omitempty"`
+	S3OplogStoreConfigs []S3Config `json:"s3OpLogStores,omitempty"`
 
 	// OplogStoreConfigs describes the list of oplog store configs used for backup
 	OplogStoreConfigs        []DataStoreConfig              `json:"opLogStores,omitempty"`

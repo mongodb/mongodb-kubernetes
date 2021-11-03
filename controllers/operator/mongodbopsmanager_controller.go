@@ -1142,13 +1142,16 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 	// 2. Oplog store configs
 	status := r.ensureOplogStoresInOpsManager(opsManager, omAdmin, log)
 
-	// 3. S3 Configs
+	// 3. S3 Oplog Configs
+	status = status.Merge(r.ensureS3OplogStoresInOpsManager(opsManager, omAdmin, log))
+
+	// 4. S3 Configs
 	status = status.Merge(r.ensureS3ConfigurationInOpsManager(opsManager, omAdmin, log))
 
-	// 4. Block store configs
+	// 5. Block store configs
 	status = status.Merge(r.ensureBlockStoresInOpsManager(opsManager, omAdmin, log))
 
-	// 4. FileSystem store configs
+	// 6. FileSystem store configs
 	status = status.Merge(r.ensureFileSystemStoreConfigurationInOpsManager(opsManager, omAdmin, log))
 	if len(opsManager.Spec.Backup.S3Configs) == 0 && len(opsManager.Spec.Backup.BlockStoreConfigs) == 0 && len(opsManager.Spec.Backup.FileSystemStoreConfigs) == 0 {
 		return status.Merge(workflow.Invalid("Either S3 or Blockstore or FileSystem Snapshot configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending))
@@ -1161,7 +1164,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 // and removes the non-existing ones. Note that there's no update operation as so far the Operator manages only one field
 // 'path'. This will allow users to make any additional changes to the file system stores using Ops Manager UI and the
 // Operator won't override them
-func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.OplogStoreAdmin, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -1214,11 +1217,68 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 		}
 	}
 
-	//operatorS3OplogConfigs := opsManager.Spec.Backup.S3OplogStoreConfigs
+	operatorS3OplogConfigs := opsManager.Spec.Backup.S3OplogStoreConfigs
+	if len(operatorOplogConfigs) == 0 && len(operatorS3OplogConfigs) == 0 {
+		return workflow.Invalid("Oplog Store configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending)
+	}
+	return workflow.OK()
+}
 
-	// TODO: handle the creation/update/deletion of S3OpLogStoreConfigs
+func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.MongoDBOpsManager, s3OplogAdmin api.S3OplogStoreAdmin, log *zap.SugaredLogger) workflow.Status {
+	if !opsManager.Spec.Backup.Enabled {
+		return workflow.OK()
+	}
 
-	if len(operatorOplogConfigs) == 0 /* && len(operatorS3OplogConfigs) == 0 */ {
+	opsManagerS3OpLogConfigs, err := s3OplogAdmin.ReadS3OplogStoreConfigs()
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	// Creating new configs
+	s3OperatorOplogConfigs := opsManager.Spec.Backup.S3OplogStoreConfigs
+	configsToCreate := identifiable.SetDifferenceGeneric(s3OperatorOplogConfigs, opsManagerS3OpLogConfigs)
+	for _, v := range configsToCreate {
+		omConfig, status := r.buildOMS3Config(opsManager, v.(omv1.S3Config), log)
+		if !status.IsOK() {
+			return status
+		}
+		log.Debugw("Creating S3 Oplog Store in Ops Manager", "config", omConfig)
+		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
+			return workflow.Failed(err.Error())
+		}
+	}
+
+	// Updating existing configs. It intersects the OM API configs with Operator spec configs and returns pairs
+	//["omConfig", "operatorConfig"].
+	configsToUpdate := identifiable.SetIntersectionGeneric(opsManagerS3OpLogConfigs, s3OperatorOplogConfigs)
+	for _, v := range configsToUpdate {
+		omConfig := v[0].(backup.S3Config)
+		operatorConfig := v[1].(omv1.S3Config)
+		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, log)
+		if !status.IsOK() {
+			return status
+		}
+
+		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
+		// "owns"
+		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
+		log.Debugw("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate)
+		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
+			return workflow.Failed(err.Error())
+		}
+	}
+
+	// Removing non-existing configs
+	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerS3OpLogConfigs, opsManager.Spec.Backup.S3OplogStoreConfigs)
+	for _, v := range configsToRemove {
+		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
+		if err = s3OplogAdmin.DeleteS3OplogStoreConfig(v.Identifier().(string)); err != nil {
+			return workflow.Failed(err.Error())
+		}
+	}
+
+	operatorOplogConfigs := opsManager.Spec.Backup.OplogStoreConfigs
+	if len(operatorOplogConfigs) == 0 && len(s3OperatorOplogConfigs) == 0 {
 		return workflow.Invalid("Oplog Store configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending)
 	}
 	return workflow.OK()
@@ -1228,7 +1288,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 // and removes the non-existing ones. Note that there's no update operation as so far the Operator manages only one field
 // 'path'. This will allow users to make any additional changes to the file system stores using Ops Manager UI and the
 // Operator won't override them
-func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.BlockStoreAdmin, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -1283,7 +1343,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.Mon
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin,
+func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.S3StoreAdmin,
 	log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()

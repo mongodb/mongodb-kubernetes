@@ -252,6 +252,13 @@ func (in *MongoDBOpsManagerBackup) DeepCopyInto(out *MongoDBOpsManagerBackup) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.S3OplogStoreConfigs != nil {
+		in, out := &in.S3OplogStoreConfigs, &out.S3OplogStoreConfigs
+		*out = make([]S3Config, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.OplogStoreConfigs != nil {
 		in, out := &in.OplogStoreConfigs, &out.OplogStoreConfigs
 		*out = make([]DataStoreConfig, len(*in))

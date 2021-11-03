@@ -557,6 +557,55 @@ spec:
                       - name
                       type: object
                     type: array
+                  s3OpLogStores:
+                    description: S3OplogStoreConfigs describes the list of s3 oplog
+                      store configs used for backup.
+                    items:
+                      properties:
+                        irsaEnabled:
+                          description: 'This is only set to "true" when user is running
+                            in EKS and is using AWS IRSA to configure S3 snapshot
+                            store. For more details refer this: https://aws.amazon.com/blogs/opensource/introducing-fine-grained-iam-roles-service-accounts/'
+                          type: boolean
+                        mongodbResourceRef:
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        mongodbUserRef:
+                          properties:
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        name:
+                          type: string
+                        pathStyleAccessEnabled:
+                          type: boolean
+                        s3BucketEndpoint:
+                          type: string
+                        s3BucketName:
+                          type: string
+                        s3SecretRef:
+                          properties:
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      required:
+                      - name
+                      - pathStyleAccessEnabled
+                      - s3BucketEndpoint
+                      - s3BucketName
+                      - s3SecretRef
+                      type: object
+                    type: array
                   s3Stores:
                     items:
                       properties:
