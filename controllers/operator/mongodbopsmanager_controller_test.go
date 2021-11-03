@@ -73,13 +73,6 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	assert.Contains(t, reconciler.WatchedResources, key)
 	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
 	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
-
-	// if backup is disabled, should be removed from watched resources
-	testOm.Spec.Backup.Enabled = false
-	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
-	assert.Contains(t, reconciler.WatchedResources, key)
-	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
-	assert.NotContains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&testOm))
 }
 
 //TestOMTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
@@ -707,6 +700,78 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 		})
 	})
 
+}
+
+func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().
+		AddS3Config("s3-config-0", "s3-secret").
+		AddS3Config("s3-config-1", "s3-secret").
+		AddS3Config("s3-config-2", "s3-secret").
+		AddOplogStoreConfig("oplog-store-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddOplogStoreConfig("oplog-store-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-2-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "block-store-config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-1", "my-user", types.NamespacedName{Name: "block-store-config-1-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-2", "my-user", types.NamespacedName{Name: "block-store-config-2-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	reconciler, mockedClient, _ := defaultTestOmReconciler(t, testOm)
+
+	configureBackupResources(mockedClient, testOm)
+
+	// initially requeued as monitoring needs to be configured
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+	assert.Equal(t, true, res.Requeue)
+
+	// monitoring is configured successfully
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+	assert.NoError(t, err)
+
+	t.Run("All MongoDB resource should be watched.", func(t *testing.T) {
+		assert.Len(t, reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 6, "All non S3 configs should have a corresponding MongoDB resource and should be watched.")
+	})
+
+	t.Run("Removing backup configs causes the resource no longer be watched", func(t *testing.T) {
+		// remove last
+		testOm.Spec.Backup.BlockStoreConfigs = testOm.Spec.Backup.BlockStoreConfigs[0:2]
+		// remove first
+		testOm.Spec.Backup.OplogStoreConfigs = testOm.Spec.Backup.OplogStoreConfigs[1:3]
+		err = mockedClient.Update(context.TODO(), &testOm)
+		assert.NoError(t, err)
+
+		res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+		assert.NoError(t, err)
+
+		watchedResources := reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace)
+		assert.Len(t, watchedResources, 4, "The two configs that were removed should no longer be watched.")
+
+		assert.True(t, containsName("block-store-config-0-mdb", watchedResources))
+		assert.True(t, containsName("block-store-config-1-mdb", watchedResources))
+		assert.True(t, containsName("config-1-mdb", watchedResources))
+		assert.True(t, containsName("config-2-mdb", watchedResources))
+
+	})
+
+	t.Run("Disabling backup should cause all resources to no longer be watched.", func(t *testing.T) {
+		testOm.Spec.Backup.Enabled = false
+		err = mockedClient.Update(context.TODO(), &testOm)
+		assert.NoError(t, err)
+
+		res, err = reconciler.Reconcile(context.TODO(), requestFromObject(&testOm))
+		assert.NoError(t, err)
+		assert.Len(t, reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 0, "Backup has been disabled, none of the resources should be watched anymore.")
+	})
+
+}
+
+func containsName(name string, nsNames []types.NamespacedName) bool {
+	for _, nsName := range nsNames {
+		if nsName.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // configureBackupResources ensures all of the dependent resources for the Backup configuration

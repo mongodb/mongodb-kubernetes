@@ -741,7 +741,6 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager omv1.MongoDBOpsManager) {
 	if !opsManager.Spec.Backup.Enabled {
-		r.RemoveWatchedResources(opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(&opsManager))
 		return
 	}
 
@@ -1432,7 +1431,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		return backup.S3Config{}, status
 	}
 
-	if status := validateS3Config(opsManager, mongodb, config); !status.IsOK() {
+	if status := validateS3Config(mongodb, config); !status.IsOK() {
 		return backup.S3Config{}, status
 	}
 
@@ -1523,7 +1522,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 		return backup.DataStoreConfig{}, workflow.Failed(err.Error())
 	}
 
-	status := validateDataStoreConfig(opsManager, *mongodb, operatorConfig)
+	status := validateDataStoreConfig(*mongodb, operatorConfig)
 	if !status.IsOK() {
 		return backup.DataStoreConfig{}, status
 	}
@@ -1554,15 +1553,15 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), workflow.OK()
 }
 
-func validateS3Config(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {
-	return validateConfig(opsManager, mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
+func validateS3Config(mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {
+	return validateConfig(mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
 }
 
-func validateDataStoreConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
-	return validateConfig(opsManager, mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
+func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
+	return validateConfig(mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
 }
 
-func validateConfig(opsManager omv1.MongoDBOpsManager, mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
+func validateConfig(mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
 	// validate
 	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
 		len(mongodb.Spec.Security.Authentication.GetModes()) > 0 {
@@ -1597,6 +1596,7 @@ func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
 
 	r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
+	r.RemoveDependentWatchedResources(opsManager.AppDBStatefulSetObjectKey())
 
 	log.Info("Cleaned up Ops Manager related resources.")
 }

@@ -24,6 +24,21 @@ func (r *ResourceWatcher) RegisterWatchedMongodbResources(mongodbResourceNsName 
 	r.AddWatchedResourceIfNotAdded(secret, defaultNamespace, Secret, mongodbResourceNsName)
 }
 
+// GetWatchedResourcesOfType returns all watched resources of the given type in the specified namespace.
+// if the specified namespace is the zero value, resources in all namespaces will be returned.
+func (r *ResourceWatcher) GetWatchedResourcesOfType(wType Type, ns string) []types.NamespacedName {
+	var res []types.NamespacedName
+	for k := range r.WatchedResources {
+		if k.ResourceType != wType {
+			continue
+		}
+		if k.Resource.Namespace == ns || ns == "" {
+			res = append(res, k.Resource)
+		}
+	}
+	return res
+}
+
 // RegisterWatchedTLSResources adds the CA configMap and a slice of TLS secrets to the list of watched resources.
 func (r *ResourceWatcher) RegisterWatchedTLSResources(mongodbResourceNsName types.NamespacedName, caConfigMap string, tlsSecrets []string) {
 	defaultNamespace := mongodbResourceNsName.Namespace
