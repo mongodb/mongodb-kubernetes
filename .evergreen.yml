@@ -1375,6 +1375,7 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_sc
+  tags: ["patch-run"]
   exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"

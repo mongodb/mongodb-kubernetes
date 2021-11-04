@@ -58,7 +58,7 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
         ac_tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         ac_tester.assert_internal_cluster_authentication_enabled()
         ac_tester.assert_authentication_enabled()
-        ac_tester.assert_expected_users(2)
+        ac_tester.assert_expected_users(0)
 
     # TODO: use /mongodb-automation/server.pem but doesn't exist on test pod
     # def test_mdb_is_reachable_with_no_ssl(self):
