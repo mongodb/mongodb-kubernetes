@@ -39,7 +39,7 @@ type MockedOmAdmin struct {
 
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
 // if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
-func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) Admin {
+func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) OpsManagerAdmin {
 	CurrMockedAdmin = &MockedOmAdmin{}
 	CurrMockedAdmin.BaseURL = baseUrl
 	CurrMockedAdmin.PublicKey = publicApiKey

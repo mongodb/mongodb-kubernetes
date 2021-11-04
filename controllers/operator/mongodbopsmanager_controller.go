@@ -438,7 +438,7 @@ func (r *OpsManagerReconciler) ensureGlobalProgrammaticApiKey(opsManager omv1.Mo
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
+func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, statusOptions...)
@@ -458,7 +458,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 	}
 
 	// 3. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
-	var omAdmin api.Admin
+	var omAdmin api.OpsManagerAdmin
 	if status, omAdmin = r.prepareOpsManager(*opsManager, log); !status.IsOK() {
 		return status, nil
 	}
@@ -528,7 +528,7 @@ func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(opsManager omv1.MongoDBO
 	return client.IgnoreNotFound(err)
 }
 
-func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.Admin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
@@ -927,7 +927,7 @@ func getAlternativeOpsManagerCentralUrl(currentUrl string) (string, error) {
 }
 
 // getOpsManagerVersionAndAdminProvider returns the OM versin extracted from the API response header, and and admin using the correct baseUrl.
-func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (api.Admin, versionutil.OpsManagerVersion, workflow.Status) {
+func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (api.OpsManagerAdmin, versionutil.OpsManagerVersion, workflow.Status) {
 	var currentOpsManagerVersion versionutil.OpsManagerVersion
 
 	APIKeySecretName, status := r.getOpsManagerAPIKeySecretName(opsManager)
@@ -997,13 +997,13 @@ func (r OpsManagerReconciler) readApiKeySecret(opsManager omv1.MongoDBOpsManager
 }
 
 // prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
-// api.Admin to perform future Ops Manager configuration
+// api.OpsManagerAdmin to perform future Ops Manager configuration
 // Note the exception handling logic - if the controller fails to save the public API key secret - it cannot fix this
 // manually (the first OM user can be created only once) - so the resource goes to Failed state and shows the message
 // asking the user to fix this manually.
 // Theoretically the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
 // allow the db to get recreated but seems this is a quite radical operation.
-func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.Admin) {
+func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -1113,7 +1113,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
-func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin,
+func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin,
 	log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
@@ -1343,7 +1343,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.Mon
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.S3StoreAdmin,
+func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.S3StoreBlockStoreAdmin,
 	log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
@@ -1425,7 +1425,7 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 
 // ensureFileSystemStoreConfigurationInOpsManage makes sure that the FileSystem snapshot stores specified in the
 // MongoDB CR are configured correctly in OpsManager.
-func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.Admin, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
 	opsManagefsStoreConfigs, err := omAdmin.ReadFileSystemStoreConfigs()
 	if err != nil {
 		return workflow.Failed(err.Error())

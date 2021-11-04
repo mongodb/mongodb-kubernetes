@@ -36,13 +36,20 @@ type Whitelist struct {
 }
 
 type S3OplogStoreAdmin interface {
+	// ReadS3OplogStoreConfigs returns a list of all Oplog S3Configs
 	ReadS3OplogStoreConfigs() ([]backup.S3Config, error)
+
+	// UpdateS3OplogConfig updates the given Oplog S3Config
 	UpdateS3OplogConfig(s3Config backup.S3Config) error
+
+	// CreateS3OplogStoreConfig creates the given Oplog S3Config
 	CreateS3OplogStoreConfig(s3Config backup.S3Config) error
+
+	// DeleteS3OplogStoreConfig removes an Oplog S3config by id
 	DeleteS3OplogStoreConfig(id string) error
 }
 
-type S3StoreAdmin interface {
+type S3StoreBlockStoreAdmin interface {
 	// CreateS3Config creates the given S3Config
 	CreateS3Config(s3Config backup.S3Config) error
 
@@ -84,12 +91,12 @@ type OplogStoreAdmin interface {
 	DeleteOplogStoreConfig(id string) error
 }
 
-// Admin (imported as 'api.Admin') is the client to all "administrator" related operations with Ops Manager
+// OpsManagerAdmin (imported as 'api.OpsManagerAdmin') is the client to all "administrator" related operations with Ops Manager
 // which do not relate to specific groups (that's why it's different from 'om.Connection'). The only state expected
 // to be encapsulated is baseUrl, user and key
-type Admin interface {
+type OpsManagerAdmin interface {
 	S3OplogStoreAdmin
-	S3StoreAdmin
+	S3StoreBlockStoreAdmin
 	BlockStoreAdmin
 	OplogStoreAdmin
 	// ReadDaemonConfig returns the daemon config by hostname and head db path
@@ -98,7 +105,7 @@ type Admin interface {
 	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
 	CreateDaemonConfig(hostName, headDbDir string) error
 
-	// ReadFileSystemStoreConfig reads the FileSystemSnapshot store by its ID
+	// ReadFileSystemStoreConfigs reads the FileSystemSnapshot store by its ID
 	ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error)
 
 	// ReadGlobalAPIKeys reads the global API Keys in Ops Manager
@@ -111,21 +118,21 @@ type Admin interface {
 	ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error)
 }
 
-// AdminProvider is a function which returns an instance of Admin interface initialized with connection parameters.
+// AdminProvider is a function which returns an instance of OpsManagerAdmin interface initialized with connection parameters.
 // The parameters can be moved to a separate struct when they grow (e.g. tls is added)
-type AdminProvider func(baseUrl, user, publicApiKey string) Admin
+type AdminProvider func(baseUrl, user, publicApiKey string) OpsManagerAdmin
 
-// DefaultOmAdmin is the default (production) implementation of Admin interface
+// DefaultOmAdmin is the default (production) implementation of OpsManagerAdmin interface
 type DefaultOmAdmin struct {
 	BaseURL      string
 	User         string
 	PublicAPIKey string
 }
 
-var _ Admin = &DefaultOmAdmin{}
-var _ Admin = &MockedOmAdmin{}
+var _ OpsManagerAdmin = &DefaultOmAdmin{}
+var _ OpsManagerAdmin = &MockedOmAdmin{}
 
-func NewOmAdmin(baseUrl, user, publicApiKey string) Admin {
+func NewOmAdmin(baseUrl, user, publicApiKey string) OpsManagerAdmin {
 	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PublicAPIKey: publicApiKey}
 }
 

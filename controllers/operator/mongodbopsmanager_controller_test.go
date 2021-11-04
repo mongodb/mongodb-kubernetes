@@ -837,7 +837,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 		Build()
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
-	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, func(baseUrl, user, publicApiKey string) api.Admin {
+	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, func(baseUrl, user, publicApiKey string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey).(*api.MockedOmAdmin)
 		}
