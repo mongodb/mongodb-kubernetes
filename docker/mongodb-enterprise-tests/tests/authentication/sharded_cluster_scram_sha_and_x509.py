@@ -64,9 +64,11 @@ def mongodb_user_password_secret(namespace: str) -> str:
 
 @pytest.fixture(scope="module")
 def scram_user(
-        sharded_cluster: MongoDB, mongodb_user_password_secret: str, namespace: str
+    sharded_cluster: MongoDB, mongodb_user_password_secret: str, namespace: str
 ) -> MongoDBUser:
-    user = MongoDBUser.from_yaml(load_fixture("scram-sha-user.yaml"), namespace=namespace)
+    user = MongoDBUser.from_yaml(
+        load_fixture("scram-sha-user.yaml"), namespace=namespace
+    )
     user["spec"]["mongodbResourceRef"]["name"] = sharded_cluster.name
     user["spec"]["passwordSecretKeyRef"]["name"] = mongodb_user_password_secret
     return user.create()
@@ -74,7 +76,9 @@ def scram_user(
 
 @pytest.fixture(scope="module")
 def x509_user(sharded_cluster: MongoDB, namespace: str) -> MongoDBUser:
-    user = MongoDBUser.from_yaml(load_fixture("test-x509-user.yaml"), namespace=namespace)
+    user = MongoDBUser.from_yaml(
+        load_fixture("test-x509-user.yaml"), namespace=namespace
+    )
     user["spec"]["mongodbResourceRef"]["name"] = sharded_cluster.name
     return user.create()
 

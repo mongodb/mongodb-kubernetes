@@ -233,36 +233,54 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		return fmt.Errorf("error reading automation config: %s", err)
 	}
 
+	// Disabling auth must be done in two steps, otherwise the agents might not be able to transition.
+	// From a slack conversation with Agent team:
+	// "First disable with leaving credentials and mechanisms and users in place. Wait for goal state.  Then remove the rest"
+	// "assume the agent is stateless.  So if you remove the authentication information before it has transitioned then it won't be able to transition"
 	if ac.Auth.IsEnabled() {
 		log.Info("Disabling authentication")
-		err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-			if err := ac.EnsureKeyFileContents(); err != nil {
-				return fmt.Errorf("error ensuring keyfile contents: %s", err)
-			}
-			if _, err := ac.EnsurePassword(); err != nil {
-				return fmt.Errorf("error ensuring agent password: %s", err)
-			}
 
-			// we don't always want to delete the users. This can result in the agents getting stuck
-			// certain situations around auth transitions.
-			if deleteUsers {
-				ac.Auth.Users = []*om.MongoDBUser{}
-			}
-			ac.Auth.AutoAuthMechanisms = []string{}
-			ac.Auth.DeploymentAuthMechanisms = []string{}
+		err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 			ac.Auth.Disabled = true
-			ac.Auth.AutoUser = util.AutomationAgentName
-			ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
-			ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
-			ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
-			ac.AgentSSL.ClientCertificateMode = util.OptionalClientCertficates
-			ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
 			return nil
 		}, log)
 
 		if err != nil {
 			return fmt.Errorf("error read/updating automation config: %s", err)
 		}
+
+		if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+			return fmt.Errorf("error waiting for ready state: %s", err)
+		}
+
+	}
+
+	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if err := ac.EnsureKeyFileContents(); err != nil {
+			return fmt.Errorf("error ensuring keyfile contents: %s", err)
+		}
+		if _, err := ac.EnsurePassword(); err != nil {
+			return fmt.Errorf("error ensuring agent password: %s", err)
+		}
+
+		// we don't always want to delete the users. This can result in the agents getting stuck
+		// certain situations around auth transitions.
+		if deleteUsers {
+			ac.Auth.Users = []*om.MongoDBUser{}
+		}
+		ac.Auth.AutoAuthMechanisms = []string{}
+		ac.Auth.DeploymentAuthMechanisms = []string{}
+		ac.Auth.AutoUser = util.AutomationAgentName
+		ac.Auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
+		ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
+		ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
+		ac.AgentSSL.ClientCertificateMode = util.OptionalClientCertficates
+		ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
+		return nil
+	}, log)
+
+	if err != nil {
+		return fmt.Errorf("error read/updating automation config: %s", err)
 	}
 
 	// It is only required to update monitoring and backup agent configs in a 3 agent environment.

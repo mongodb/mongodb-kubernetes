@@ -97,7 +97,7 @@ class MongoDBMulti(MongoDB):
         ca_path: Optional[str] = None,
         srv: bool = False,
         use_ssl: Optional[bool] = None,
-        service_names: Optional[List[str]] = None
+        service_names: Optional[List[str]] = None,
     ) -> MongoTester:
         if service_names is None:
             service_names = self.service_names()

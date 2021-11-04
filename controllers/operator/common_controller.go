@@ -3,8 +3,9 @@ package operator
 import (
 	"context"
 	"encoding/json"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"reflect"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 

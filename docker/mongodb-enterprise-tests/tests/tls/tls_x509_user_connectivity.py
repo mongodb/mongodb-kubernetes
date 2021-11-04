@@ -55,10 +55,6 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
             assert "OU" in names
             assert "CN" in names
 
-        # exception with IndexError if not found
-        backup = [u for u in users if "CN=backup" in u][0]
-        monitoring = [u for u in users if "CN=monitoring" in u][0]
-
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 class TestAddMongoDBUser(KubernetesTester):
@@ -106,10 +102,10 @@ class TestX509CorrectlyConfigured(KubernetesTester):
 
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
         tester.assert_authoritative_set(True)
-        tester.assert_expected_users(3)
+        tester.assert_expected_users(1)
 
         user = automation_config["auth"]["autoUser"]
         names = dict(name.split("=") for name in user.split(","))
 
         assert "OU" in names
-        assert "CN=automation" in user
+        assert "CN=mms-automation-agent" in user

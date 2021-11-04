@@ -14,3 +14,9 @@ spec:
   logLevel: DEBUG
 
   persistent: true
+
+
+  additionalMongodConfig:
+    net:
+      ssl:
+        mode: "allowSSL"

@@ -63,19 +63,14 @@ class TestReplicaSetUpgradeToTLSWithX509Project(KubernetesTester):
         mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_certificates_have_sane_subject(self, namespace):
-        agent_certs = KubernetesTester.read_secret(namespace, "agent-certs")
-        agent_names = [
-            "mms-{}-agent".format(name)
-            for name in ["automation", "monitoring", "backup"]
-        ]
+        agent_certs = KubernetesTester.read_secret(namespace, "agent-certs-pem")
 
-        for agent in agent_names:
-            bytecert = bytearray(agent_certs[agent + "-pem"], "utf-8")
-            cert = x509.load_pem_x509_certificate(bytecert, default_backend())
-            names = get_names_from_certificate_attributes(cert)
+        bytecert = bytearray(agent_certs["mms-automation-agent-pem"], "utf-8")
+        cert = x509.load_pem_x509_certificate(bytecert, default_backend())
+        names = get_names_from_certificate_attributes(cert)
 
-            assert names["CN"] == agent.split("-")[1]
-            assert names["OU"] == namespace
+        assert names["CN"] == "mms-automation-agent"
+        assert names["OU"] == namespace
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
@@ -93,7 +88,7 @@ class TestMultipleUsersAreAdded(KubernetesTester):
     @staticmethod
     def all_users_ready():
         ac = KubernetesTester.get_automation_config()
-        return len(ac["auth"]["usersWanted"]) == 8  # 2 agents + 6 MongoDBUsers
+        return len(ac["auth"]["usersWanted"]) == 6  # 6 MongoDBUsers
 
     def test_users_are_added_to_automation_config(self):
         ac = KubernetesTester.get_automation_config()
@@ -105,14 +100,6 @@ class TestMultipleUsersAreAdded(KubernetesTester):
 
         for expected in expected_users:
             assert expected in existing_subjects
-
-    def test_automation_users_are_correct(self):
-        ac = KubernetesTester.get_automation_config()
-        backup_names = get_user_pkix_names(ac, "backup")
-        assert backup_names["OU"] == KubernetesTester.get_namespace()
-
-        monitoring_names = get_user_pkix_names(ac, "monitoring")
-        assert monitoring_names["OU"] == KubernetesTester.get_namespace()
 
 
 @pytest.mark.e2e_tls_x509_users_addition_removal
@@ -127,7 +114,7 @@ class TestTheCorrectUserIsDeleted(KubernetesTester):
     @staticmethod
     def user_has_been_deleted():
         ac = KubernetesTester.get_automation_config()
-        return len(ac["auth"]["usersWanted"]) == 7  # One user has been deleted
+        return len(ac["auth"]["usersWanted"]) == 5  # One user has been deleted
 
     def test_deleted_user_is_gone(self):
         ac = KubernetesTester.get_automation_config()

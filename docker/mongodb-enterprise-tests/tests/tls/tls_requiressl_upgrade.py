@@ -50,6 +50,14 @@ def test_enables_TLS_replica_set(
 
 
 @pytest.mark.e2e_replica_set_tls_require_upgrade
+def test_require_TLS(mdb: MongoDB):
+    mdb.load()
+    mdb["spec"]["additionalMongodConfig"]["net"]["ssl"]["mode"] = "requireSSL"
+    mdb.update()
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@pytest.mark.e2e_replica_set_tls_require_upgrade
 @skip_if_local()
 def test_mdb_is_not_reachable_with_no_ssl():
     ReplicaSetTester(MDB_RESOURCE, 3).assert_no_connection()

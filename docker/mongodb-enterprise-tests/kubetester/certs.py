@@ -15,6 +15,7 @@ from kubeobject import CustomObject
 import copy
 import time
 import random
+import os
 import tempfile
 
 import kubernetes
@@ -83,10 +84,14 @@ def generate_cert(
     additional_domains: Optional[List[str]] = None,
     multi_cluster_mode=False,
     api_client: Optional[client.ApiClient] = None,
+    secret_name: Optional[str] = None,
 ) -> str:
     if spec is None:
         spec = dict()
-    secret_name = "{}-{}".format(pod, random_k8s_name(prefix="")[:4])
+
+    if secret_name is None:
+        secret_name = "{}-{}".format(pod[0], random_k8s_name(prefix="")[:4])
+
     cert = Certificate(namespace=namespace, name=secret_name)
 
     dns_names = [dns]
@@ -119,6 +124,7 @@ def create_tls_certs(
     replicas: int = 3,
     service_name: str = None,
     spec: Optional[Dict] = None,
+    secret_name: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     if service_name is None:
@@ -135,36 +141,41 @@ def create_tls_certs(
             index="{}",
         )
     )
-    secret_and_pod_names = {}
+
+    pod_dns = []
+    pods = []
     for idx in range(replicas):
-        pod_dns = pod_fqdn_fstring.format(idx)
-        pod_name = f"{resource_name}-{idx}"
-        cert_secret_name = generate_cert(
-            namespace, pod_name, pod_dns, issuer, spec, additional_domains
-        )
-        secret_and_pod_names[pod_name] = cert_secret_name
-    return secret_and_pod_names
+        pod_dns.append(pod_fqdn_fstring.format(idx))
+        pods.append(f"{resource_name}-{idx}")
+    spec["dnsNames"] = pods + pod_dns
+    if additional_domains is not None:
+        spec["dnsNames"] += additional_domains
+    cert_secret_name = generate_cert(
+        namespace,
+        pods,
+        pod_dns,
+        issuer,
+        spec,
+        secret_name=secret_name,
+    )
+    return {"tls.pem": cert_secret_name}
 
 
 def create_ops_manager_tls_certs(
     issuer: str, namespace: str, om_name: str, secret_name: Optional[str] = None
 ) -> str:
 
-    domain = f"{om_name}-svc.{namespace}.svc.cluster.local"
-    spec = {"dnsNames": [domain]}
-
-    secret_name_for_cert = generate_cert(namespace, "foo", "", issuer, spec)
-    https_cert = KubernetesTester.read_secret(namespace, secret_name_for_cert)
-    data = {"server.pem": https_cert["tls.key"] + https_cert["tls.crt"]}
-
     certs_secret_name = "certs-for-ops-manager"
 
     if secret_name is not None:
         certs_secret_name = secret_name
 
-    # Cert and Key file need to be merged into its own PEM file.
-    KubernetesTester.create_secret(namespace, certs_secret_name, data)
-    return certs_secret_name
+    domain = f"{om_name}-svc.{namespace}.svc.cluster.local"
+    spec = {"dnsNames": [domain]}
+
+    return generate_cert(
+        namespace, "foo", "", issuer, spec, secret_name=certs_secret_name
+    )
 
 
 def create_mongodb_tls_certs(
@@ -177,6 +188,7 @@ def create_mongodb_tls_certs(
     spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
 ) -> str:
+
     cert_and_pod_names = create_tls_certs(
         issuer,
         namespace,
@@ -184,15 +196,11 @@ def create_mongodb_tls_certs(
         replicas,
         service_name,
         spec,
-        additional_domains,
+        additional_domains=additional_domains,
+        secret_name=bundle_secret_name,
     )
-    data = {}
-    for pod_name, cert_secret_name in cert_and_pod_names.items():
-        secret = read_secret(namespace, cert_secret_name)
-        data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
 
-    create_secret(namespace, bundle_secret_name, data)
-    return bundle_secret_name
+    return cert_and_pod_names["tls.pem"]
 
 
 def mutli_cluster_pod_name_to_service_fqdn_mapping(
@@ -310,7 +318,7 @@ def create_x509_mongodb_tls_certs(
 
 
 def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
-    agents = ["automation", "monitoring", "backup"]
+    agents = ["mms-automation-agent"]
     subject = copy.deepcopy(SUBJECT)
     subject["organizationalUnits"] = [namespace]
 
@@ -318,17 +326,9 @@ def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
         "subject": subject,
         "usages": ["client auth"],
     }
-
-    full_certs = {}
-    for agent in agents:
-        spec["dnsNames"] = [agent]
-        spec["commonName"] = agent
-        secret = generate_cert(namespace, agent, agent, issuer, spec)
-        agent_cert = KubernetesTester.read_secret(namespace, secret)
-        full_certs["mms-{}-agent-pem".format(agent)] = (
-            agent_cert["tls.crt"] + agent_cert["tls.key"]
-        )
-    KubernetesTester.create_secret(namespace, "agent-certs", full_certs)
+    spec["dnsNames"] = agents
+    spec["commonName"] = "mms-automation-agent"
+    secret = generate_cert(namespace, [], [], issuer, spec, secret_name="agent-certs")
 
 
 def create_sharded_cluster_certs(
@@ -347,6 +347,7 @@ def create_sharded_cluster_certs(
     if x509_certs:
         cert_generation_func = create_x509_mongodb_tls_certs
 
+    secret_type = "kubernetes.io/tls"
     for i in range(shards):
         additional_domains_for_shard = None
         if additional_domains is not None:
@@ -371,7 +372,9 @@ def create_sharded_cluster_certs(
         )
         if internal_auth:
             data = read_secret(namespace, f"{resource_name}-{i}-cert")
-            create_secret(namespace, f"{resource_name}-{i}-clusterfile", data)
+            create_secret(
+                namespace, f"{resource_name}-{i}-clusterfile", data, type=secret_type
+            )
 
     additional_domains_for_config = None
     if additional_domains is not None:
@@ -396,7 +399,9 @@ def create_sharded_cluster_certs(
     )
     if internal_auth:
         data = read_secret(namespace, f"{resource_name}-config-cert")
-        create_secret(namespace, f"{resource_name}-config-clusterfile", data)
+        create_secret(
+            namespace, f"{resource_name}-config-clusterfile", data, type=secret_type
+        )
 
     additional_domains_for_mongos = None
     if additional_domains is not None:
@@ -422,7 +427,9 @@ def create_sharded_cluster_certs(
 
     if internal_auth:
         data = read_secret(namespace, f"{resource_name}-mongos-cert")
-        create_secret(namespace, f"{resource_name}-mongos-clusterfile", data)
+        create_secret(
+            namespace, f"{resource_name}-mongos-clusterfile", data, type=secret_type
+        )
 
 
 def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
@@ -439,15 +446,9 @@ def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
         "usages": ["digital signature", "key encipherment", "client auth"],
     }
 
-    full_certs = {}
-    for agent in agents:
-        agent_name = f"mms-{agent}-agent"
-        spec["dnsNames"] = [agent_name]
-        spec["commonName"] = agent_name
-        secret = generate_cert(namespace, agent_name, agent_name, issuer, spec)
-        agent_cert = KubernetesTester.read_secret(namespace, secret)
-        full_certs[agent_name + "-pem"] = agent_cert["tls.crt"] + agent_cert["tls.key"]
-    KubernetesTester.create_secret(namespace, "agent-certs", full_certs)
+    spec["dnsNames"] = agents
+    spec["commonName"] = "mms-automation-agent"
+    secret = generate_cert(namespace, [], [], issuer, spec, secret_name="agent-certs")
 
 
 def approve_certificate(name: str) -> None:

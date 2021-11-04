@@ -28,7 +28,8 @@ def server_certs(issuer: str, namespace: str):
     )
     secret_name = f"{MDB_RESOURCE}-cert"
     data = read_secret(namespace, secret_name)
-    create_secret(namespace, f"{MDB_RESOURCE}-clusterfile", data)
+    secret_type = "kubernetes.io/tls"
+    create_secret(namespace, f"{MDB_RESOURCE}-clusterfile", data, type=secret_type)
 
 
 @pytest.fixture(scope="module")

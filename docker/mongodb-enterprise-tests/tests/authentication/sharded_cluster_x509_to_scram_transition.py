@@ -88,7 +88,7 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
         sharded_cluster["spec"]["security"]["authentication"]["enabled"] = False
         sharded_cluster.update()
         sharded_cluster.assert_abandons_phase(Phase.Running)
-        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1500)
 
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(

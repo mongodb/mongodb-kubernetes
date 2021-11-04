@@ -105,7 +105,9 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     # remove first and last cluster
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"] = [mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][1]]
+    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"] = [
+        mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][1]
+    ]
     mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)

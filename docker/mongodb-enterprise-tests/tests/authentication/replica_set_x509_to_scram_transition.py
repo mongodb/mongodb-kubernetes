@@ -53,7 +53,7 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-X509")
         tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled()
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
 
     def test_deployment_is_reachable(self, replica_set: MongoDB):
         tester = replica_set.tester()
@@ -84,7 +84,7 @@ def test_x509_is_still_configured(replica_set: MongoDB):
         "SCRAM-SHA-256", active_auth_mechanism=False
     )
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
-    tester.assert_expected_users(2)
+    tester.assert_expected_users(0)
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
