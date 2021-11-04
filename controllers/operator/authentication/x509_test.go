@@ -16,8 +16,6 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		ClientCertificates: util.RequireClientCertificates,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
-			BackupSubject:     validSubject("backup"),
-			MonitoringSubject: validSubject("monitoring"),
 		},
 	}
 	x := NewConnectionX509(conn, ac, options)
@@ -35,24 +33,13 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(MongoDBX509))
 	assert.Equal(t, ac.Auth.AutoPwd, util.MergoDelete)
 	assert.False(t, ac.Auth.Disabled)
-	assert.Len(t, ac.Auth.Users, 2)
+	assert.Len(t, ac.Auth.Users, 0)
 
 	assert.True(t, ac.Auth.AuthoritativeSet)
 	assert.NotEmpty(t, ac.Auth.Key)
 	assert.NotEmpty(t, ac.Auth.KeyFileWindows)
 	assert.NotEmpty(t, ac.Auth.KeyFile)
 
-	for _, user := range buildX509AgentUsers(UserOptions{
-		AutomationSubject: validSubject("automation"),
-		BackupSubject:     validSubject("backup"),
-		MonitoringSubject: validSubject("monitoring"),
-	}) {
-		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
-
-	for _, user := range buildScramAgentUsers("") {
-		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
 }
 
 func TestX509_DisableAgentAuthentication(t *testing.T) {
@@ -60,8 +47,6 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 	opts := Options{
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
-			BackupSubject:     validSubject("backup"),
-			MonitoringSubject: validSubject("monitoring"),
 		},
 	}
 	x509 := NewConnectionX509(conn, ac, opts)

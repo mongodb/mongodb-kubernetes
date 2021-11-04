@@ -103,12 +103,6 @@ func (s AutomationConfigScramSha) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	for _, user := range buildScramAgentUsers(ac.Auth.AutoPwd) {
-		if !ac.Auth.HasUser(user.Username, user.Database) {
-			return false
-		}
-	}
-
 	return true
 }
 
@@ -137,59 +131,6 @@ func (s ConnectionScramSha) DisableAgentAuthentication(log *zap.SugaredLogger) e
 	}, log)
 }
 
-// buildScramAgentUsers returns the MongoDBUsers with all the required roles
-// for the BackupAgent and the MonitoringAgent
-func buildScramAgentUsers(password string) []om.MongoDBUser {
-	// required roles for Backup Agent
-	// https://docs.opsmanager.mongodb.com/current/reference/required-access-backup-agent/
-	return []om.MongoDBUser{
-		{
-			Username:                   util.BackupAgentName,
-			Database:                   util.DefaultUserDatabase,
-			AuthenticationRestrictions: []string{},
-			Mechanisms:                 []string{},
-			InitPassword:               password,
-			Roles: []*om.Role{
-				{
-					Database: "admin",
-					Role:     "clusterAdmin",
-				},
-				{
-					Database: "admin",
-					Role:     "readAnyDatabase",
-				},
-				{
-					Database: "admin",
-					Role:     "userAdminAnyDatabase",
-				},
-				{
-					Database: "local",
-					Role:     "readWrite",
-				},
-				{
-					Database: "admin",
-					Role:     "readWrite",
-				},
-			},
-		},
-		// roles for Monitoring Agent
-		// https://docs.opsmanager.mongodb.com/current/reference/required-access-monitoring-agent/
-		{
-			Username:                   util.MonitoringAgentName,
-			Database:                   util.DefaultUserDatabase,
-			InitPassword:               password,
-			AuthenticationRestrictions: []string{},
-			Mechanisms:                 []string{},
-			Roles: []*om.Role{
-				{
-					Database: "admin",
-					Role:     "clusterMonitor",
-				},
-			},
-		},
-	}
-}
-
 // configureScramAgentUsers makes sure that the given automation config always has the correct SCRAM-SHA users
 func configureScramAgentUsers(ac *om.AutomationConfig, authOpts Options) error {
 	agentPassword, err := ac.EnsurePassword()
@@ -201,13 +142,6 @@ func configureScramAgentUsers(ac *om.AutomationConfig, authOpts Options) error {
 		auth.AutoUser = authOpts.AutoUser
 	}
 	auth.AutoPwd = agentPassword
-
-	threeAgentEnv := !authOpts.OneAgent
-	if threeAgentEnv {
-		for _, agentUser := range buildScramAgentUsers(agentPassword) {
-			auth.EnsureUser(agentUser)
-		}
-	}
 
 	return nil
 }

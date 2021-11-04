@@ -222,15 +222,8 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretGetCreateDeleter
 
 	}
 
-	var errs error
-	for _, agentSecretKey := range []string{util.AutomationAgentPemSecretKey, util.MonitoringAgentPemSecretKey, util.BackupAgentPemSecretKey} {
-		additionalDomains := []string{} // agents have no additional domains
-		if err := validatePemSecret(s, agentSecretKey, additionalDomains); err != nil {
-			errs = multierror.Append(errs, err)
-		}
-	}
-
-	return errs, false
+	additionalDomains := []string{} // agents have no additional domains
+	return validatePemSecret(s, util.AutomationAgentPemSecretKey, additionalDomains), false
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the

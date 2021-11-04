@@ -79,6 +79,6 @@ def test_ops_manager_state_was_updated_correctly(replica_set: MongoDB):
     ac_tester = replica_set.get_automation_config_tester()
     ac_tester.assert_authentication_enabled()
     ac_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-    ac_tester.assert_expected_users(2)
+    ac_tester.assert_expected_users(0)
     ac_tester.assert_authoritative_set(True)
     ac_tester.assert_internal_cluster_authentication_enabled()

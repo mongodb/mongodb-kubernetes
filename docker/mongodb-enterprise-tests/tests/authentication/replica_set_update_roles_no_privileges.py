@@ -66,7 +66,7 @@ def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     ac.assert_authentication_mechanism_enabled(
         LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
     )
-    ac.assert_expected_users(3)
+    ac.assert_expected_users(1)
 
 
 @mark.e2e_replica_set_update_roles_no_privileges

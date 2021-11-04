@@ -25,7 +25,7 @@ class TestCreateScramSha1ShardedCluster(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
 
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
         tester.assert_authoritative_set(True)
 
 
@@ -52,7 +52,7 @@ class TestUpgradeShardedClusterToMongoDB40(KubernetesTester):
         tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
 
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
         tester.assert_authoritative_set(True)
 
 

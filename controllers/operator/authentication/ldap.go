@@ -34,14 +34,6 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
-		for _, user := range buildScramAgentUsers("") {
-			auth.EnsureUserRemoved(user.Username, user.Database)
-		}
-
-		for _, user := range buildX509AgentUsers(l.Options.UserOptions) {
-			auth.EnsureUserRemoved(user.Username, user.Database)
-		}
-
 		auth.AutoUser = l.Options.AutomationSubject
 		auth.LdapGroupDN = opts.AutoLdapGroupDN
 		auth.AutoAuthMechanisms = []string{string(LDAPPlain)}
@@ -54,7 +46,7 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 
 	log.Info("Configuring backup agent user")
 	err = l.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.EnableLdapAuthentication(l.Options.BackupSubject, opts.AutoPwd)
+		config.EnableLdapAuthentication(l.Options.AutomationSubject, opts.AutoPwd)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
@@ -65,7 +57,7 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 
 	log.Info("Configuring monitoring agent user")
 	return l.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.EnableLdapAuthentication(l.Options.MonitoringSubject, opts.AutoPwd)
+		config.EnableLdapAuthentication(l.Options.AutomationSubject, opts.AutoPwd)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)

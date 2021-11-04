@@ -44,17 +44,8 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 			CAFilePath:            opts.CAFilePath,
 			ClientCertificateMode: opts.ClientCertificates,
 		}
-		// we want to ensure we don't have any SCRAM-1/256 agent users
-		// present. We want the final set of agent users to be the 2 agent
-		// x509 users
-		for _, user := range buildScramAgentUsers("") {
-			auth.EnsureUserRemoved(user.Username, user.Database)
-		}
 
 		auth.AutoUser = x.Options.AutomationSubject
-		for _, user := range buildX509AgentUsers(x.Options.UserOptions) {
-			auth.EnsureUser(user)
-		}
 		auth.LdapGroupDN = opts.AutoLdapGroupDN
 		auth.AutoAuthMechanisms = []string{string(MongoDBX509)}
 
@@ -67,7 +58,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 
 	log.Info("Configuring backup agent user")
 	err = x.Conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
-		config.EnableX509Authentication(opts.BackupSubject)
+		config.EnableX509Authentication(opts.AutomationSubject)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
@@ -78,7 +69,7 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 
 	log.Info("Configuring monitoring agent user")
 	return x.Conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
-		config.EnableX509Authentication(opts.MonitoringSubject)
+		config.EnableX509Authentication(opts.AutomationSubject)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
@@ -151,12 +142,6 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	for _, user := range buildX509AgentUsers(x.Options.UserOptions) {
-		if !ac.Auth.HasUser(user.Username, user.Database) {
-			return false
-		}
-	}
-
 	return true
 }
 
@@ -177,61 +162,6 @@ func isValidX509Subject(subject string) bool {
 		}
 	}
 	return true
-}
-
-// buildX509AgentUsers returns the MongoDBUsers with all the required roles
-// for the BackupAgent and the MonitoringAgent
-func buildX509AgentUsers(options UserOptions) []om.MongoDBUser {
-	// in the case of one agent, we don't need to add these additional agent users
-	if options.AutomationSubject != "" && (options.BackupSubject == options.AutomationSubject && options.MonitoringSubject == options.AutomationSubject) {
-		return []om.MongoDBUser{}
-	}
-	// required roles for Backup Agent
-	// https://docs.opsmanager.mongodb.com/current/reference/required-access-backup-agent/
-	return []om.MongoDBUser{
-		{
-			Username:                   options.BackupSubject,
-			Database:                   ExternalDB,
-			AuthenticationRestrictions: []string{},
-			Mechanisms:                 []string{},
-			Roles: []*om.Role{
-				{
-					Database: "admin",
-					Role:     "clusterAdmin",
-				},
-				{
-					Database: "admin",
-					Role:     "readAnyDatabase",
-				},
-				{
-					Database: "admin",
-					Role:     "userAdminAnyDatabase",
-				},
-				{
-					Database: "local",
-					Role:     "readWrite",
-				},
-				{
-					Database: "admin",
-					Role:     "readWrite",
-				},
-			},
-		},
-		// roles for Monitoring Agent
-		// https://docs.opsmanager.mongodb.com/current/reference/required-access-monitoring-agent/
-		{
-			Username:                   options.MonitoringSubject,
-			Database:                   ExternalDB,
-			AuthenticationRestrictions: []string{},
-			Mechanisms:                 []string{},
-			Roles: []*om.Role{
-				{
-					Database: "admin",
-					Role:     "clusterMonitor",
-				},
-			},
-		},
-	}
 }
 
 //canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current

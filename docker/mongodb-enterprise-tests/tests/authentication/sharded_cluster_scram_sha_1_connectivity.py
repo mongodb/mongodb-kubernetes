@@ -30,7 +30,7 @@ class TestShardedClusterCreation(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authoritative_set(True)
         tester.assert_authentication_enabled()
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
@@ -81,7 +81,7 @@ class TestShardedClusterIsUpdatedWithNewUser(KubernetesTester):
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
-        tester.assert_expected_users(3)
+        tester.assert_expected_users(1)
         tester.assert_authoritative_set(True)
 
     def test_user_cannot_authenticate_with_incorrect_password(self):

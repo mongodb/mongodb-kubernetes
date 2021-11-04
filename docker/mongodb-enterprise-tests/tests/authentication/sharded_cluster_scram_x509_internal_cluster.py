@@ -56,5 +56,5 @@ class TestReplicaSetScramX509Internal(KubernetesTester):
         ac_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         ac_tester.assert_internal_cluster_authentication_enabled()
 
-        ac_tester.assert_expected_users(2)
+        ac_tester.assert_expected_users(0)
         ac_tester.assert_authoritative_set(True)

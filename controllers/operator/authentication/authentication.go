@@ -29,10 +29,6 @@ type Options struct {
 	// AuthoritativeSet maps directly to auth.authoritativeSet
 	AuthoritativeSet bool
 
-	// OneAgent indicates whether or not authentication is being enabled in a One Agent environment.
-	// default of false to indicate 3 agent environment
-	OneAgent bool
-
 	// AgentMechanism indicates which Agent Mechanism should be configured. This should be in the Operator format.
 	// I.e. X509, SCRAM and not MONGODB-X509 or SCRAM-SHA-256
 	AgentMechanism string
@@ -73,8 +69,6 @@ func Redact(o Options) Options {
 // of the agents that should be added to the automation config.
 type UserOptions struct {
 	AutomationSubject string
-	MonitoringSubject string
-	BackupSubject     string
 }
 
 // Configure will configure all of the specified authentication Mechanisms. We need to ensure we wait for
@@ -144,57 +138,10 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}
 
-	if err := removeUnusedAgentUsers(opts.UserOptions, conn, log); err != nil {
-		return fmt.Errorf("error removing unused agent users: %s", err)
-	}
-
 	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}
 	return nil
-}
-
-// removeUnusedAgentUsers ensures that the only agent users that exist in the automation config
-// are the agent users for the currently enabled auth mechanism.
-func removeUnusedAgentUsers(options UserOptions, conn om.Connection, log *zap.SugaredLogger) error {
-	log.Info("Removing any unused agent users")
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-
-		autoAuthMechanism := MechanismName(ac.Auth.AutoAuthMechanism)
-		if ac.Auth.Disabled { // it's possible for autoAuthMechanism to be populated even when disabled
-			autoAuthMechanism = DisableAuth
-		}
-
-		for _, user := range usersToRemove(options, autoAuthMechanism) {
-			if ac.Auth.EnsureUserRemoved(user.Username, user.Database) {
-				log.Infow("removed user", "username", user.Username, "database", user.Database)
-			}
-		}
-		return nil
-	}, log)
-}
-
-// usersToRemove returns a list of the agent users that aren't required for the given mechanism.
-// we want to agent users that we don't need.
-func usersToRemove(subjects UserOptions, mn MechanismName) []om.MongoDBUser {
-	switch mn {
-	case ScramSha256, MongoDBCR:
-		return buildX509AgentUsers(subjects)
-	case MongoDBX509:
-		// the password doesn't matter in this case as we're using the user to remove
-		// based on the username/database
-		return buildScramAgentUsers("")
-	case DisableAuth: // authentication has been disabled, remove all users
-		return allAgentUsers(subjects, "")
-	}
-	return []om.MongoDBUser{}
-}
-
-func allAgentUsers(options UserOptions, scramPassword string) []om.MongoDBUser {
-	allAgentUsers := []om.MongoDBUser{}
-	allAgentUsers = append(allAgentUsers, buildX509AgentUsers(options)...)
-	allAgentUsers = append(allAgentUsers, buildScramAgentUsers(scramPassword)...)
-	return allAgentUsers
 }
 
 // ConfigureScramCredentials creates both SCRAM-SHA-1 and SCRAM-SHA-256 credentials. This ensures
@@ -307,10 +254,6 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}
 
-	// we want to remove all agent users if we're disabling authentication completely
-	if err := removeUnusedAgentUsers(opts.UserOptions, conn, log); err != nil {
-		return fmt.Errorf("error removing unused agent users: %s", err)
-	}
 	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}

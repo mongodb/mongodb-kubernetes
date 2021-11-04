@@ -82,8 +82,6 @@ func TestConfigureX509(t *testing.T) {
 		ClientCertificates:  util.RequireClientCertificates,
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
-			BackupSubject:     validSubject("backup"),
-			MonitoringSubject: validSubject("monitoring"),
 		},
 	}
 
@@ -114,8 +112,6 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		AgentMechanism:      "SCRAM",
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
-			BackupSubject:     validSubject("backup"),
-			MonitoringSubject: validSubject("monitoring"),
 		},
 	}
 
@@ -199,8 +195,6 @@ func TestConfigureAndDisable(t *testing.T) {
 		AgentMechanism:      "SCRAM",
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
-			BackupSubject:     validSubject("backup"),
-			MonitoringSubject: validSubject("monitoring"),
 		},
 	}
 
@@ -282,38 +276,8 @@ func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
 	assert.Contains(t, mechanismNames, MechanismName("MONGODB-X509"))
 }
 
-func TestOneAgentOption(t *testing.T) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
-
-	opts := Options{
-		MinimumMajorVersion: 3, // SCRAM-SHA-1/MONGODB-CR
-		AuthoritativeSet:    true,
-		ProcessNames:        []string{"process-1", "process-2", "process-3"},
-		Mechanisms:          []string{"SCRAM"},
-		OneAgent:            true,
-		AgentMechanism:      "SCRAM",
-	}
-
-	if err := Configure(conn, opts, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, _ := conn.ReadAutomationConfig()
-
-	assert.Empty(t, ac.Auth.Users)
-
-	opts.OneAgent = false // there should be 3 agents (2 users in the list)
-
-	if err := Configure(conn, opts, zap.S()); err != nil {
-		t.Fatal(err)
-	}
-
-	ac, _ = conn.ReadAutomationConfig()
-	assert.Len(t, ac.Auth.Users, 2)
-}
-
 func assertAuthenticationEnabled(t *testing.T, auth *om.Auth) {
-	assertAuthenticationEnabledWithUsers(t, auth, 2)
+	assertAuthenticationEnabledWithUsers(t, auth, 0)
 }
 
 func assertAuthenticationEnabledWithUsers(t *testing.T, auth *om.Auth, numUsers int) {
@@ -339,7 +303,7 @@ func assertAuthenticationDisabled(t *testing.T, auth *om.Auth) {
 func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string) {
 	assert.Len(t, auth.DeploymentAuthMechanisms, 1)
 	assert.Len(t, auth.AutoAuthMechanisms, 1)
-	assert.Len(t, auth.Users, 2)
+	assert.Len(t, auth.Users, 0)
 	assert.Contains(t, auth.DeploymentAuthMechanisms, mechanism)
 	assert.Contains(t, auth.AutoAuthMechanisms, mechanism)
 }

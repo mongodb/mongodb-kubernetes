@@ -124,7 +124,7 @@ class TestCanEnableScramSha256:
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_disabled("MONGODB-X509")
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
         tester.assert_authentication_enabled()
         tester.assert_authoritative_set(True)
 

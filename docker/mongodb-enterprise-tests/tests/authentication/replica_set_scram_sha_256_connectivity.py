@@ -29,7 +29,7 @@ class TestReplicaSetCreation(KubernetesTester):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
         tester.assert_authoritative_set(False)
 
 
@@ -80,7 +80,7 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
-        tester.assert_expected_users(3)
+        tester.assert_expected_users(1)
         tester.assert_authoritative_set(False)
 
     def test_user_cannot_authenticate_with_incorrect_password(self):
@@ -143,7 +143,7 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
     tester.assert_has_user(USER_NAME)
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled()
-    tester.assert_expected_users(3)
+    tester.assert_expected_users(1)
     tester.assert_authoritative_set(False)
 
 

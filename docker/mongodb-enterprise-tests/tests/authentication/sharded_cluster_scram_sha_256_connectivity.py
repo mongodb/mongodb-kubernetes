@@ -77,7 +77,7 @@ class TestShardedClusterIsUpdatedWithNewUser(KubernetesTester):
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
-        tester.assert_expected_users(3)
+        tester.assert_expected_users(1)
 
     def test_user_cannot_authenticate_with_incorrect_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)

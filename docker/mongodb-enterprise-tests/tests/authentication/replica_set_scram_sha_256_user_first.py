@@ -81,5 +81,5 @@ def test_ops_manager_state_correctly_updated(replica_set: MongoDB):
     tester = replica_set.get_automation_config_tester()
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled()
-    tester.assert_expected_users(3)
+    tester.assert_expected_users(1)
     tester.assert_authoritative_set(True)

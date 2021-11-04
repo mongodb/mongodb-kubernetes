@@ -66,9 +66,6 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 
 	assert.True(t, ac.Auth.AuthoritativeSet)
 
-	for _, user := range buildScramAgentUsers("") {
-		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
 }
 
 func TestLDAP_DisableAgentAuthentication(t *testing.T) {

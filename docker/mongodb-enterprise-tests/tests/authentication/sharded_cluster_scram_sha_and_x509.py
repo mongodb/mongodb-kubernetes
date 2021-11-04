@@ -148,7 +148,7 @@ def test_ops_manager_state_correctly_updated():
     )
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
-    tester.assert_expected_users(3)
+    tester.assert_expected_users(1)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509

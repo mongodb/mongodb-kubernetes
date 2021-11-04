@@ -25,7 +25,7 @@ class TestCreateScramSha1ReplicaSet(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
 
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
         tester.assert_authoritative_set(True)
 
 
@@ -51,7 +51,7 @@ class TestUpgradeReplicaSetToMongoDB40(KubernetesTester):
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authentication_enabled()
 
-        tester.assert_expected_users(2)
+        tester.assert_expected_users(0)
         tester.assert_authoritative_set(True)
 
 

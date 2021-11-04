@@ -55,7 +55,7 @@ class TestAddLDAPUsers(KubernetesTester):
     @staticmethod
     def all_users_ready():
         ac = KubernetesTester.get_automation_config()
-        return len(ac["auth"]["usersWanted"]) == 3
+        return len(ac["auth"]["usersWanted"]) == 1
 
 
 @mark.e2e_sharded_cluster_ldap

@@ -32,14 +32,6 @@ func TestScramSha256_EnableAgentAuthentication(t *testing.T) {
 
 	assert.True(t, s.IsAgentAuthenticationConfigured())
 
-	for _, user := range buildScramAgentUsers(ac.Auth.AutoPwd) {
-		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
-
-	for _, user := range buildX509AgentUsers(UserOptions{}) {
-		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
-
 }
 
 func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
@@ -63,17 +55,10 @@ func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
 	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(MongoDBCR))
 	assert.NotEmpty(t, ac.Auth.AutoPwd)
-	assert.Len(t, ac.Auth.Users, 2)
+	assert.Len(t, ac.Auth.Users, 0)
 
 	assert.True(t, s.IsAgentAuthenticationConfigured())
 
-	for _, user := range buildScramAgentUsers(ac.Auth.AutoPwd) {
-		assert.True(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
-
-	for _, user := range buildX509AgentUsers(UserOptions{}) {
-		assert.False(t, ac.Auth.HasUser(user.Username, user.Database))
-	}
 }
 
 func TestScramSha256_DeploymentConfigured(t *testing.T) {
