@@ -152,7 +152,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	// Make sure we watch the AppDB TLS secret
 	rs := opsManager.Spec.AppDB
 	if rs.GetSecurity().IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.AppDBStatefulSetObjectKey(), rs.GetTLSConfig().CA, []string{rs.GetSecurity().MemberCertificateSecretName(rs.Name())})
+		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), rs.GetTLSConfig().CA, []string{rs.GetSecurity().MemberCertificateSecretName(rs.Name())})
 	}
 
 	// 1. Reconcile AppDB

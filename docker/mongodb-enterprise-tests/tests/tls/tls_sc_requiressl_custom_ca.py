@@ -9,6 +9,7 @@ from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
     create_sharded_cluster_certs,
+    Certificate,
 )
 
 from typing import Dict, List
@@ -75,4 +76,28 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
     @skip_if_local
     def test_mongos_are_not_reachable_with_no_ssl(self):
         tester = ShardedClusterTester(MDB_RESOURCE_NAME, ssl=False, mongos_count=2)
+        tester.assert_no_connection()
+
+
+@pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
+class TestCertificateIsRenewed(KubernetesTester):
+    def test_mdb_reconciles_succesfully(self, sharded_cluster: MongoDB, namespace: str):
+        cert = Certificate(
+            name=f"{MDB_RESOURCE_NAME}-0-cert", namespace=namespace
+        ).load()
+        cert["spec"]["dnsNames"].append("foo")
+        cert.update()
+        sharded_cluster.assert_abandons_phase(Phase.Running, timeout=60)
+        sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
+
+    @skip_if_local
+    def test_mongos_are_reachable_with_ssl(self, ca_path: str):
+        tester = ShardedClusterTester(
+            MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2
+        )
+        tester.assert_connectivity()
+
+    @skip_if_local
+    def test_mongos_are_not_reachable_with_no_ssl(self):
+        tester = ShardedClusterTester(MDB_RESOURCE_NAME, mongos_count=2)
         tester.assert_no_connection()

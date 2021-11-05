@@ -5,11 +5,14 @@
 
 
 ## MongoDB Resource
+
 * Bug fixes
   * Fixes an issue which would make a ShardedCluster Resource fail when disabling authentication.
 
 ## MongoDBOpsManager Resource
 
+* Bug Fixes
+  * Fixes an issue where the operator would not properly trigger a reconciliation when rotating the AppDB TLS Certificate.
 * Changes
   * Added support for configuring S3 Oplog Stores using the `spec.backup.s3OpLogStores` field.
   

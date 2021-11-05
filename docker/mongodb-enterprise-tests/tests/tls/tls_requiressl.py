@@ -3,10 +3,7 @@ import pytest
 from kubetester.kubetester import skip_if_local
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
-)
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, Certificate
 
 MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
@@ -14,7 +11,11 @@ MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
     return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert", replicas=5
+        ISSUER_CA_NAME,
+        namespace,
+        MDB_RESOURCE,
+        f"{MDB_RESOURCE}-cert",
+        replicas=5,
     )
 
 
@@ -82,4 +83,25 @@ def test_mdb_scaled_down_is_reachable_with_no_ssl(mdb: MongoDB):
 @pytest.mark.e2e_replica_set_tls_require
 @skip_if_local()
 def test_mdb_scaled_down_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
+    mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
+
+
+@pytest.mark.e2e_replica_set_tls_require
+def test_change_certificate_and_wait_for_running(mdb: MongoDB, namespace: str):
+    cert = Certificate(name=f"{MDB_RESOURCE}-cert", namespace=namespace).load()
+    cert["spec"]["dnsNames"].append("foo")
+    cert.update()
+    mdb.assert_abandons_phase(Phase.Running, timeout=60)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@pytest.mark.e2e_replica_set_tls_require
+@skip_if_local()
+def test_mdb_renewed_is_reachable_with_no_ssl(mdb: MongoDB):
+    mdb.tester(use_ssl=False).assert_no_connection()
+
+
+@pytest.mark.e2e_replica_set_tls_require
+@skip_if_local()
+def test_mdb_renewed_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
     mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()

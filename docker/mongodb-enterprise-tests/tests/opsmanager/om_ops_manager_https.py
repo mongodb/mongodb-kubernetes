@@ -1,7 +1,11 @@
 import time
 from typing import Optional
 
-from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
+from kubetester.certs import (
+    create_mongodb_tls_certs,
+    create_ops_manager_tls_certs,
+    Certificate,
+)
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -170,3 +174,27 @@ def test_mongodb_replicaset_over_https_ops_manager(
 
     replicaset1.assert_reaches_phase(Phase.Running, timeout=360)
     replicaset1.assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_change_om_certificate_and_wait_for_running(
+    ops_manager: MongoDBOpsManager, namespace: str
+):
+    cert = Certificate(name="certs-for-ops-manager", namespace=namespace).load()
+    cert["spec"]["dnsNames"].append("foo")
+    cert.update()
+    ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=60)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+    assert ops_manager.om_status().get_url().startswith("https://")
+    assert ops_manager.om_status().get_url().endswith(":8443")
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_change_appdb_certificate_and_wait_for_running(
+    ops_manager: MongoDBOpsManager, namespace: str
+):
+    cert = Certificate(name="appdb-om-with-https-db-cert", namespace=namespace).load()
+    cert["spec"]["dnsNames"].append("foo")
+    cert.update()
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
