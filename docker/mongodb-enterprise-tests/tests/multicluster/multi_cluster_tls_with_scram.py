@@ -13,8 +13,9 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester import create_secret
 from kubetester.mongotester import with_scram
 
-BUNDLE_SECRET_NAME = "prefix-multi-cluster-replica-set-cert"
+CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
+BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 USER_NAME = "my-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
@@ -55,7 +56,7 @@ def mongodb_multi(
     resource["spec"]["security"] = {
         "tls": {
             "enabled": True,
-            "secretRef": {"prefix": "prefix"},
+            "secretRef": {"prefix": CERT_SECRET_PREFIX},
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
