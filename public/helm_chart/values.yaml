@@ -1,6 +1,4 @@
-# Name of the Namespace to use
-namespace: mongodb
-
+---
 ## Operator
 
 # Set this to true if your cluster is managing SecurityContext for you.

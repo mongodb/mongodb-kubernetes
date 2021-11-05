@@ -1,4 +1,4 @@
-{{- $watchNamespace := list .Values.namespace }}
+{{- $watchNamespace := list .Release.Namespace }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
@@ -8,7 +8,7 @@
 
 {{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-{{- $namespaceBlock = printf "namespace: %s" $.Values.namespace }}
+{{- $namespaceBlock = printf "namespace: %s" $.Release.Namespace }}
 {{- end }}
 ---
 apiVersion: v1

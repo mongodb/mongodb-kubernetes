@@ -108,12 +108,12 @@ def test_configure_ops_manager_namespace(
     """create a new namespace and configures all necessary service accounts there"""
     yaml_file = helm_template(
         helm_args={
-            "namespace": ops_manager_namespace,
             "registry.imagePullSecrets": operator_installation_config[
                 "registry.imagePullSecrets"
             ],
         },
         templates="templates/database-roles.yaml",
+        helm_options=[f"--namespace {ops_manager_namespace}"],
     )
     create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
 
@@ -139,12 +139,12 @@ def test_configure_mdb_namespace(
 ):
     yaml_file = helm_template(
         helm_args={
-            "namespace": mdb_namespace,
             "registry.imagePullSecrets": operator_installation_config[
                 "registry.imagePullSecrets"
             ],
         },
         templates="templates/database-roles.yaml",
+        helm_options=[f"--namespace {mdb_namespace}"],
     )
     create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
 

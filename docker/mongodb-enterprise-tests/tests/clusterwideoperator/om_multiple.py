@@ -15,12 +15,12 @@ def _prepare_om_namespace(
     """ create a new namespace and configures all necessary service accounts there """
     yaml_file = helm_template(
         helm_args={
-            "namespace": ops_manager_namespace,
             "registry.imagePullSecrets": operator_installation_config[
                 "registry.imagePullSecrets"
             ],
         },
         templates="templates/database-roles.yaml",
+        helm_options=[f"--namespace {ops_manager_namespace}"]
     )
 
     data = dict(

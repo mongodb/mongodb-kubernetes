@@ -13,10 +13,10 @@ def prepare_multi_cluster_namespaces(
     """create a new namespace and configures all necessary service accounts there"""
 
     helm_args = multi_cluster_operator_installation_config
-    helm_args.update({"namespace": namespace})
     yaml_file = helm_template(
         helm_args=helm_args,
         templates="templates/database-roles.yaml",
+        helm_options=[f"--namespace {namespace}"],
     )
     # create database roles in member clusters.
     for mcc in member_cluster_clients:
