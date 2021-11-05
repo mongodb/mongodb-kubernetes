@@ -3,6 +3,11 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.13.1
 
+
+## MongoDB Resource
+* Bug fixes
+  * Fixes an issue which would make a ShardedCluster Resource fail when disabling authentication.
+
 ## MongoDBOpsManager Resource
 
 * Changes
