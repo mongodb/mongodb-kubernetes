@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 
@@ -669,7 +670,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
 		},
-		env.FromSecret(AgentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
+		env.FromSecret(AgentApiKeyEnv, agents.ApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
 		{
 			Name:  util.ENV_VAR_LOG_LEVEL,
 			Value: string(podVars.LogLevel),
@@ -738,12 +739,6 @@ func DefaultSecurityContext() *corev1.SecurityContext {
 		RunAsNonRoot: util.BooleanRef(true),
 		RunAsUser:    util.Int64Ref(util.RunAsUser),
 	}
-}
-
-// agentApiKeySecretName for a given ProjectID (`project`) returns the name of
-// the secret associated with it.
-func agentApiKeySecretName(project string) string {
-	return fmt.Sprintf("%s-group-secret", project)
 }
 
 // TODO: temprorary duplication to avoid circular imports

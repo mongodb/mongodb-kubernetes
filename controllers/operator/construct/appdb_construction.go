@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 
@@ -455,7 +456,7 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1
 
 	// These env vars are required to configure Monitoring of the AppDB
 	if podVars != nil && podVars.ProjectID != "" {
-		envVars = append(envVars, env.FromSecret(AgentApiKeyEnv, agentApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
+		envVars = append(envVars, env.FromSecret(AgentApiKeyEnv, agents.ApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
 	}
 
 	return envVars

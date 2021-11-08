@@ -33,7 +33,7 @@ type retryParams struct {
 // was created externally and agent key wasn't generated before)
 // Returns the api key existing/generated
 func EnsureAgentKeySecretExists(secretGetCreator SecretGetCreator, agentKeyGenerator om.AgentKeyGenerator, nameSpace, agentKey, projectId string, log *zap.SugaredLogger) error {
-	secretName := agentApiKeySecretName(projectId)
+	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
 	_, err := secretGetCreator.GetSecret(kube.ObjectKey(nameSpace, secretName))
 	if err != nil {
@@ -145,10 +145,4 @@ func createAgentKeySecret(secretCreator secret.Creator, objectKey client.ObjectK
 		SetNamespace(objectKey.Namespace).
 		Build()
 	return secretCreator.CreateSecret(agentKeySecret)
-}
-
-// agentApiKeySecretName for a given ProjectID (`project`) returns the name of
-// the secret associated with it.
-func agentApiKeySecretName(project string) string {
-	return fmt.Sprintf("%s-group-secret", project)
 }
