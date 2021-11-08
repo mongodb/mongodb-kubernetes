@@ -43,3 +43,39 @@ func TestSetMapValue(t *testing.T) {
 	})
 
 }
+
+func TestRemoveFieldsBasedOnDesiredAndPrevious(t *testing.T) {
+	p := map[string]interface{}{
+		"one": "oneValue",
+		"two": map[string]interface{}{
+			"three": "threeValue",
+			"four":  "fourValue",
+		},
+	}
+
+	// we are removing the "two.three" entry in this case.
+	spec := map[string]interface{}{
+		"one": "oneValue",
+		"two": map[string]interface{}{
+			"four": "fourValue",
+		},
+	}
+
+	prev := map[string]interface{}{
+		"one": "oneValue",
+		"two": map[string]interface{}{
+			"three": "threeValue",
+			"four":  "fourValue",
+		},
+	}
+
+	expected := map[string]interface{}{
+		"one": "oneValue",
+		"two": map[string]interface{}{
+			"four": "fourValue",
+		},
+	}
+
+	actual := RemoveFieldsBasedOnDesiredAndPrevious(p, spec, prev)
+	assert.Equal(t, expected, actual, "three was set previously, and so should have been removed.")
+}

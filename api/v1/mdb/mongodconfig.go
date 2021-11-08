@@ -2,7 +2,6 @@ package mdb
 
 import (
 	"encoding/json"
-	"sort"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -51,9 +50,7 @@ func (c AdditionalMongodConfig) AddOption(key string, value interface{}) Additio
 // ToFlatList returns all mongodb options as a sorted list of string values.
 // It performs a recursive traversal of maps and dumps the current config to the final list of configs
 func (c AdditionalMongodConfig) ToFlatList() []string {
-	result := traverse(c.ToMap(), []string{})
-	sort.Strings(result)
-	return result
+	return maputil.ToFlatList(c.ToMap())
 }
 
 // GetPortOrDefault returns the port that should be used for the mongo process.
@@ -107,23 +104,4 @@ func (c AdditionalMongodConfig) ToMap() map[string]interface{} {
 		return nil
 	}
 	return cp
-}
-
-func traverse(currentValue interface{}, currentPath []string) []string {
-	switch v := currentValue.(type) {
-	case map[string]interface{}:
-		{
-			allPaths := []string{}
-			for key, value := range v {
-				allPaths = append(allPaths, traverse(value, append(currentPath, key))...)
-			}
-			return allPaths
-		}
-	default:
-		{
-			// We found the "terminal" node in the map - need to dump the current path
-			path := strings.Join(currentPath, ".")
-			return []string{path}
-		}
-	}
 }
