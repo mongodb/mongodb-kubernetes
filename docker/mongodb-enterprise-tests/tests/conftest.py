@@ -500,6 +500,16 @@ def official_operator(
     ).install()
 
 
+@fixture(scope="module")
+def vault_namespace() -> str:
+    return "vault"
+
+
+@fixture(scope="module")
+def vault_name() -> str:
+    return "vault"
+
+
 def get_headers() -> Dict[str, str]:
     """
     Returns an authentication header that can be used when accessing

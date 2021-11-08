@@ -16,6 +16,7 @@ from .security_context import (
     assert_pod_container_security_context,
     assert_pod_security_context,
 )
+from kubernetes import client
 
 
 def create_secret(
@@ -155,6 +156,16 @@ def delete_statefulset(
 ):
     client.AppsV1Api(api_client=api_client).delete_namespaced_stateful_set(
         name, namespace, propagation_policy=propagation_policy
+    )
+
+
+def get_statefulset(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+) -> client.V1StatefulSet:
+    return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(
+        name, namespace
     )
 
 
