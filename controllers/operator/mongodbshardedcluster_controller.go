@@ -251,7 +251,16 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	status = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishState(*sc, r.client, allConfigs, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentShardedCluster(conn, sc, podEnvVars, currentAgentAuthMode, caFilePath, agentCertSecretName, certTLSMapping, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+
+			opts := deploymentOptions{
+				podEnvVars:           podEnvVars,
+				currentAgentAuthMode: currentAgentAuthMode,
+				caFilePath:           caFilePath,
+				agentCertSecretName:  agentCertSecretName,
+				certTLSType:          certTLSMapping,
+			}
+
+			return r.updateOmDeploymentShardedCluster(conn, sc, opts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return r.createKubernetesResources(sc, podEnvVars, certTLSMapping, currentAgentAuthMode, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
@@ -548,6 +557,17 @@ func (r *ReconcileMongoDbShardedCluster) isShardsSizeScaleDown() bool {
 	return scale.ReplicasThisReconciliation(r.mongodsPerShardScaler) < r.mongodsPerShardScaler.CurrentReplicas()
 }
 
+// deploymentOptions contains fields required for creating the OM deployment for the Sharded Cluster.
+type deploymentOptions struct {
+	podEnvVars           *env.PodEnvVars
+	currentAgentAuthMode string
+	caFilePath           string
+	agentCertSecretName  string
+	certTLSType          map[string]bool
+	finalizing           bool
+	processNames         []string
+}
+
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
 // to automation agents in containers
 // Note that the process may have two phases (if shards number is decreased):
@@ -556,8 +576,8 @@ func (r *ReconcileMongoDbShardedCluster) isShardsSizeScaleDown() bool {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMechanism string, caFilePath string, agentCertSecretName string, certTLSType map[string]bool, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(sc, conn, podEnvVars, certTLSType, currentAgentAuthMechanism, log)
+func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
+	err := r.waitForAgentsToRegister(sc, conn, opts.podEnvVars, opts.certTLSType, opts.currentAgentAuthMode, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -567,9 +587,10 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 		return workflow.Failed(err.Error())
 	}
 
-	processNames := dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
+	opts.finalizing = false
+	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
-	status, shardsRemoving := r.publishDeployment(conn, sc, podEnvVars, currentAgentAuthMechanism, caFilePath, agentCertSecretName, certTLSType, log, &processNames, false)
+	processNames, shardsRemoving, status := r.publishDeployment(conn, sc, &opts, log)
 
 	if !status.IsOK() {
 		return status
@@ -583,8 +604,10 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	}
 
 	if shardsRemoving {
+		opts.finalizing = true
+
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		status, _ = r.publishDeployment(conn, sc, podEnvVars, currentAgentAuthMechanism, caFilePath, agentCertSecretName, certTLSType, log, &processNames, true)
+		processNames, _, status = r.publishDeployment(conn, sc, &opts, log)
 		if !status.IsOK() {
 			return status
 		}
@@ -623,17 +646,16 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMode string, caFilePath string, agentCertSecretName string, certTLSType map[string]bool, log *zap.SugaredLogger,
-	processNames *[]string, finalizing bool) (workflow.Status, bool) {
+func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 
 	// mongos
-	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, podEnvVars, currentAgentAuthMode, certTLSType, log))
+	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, opts.podEnvVars, opts.currentAgentAuthMode, opts.certTLSType, log))
 	mongosInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 	mongosMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	mongosProcesses := createMongosProcesses(sts, sc, mongosMemberCertPath)
 
 	// config server
-	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, podEnvVars, currentAgentAuthMode, certTLSType, log))
+	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts.podEnvVars, opts.currentAgentAuthMode, opts.certTLSType, log))
 	configInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 	configMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sc, configMemberCertPath), sc)
@@ -642,17 +664,18 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
 	shardsInternalClusterPath := make([]string, len(shards))
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, podEnvVars, currentAgentAuthMode, certTLSType, log))
+		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts.podEnvVars, opts.currentAgentAuthMode, opts.certTLSType, log))
 		shardsInternalClusterPath[i] = statefulset.GetFilePathFromAnnotationOrDefault(shardSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 		shardMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(shardSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sc, shardMemberCertPath), sc)
 	}
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, *processNames, sc, agentCertSecretName, caFilePath, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, log)
 	if !status.IsOK() {
-		return status, false
+		return nil, false, status
 	}
 
+	var finalProcesses []string
 	shardsRemoving := false
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
@@ -666,12 +689,12 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 			var err error
-			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, finalizing); err != nil {
+			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, opts.finalizing); err != nil {
 				return err
 			}
 
-			d.AddMonitoringAndBackup(log, sc.Spec.GetTLSConfig().IsEnabled(), caFilePath)
-			d.ConfigureTLS(sc.Spec.GetTLSConfig(), caFilePath)
+			d.AddMonitoringAndBackup(log, sc.Spec.GetTLSConfig().IsEnabled(), opts.caFilePath)
+			d.ConfigureTLS(sc.Spec.GetTLSConfig(), opts.caFilePath)
 
 			internalClusterAuthMode := sc.Spec.Security.GetInternalClusterAuthenticationMode()
 
@@ -682,7 +705,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 				d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(sc.Name, i), internalClusterAuthMode, path)
 			}
 
-			*processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
+			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
 			return nil
 		},
@@ -690,18 +713,18 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	)
 
 	if err != nil {
-		return workflow.Failed(err.Error()), shardsRemoving
+		return nil, shardsRemoving, workflow.Failed(err.Error())
 	}
 
-	if err := om.WaitForReadyState(conn, *processNames, log); err != nil {
-		return workflow.Failed(err.Error()), shardsRemoving
+	if err := om.WaitForReadyState(conn, opts.processNames, log); err != nil {
+		return nil, shardsRemoving, workflow.Failed(err.Error())
 	}
 
 	if additionalReconciliationRequired {
-		return workflow.Pending("Performing multi stage reconciliation"), shardsRemoving
+		return nil, shardsRemoving, workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	return workflow.OK(), shardsRemoving
+	return finalProcesses, shardsRemoving, workflow.OK()
 }
 
 func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {
