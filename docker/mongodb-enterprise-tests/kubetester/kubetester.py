@@ -5,7 +5,8 @@ import string
 import sys
 import time
 import ssl
-
+import tempfile
+import tarfile
 import json
 from base64 import b64decode, b64encode
 
@@ -1167,8 +1168,57 @@ class KubernetesTester(object):
             container=container,
             command=cmd,
             stdout=True,
+            stderr=True,
         )
         return api_response
+
+    @staticmethod
+    def copy_file_inside_pod(pod_name, src_path, dest_path, namespace="default"):
+        """
+        This function copies a file inside the pod from localhost. (Taken from: https://stackoverflow.com/questions/59703610/copy-file-from-pod-to-host-by-using-kubernetes-python-client)
+        :param api_instance: coreV1Api()
+        :param name: pod name
+        :param ns: pod namespace
+        :param source_file: Path of the file to be copied into pod
+        """
+
+        api_client = client.CoreV1Api()
+        try:
+            exec_command = ["tar", "xvf", "-", "-C", "/"]
+            api_response = stream(
+                api_client.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                command=exec_command,
+                stderr=True,
+                stdin=True,
+                stdout=True,
+                tty=False,
+                _preload_content=False,
+            )
+
+            with tempfile.TemporaryFile() as tar_buffer:
+                with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
+                    tar.add(src_path, dest_path)
+
+                tar_buffer.seek(0)
+                commands = []
+                commands.append(tar_buffer.read())
+
+                while api_response.is_open():
+                    api_response.update(timeout=1)
+                    if api_response.peek_stdout():
+                        print("STDOUT: %s" % api_response.read_stdout())
+                    if api_response.peek_stderr():
+                        print("STDERR: %s" % api_response.read_stderr())
+                    if commands:
+                        c = commands.pop(0)
+                        api_response.write_stdin(c.decode())
+                    else:
+                        break
+                api_response.close()
+        except ApiException as e:
+            raise Exception("Failed to copy file to the pod: {}".format(e))
 
     @staticmethod
     def approve_certificate(name: str):
