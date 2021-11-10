@@ -50,7 +50,7 @@ ensure_ops_manager_k8s() {
     local version_id="${5}"
 
     local om_name="ops-manager"
-    
+
     if [ -z "${ops_manager_namespace}" ]; then
         error "ops_manager_namespace must be set!"
         exit 1
@@ -68,6 +68,8 @@ ensure_ops_manager_k8s() {
 
     if _is_ops_manager_down "${ops_manager_namespace}"; then
 
+        # set the context to the ops manager namespace so the templated file will contain the correct release namespace.
+        kubectl config set-context "$(kubectl config current-context)" "--namespace=${ops_manager_namespace}"
         echo "Installing the operator in the OpsManager namespace"
         helm template -f public/helm_chart/values.yaml \
             --set namespace="${ops_manager_namespace}" \
@@ -81,6 +83,9 @@ ensure_ops_manager_k8s() {
             public/helm_chart > operator.yaml
         PROJECT_NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
 
+        # revert after the file is generated
+        kubectl config set-context "$(kubectl config current-context)" "--namespace=default"
+
         echo "Deleting old OpsManager Resources in case something is stuck"
         kubectl delete opsmanagers.mongodb.com "$om_name" -n "${ops_manager_namespace}" --ignore-not-found=true
         echo "Deleting AppDB PVC, if they exist"
@@ -90,10 +95,10 @@ ensure_ops_manager_k8s() {
         kubectl apply -f scripts/evergreen/deployments/ops-manager-vanilla.yaml -n "${ops_manager_namespace}"
         kubectl patch opsmanagers.mongodb.com "$om_name" --type=json -p='[{"op": "replace", "path" : "/spec/version", "value" : "'"${ops_manager_version}"'"}]' -n "${ops_manager_namespace}"
 
-        
+
         kubectl apply -f operator.yaml -n "${ops_manager_namespace}"
         rm operator.yaml
-        
+
 
         echo "Waiting for OpsManager to be ready"
         until [[ $(kubectl get om "$om_name" -n "${ops_manager_namespace}" -o jsonpath='{.status.applicationDatabase.phase}') = "Running" && $(kubectl get om ops-manager  -n "${ops_manager_namespace}" -o jsonpath='{.status.opsManager.phase}') = "Running" ]]; do echo "OpsManager not yet ready, will retry in 20 seconds"; sleep 20; done
