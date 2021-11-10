@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"net/url"
 	"sort"
 	"strings"
@@ -47,8 +48,6 @@ const (
 	Standalone     ResourceType = "Standalone"
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
-
-	DeploymentLinkIndex = 0
 
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
@@ -111,6 +110,36 @@ func (m *MongoDB) GetResourceType() ResourceType {
 
 func (m *MongoDB) GetResourceName() string {
 	return m.Name
+}
+
+type AdditionalMongodConfigType int
+
+const (
+	StandaloneConfig = iota
+	ReplicaSetConfig
+	MongosConfig
+	ConfigServerConfig
+	ShardConfig
+)
+
+// GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
+func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (AdditionalMongodConfig, error) {
+	lastSpec, err := m.GetLastSpec()
+	if err != nil || lastSpec == nil {
+		return AdditionalMongodConfig{}, err
+	}
+
+	switch configType {
+	case ReplicaSetConfig, StandaloneConfig:
+		return lastSpec.AdditionalMongodConfig, nil
+	case MongosConfig:
+		return lastSpec.MongosSpec.AdditionalMongodConfig, nil
+	case ConfigServerConfig:
+		return lastSpec.ConfigSrvSpec.AdditionalMongodConfig, nil
+	case ShardConfig:
+		return lastSpec.ShardSpec.AdditionalMongodConfig, nil
+	}
+	return AdditionalMongodConfig{}, nil
 }
 
 // +kubebuilder:object:generate=false
@@ -675,6 +704,65 @@ func (m *MongoDB) UnmarshalJSON(data []byte) error {
 	m.InitDefaults()
 
 	return nil
+}
+
+// GetLastSpec returns the last spec that has successfully be applied.
+func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
+	lastSpecStr := annotations.GetAnnotation(m, util.LastAchievedSpec)
+	if lastSpecStr == "" {
+		return nil, nil
+	}
+
+	lastSpec := MongoDbSpec{}
+	if err := json.Unmarshal([]byte(lastSpecStr), &lastSpec); err != nil {
+		return nil, err
+	}
+
+	conf, err := getMapFromAnnotation(m, util.LastAchievedMongodAdditionalOptions)
+	if err != nil {
+		return nil, err
+	}
+	if conf != nil {
+		lastSpec.AdditionalMongodConfig.Object = conf
+	}
+
+	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalMongosOptions)
+	if err != nil {
+		return nil, err
+	}
+	if conf != nil {
+		lastSpec.MongosSpec.AdditionalMongodConfig.Object = conf
+	}
+
+	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalConfigServerOptions)
+	if err != nil {
+		return nil, err
+	}
+	if conf != nil {
+		lastSpec.ConfigSrvSpec.AdditionalMongodConfig.Object = conf
+	}
+
+	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalShardOptions)
+	if err != nil {
+		return nil, err
+	}
+	if conf != nil {
+		lastSpec.ShardSpec.AdditionalMongodConfig.Object = conf
+	}
+	return &lastSpec, nil
+}
+
+// getMapFromAnnotation returns the additional config map from a given annotation.
+func getMapFromAnnotation(m client.Object, annotationKey string) (map[string]interface{}, error) {
+	additionConfigStr := annotations.GetAnnotation(m, annotationKey)
+	if additionConfigStr != "" {
+		var conf map[string]interface{}
+		if err := json.Unmarshal([]byte(additionConfigStr), &conf); err != nil {
+			return nil, err
+		}
+		return conf, nil
+	}
+	return nil, nil
 }
 
 func (m *MongoDB) ServiceName() string {

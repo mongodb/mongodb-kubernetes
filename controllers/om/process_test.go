@@ -190,7 +190,7 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 	omProcess.EnsureTLSConfig()["sslOnNormalPorts"] = "true"              // this will be left as-is
 	omProcess.EnsureTLSConfig()["PEMKeyPassword"] = "qwerty"              // this will be left as-is
 
-	omProcess.mergeFrom(operatorProcess)
+	omProcess.mergeFrom(operatorProcess, nil, nil)
 
 	expectedSSLConfig := map[string]interface{}{
 		"mode":             string(tls.Require),
@@ -210,7 +210,7 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.directoryForIndexes", "/some/dir")).Build()
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb.Spec.AdditionalMongodConfig, operatorMdb.GetSpec(), "")
 
-	omProcess.mergeFrom(operatorProcess)
+	omProcess.mergeFrom(operatorProcess, nil, nil)
 
 	expectedArgs := map[string]interface{}{
 		"net": map[string]interface{}{
@@ -235,4 +235,56 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedArgs, omProcess.Args())
+}
+
+func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
+
+	prevAdditionalConfig := mdbv1.NewEmptyAdditionalMongodConfig()
+	prevAdditionalConfig.AddOption("storage.wiredTiger.engineConfig.cacheSizeGB", 3)
+	prevAdditionalConfig.AddOption("some.other.option", "value")
+	prevAdditionalConfig.AddOption("some.other.option2", "value2")
+
+	omMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(prevAdditionalConfig).Build()
+	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", omMdb.Spec.AdditionalMongodConfig, omMdb.GetSpec(), "")
+
+	specAdditionalConfig := mdbv1.NewEmptyAdditionalMongodConfig()
+	// we are changing the cacheSize to 4
+	specAdditionalConfig.AddOption("storage.wiredTiger.engineConfig.cacheSizeGB", 4)
+	// here we are simulating removing "some.other.option2" by not specifying it.
+	specAdditionalConfig.AddOption("some.other.option", "value")
+
+	operatorMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(specAdditionalConfig).Build()
+	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", operatorMdb.Spec.AdditionalMongodConfig, operatorMdb.GetSpec(), "")
+
+	omProcess.mergeFrom(operatorProcess, specAdditionalConfig.ToMap(), prevAdditionalConfig.ToMap())
+
+	args := omProcess.Args()
+
+	expectedArgs := map[string]interface{}{
+		"net": map[string]interface{}{
+			"port": int32(27017),
+			"tls": map[string]interface{}{
+				"mode": "disabled",
+			},
+		},
+		"storage": map[string]interface{}{
+			"dbPath": "/data",
+			"wiredTiger": map[string]interface{}{
+				"engineConfig": map[string]interface{}{
+					"cacheSizeGB": 4,
+				},
+			},
+		},
+		"systemLog": map[string]interface{}{
+			"destination": "file",
+			"path":        "/var/log/mongodb-mms-automation/mongodb.log",
+		},
+		"some": map[string]interface{}{
+			"other": map[string]interface{}{
+				"option": "value",
+			},
+		},
+	}
+
+	assert.Equal(t, expectedArgs, args, "option2 should have been removed as it was not specified")
 }

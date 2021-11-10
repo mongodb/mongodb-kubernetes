@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"io/ioutil"
 	"math/rand"
 	"net/url"
@@ -182,7 +183,12 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
-	if err := r.saveLastAchievedSpec(opsManager.Spec, opsManager); err != nil {
+	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
+	if err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log)
+	}
+
+	if err := annotations.SetAnnotations(opsManager.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log)
 	}
 	// All statuses are updated by now - we don't need to update any others - just return
@@ -1659,4 +1665,16 @@ func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) {
 	r.RemoveDependentWatchedResources(opsManager.AppDBStatefulSetObjectKey())
 
 	log.Info("Cleaned up Ops Manager related resources.")
+}
+
+// getAnnotationsForOpsManagerResource returns all of the annotations that should be applied to the resource
+// at the end of the reconciliation.
+func getAnnotationsForOpsManagerResource(opsManager *omv1.MongoDBOpsManager) (map[string]string, error) {
+	finalAnnotations := make(map[string]string)
+	specBytes, err := json.Marshal(opsManager.Spec)
+	if err != nil {
+		return nil, err
+	}
+	finalAnnotations[util.LastAchievedSpec] = string(specBytes)
+	return finalAnnotations, nil
 }

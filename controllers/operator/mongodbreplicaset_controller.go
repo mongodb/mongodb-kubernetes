@@ -3,7 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
-
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
@@ -213,7 +213,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			mdbstatus.MembersOption(rs))
 	}
 
-	if err := r.saveLastAchievedSpec(rs.Spec, rs); err != nil {
+	annotationsToAdd, err := getAnnotationsForResource(rs)
+	if err != nil {
+		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+	}
+
+	if err := annotations.SetAnnotations(rs.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
@@ -322,7 +327,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 
-			d.MergeReplicaSet(replicaSet, nil)
+			lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
+			if err != nil {
+				return err
+			}
+
+			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastRsConfig.ToMap(), nil)
 			d.AddMonitoringAndBackup(log, rs.Spec.GetTLSConfig().IsEnabled(), caFilePath)
 			d.ConfigureTLS(rs.Spec.GetTLSConfig(), caFilePath)
 			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode(), internalClusterPath)
@@ -375,7 +385,13 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 			// configure as much agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
 			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), membersNumberBefore)
-			d.MergeReplicaSet(replicaSet, nil)
+
+			lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
+			if err != nil {
+				return err
+			}
+
+			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), nil)
 
 			return nil
 		},

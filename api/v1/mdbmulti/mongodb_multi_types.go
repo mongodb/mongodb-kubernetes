@@ -326,6 +326,14 @@ func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
 	return prevSpec, nil
 }
 
+func (m *MongoDBMulti) GetLastAdditionalMongodConfig() map[string]interface{} {
+	lastSpec, err := m.ReadLastAchievedSpec()
+	if lastSpec == nil || err != nil {
+		return map[string]interface{}{}
+	}
+	return lastSpec.AdditionalMongodConfig.ToMap()
+}
+
 // when unmarshaling a MongoDBMulti instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references
 func (m *MongoDBMulti) UnmarshalJSON(data []byte) error {

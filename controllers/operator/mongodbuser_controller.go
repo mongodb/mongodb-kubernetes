@@ -2,7 +2,9 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
@@ -272,7 +274,12 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
-	if err := r.saveLastAchievedSpec(user.Spec, user); err != nil {
+	annotationsToAdd, err := getAnnotationsForUserResource(user)
+	if err != nil {
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+	}
+
+	if err := annotations.SetAnnotations(user.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
@@ -310,7 +317,12 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser,
 		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
 	}
 
-	if err := r.saveLastAchievedSpec(user.Spec, user); err != nil {
+	annotationsToAdd, err := getAnnotationsForUserResource(user)
+	if err != nil {
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+	}
+
+	if err := annotations.SetAnnotations(user.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
@@ -320,4 +332,14 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser,
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {
 	return stringutil.ContainsAny(mechanisms, util.AutomationConfigLDAPOption, util.AutomationConfigX509Option)
+}
+
+func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string, error) {
+	finalAnnotations := make(map[string]string)
+	specBytes, err := json.Marshal(user.Spec)
+	if err != nil {
+		return nil, err
+	}
+	finalAnnotations[util.LastAchievedSpec] = string(specBytes)
+	return finalAnnotations, nil
 }

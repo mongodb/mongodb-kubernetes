@@ -405,7 +405,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			d.MergeReplicaSet(rs, log)
+			d.MergeReplicaSet(rs, mrs.Spec.AdditionalMongodConfig.ToMap(), mrs.GetLastAdditionalMongodConfig(), log)
 			// TODO change last argument in separate PR
 			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().TLSConfig.IsEnabled(), util.CAFilePathInContainer)
 			d.ConfigureTLS(mrs.Spec.GetSecurity().TLSConfig, util.CAFilePathInContainer)

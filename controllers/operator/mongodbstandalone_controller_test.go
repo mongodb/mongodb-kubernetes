@@ -275,7 +275,13 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions())
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain())
 	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "")
-	d.MergeStandalone(process, nil)
+
+	lastConfig, err := st.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
+	if err != nil {
+		panic(err)
+	}
+
+	d.MergeStandalone(process, st.Spec.AdditionalMongodConfig.ToMap(), lastConfig.ToMap(), nil)
 	d.AddMonitoringAndBackup(zap.S(), st.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
 	return d
 }

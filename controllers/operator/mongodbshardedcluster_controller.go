@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -119,7 +120,12 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 		r.removeUnusedStatefulsets(sc, log)
 	}
 
-	if err := r.saveLastAchievedSpec(sc.Spec, sc); err != nil {
+	annotationsToAdd, err := getAnnotationsForResource(sc)
+	if err != nil {
+		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+	}
+
+	if err := annotations.SetAnnotations(sc.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
 	}
 

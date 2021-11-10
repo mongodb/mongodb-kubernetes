@@ -415,11 +415,13 @@ func CalculateAuthSchemaVersion(version string) int {
 
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
 // Considers the type of process and rewrites only relevant fields
-func (p Process) mergeFrom(operatorProcess Process) {
+func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[string]interface{}) {
 	// Dev note: merging the maps overrides/add map keys+value but doesn't remove the existing ones
 	// If there are any keys that need to be removed explicitly (to ensure OM changes haven't sneaked through)
 	// this must be done manually
 	maputil.MergeMaps(p, operatorProcess)
+
+	p["args2_6"] = maputil.RemoveFieldsBasedOnDesiredAndPrevious(p.Args(), specArgs26, prevArgs26)
 
 	// Merge SSL configuration (update if it's specified - delete otherwise)
 	if mode, ok := operatorProcess.TLSConfig()["mode"]; ok {

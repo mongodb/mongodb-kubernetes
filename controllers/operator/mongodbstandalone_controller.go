@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -216,7 +217,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	if err := r.saveLastAchievedSpec(s.Spec, s); err != nil {
+	annotationsToAdd, err := getAnnotationsForResource(s)
+	if err != nil {
+		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+	}
+
+	if err := annotations.SetAnnotations(s.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
 
@@ -247,7 +253,13 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 			if excessProcesses > 0 {
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
-			d.MergeStandalone(standaloneOmObject, nil)
+
+			lastStandaloneConfig, err := s.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
+			if err != nil {
+				return err
+			}
+
+			d.MergeStandalone(standaloneOmObject, s.Spec.AdditionalMongodConfig.ToMap(), lastStandaloneConfig.ToMap(), nil)
 			// TODO change last argument in separate PR
 			d.AddMonitoringAndBackup(log, s.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
 			d.ConfigureTLS(s.Spec.GetTLSConfig(), util.CAFilePathInContainer)

@@ -77,8 +77,8 @@ def test_replica_set_mongodb_options_were_updated(replica_set: MongoDB):
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert process["args2_6"]["net"]["maxIncomingConnections"] == 100
         assert process["args2_6"]["net"]["port"] == 30000
-        # operationProfiling is still there - we don't remove the unknown options during merge
-        assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
+        # the mode setting has been removed
+        assert "mode" not in process["args2_6"]["operationProfiling"]
 
 
 @mark.e2e_replica_set_mongod_options

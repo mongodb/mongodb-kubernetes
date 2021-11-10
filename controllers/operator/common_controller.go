@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"reflect"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -84,17 +82,6 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 		scheme:          mgr.GetScheme(),
 		ResourceWatcher: watch.NewResourceWatcher(),
 	}
-}
-
-// saveLastAchievedSpec saves the given spec as an annotation on the resource.
-func (c *ReconcileCommonController) saveLastAchievedSpec(spec interface{}, resource client.Object) error {
-	bytes, err := json.Marshal(spec)
-	if err != nil {
-		return err
-	}
-	return annotations.SetAnnotations(resource, map[string]string{
-		util.LastAchievedSpec: string(bytes),
-	}, c.client)
 }
 
 func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
@@ -845,4 +832,52 @@ type mongodbCleanUpOptions struct {
 func (m *mongodbCleanUpOptions) ApplyToDeleteAllOf(opts *client.DeleteAllOfOptions) {
 	opts.Namespace = m.namespace
 	opts.LabelSelector = labels.SelectorFromValidatedSet(m.labels)
+}
+
+// getAnnotationsForResource returns all of the annotations that should be applied to the resource
+// at the end of the reconciliation. The additional mongod options must be manually
+// set as the wrapper type we use prevents a regular `json.Marshal` from working in this case due to
+// the `json "-"` tag.
+func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
+	finalAnnotations := make(map[string]string)
+	specBytes, err := json.Marshal(mdb.Spec)
+	if err != nil {
+		return nil, err
+	}
+	finalAnnotations[util.LastAchievedSpec] = string(specBytes)
+
+	switch mdb.Spec.ResourceType {
+	case mdbv1.Standalone, mdbv1.ReplicaSet:
+		additionalConfigBytes, err := json.Marshal(mdb.Spec.AdditionalMongodConfig.ToMap())
+		if err != nil {
+			return nil, err
+		}
+		finalAnnotations[util.LastAchievedMongodAdditionalOptions] = string(additionalConfigBytes)
+	case mdbv1.ShardedCluster:
+		if mdb.Spec.ShardSpec != nil {
+			additionalShardBytes, err := json.Marshal(mdb.Spec.ShardSpec.AdditionalMongodConfig.ToMap())
+			if err != nil {
+				return nil, err
+			}
+			finalAnnotations[util.LastAchievedMongodAdditionalShardOptions] = string(additionalShardBytes)
+		}
+
+		if mdb.Spec.MongosSpec != nil {
+			additionalMongosBytes, err := json.Marshal(mdb.Spec.MongosSpec.AdditionalMongodConfig.ToMap())
+			if err != nil {
+				return nil, err
+			}
+			finalAnnotations[util.LastAchievedMongodAdditionalMongosOptions] = string(additionalMongosBytes)
+		}
+
+		if mdb.Spec.ConfigSrvSpec != nil {
+			additionalConfigServerBytes, err := json.Marshal(mdb.Spec.ConfigSrvSpec.AdditionalMongodConfig.ToMap())
+			if err != nil {
+				return nil, err
+			}
+			finalAnnotations[util.LastAchievedMongodAdditionalConfigServerOptions] = string(additionalConfigServerBytes)
+		}
+
+	}
+	return finalAnnotations, nil
 }

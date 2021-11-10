@@ -21,8 +21,16 @@ import (
 func CreateFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 	sts := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
 	d := om.NewDeployment()
+
+	lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
+	if err != nil {
+		panic(err)
+	}
+
 	d.MergeReplicaSet(
 		replicaset.BuildFromStatefulSet(sts, rs.GetSpec()),
+		rs.Spec.AdditionalMongodConfig.ToMap(),
+		lastConfig.ToMap(),
 		nil,
 	)
 	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)

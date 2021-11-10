@@ -137,7 +137,7 @@ func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig, caFilePath string) {
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
 // with the same name - update some fields there. Otherwise add the new one
-func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogger) {
+func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
 	}
@@ -146,7 +146,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogge
 	// merging process in case exists, otherwise adding it
 	for _, pr := range d.getProcesses() {
 		if pr.Name() == standaloneMongo.Name() {
-			pr.mergeFrom(standaloneMongo)
+			pr.mergeFrom(standaloneMongo, specArgs26, prevArgs26)
 			log.Debug("Merged process into existing one")
 			return
 		}
@@ -157,7 +157,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, l *zap.SugaredLogge
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
 	}
@@ -178,7 +178,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, l *zap.S
 
 	// Merging all RS processes
 	for _, p := range operatorRs.Processes {
-		d.MergeStandalone(p, log)
+		d.MergeStandalone(p, specArgs26, prevArgs26, log)
 	}
 
 	if r == nil {
@@ -697,7 +697,7 @@ func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []P
 			return errors.New(`All mongos processes must have processType="mongos"`)
 		}
 		p.setCluster(clusterName)
-		d.MergeStandalone(p, log)
+		d.MergeStandalone(p, nil, nil, log)
 	}
 	return nil
 }
@@ -717,7 +717,7 @@ func (d Deployment) mergeConfigReplicaSet(replicaSet ReplicaSetWithProcesses, l 
 		p.setClusterRoleConfigSrv()
 	}
 
-	d.MergeReplicaSet(replicaSet, l)
+	d.MergeReplicaSet(replicaSet, nil, nil, l)
 }
 
 // mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
@@ -726,7 +726,7 @@ func (d Deployment) mergeShards(clusterName string, configServerRs ReplicaSetWit
 	shards []ReplicaSetWithProcesses, finalizing bool, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
 	for _, v := range shards {
-		d.MergeReplicaSet(v, log)
+		d.MergeReplicaSet(v, nil, nil, log)
 	}
 	cluster := NewShardedCluster(clusterName, configServerRs.Rs.Name(), shards)
 
