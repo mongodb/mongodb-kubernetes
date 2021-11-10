@@ -510,6 +510,11 @@ def vault_name() -> str:
     return "vault"
 
 
+@fixture(scope="module")
+def vault_operator_policy_name() -> str:
+    return "mongodbenterprise"
+
+
 def get_headers() -> Dict[str, str]:
     """
     Returns an authentication header that can be used when accessing
