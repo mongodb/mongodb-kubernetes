@@ -57,7 +57,7 @@ def test_file_has_correct_permissions(replica_set: MongoDB, namespace: str):
     cmd = [
         "/bin/sh",
         "-c",
-        'stat -c "%a" /var/lib/mongodb-automation/secrets/certs/..*/*pem',
+        'stat -c "%a" /mongodb-automation/tls/..data/*',
     ]
     for i in range(3):
         result = KubernetesTester.run_command_in_pod_container(

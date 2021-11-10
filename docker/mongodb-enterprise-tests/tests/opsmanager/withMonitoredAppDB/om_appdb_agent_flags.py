@@ -74,7 +74,7 @@ def test_appdb_monitoring_agent_flags_inherit_automation_agent_flags(
             cmd,
             container="mongodb-agent-monitoring",
         )
-        assert result == "0"
+        assert "No such file or directory" in result
 
     cmd = [
         "/bin/sh",
