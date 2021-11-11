@@ -30,6 +30,9 @@ operator:
   # Create operator-service account
   createOperatorServiceAccount: true
 
+  # set to true if you want the operator to store secrets in Vault
+  useVaultSecretBackend: false
+
 ## Database
 database:
   name: mongodb-enterprise-database

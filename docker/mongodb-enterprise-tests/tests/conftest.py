@@ -89,6 +89,16 @@ def operator_clusterwide(
 
 
 @fixture(scope="module")
+def operator_vault_secret_backend(
+    namespace: str,
+    operator_installation_config: Dict[str, str],
+) -> Operator:
+    helm_args = operator_installation_config.copy()
+    helm_args["operator.useVaultSecretBackend"] = "true"
+    return Operator(namespace=namespace, helm_args=helm_args).install()
+
+
+@fixture(scope="module")
 def evergreen_task_id() -> str:
     return os.environ["TASK_ID"]
 

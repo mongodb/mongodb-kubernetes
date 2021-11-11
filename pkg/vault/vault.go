@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -35,11 +36,36 @@ func GetVaultClient() (*VaultClient, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &VaultClient{client: client}, nil
 }
 
 func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
-	_, err := v.client.Logical().Write(path, data)
+	// Read the service-account token from the path where the token's Kubernetes Secret is mounted.
+	jwt, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	if err != nil {
+		return fmt.Errorf("unable to read file containing service account token: %w", err)
+	}
+
+	params := map[string]interface{}{
+		"jwt":  string(jwt),
+		"role": "mongodbenterprise", // the name of the role in Vault that was created with this app's Kubernetes service account bound to it
+	}
+
+	// log in to Vault's Kubernetes auth method
+	resp, err := v.client.Logical().Write("auth/kubernetes/login", params)
+	if err != nil {
+		return fmt.Errorf("unable to log in with Kubernetes auth: %w", err)
+	}
+
+	if resp == nil || resp.Auth == nil || resp.Auth.ClientToken == "" {
+		return fmt.Errorf("login response did not return client token")
+	}
+
+	// will use the resulting Vault token for making all future calls to Vault
+	v.client.SetToken(resp.Auth.ClientToken)
+
+	_, err = v.client.Logical().Write(path, data)
 	if err != nil {
 		return err
 	}

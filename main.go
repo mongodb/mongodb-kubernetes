@@ -160,7 +160,7 @@ func main() {
 				"keyfoo": "valuebar",
 			},
 		}
-		err = vc.PutSecret("secret/data/operator", data)
+		err = vc.PutSecret("secret/data/mongodbenterprise/operator", data)
 		if err != nil {
 			log.Errorf("Failed to put data to Vault: %s", err)
 		}

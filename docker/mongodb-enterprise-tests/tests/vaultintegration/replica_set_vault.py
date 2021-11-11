@@ -2,6 +2,7 @@ from pytest import mark
 from kubetester import get_statefulset
 from kubetester.kubetester import KubernetesTester
 import subprocess
+from kubetester.operator import Operator
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 
@@ -73,12 +74,28 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
         container="vault",
     )
 
+    cmd = ["env"]
+
+    response = KubernetesTester.run_command_in_pod_container(
+        pod_name=f"{vault_name}-0",
+        namespace=vault_namespace,
+        cmd=cmd,
+        container="vault",
+    )
+
+    response = response.split("\n")
+    for line in response:
+        l = line.strip()
+        if str.startswith(l, "KUBERNETES_PORT_443_TCP_ADDR"):
+            cluster_ip = l.split("=")[1]
+            break
+
     cmd = [
         "vault",
         "write",
         "auth/kubernetes/config",
         f"token_reviewer_jwt={token}",
-        "kubernetes_host=https://${KUBERNETES_PORT_443_TCP_ADDR}:443",
+        f"kubernetes_host=https://{cluster_ip}:443",
         "kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
     ]
 
@@ -118,5 +135,21 @@ def test_enable_vault_role_for_operator_pod(
 
 
 @mark.e2e_vault_setup
-def test_install_deploy():
-    pass
+def test_operator_install_with_vault_backend(operator_vault_secret_backend: Operator):
+    operator_vault_secret_backend.assert_is_running()
+
+
+@mark.e2e_vault_setup
+def test_secret_data_put_by_operator(
+    vault_name: str,
+    vault_namespace: str,
+):
+    cmd = ["vault", "kv", "get", "-field=keyfoo", "secret/mongodbenterprise/operator"]
+    result = KubernetesTester.run_command_in_pod_container(
+        pod_name=f"{vault_name}-0",
+        namespace=vault_namespace,
+        cmd=cmd,
+        container="vault",
+    )
+
+    assert result == "valuebar"
