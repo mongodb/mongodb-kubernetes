@@ -59,11 +59,10 @@ const (
 	CaCertMMS = "mms-ca.crt"
 
 	// Env variables names for pods
-	ENV_VAR_BASE_URL      = "BASE_URL"
-	ENV_VAR_PROJECT_ID    = "GROUP_ID"
-	ENV_VAR_USER          = "USER_LOGIN"
-	ENV_VAR_AGENT_API_KEY = "AGENT_API_KEY"
-	ENV_VAR_LOG_LEVEL     = "LOG_LEVEL"
+	ENV_VAR_BASE_URL   = "BASE_URL"
+	ENV_VAR_PROJECT_ID = "GROUP_ID"
+	ENV_VAR_USER       = "USER_LOGIN"
+	ENV_VAR_LOG_LEVEL  = "LOG_LEVEL"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
 	EnvVarSSLRequireValidMMSCertificates = "SSL_REQUIRE_VALID_MMS_CERTIFICATES"

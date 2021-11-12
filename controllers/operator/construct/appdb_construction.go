@@ -30,12 +30,11 @@ const (
 	appDBServiceAccount    = "mongodb-enterprise-appdb"
 	InitAppDbContainerName = "mongodb-enterprise-init-appdb"
 	// AppDB environment variable names
-	initAppdbVersionEnv    = "INIT_APPDB_VERSION"
-	podNamespaceEnv        = "POD_NAMESPACE"
-	automationConfigMapEnv = "AUTOMATION_CONFIG_MAP"
-	headlessAgentEnv       = "HEADLESS_AGENT"
-	AgentApiKeyEnv         = "AGENT_API_KEY"
-
+	initAppdbVersionEnv          = "INIT_APPDB_VERSION"
+	podNamespaceEnv              = "POD_NAMESPACE"
+	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
+	headlessAgentEnv             = "HEADLESS_AGENT"
+	AgentApiKeyEnv               = "AGENT_API_KEY"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 )
 
