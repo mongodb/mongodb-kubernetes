@@ -15,11 +15,17 @@ from kubeobject import CustomObject
 import copy
 import time
 import random
+from pytest import fixture, mark
 import os
 import tempfile
 
 import kubernetes
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from tests.vaultintegration import (
+    run_command_in_vault,
+    vault_namespace_name,
+    vault_sts_name,
+)
 
 ISSUER_CA_NAME = "ca-issuer"
 
@@ -85,12 +91,17 @@ def generate_cert(
     multi_cluster_mode=False,
     api_client: Optional[client.ApiClient] = None,
     secret_name: Optional[str] = None,
+    secret_backend: Optional[str] = None,
+    vault_subpath: Optional[str] = None,
 ) -> str:
     if spec is None:
         spec = dict()
 
     if secret_name is None:
         secret_name = "{}-{}".format(pod[0], random_k8s_name(prefix="")[:4])
+
+    if secret_backend is None:
+        secret_backend = "Kubernetes"
 
     cert = Certificate(namespace=namespace, name=secret_name)
 
@@ -113,6 +124,31 @@ def generate_cert(
     cert.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
     cert.create().block_until_ready()
 
+    if secret_backend == "Vault":
+        path = "secret/data/mongodbenterprise/"
+        if vault_subpath is None:
+            raise ValueError(
+                "When secret backend is Vault, a subpath must be specified"
+            )
+
+        data = read_secret(namespace, secret_name)
+        # vault kv put secret/devwebapp/config username='giraffe' password='salsa'
+        cmd = [
+            "vault",
+            "kv",
+            "put",
+            f"{path}/{secret_name}",
+            "tls.crt={}".format(data["tls.crt"]),
+            "tls.key={}".format(data["tls.key"]),
+        ]
+
+        run_command_in_vault(
+            vault_namespace_name(),
+            vault_sts_name(),
+            cmd,
+            expected_message=["created_time"],
+        )
+
     # Make sure the Secret names used have a random part
     return secret_name
 
@@ -126,6 +162,8 @@ def create_tls_certs(
     spec: Optional[Dict] = None,
     secret_name: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
+    secret_backend: Optional[str] = None,
+    vault_subpath: Optional[str] = None,
 ) -> Dict[str, str]:
     if service_name is None:
         service_name = resource_name + "-svc"
@@ -151,18 +189,24 @@ def create_tls_certs(
     if additional_domains is not None:
         spec["dnsNames"] += additional_domains
     cert_secret_name = generate_cert(
-        namespace,
-        pods,
-        pod_dns,
-        issuer,
-        spec,
+        namespace=namespace,
+        pod=pods,
+        dns=pod_dns,
+        issuer=issuer,
+        spec=spec,
         secret_name=secret_name,
+        secret_backend=secret_backend,
+        vault_subpath=vault_subpath,
     )
     return {"tls.pem": cert_secret_name}
 
 
 def create_ops_manager_tls_certs(
-    issuer: str, namespace: str, om_name: str, secret_name: Optional[str] = None
+    issuer: str,
+    namespace: str,
+    om_name: str,
+    secret_name: Optional[str] = None,
+    secret_backend: Optional[str] = None,
 ) -> str:
 
     certs_secret_name = "certs-for-ops-manager"
@@ -174,7 +218,14 @@ def create_ops_manager_tls_certs(
     spec = {"dnsNames": [domain]}
 
     return generate_cert(
-        namespace, "foo", "", issuer, spec, secret_name=certs_secret_name
+        namespace=namespace,
+        pod="foo",
+        dns="",
+        issuer=issuer,
+        spec=spec,
+        secret_name=certs_secret_name,
+        secret_backend=secret_backend,
+        vault_subpath="opsmanager",
     )
 
 
@@ -187,17 +238,21 @@ def create_mongodb_tls_certs(
     service_name: str = None,
     spec: Optional[Dict] = None,
     additional_domains: Optional[List[str]] = None,
+    secret_backend: Optional[str] = None,
+    vault_subpath: Optional[str] = None,
 ) -> str:
 
     cert_and_pod_names = create_tls_certs(
-        issuer,
-        namespace,
-        resource_name,
-        replicas,
-        service_name,
-        spec,
+        issuer=issuer,
+        namespace=namespace,
+        resource_name=resource_name,
+        replicas=replicas,
+        service_name=service_name,
+        spec=spec,
         additional_domains=additional_domains,
         secret_name=bundle_secret_name,
+        secret_backend=secret_backend,
+        vault_subpath=vault_subpath,
     )
 
     return cert_and_pod_names["tls.pem"]
@@ -220,6 +275,7 @@ def create_multi_cluster_tls_certs(
     multi_cluster_issuer: str,
     client: MultiClusterClient,
     mongodb_multi: MongoDBMulti,
+    secret_backend: Optional[str] = None,
 ) -> Dict[str, str]:
     """
     Returns a dictionary of pod_name -> secret_name
@@ -236,12 +292,14 @@ def create_multi_cluster_tls_certs(
     )
     for pod_name, service_fqdn in pod_to_service_fqdn_mapping.items():
         cert_secret_name = generate_cert(
-            mongodb_multi.namespace,
-            pod_name,
-            service_fqdn,
-            multi_cluster_issuer,
+            namespace=mongodb_multi.namespace,
+            pod=pod_name,
+            dns=service_fqdn,
+            issuer=multi_cluster_issuer,
             multi_cluster_mode=True,
             api_client=client.api_client,
+            secret_backend=secret_backend,
+            vault_subpath="database",
         )
         pod_to_secret_name[pod_name] = cert_secret_name
 
@@ -286,6 +344,8 @@ def create_x509_mongodb_tls_certs(
     replicas: int = 3,
     service_name: str = None,
     additional_domains: Optional[List[str]] = None,
+    secret_backend: Optional[str] = None,
+    vault_subpath: Optional[str] = None,
 ) -> str:
 
     subject = {}
@@ -306,18 +366,22 @@ def create_x509_mongodb_tls_certs(
     }
 
     return create_mongodb_tls_certs(
-        issuer,
-        namespace,
-        resource_name,
-        bundle_secret_name,
-        replicas,
-        service_name,
-        spec,
-        additional_domains,
+        issuer=issuer,
+        namespace=namespace,
+        resource_name=resource_name,
+        bundle_secret_name=bundle_secret_name,
+        replicas=replicas,
+        service_name=service_name,
+        spec=spec,
+        additional_domains=additional_domains,
+        secret_backend=secret_backend,
+        vault_subpath=vault_subpath,
     )
 
 
-def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
+def create_agent_tls_certs(
+    issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None
+) -> str:
     agents = ["mms-automation-agent"]
     subject = copy.deepcopy(SUBJECT)
     subject["organizationalUnits"] = [namespace]
@@ -328,7 +392,16 @@ def create_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
     }
     spec["dnsNames"] = agents
     spec["commonName"] = "mms-automation-agent"
-    secret = generate_cert(namespace, [], [], issuer, spec, secret_name="agent-certs")
+    secret = generate_cert(
+        namespace=namespace,
+        pod=[],
+        dns=[],
+        issuer=issuer,
+        spec=spec,
+        secret_name="agent-certs",
+        secret_backend=secret_backend,
+        vault_subpath="database",
+    )
 
 
 def create_sharded_cluster_certs(
@@ -342,6 +415,7 @@ def create_sharded_cluster_certs(
     x509_certs: bool = False,
     additional_domains: Optional[List[str]] = None,
     secret_prefix: Optional[str] = None,
+    secret_backend: Optional[str] = None,
 ):
     cert_generation_func = create_mongodb_tls_certs
     if x509_certs:
@@ -362,13 +436,14 @@ def create_sharded_cluster_certs(
         if secret_prefix is not None:
             secret_name = secret_prefix + secret_name
         cert_generation_func(
-            ISSUER_CA_NAME,
-            namespace,
-            f"{resource_name}-{i}",
-            secret_name,
+            issuer=ISSUER_CA_NAME,
+            namespace=namespace,
+            resource_name=f"{resource_name}-{i}",
+            bundle_secret_name=secret_name,
             replicas=mongos_per_shard,
             service_name=resource_name + "-sh",
             additional_domains=additional_domains_for_shard,
+            secret_backend=secret_backend,
         )
         if internal_auth:
             data = read_secret(namespace, f"{resource_name}-{i}-cert")
@@ -389,13 +464,14 @@ def create_sharded_cluster_certs(
     if secret_prefix is not None:
         secret_name = secret_prefix + secret_name
     cert_generation_func(
-        ISSUER_CA_NAME,
-        namespace,
-        resource_name + "-config",
-        secret_name,
+        issuer=ISSUER_CA_NAME,
+        namespace=namespace,
+        resource_name=resource_name + "-config",
+        bundle_secret_name=secret_name,
         replicas=config_servers,
         service_name=resource_name + "-cs",
         additional_domains=additional_domains_for_config,
+        secret_backend=secret_backend,
     )
     if internal_auth:
         data = read_secret(namespace, f"{resource_name}-config-cert")
@@ -416,13 +492,14 @@ def create_sharded_cluster_certs(
     if secret_prefix is not None:
         secret_name = secret_prefix + secret_name
     cert_generation_func(
-        ISSUER_CA_NAME,
-        namespace,
-        resource_name + "-mongos",
-        secret_name,
+        issuer=ISSUER_CA_NAME,
+        namespace=namespace,
+        resource_name=resource_name + "-mongos",
+        bundle_secret_name=secret_name,
         service_name=resource_name + "-svc",
         replicas=mongos,
         additional_domains=additional_domains_for_mongos,
+        secret_backend=secret_backend,
     )
 
     if internal_auth:
@@ -432,7 +509,9 @@ def create_sharded_cluster_certs(
         )
 
 
-def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
+def create_x509_agent_tls_certs(
+    issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None
+) -> str:
     agents = ["automation", "monitoring", "backup"]
     subject = {}
     subject["countries"] = ["US"]
@@ -448,7 +527,16 @@ def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str) -> str:
 
     spec["dnsNames"] = agents
     spec["commonName"] = "mms-automation-agent"
-    secret = generate_cert(namespace, [], [], issuer, spec, secret_name="agent-certs")
+    secret = generate_cert(
+        namespace=namespace,
+        pod=[],
+        dns=[],
+        issuer=issuer,
+        spec=spec,
+        secret_name="agent-certs",
+        secret_backend=secret_backend,
+        vault_subpath="database",
+    )
 
 
 def approve_certificate(name: str) -> None:
@@ -474,7 +562,7 @@ def create_x509_user_cert(issuer: str, namespace: str, path: str):
         "usages": ["digital signature", "key encipherment", "client auth"],
         "commonName": user_name,
     }
-    secret = generate_cert(namespace, user_name, user_name, issuer, spec)
+    secret = generate_cert(namespace, user_name, user_name, issuer, spec, "mongodbuser")
     cert = KubernetesTester.read_secret(namespace, secret)
     with open(path, mode="w") as f:
         f.write(cert["tls.key"])

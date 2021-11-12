@@ -1,10 +1,23 @@
-from pytest import mark
+from pytest import mark, fixture
 from kubetester import get_statefulset
 from kubetester.kubetester import KubernetesTester
-import subprocess
 from kubetester.operator import Operator
+from kubetester.certs import create_mongodb_tls_certs
+from . import run_command_in_vault
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
+
+
+@fixture(scope="module")
+def certificate(namespace: str, issuer: str) -> str:
+    return create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        "foo",
+        "foo",
+        secret_backend="Vault",
+        vault_subpath="database",
+    )
 
 
 @mark.e2e_vault_setup
@@ -34,13 +47,7 @@ def test_create_vault_operator_policy(vault_name: str, vault_namespace: str):
         "mongodbenterprise",
         "/tmp/operator-policy.hcl",
     ]
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
-    )
-    assert "Success!" in result
+    run_command_in_vault(vault_namespace, vault_name, cmd)
 
 
 @mark.e2e_vault_setup
@@ -53,34 +60,24 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
         "kubernetes",
     ]
 
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
+    run_command_in_vault(
+        vault_namespace,
+        vault_name,
+        cmd,
+        expected_message=["Success!", "path is already in use at kubernetes"],
     )
-
-    assert "Success!" in result or "path is already in use at kubernetes" in result
 
     cmd = [
         "cat",
         "/var/run/secrets/kubernetes.io/serviceaccount/token",
     ]
 
-    token = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
-    )
+    token = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
 
     cmd = ["env"]
 
-    response = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
+    response = run_command_in_vault(
+        vault_namespace, vault_name, cmd, expected_message=[]
     )
 
     response = response.split("\n")
@@ -99,14 +96,7 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
         "kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
     ]
 
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
-    )
-
-    assert "Success!" in result
+    run_command_in_vault(vault_namespace, vault_name, cmd)
 
 
 @mark.e2e_vault_setup
@@ -124,14 +114,7 @@ def test_enable_vault_role_for_operator_pod(
         f"bound_service_account_namespaces={namespace}",
         f"policies={vault_operator_policy_name}",
     ]
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
-    )
-
-    assert "Success!" in result
+    run_command_in_vault(vault_namespace, vault_name, cmd)
 
 
 @mark.e2e_vault_setup
@@ -145,11 +128,13 @@ def test_secret_data_put_by_operator(
     vault_namespace: str,
 ):
     cmd = ["vault", "kv", "get", "-field=keyfoo", "secret/mongodbenterprise/operator"]
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=f"{vault_name}-0",
-        namespace=vault_namespace,
-        cmd=cmd,
-        container="vault",
-    )
-
+    result = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
     assert result == "valuebar"
+
+
+@mark.e2e_vault_setup
+def test_create_certs_and_store_in_vault(
+    certificate: str, vault_namespace: str, vault_name: str
+):
+    cmd = ["vault", "kv", "get", "secret/data/mongodbenterprise/database/foo"]
+    run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=["tls.crt"])
