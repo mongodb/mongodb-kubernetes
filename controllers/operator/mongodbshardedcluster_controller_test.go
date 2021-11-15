@@ -220,7 +220,7 @@ func TestConstructConfigSrv(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
 	assert.NotPanics(t, func() {
-		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions())
+		construct.DatabaseStatefulSet(*sc, construct.ConfigServerOptions(construct.GetpodEnvOptions()))
 	})
 }
 
@@ -272,7 +272,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, deploymentOptions{}, zap.S()))
+	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -290,8 +290,8 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
-	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0))
-	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1))
+	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0, construct.GetpodEnvOptions()))
+	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1, construct.GetpodEnvOptions()))
 
 	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
 	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
@@ -992,14 +992,14 @@ func assertPodSpecTemplate(t *testing.T, nodeName, hostName string, restartPolic
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 
-	mongosSts := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount)))
+	mongosSts := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount), construct.GetpodEnvOptions()))
 	mongosProcesses := createMongosProcesses(mongosSts, sh, util.PEMKeyFilePathInContainer)
-	configSvrSts := construct.DatabaseStatefulSet(*sh, construct.ConfigServerOptions(Replicas(sh.Spec.ConfigServerCount)))
+	configSvrSts := construct.DatabaseStatefulSet(*sh, construct.ConfigServerOptions(Replicas(sh.Spec.ConfigServerCount), construct.GetpodEnvOptions()))
 
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sh, ""), sh)
 	shards := make([]om.ReplicaSetWithProcesses, sh.Spec.ShardCount)
 	for i := 0; i < sh.Spec.ShardCount; i++ {
-		shardSts := construct.DatabaseStatefulSet(*sh, construct.ShardOptions(i, Replicas(sh.Spec.MongodsPerShardCount)))
+		shardSts := construct.DatabaseStatefulSet(*sh, construct.ShardOptions(i, Replicas(sh.Spec.MongodsPerShardCount), construct.GetpodEnvOptions()))
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sh, ""), sh)
 	}
 

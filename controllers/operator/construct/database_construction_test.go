@@ -50,7 +50,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		os.Setenv(util.AutomationAgentImage, "")
 		rs := mdbv1.NewReplicaSetBuilder().Build()
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*rs, ReplicaSetOptions())
+			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetpodEnvOptions()))
 		})
 	})
 
@@ -74,23 +74,23 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 
-	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions())
-	assert.True(t, time.Now().Sub(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
+	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetpodEnvOptions()))
+	assert.True(t, time.Since(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
 
 func TestDatabaseEnvVars(t *testing.T) {
 	envVars := defaultPodVars()
 	opts := DatabaseStatefulSetOptions{PodVars: envVars}
 	podEnv := databaseEnvVars(opts)
-	assert.Len(t, podEnv, 5)
+	assert.Len(t, podEnv, 4)
 
 	envVars = defaultPodVars()
 	envVars.SSLRequireValidMMSServerCertificates = true
 	opts = DatabaseStatefulSetOptions{PodVars: envVars}
 
 	podEnv = databaseEnvVars(opts)
-	assert.Len(t, podEnv, 6)
-	assert.Equal(t, podEnv[5], corev1.EnvVar{
+	assert.Len(t, podEnv, 5)
+	assert.Equal(t, podEnv[4], corev1.EnvVar{
 		Name:  util.EnvVarSSLRequireValidMMSCertificates,
 		Value: "true",
 	})
@@ -100,8 +100,8 @@ func TestDatabaseEnvVars(t *testing.T) {
 	opts = DatabaseStatefulSetOptions{PodVars: envVars}
 	trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
 	podEnv = databaseEnvVars(opts)
-	assert.Len(t, podEnv, 6)
-	assert.Equal(t, podEnv[5], corev1.EnvVar{
+	assert.Len(t, podEnv, 5)
+	assert.Equal(t, podEnv[4], corev1.EnvVar{
 		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
 		Value: trustedCACertLocation,
 	})
@@ -111,15 +111,16 @@ func TestDatabaseEnvVars(t *testing.T) {
 	envVars.SSLMMSCAConfigMap = "custom-ca"
 	opts = DatabaseStatefulSetOptions{PodVars: envVars}
 	podEnv = databaseEnvVars(opts)
-	assert.Len(t, podEnv, 7)
+	assert.Len(t, podEnv, 6)
 	assert.Equal(t, podEnv[5], corev1.EnvVar{
-		Name:  util.EnvVarSSLRequireValidMMSCertificates,
-		Value: "true",
-	})
-	assert.Equal(t, podEnv[6], corev1.EnvVar{
 		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
 		Value: trustedCACertLocation,
 	})
+	assert.Equal(t, podEnv[4], corev1.EnvVar{
+		Name:  util.EnvVarSSLRequireValidMMSCertificates,
+		Value: "true",
+	})
+
 }
 
 func TestAgentFlags(t *testing.T) {
@@ -129,7 +130,7 @@ func TestAgentFlags(t *testing.T) {
 	}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)

@@ -26,7 +26,7 @@ import (
 )
 
 func TestCreateOmProcess(t *testing.T) {
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions())
+	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetpodEnvOptions()))
 	process := createProcess(sts, util.DatabaseContainerName, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
@@ -272,7 +272,7 @@ func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 
 func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
-	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions())
+	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetpodEnvOptions()))
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain())
 	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "")
 

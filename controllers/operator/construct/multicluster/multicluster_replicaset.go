@@ -5,6 +5,7 @@ import (
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
@@ -82,6 +83,10 @@ func mongodbVolumeMount(cmName string) []corev1.VolumeMount {
 		{
 			Name:      cmName,
 			MountPath: "/opt/scripts/config",
+		},
+		{
+			Name:      construct.AgentAPIKeyVolumeName,
+			MountPath: construct.AgentAPIKeySecretPath,
 		},
 	}
 }
@@ -196,6 +201,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(mdbm.GetHostNameOverrideConfigmapName(), mdbm.GetHostNameOverrideConfigmapName())),
+			podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, agents.ApiKeySecretName(conn.GroupID()))),
 			podtemplatespec.WithTerminationGracePeriodSeconds(600),
 			podtemplatespec.WithInitContainerByIndex(0,
 				container.WithName(construct.InitDatabaseContainerName),

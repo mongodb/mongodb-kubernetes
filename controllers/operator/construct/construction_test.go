@@ -23,20 +23,20 @@ import (
 
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
-	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
+	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 6)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
 
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
-	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions())
+	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 6)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
 
 	// If no persistence is set then we still mount init scripts
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
-	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions())
+	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 3)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 4)
 }
 
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
@@ -46,11 +46,12 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	persistence := mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast").SetLabelSelector(labels)
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build().MongoDbPodSpec
 	rs := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec).Build()
-	set := DatabaseStatefulSet(*rs, ReplicaSetOptions())
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetpodEnvOptions()))
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
 
 	checkMounts(t, set, []corev1.VolumeMount{
+		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
@@ -72,7 +73,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	).Build()
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec.MongoDbPodSpec).Build()
-	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
+	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
@@ -81,6 +82,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	})
 
 	checkMounts(t, set, []corev1.VolumeMount{
+		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
 		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
@@ -99,7 +101,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 		nil).
 		Build()
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec.MongoDbPodSpec).Build()
-	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions())
+	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
 		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
@@ -108,6 +110,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	})
 
 	checkMounts(t, set, []corev1.VolumeMount{
+		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
 		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
@@ -141,7 +144,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 		SetPodSpec(&podSpec.MongoDbPodSpec).
 		Build()
 	sts := DatabaseStatefulSet(
-		*mdb, ReplicaSetOptions(),
+		*mdb, ReplicaSetOptions(GetpodEnvOptions()),
 	)
 
 	spec := sts.Spec.Template.Spec
@@ -158,7 +161,7 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().SetName("my-standalone").Build(), StandaloneOptions())
+	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().SetName("my-standalone").Build(), StandaloneOptions(GetpodEnvOptions()))
 
 	spec := sts.Spec.Template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
@@ -173,14 +176,14 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	// Cleaning the state (there is no tear down in go test :( )
 	defer mock.InitDefaultEnvVariables()
 
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions())
+	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetpodEnvOptions()))
 
 	template := sts.Spec.Template
 	assert.Nil(t, template.Spec.ImagePullSecrets)
 
 	_ = os.Setenv(util.ImagePullSecrets, "foo")
 
-	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions())
+	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetpodEnvOptions()))
 
 	template = sts.Spec.Template
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
@@ -189,7 +192,7 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
-	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions())
+	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions(GetpodEnvOptions()))
 	assert.Equal(t, util.Int64Ref(600), sts.Spec.Template.Spec.TerminationGracePeriodSeconds)
 }
 
@@ -230,7 +233,7 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions())
+	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetpodEnvOptions()))
 
 	spec := sts.Spec.Template.Spec
 	assert.Len(t, spec.InitContainers, 1)
@@ -239,7 +242,7 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 
 	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions())
+	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetpodEnvOptions()))
 	assert.Nil(t, sts.Spec.Template.Spec.SecurityContext)
 	// TODO: assert the container security context
 }
@@ -252,7 +255,7 @@ func TestPodSpec_Requirements(t *testing.T) {
 		SetMemory("1012M").
 		Build()
 
-	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build(), ReplicaSetOptions())
+	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build(), ReplicaSetOptions(GetpodEnvOptions()))
 
 	podSpecTemplate := sts.Spec.Template
 	container := podSpecTemplate.Spec.Containers[0]

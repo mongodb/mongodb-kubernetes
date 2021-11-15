@@ -3,11 +3,10 @@ package process
 import (
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -17,10 +16,9 @@ func init() {
 	zap.ReplaceGlobals(logger)
 	mock.InitDefaultEnvVariables()
 }
-
 func TestCreateProcessesWiredTigerCache(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetVersion("4.0.0").Build()
-	set := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
+	set := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions(construct.GetpodEnvOptions()))
 	processes := CreateMongodProcesses(set, util.DatabaseContainerName, &rs.Spec)
 
 	assert.Len(t, processes, 3)
@@ -31,7 +29,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 
 	rs.Spec.PodSpec = &mdbv1.NewPodSpecWrapperBuilder().SetMemory("3G").Build().MongoDbPodSpec
 
-	set = construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions())
+	set = construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions(construct.GetpodEnvOptions()))
 	processes = CreateMongodProcesses(set, util.DatabaseContainerName, &rs.Spec)
 
 	assert.Len(t, processes, 3)

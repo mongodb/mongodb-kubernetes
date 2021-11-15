@@ -54,6 +54,10 @@ const (
 	// (aka replicaset) to different locations, so pods having the same label shouldn't coexist on the node that has
 	// the same topology key
 	PodAntiAffinityLabelKey = "pod-anti-affinity"
+
+	// AGENT_API_KEY secret path
+	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key"
+	AgentAPIKeyVolumeName = "agent-api-key"
 )
 
 // DatabaseStatefulSetOptions contains all of the different values that are variable between
@@ -100,6 +104,13 @@ func (c CertSecretTypesMapping) IsCertTLSType(certName string) bool {
 func (c CertSecretTypesMapping) IsTLSTypeOrUndefined(certName string) bool {
 	isTLS, ok := c.certSecretIsTLSType[certName]
 	return !ok || isTLS
+}
+
+func GetpodEnvOptions() func(options *DatabaseStatefulSetOptions) {
+	return func(options *DatabaseStatefulSetOptions) {
+		options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
+
+	}
 }
 
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
@@ -433,7 +444,7 @@ func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseSt
 
 	// Then we overwrite them if the sts has to be constructed with the new design
 	if newTlsDesign {
-		// This two functions modify the volumes to be optional (the assence of the referenced
+		// This two functions modify the volumes to be optional (the absence of the referenced
 		// secret/configMap do not prevent the pods from starting)
 		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
 		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
@@ -516,6 +527,10 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
 	databaseScriptsVolumeMount := databaseScriptsVolumeMount(true)
 
+	// AGENT-API-KEY volume
+	agentAPIKeyVolume := statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID))
+	agentAPIKeyVolumeMount := statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath)
+
 	serviceAccountName := getServiceAccountName(opts)
 
 	return podtemplatespec.Apply(
@@ -523,6 +538,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(serviceAccountName),
 		podtemplatespec.WithVolume(scriptsVolume),
+		podtemplatespec.WithVolume(agentAPIKeyVolume),
 		podtemplatespec.WithInitContainerByIndex(0,
 			buildDatabaseInitContainer(),
 		),
@@ -532,7 +548,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 				container.WithImage(databaseImageUrl),
 				container.WithEnvs(databaseEnvVars(opts)...),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-				container.WithVolumeMounts([]corev1.VolumeMount{databaseScriptsVolumeMount}),
+				container.WithVolumeMounts([]corev1.VolumeMount{databaseScriptsVolumeMount, agentAPIKeyVolumeMount}),
 			),
 		),
 	)
@@ -659,6 +675,10 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	}
 	vars := []corev1.EnvVar{
 		{
+			Name:  util.ENV_VAR_LOG_LEVEL,
+			Value: string(podVars.LogLevel),
+		},
+		{
 			Name:  util.ENV_VAR_BASE_URL,
 			Value: podVars.BaseURL,
 		},
@@ -669,11 +689,6 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		{
 			Name:  util.ENV_VAR_USER,
 			Value: podVars.User,
-		},
-		env.FromSecret(AgentApiKeyEnv, agents.ApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey),
-		{
-			Name:  util.ENV_VAR_LOG_LEVEL,
-			Value: string(podVars.LogLevel),
 		},
 	}
 

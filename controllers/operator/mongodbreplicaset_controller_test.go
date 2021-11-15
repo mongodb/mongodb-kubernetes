@@ -146,8 +146,8 @@ func TestUpdateDeploymentTLSConfiguration(t *testing.T) {
 	rsNoTLS := mdbv1.NewReplicaSetBuilder().Build()
 	deploymentWithTLS := deployment.CreateFromReplicaSet(rsWithTLS)
 	deploymentNoTLS := deployment.CreateFromReplicaSet(rsNoTLS)
-	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions())
-	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions())
+	stsWithTLS := construct.DatabaseStatefulSet(*rsWithTLS, construct.ReplicaSetOptions(construct.GetpodEnvOptions()))
+	stsNoTLS := construct.DatabaseStatefulSet(*rsNoTLS, construct.ReplicaSetOptions(construct.GetpodEnvOptions()))
 
 	// TLS Disabled -> TLS Disabled
 	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(om.NewMockedOmConnection(deploymentNoTLS), 3, rsNoTLS, stsNoTLS, zap.S(), util.CAFilePathInContainer)

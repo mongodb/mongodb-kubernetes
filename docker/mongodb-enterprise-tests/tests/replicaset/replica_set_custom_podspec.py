@@ -51,6 +51,14 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "read_only": None,
                 },
                 {
+                    "name": "agent-api-key",
+                    "mount_path": "/mongodb-automation/agent-api-key",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
                     "name": "data",
                     "mount_path": "/data",
                     "sub_path": "data",

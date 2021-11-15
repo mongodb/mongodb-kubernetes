@@ -129,6 +129,7 @@ while read -rd,; do
     splittedAgentFlags+=("$REPLY")
 done <<<"$AGENT_FLAGS";
 
+AGENT_API_KEY="$(cat "${MMS_HOME}"/agent-api-key/agentApiKey)"
 script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>} ${splittedAgentFlags[*]}"
 
 agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
