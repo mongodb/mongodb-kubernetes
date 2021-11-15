@@ -9,6 +9,8 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -57,12 +59,28 @@ func secretContainsPairOfKeys(secret map[string]string, key1 string, key2 string
 // TODO use a SecretsClient the same we do for ConfigMapClient
 func readSecret(secretGetter secret.Getter, nsName client.ObjectKey) (map[string]string, error) {
 	secrets := make(map[string]string)
-	stringData, err := secret.ReadStringData(secretGetter, nsName)
-	if err != nil {
-		return nil, err
-	}
-	for k, v := range stringData {
-		secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
+	if vault.IsVaultSecretBackend() {
+		vaultClient, err := vault.GetVaultClient()
+		secretPath := fmt.Sprintf("%s/%s", vault.OperatorSecretPath, nsName.Name)
+		if err != nil {
+			return secrets, err
+		}
+		secretInterfaceData, err := vaultClient.GetSecret(secretPath)
+		if err != nil {
+			return secrets, err
+		}
+		secretInt := maputil.ReadMapValueAsMap(secretInterfaceData, "data")
+		for k, v := range secretInt {
+			secrets[k] = fmt.Sprintf("%v", v)
+		}
+	} else {
+		stringData, err := secret.ReadStringData(secretGetter, nsName)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range stringData {
+			secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
+		}
 	}
 	return secrets, nil
 }

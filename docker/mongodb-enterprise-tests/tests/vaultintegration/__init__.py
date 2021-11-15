@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 from kubetester.kubetester import KubernetesTester
 
 
@@ -34,3 +34,19 @@ def vault_sts_name() -> str:
 
 def vault_namespace_name() -> str:
     return "vault"
+
+
+def store_secret_in_vault(
+    vault_namespace: str, vault_name: str, secretData: Dict[str, str], path: str
+):
+    cmd = ["vault", "kv", "put", path]
+
+    for k, v in secretData.items():
+        cmd.append(f"{k}={v}")
+
+    run_command_in_vault(
+        vault_namespace,
+        vault_name,
+        cmd,
+        expected_message=["created_time"],
+    )

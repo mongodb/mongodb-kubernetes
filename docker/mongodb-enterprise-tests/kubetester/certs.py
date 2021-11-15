@@ -22,7 +22,7 @@ import tempfile
 import kubernetes
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from tests.vaultintegration import (
-    run_command_in_vault,
+    store_secret_in_vault,
     vault_namespace_name,
     vault_sts_name,
 )
@@ -130,26 +130,11 @@ def generate_cert(
             raise ValueError(
                 "When secret backend is Vault, a subpath must be specified"
             )
+        path += f"{vault_subpath}/{secret_name}"
 
         data = read_secret(namespace, secret_name)
-        # vault kv put secret/devwebapp/config username='giraffe' password='salsa'
-        cmd = [
-            "vault",
-            "kv",
-            "put",
-            f"{path}/{secret_name}",
-            "tls.crt={}".format(data["tls.crt"]),
-            "tls.key={}".format(data["tls.key"]),
-        ]
+        store_secret_in_vault(vault_namespace_name(), vault_sts_name(), data, path)
 
-        run_command_in_vault(
-            vault_namespace_name(),
-            vault_sts_name(),
-            cmd,
-            expected_message=["created_time"],
-        )
-
-    # Make sure the Secret names used have a random part
     return secret_name
 
 

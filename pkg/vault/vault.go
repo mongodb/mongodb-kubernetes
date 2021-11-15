@@ -12,6 +12,8 @@ import (
 const (
 	VaultBackend     = "VAULT_BACKEND"
 	K8sSecretBackend = "K8S_SECRET_BACKEND"
+
+	OperatorSecretPath = "secret/data/mongodbenterprise/operator/"
 )
 
 func IsVaultSecretBackend() bool {
@@ -40,7 +42,7 @@ func GetVaultClient() (*VaultClient, error) {
 	return &VaultClient{client: client}, nil
 }
 
-func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
+func (v *VaultClient) login() error {
 	// Read the service-account token from the path where the token's Kubernetes Secret is mounted.
 	jwt, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
 	if err != nil {
@@ -64,10 +66,30 @@ func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error 
 
 	// will use the resulting Vault token for making all future calls to Vault
 	v.client.SetToken(resp.Auth.ClientToken)
+	return nil
+}
 
-	_, err = v.client.Logical().Write(path, data)
+func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
+	if err := v.login(); err != nil {
+		return fmt.Errorf("unable to log in: %s", err)
+	}
+	_, err := v.client.Logical().Write(path, data)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (v *VaultClient) GetSecret(path string) (map[string]interface{}, error) {
+	if err := v.login(); err != nil {
+		return map[string]interface{}{}, fmt.Errorf("unable to log in: %s", err)
+	}
+	secret, err := v.client.Logical().Read(path)
+	if err != nil {
+		return map[string]interface{}{}, fmt.Errorf("can't read secret from vault: %s", err)
+	}
+	if secret == nil {
+		return map[string]interface{}{}, fmt.Errorf("secret not found at %s", path)
+	}
+	return secret.Data, nil
 }

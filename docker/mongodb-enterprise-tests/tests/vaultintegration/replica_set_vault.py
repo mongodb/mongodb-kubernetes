@@ -1,11 +1,23 @@
 from pytest import mark, fixture
-from kubetester import get_statefulset
-from kubetester.kubetester import KubernetesTester
+from kubetester import get_statefulset, read_secret
+from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.operator import Operator
 from kubetester.certs import create_mongodb_tls_certs
-from . import run_command_in_vault
+from . import run_command_in_vault, store_secret_in_vault
+from kubetester.mongodb import MongoDB, Phase
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
+
+
+@fixture(scope="module")
+def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set.yaml"), "my-replica-set", namespace
+    )
+    resource.set_version(custom_mdb_version)
+    resource.create()
+
+    return resource
 
 
 @fixture(scope="module")
@@ -127,7 +139,13 @@ def test_secret_data_put_by_operator(
     vault_name: str,
     vault_namespace: str,
 ):
-    cmd = ["vault", "kv", "get", "-field=keyfoo", "secret/mongodbenterprise/operator"]
+    cmd = [
+        "vault",
+        "kv",
+        "get",
+        "-field=keyfoo",
+        "secret/mongodbenterprise/operator/keyfoo",
+    ]
     result = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
     assert result == "valuebar"
 
@@ -138,3 +156,31 @@ def test_create_certs_and_store_in_vault(
 ):
     cmd = ["vault", "kv", "get", "secret/data/mongodbenterprise/database/foo"]
     run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=["tls.crt"])
+
+
+@mark.e2e_vault_setup
+def test_store_om_credentials_in_vault(
+    vault_namespace: str, vault_name: str, namespace: str
+):
+    credentials = read_secret(namespace, "my-credentials")
+    store_secret_in_vault(
+        vault_namespace,
+        vault_name,
+        credentials,
+        "secret/mongodbenterprise/operator/my-credentials",
+    )
+
+    cmd = [
+        "vault",
+        "kv",
+        "get",
+        "secret/mongodbenterprise/operator/my-credentials",
+    ]
+    run_command_in_vault(
+        vault_namespace, vault_name, cmd, expected_message=["publicApiKey"]
+    )
+
+
+@mark.e2e_vault_setup
+def test_mdb_created(replica_set: MongoDB):
+    replica_set.assert_reaches_phase(Phase.Running, timeout=300)
