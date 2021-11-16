@@ -15,8 +15,8 @@ import (
 )
 
 // ReadCredentials reads the Secret containing the credentials to authenticate in Ops Manager and creates a matching 'Credentials' object
-func ReadCredentials(secretGetter secret.Getter, credentialsSecret client.ObjectKey, log *zap.SugaredLogger) (mdbv1.Credentials, error) {
-	secret, err := readSecret(secretGetter, credentialsSecret)
+func ReadCredentials(secretGetter secret.Getter, credentialsSecret client.ObjectKey, vaultClient *vault.VaultClient, log *zap.SugaredLogger) (mdbv1.Credentials, error) {
+	secret, err := readSecret(secretGetter, credentialsSecret, vaultClient)
 	if err != nil {
 		return mdbv1.Credentials{}, err
 	}
@@ -57,14 +57,10 @@ func secretContainsPairOfKeys(secret map[string]string, key1 string, key2 string
 }
 
 // TODO use a SecretsClient the same we do for ConfigMapClient
-func readSecret(secretGetter secret.Getter, nsName client.ObjectKey) (map[string]string, error) {
+func readSecret(secretGetter secret.Getter, nsName client.ObjectKey, vaultClient *vault.VaultClient) (map[string]string, error) {
 	secrets := make(map[string]string)
 	if vault.IsVaultSecretBackend() {
-		vaultClient, err := vault.GetVaultClient()
 		secretPath := fmt.Sprintf("%s/%s", vault.OperatorSecretPath, nsName.Name)
-		if err != nil {
-			return secrets, err
-		}
 		secretInterfaceData, err := vaultClient.GetSecret(secretPath)
 		if err != nil {
 			return secrets, err

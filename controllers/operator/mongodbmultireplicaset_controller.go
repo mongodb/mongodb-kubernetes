@@ -78,7 +78,7 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace(), r.vaultClient)
 
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
@@ -93,7 +93,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcileResult, err
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, r.vaultClient, log)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed("Error reading project config and credentials: %s", err), log)
 	}
@@ -620,7 +620,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(obj runtime.Object, log *zap.
 
 // cleanOpsManagerState removes the project configuration (processes, auth settings etc.) from the corresponding OM project.
 func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, &mrs, r.vaultClient, log)
 	if err != nil {
 		return err
 	}

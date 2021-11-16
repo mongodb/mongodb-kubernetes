@@ -6,13 +6,14 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"io/ioutil"
 	"math/rand"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
@@ -941,7 +942,7 @@ func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager om
 		return nil, currentOpsManagerVersion, status
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), r.vaultClient, log)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// We need to differentiate here, because it is ok it the secret does not exist:
@@ -1108,7 +1109,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 		return workflow.Failed(err.Error()), nil
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), r.vaultClient, log)
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}

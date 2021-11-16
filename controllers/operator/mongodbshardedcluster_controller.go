@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -70,7 +71,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace())
+	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace(), r.vaultClient)
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
@@ -157,7 +158,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, r.vaultClient, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
@@ -424,7 +425,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, r.vaultClient, log)
 	if err != nil {
 		return err
 	}

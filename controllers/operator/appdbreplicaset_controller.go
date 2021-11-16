@@ -524,7 +524,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return env.PodEnvVars{}, fmt.Errorf("error getting opsManager secret name: %s", err)
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), r.vaultClient, log)
 	if err != nil {
 		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
 		return env.PodEnvVars{}, nil
@@ -600,7 +600,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return env.PodEnvVars{}, fmt.Errorf("error getting ops-manager API secret name: %s", err)
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APISecretName), log)
+	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APISecretName), r.vaultClient, log)
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error reading credentials: %s", err)
 	}

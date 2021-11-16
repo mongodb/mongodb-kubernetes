@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"time"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -128,7 +129,7 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 		return reconcile.Result{}, nil
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb, r.vaultClient, log)
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
@@ -153,7 +154,7 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 		return err
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb, r.vaultClient, log)
 	if err != nil {
 		return err
 	}

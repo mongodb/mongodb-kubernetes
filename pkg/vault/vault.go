@@ -42,7 +42,7 @@ func GetVaultClient() (*VaultClient, error) {
 	return &VaultClient{client: client}, nil
 }
 
-func (v *VaultClient) login() error {
+func (v *VaultClient) Login() error {
 	// Read the service-account token from the path where the token's Kubernetes Secret is mounted.
 	jwt, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
 	if err != nil {
@@ -70,7 +70,7 @@ func (v *VaultClient) login() error {
 }
 
 func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
-	if err := v.login(); err != nil {
+	if err := v.Login(); err != nil {
 		return fmt.Errorf("unable to log in: %s", err)
 	}
 	_, err := v.client.Logical().Write(path, data)
@@ -81,7 +81,7 @@ func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error 
 }
 
 func (v *VaultClient) GetSecret(path string) (map[string]interface{}, error) {
-	if err := v.login(); err != nil {
+	if err := v.Login(); err != nil {
 		return map[string]interface{}{}, fmt.Errorf("unable to log in: %s", err)
 	}
 	secret, err := v.client.Logical().Read(path)

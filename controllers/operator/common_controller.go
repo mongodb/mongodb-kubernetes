@@ -32,6 +32,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/inspect"
@@ -69,18 +70,31 @@ type patchValue struct {
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client kubernetesClient.Client
-	scheme *runtime.Scheme
+	client      kubernetesClient.Client
+	scheme      *runtime.Scheme
+	vaultClient *vault.VaultClient
 
 	watch.ResourceWatcher
 }
 
 func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(mgr.GetClient())
+	var vaultClient *vault.VaultClient
+	if vault.IsVaultSecretBackend() {
+		var err error
+		vaultClient, err = vault.GetVaultClient()
+		if err != nil {
+			panic(fmt.Sprintf("Can not initialize vault client: %s", err))
+		}
+		if err := vaultClient.Login(); err != nil {
+			panic(fmt.Errorf("unable to log in with vault client: %s", err))
+		}
+	}
 	return &ReconcileCommonController{
 		client:          newClient,
 		scheme:          mgr.GetScheme(),
 		ResourceWatcher: watch.NewResourceWatcher(),
+		vaultClient:     vaultClient,
 	}
 }
 
