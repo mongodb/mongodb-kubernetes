@@ -1004,7 +1004,13 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 	}
 
 	d := om.NewDeployment()
-	d.MergeShardedCluster(sh.Name, mongosProcesses, configRs, shards, false)
+	d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sh.Name,
+		MongosProcesses: mongosProcesses,
+		ConfigServerRs:  configRs,
+		Shards:          shards,
+		Finalizing:      false,
+	})
 	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
 	return d
 }

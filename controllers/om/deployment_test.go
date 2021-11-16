@@ -217,7 +217,15 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 		d.GetAllProcessNames())
 
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
+
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "cluster",
+		MongosProcesses: createMongosProcesses(3, "pretty", ""),
+		ConfigServerRs:  configRs,
+		Shards:          createShards("myShard"),
+		Finalizing:      false,
+	}
+	d.MergeShardedCluster(mergeOpts)
 
 	assert.Equal(
 		t,
@@ -238,7 +246,14 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 	d := NewDeployment()
 
 	configRs := createConfigSrvRs("configSrv", false)
-	d.MergeShardedCluster("cluster", createMongosProcesses(3, "pretty", ""), configRs, createShards("myShard"), false)
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "cluster",
+		MongosProcesses: createMongosProcesses(3, "pretty", ""),
+		ConfigServerRs:  configRs,
+		Shards:          createShards("myShard"),
+		Finalizing:      false,
+	}
+	d.MergeShardedCluster(mergeOpts)
 	assert.Equal(
 		t,
 		[]string{
@@ -251,7 +266,14 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 		d.GetAllProcessNames(),
 	)
 
-	d.MergeShardedCluster("anotherCluster", createMongosProcesses(3, "anotherMongos", ""), configRs, createShards("anotherClusterSh"), false)
+	mergeOpts = DeploymentShardedClusterMergeOptions{
+		Name:            "anotherCluster",
+		MongosProcesses: createMongosProcesses(3, "anotherMongos", ""),
+		ConfigServerRs:  configRs,
+		Shards:          createShards("anotherClusterSh"),
+		Finalizing:      false,
+	}
+	d.MergeShardedCluster(mergeOpts)
 	assert.Equal(
 		t,
 		[]string{
@@ -287,7 +309,16 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	assert.Equal(t, 3, excessProcesses)
 
 	configRs := createConfigSrvRs("config", false)
-	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("sc001"), false)
+
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "sc001",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  configRs,
+		Shards:          createShards("sc001"),
+		Finalizing:      false,
+	}
+
+	_, _ = d.MergeShardedCluster(mergeOpts)
 	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
@@ -307,14 +338,32 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 	d := NewDeployment()
 	configRs := createConfigSrvRs("config", false)
-	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, createShards("sc001"), false)
+
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "sc001",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  configRs,
+		Shards:          createShards("sc001"),
+		Finalizing:      false,
+	}
+
+	_, _ = d.MergeShardedCluster(mergeOpts)
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
 	assert.Len(t, d.getReplicaSets(), 4)
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
 
 	// Now we are "scaling down" the sharded cluster - so junk replica sets will appear - this is still ok
 	twoShards := createShards("sc001")[0:2]
-	_, _ = d.MergeShardedCluster("sc001", createMongosProcesses(3, "mongos", ""), configRs, twoShards, false)
+
+	mergeOpts = DeploymentShardedClusterMergeOptions{
+		Name:            "sc001",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  configRs,
+		Shards:          twoShards,
+		Finalizing:      false,
+	}
+
+	_, _ = d.MergeShardedCluster(mergeOpts)
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
 	assert.Len(t, d.getReplicaSets(), 4)
 
@@ -354,7 +403,15 @@ func TestProcessBelongsToReplicaSet(t *testing.T) {
 func TestProcessBelongsToShardedCluster(t *testing.T) {
 	d := NewDeployment()
 	configRs := createConfigSrvRs("config", false)
-	d.MergeShardedCluster("sh001", createMongosProcesses(3, "mongos", ""), configRs, createShards("shards"), false)
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "sh001",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  configRs,
+		Shards:          createShards("shards"),
+		Finalizing:      false,
+	}
+
+	d.MergeShardedCluster(mergeOpts)
 
 	// Config Servers
 	assert.True(t, d.ProcessBelongsToResource("config-0", "sh001"))

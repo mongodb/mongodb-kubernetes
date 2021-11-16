@@ -201,21 +201,36 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	d.limitVotingMembers(operatorRs.Rs.Name())
 }
 
+// DeploymentShardedClusterMergeOptions contains all of the required values to update the ShardedCluster
+// in the automation config. These values should be provided my the MongoDB resource.
+type DeploymentShardedClusterMergeOptions struct {
+	Name                                 string
+	MongosProcesses                      []Process
+	ConfigServerRs                       ReplicaSetWithProcesses
+	Shards                               []ReplicaSetWithProcesses
+	Finalizing                           bool
+	ConfigServerAdditionalOptionsDesired map[string]interface{}
+	MongosAdditionalOptionsDesired       map[string]interface{}
+	ShardAdditionalOptionsDesired        map[string]interface{}
+	ConfigServerAdditionalOptionsPrev    map[string]interface{}
+	MongosAdditionalOptionsPrev          map[string]interface{}
+	ShardAdditionalOptionsPrev           map[string]interface{}
+}
+
 // MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
 // are all merged one by one.
 // 'shardsToRemove' is an array containing names of shards which should be removed.
-func (d Deployment) MergeShardedCluster(name string, mongosProcesses []Process, configServerRs ReplicaSetWithProcesses,
-	shards []ReplicaSetWithProcesses, finalizing bool) (bool, error) {
-	log := zap.S().With("sharded cluster", name)
+func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOptions) (bool, error) {
+	log := zap.S().With("sharded cluster", opts.Name)
 
-	err := d.mergeMongosProcesses(name, mongosProcesses, log)
+	err := d.mergeMongosProcesses(opts, log)
 	if err != nil {
 		return false, err
 	}
 
-	d.mergeConfigReplicaSet(configServerRs, log)
+	d.mergeConfigReplicaSet(opts, log)
 
-	shardsScheduledForRemoval := d.mergeShards(name, configServerRs, shards, finalizing, log)
+	shardsScheduledForRemoval := d.mergeShards(opts, log)
 
 	return shardsScheduledForRemoval, nil
 }
@@ -667,11 +682,11 @@ func (d Deployment) getShardedClusterProcessNames(name string) []string {
 	return processNames
 }
 
-func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []Process, log *zap.SugaredLogger) error {
+func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) error {
 	// First removing old mongos processes
-	for _, p := range d.getMongosProcessesNames(clusterName) {
+	for _, p := range d.getMongosProcessesNames(opts.Name) {
 		found := false
-		for _, v := range mongosProcesses {
+		for _, v := range opts.MongosProcesses {
 			if p == v.Name() {
 				found = true
 				break
@@ -683,8 +698,8 @@ func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []P
 		}
 	}
 	// Making sure changes to existing mongos processes are propagated to new ones
-	if cntMongosProcesses := len(d.getMongosProcessesNames(clusterName)); cntMongosProcesses > 0 && cntMongosProcesses < len(mongosProcesses) {
-		if err := d.copyFirstProcessToNewPositions(mongosProcesses, cntMongosProcesses, log); err != nil {
+	if cntMongosProcesses := len(d.getMongosProcessesNames(opts.Name)); cntMongosProcesses > 0 && cntMongosProcesses < len(opts.MongosProcesses) {
+		if err := d.copyFirstProcessToNewPositions(opts.MongosProcesses, cntMongosProcesses, log); err != nil {
 			// I guess this error is not so serious to fail the whole process - mongoses will be scaled up anyway
 			log.Error("Failed to copy first mongos process (so new mongos processes may miss Ops Manager changes done to "+
 				"existing mongos processes): %s", err)
@@ -692,12 +707,12 @@ func (d Deployment) mergeMongosProcesses(clusterName string, mongosProcesses []P
 	}
 
 	// Then merging mongos processes with existing ones
-	for _, p := range mongosProcesses {
+	for _, p := range opts.MongosProcesses {
 		if p.ProcessType() != ProcessTypeMongos {
 			return errors.New(`All mongos processes must have processType="mongos"`)
 		}
-		p.setCluster(clusterName)
-		d.MergeStandalone(p, nil, nil, log)
+		p.setCluster(opts.Name)
+		d.MergeStandalone(p, opts.MongosAdditionalOptionsDesired, opts.MongosAdditionalOptionsPrev, log)
 	}
 	return nil
 }
@@ -712,31 +727,30 @@ func (d Deployment) getMongosProcessesNames(clusterName string) []string {
 	return processNames
 }
 
-func (d Deployment) mergeConfigReplicaSet(replicaSet ReplicaSetWithProcesses, l *zap.SugaredLogger) {
-	for _, p := range replicaSet.Processes {
+func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOptions, l *zap.SugaredLogger) {
+	for _, p := range opts.ConfigServerRs.Processes {
 		p.setClusterRoleConfigSrv()
 	}
 
-	d.MergeReplicaSet(replicaSet, nil, nil, l)
+	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, l)
 }
 
 // mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
 // element as well
-func (d Deployment) mergeShards(clusterName string, configServerRs ReplicaSetWithProcesses,
-	shards []ReplicaSetWithProcesses, finalizing bool, log *zap.SugaredLogger) bool {
+func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
-	for _, v := range shards {
-		d.MergeReplicaSet(v, nil, nil, log)
+	for _, v := range opts.Shards {
+		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
 	}
-	cluster := NewShardedCluster(clusterName, configServerRs.Rs.Name(), shards)
+	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
 
 	// Merging "sharding" json value
 	for _, s := range d.getShardedClusters() {
-		if s.Name() == clusterName {
+		if s.Name() == opts.Name {
 			s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
-			return d.handleShardsRemoval(finalizing, s, log)
+			return d.handleShardsRemoval(opts.Finalizing, s, log)
 		}
 	}
 	// Adding the new sharded cluster

@@ -695,8 +695,37 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			if numberOfOtherMembers > 0 {
 				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
-			var err error
-			if shardsRemoving, err = d.MergeShardedCluster(sc.Name, mongosProcesses, configRs, shards, opts.finalizing); err != nil {
+
+			lastConfigServerConf, err := sc.GetLastAdditionalMongodConfigByType(mdbv1.ConfigServerConfig)
+			if err != nil {
+				return err
+			}
+
+			lastShardServerConf, err := sc.GetLastAdditionalMongodConfigByType(mdbv1.ShardConfig)
+			if err != nil {
+				return err
+			}
+
+			lastMongosServerConf, err := sc.GetLastAdditionalMongodConfigByType(mdbv1.MongosConfig)
+			if err != nil {
+				return err
+			}
+
+			mergeOpts := om.DeploymentShardedClusterMergeOptions{
+				Name:                                 sc.Name,
+				MongosProcesses:                      mongosProcesses,
+				ConfigServerRs:                       configRs,
+				Shards:                               shards,
+				Finalizing:                           opts.finalizing,
+				ConfigServerAdditionalOptionsPrev:    lastConfigServerConf.ToMap(),
+				ConfigServerAdditionalOptionsDesired: sc.Spec.ConfigSrvSpec.AdditionalMongodConfig.ToMap(),
+				ShardAdditionalOptionsPrev:           lastShardServerConf.ToMap(),
+				ShardAdditionalOptionsDesired:        sc.Spec.ShardSpec.AdditionalMongodConfig.ToMap(),
+				MongosAdditionalOptionsPrev:          lastMongosServerConf.ToMap(),
+				MongosAdditionalOptionsDesired:       sc.Spec.MongosSpec.AdditionalMongodConfig.ToMap(),
+			}
+
+			if shardsRemoving, err = d.MergeShardedCluster(mergeOpts); err != nil {
 				return err
 			}
 

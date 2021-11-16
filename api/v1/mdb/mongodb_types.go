@@ -899,6 +899,16 @@ func (m *MongoDB) InitDefaults() {
 		if m.Spec.ShardPodSpec == nil {
 			m.Spec.ShardPodSpec = NewMongoDbPodSpec()
 		}
+		if m.Spec.ConfigSrvSpec == nil {
+			m.Spec.ConfigSrvSpec = &ShardedClusterComponentSpec{}
+		}
+		if m.Spec.MongosSpec == nil {
+			m.Spec.MongosSpec = &ShardedClusterComponentSpec{}
+		}
+		if m.Spec.ShardSpec == nil {
+			m.Spec.ShardSpec = &ShardedClusterComponentSpec{}
+		}
+
 	}
 
 	if m.Spec.Connectivity == nil {
