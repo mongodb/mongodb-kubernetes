@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/vault/api v1.3.0
 	github.com/imdario/mergo v0.3.12
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.1-0.20211021114900-6f390f2bc8f9
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.2-0.20211116141715-93091662af59
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.32.1
@@ -24,13 +24,13 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.19.1
-	k8s.io/api v0.22.2
-	k8s.io/apimachinery v0.22.2
-	k8s.io/client-go v0.22.2
+	k8s.io/api v0.22.3
+	k8s.io/apimachinery v0.22.3
+	k8s.io/client-go v0.22.3
 	k8s.io/code-generator v0.22.2
-	sigs.k8s.io/controller-runtime v0.10.2
+	sigs.k8s.io/controller-runtime v0.10.3
 )
 
 go 1.16
 
-//replace github.com/mongodb/mongodb-kubernetes-operator => ../../mongodb/mongodb-kubernetes-operator
+// replace github.com/mongodb/mongodb-kubernetes-operator => ../../mongodb/mongodb-kubernetes-operator

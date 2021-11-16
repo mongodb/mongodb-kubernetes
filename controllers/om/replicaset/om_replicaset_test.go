@@ -7,6 +7,7 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -23,7 +24,7 @@ func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 		opsManager.Spec.AppDB.Members = i
 		appDbSts, err := construct.AppDbStatefulSet(
 			opsManager,
-			nil,
+			&env.PodEnvVars{ProjectID: "abcd"},
 			"",
 			"",
 		)

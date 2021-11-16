@@ -7,6 +7,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -15,6 +16,7 @@ func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 	_ = os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
+	os.Setenv(util.OpsManagerMonitorAppDB, "false")
 }
 
 func TestAppDBAgentFlags(t *testing.T) {
@@ -24,7 +26,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 	}
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	om.Spec.AppDB.AutomationAgent.StartupParameters = agentStartupParameters
-	sts, err := AppDbStatefulSet(om, nil, "", "")
+	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, "", "")
 	assert.NoError(t, err)
 
 	command := sts.Spec.Template.Spec.Containers[0].Command

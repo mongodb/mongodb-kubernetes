@@ -34,7 +34,6 @@ const (
 	podNamespaceEnv              = "POD_NAMESPACE"
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv             = "HEADLESS_AGENT"
-	AgentApiKeyEnv               = "AGENT_API_KEY"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 )
 
@@ -298,6 +297,9 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
+	// AGENT-API-KEY volume
+	agentAPIKeyVolume := statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))
+
 	sts := statefulset.New(
 		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, opsManager),
 		customPersistenceConfig(*appDb),
@@ -313,6 +315,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 						container.WithEnvs(appdbContainerEnv(*appDb, podVars)...),
 					),
 				),
+				podtemplatespec.WithVolume(agentAPIKeyVolume),
 				appDbPodSpec(*appDb),
 				monitoringModification,
 				tlsVolumes(*appDb, podVars, certSecretType),
@@ -362,7 +365,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 
 	// 2. Startup parameters for the agent to enable monitoring
 	startupParams := mdbv1.StartupParameters{
-		"mmsApiKey":  "$(AGENT_API_KEY)",
+		"mmsApiKey":  "${AGENT_API_KEY}",
 		"mmsGroupId": podVars.ProjectID,
 	}
 
@@ -389,8 +392,10 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	}
 
 	command += startupParams.ToCommandLineArgs()
-
 	monitoringCommand := []string{"/bin/bash", "-c", command}
+
+	// AGENT_API_KEY volume
+	agentAPIKeyVolumeMount := statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath)
 
 	// Add additional TLS volumes if needed
 	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, certSecretType)
@@ -429,6 +434,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*newDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
+				container.WithVolumeMounts([]corev1.VolumeMount{agentAPIKeyVolumeMount}),
 				container.WithEnvs(appdbContainerEnv(appDB, &podVars)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
@@ -452,11 +458,5 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1
 			Value: "true",
 		},
 	}
-
-	// These env vars are required to configure Monitoring of the AppDB
-	if podVars != nil && podVars.ProjectID != "" {
-		envVars = append(envVars, env.FromSecret(AgentApiKeyEnv, agents.ApiKeySecretName(podVars.ProjectID), util.OmAgentApiKey))
-	}
-
 	return envVars
 }

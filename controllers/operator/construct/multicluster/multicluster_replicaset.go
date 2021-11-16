@@ -107,17 +107,6 @@ func mongodbInitVolumeMount(cmName string) []corev1.VolumeMount {
 func mongodbEnv(conn om.Connection) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
-			Name: construct.AgentApiKeyEnv,
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: fmt.Sprintf("%s-group-secret", conn.GroupID()),
-					},
-					Key: util.OmAgentApiKey,
-				},
-			},
-		},
-		{
 			Name:  "AGENT_FLAGS",
 			Value: "-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,",
 		},
