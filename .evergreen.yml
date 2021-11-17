@@ -20,7 +20,7 @@ variables:
     usaf_database_version: "1.5.3"
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
-  - &ops_manager_44_latest 4.4.18
+  - &ops_manager_44_latest 4.4.19
 
   - &ops_manager_50_latest 5.0.4
   - &ops_manager_50_appdb_version 4.4.4-ent
