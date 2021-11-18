@@ -3,10 +3,11 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"

@@ -315,7 +315,7 @@ func prepareConnection(controller *ReconcileCommonController, omConnectionFunc o
 
 	projectConfig, err := project.ReadProjectConfig(controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
 	assert.NoError(t, err)
-	credsConfig, err := project.ReadCredentials(controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), nil, &zap.SugaredLogger{})
+	credsConfig, err := project.ReadCredentials(controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
 	assert.NoError(t, err)
 
 	spec := mdbv1.ConnectionSpec{

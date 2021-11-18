@@ -129,7 +129,7 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 		return reconcile.Result{}, nil
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb, r.vaultClient, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, mdb, log)
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
@@ -154,7 +154,7 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 		return err
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, mdb, r.vaultClient, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, mdb, log)
 	if err != nil {
 		return err
 	}

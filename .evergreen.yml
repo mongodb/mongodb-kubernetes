@@ -1997,6 +1997,7 @@ task_groups:
     # e2e_webhook_validation_task_group
     - e2e_mongodb_validation_webhook
     - e2e_mongodb_roles_validation_webhook
+    - e2e_vault_setup
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

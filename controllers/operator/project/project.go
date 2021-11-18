@@ -4,11 +4,11 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -27,12 +27,12 @@ type Reader interface {
 
 // ReadConfigAndCredentials returns the ProjectConfig and Credentials for a given resource which are
 // used to communicate with Ops Manager.
-func ReadConfigAndCredentials(client kubernetesClient.Client, reader Reader, vaultClient *vault.VaultClient, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	projectConfig, err := ReadProjectConfig(client, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
+func ReadConfigAndCredentials(cmGetter configmap.Getter, secretGetter secrets.SecretClient, reader Reader, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+	projectConfig, err := ReadProjectConfig(cmGetter, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
 	}
-	credsConfig, err := ReadCredentials(client, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), vaultClient, log)
+	credsConfig, err := ReadCredentials(secretGetter, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), log)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading Credentials secret: %s", err)
 	}

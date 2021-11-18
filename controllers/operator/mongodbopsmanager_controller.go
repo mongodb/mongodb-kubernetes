@@ -942,7 +942,7 @@ func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager om
 		return nil, currentOpsManagerVersion, status
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), r.vaultClient, log)
+	cred, err := project.ReadCredentials(r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// We need to differentiate here, because it is ok it the secret does not exist:
@@ -1109,7 +1109,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 		return workflow.Failed(err.Error()), nil
 	}
 
-	cred, err := project.ReadCredentials(r.client, kube.ObjectKey(operatorNamespace(), APIKeySecretName), r.vaultClient, log)
+	cred, err := project.ReadCredentials(r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}

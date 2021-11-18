@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -70,9 +71,9 @@ type patchValue struct {
 type ReconcileCommonController struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client      kubernetesClient.Client
-	scheme      *runtime.Scheme
-	vaultClient *vault.VaultClient
+	scheme *runtime.Scheme
+	client kubernetesClient.Client
+	secrets.SecretClient
 
 	watch.ResourceWatcher
 }
@@ -91,10 +92,13 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 		}
 	}
 	return &ReconcileCommonController{
-		client:          newClient,
+		client: newClient,
+		SecretClient: secrets.SecretClient{
+			VaultClient: vaultClient,
+			KubeClient:  newClient,
+		},
 		scheme:          mgr.GetScheme(),
 		ResourceWatcher: watch.NewResourceWatcher(),
-		vaultClient:     vaultClient,
 	}
 }
 

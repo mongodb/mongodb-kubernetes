@@ -111,7 +111,7 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace(), r.vaultClient)
+	agents.UpgradeAllIfNeeded(r.client, r.SecretClient, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
@@ -131,7 +131,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, s, r.vaultClient, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, s, log)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
@@ -291,7 +291,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, s, r.vaultClient, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, s, log)
 	if err != nil {
 		return err
 	}

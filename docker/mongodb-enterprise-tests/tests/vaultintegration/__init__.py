@@ -50,3 +50,15 @@ def store_secret_in_vault(
         cmd,
         expected_message=["created_time"],
     )
+
+
+def assert_secret_in_vault(
+    vault_namespace: str, vault_name: str, path: str, expected_message: List[str]
+):
+    cmd = [
+        "vault",
+        "kv",
+        "get",
+        path,
+    ]
+    run_command_in_vault(vault_namespace, vault_name, cmd, expected_message)

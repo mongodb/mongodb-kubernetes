@@ -125,7 +125,7 @@ def generate_cert(
     cert.create().block_until_ready()
 
     if secret_backend == "Vault":
-        path = "secret/data/mongodbenterprise/"
+        path = "secret/mongodbenterprise/"
         if vault_subpath is None:
             raise ValueError(
                 "When secret backend is Vault, a subpath must be specified"

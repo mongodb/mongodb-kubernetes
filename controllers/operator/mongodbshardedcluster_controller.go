@@ -71,7 +71,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(r.client, r.omConnectionFactory, GetWatchedNamespace(), r.vaultClient)
+	agents.UpgradeAllIfNeeded(r.client, r.SecretClient, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
@@ -158,7 +158,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, r.vaultClient, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, sc, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
@@ -425,7 +425,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, sc, r.vaultClient, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, sc, log)
 	if err != nil {
 		return err
 	}
