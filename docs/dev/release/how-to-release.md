@@ -44,30 +44,13 @@ Ensure the required dependencies are installed
 pip3 install -r scripts/evergreen/requirements.txt
 ```
 
-Run the script in an interactive mode and fill the details for the versions of
-the images to be released. Note, that Operator is always released but "init"
-images are released only if there were changes in the content since the last
-release. The script will check this and will ask for new versions if necessary.
-
-The script will fetch the existing tags from quay.io and propose a patch bump on
-the version number.
-
-You are free to specify a different version, and the script will throw an Exception
-if the specified tags already exists.
-
+Verify that the values in release.json and run the following script to update the values.yaml files.
 
 ```bash
 git fetch
-./scripts/evergreen/release/update_release_version.py
+./scripts/evergreen/release/update_helm_values_files.py
 ```
 
-If you want to force re-pushing an already existing tag, you can use the `--force`
-argument, which takes a comma-separated list of images.
-
-Example:
-```bash
-./scripts/evergreen/release/update_release_version.py --force=operator,initOpsManager
-```
 
 Push the PR changes
 

@@ -15,7 +15,7 @@ refer to [how-to-release](../../docs/dev/release/how-to-release.md) document.*
 
 ## Versioning
 
-- [ ] Increase the relevant release versions with `update_release_version.py`.
+- [ ] Ensure that all of versions in release.json are correct and are properly reflected in `values.yaml` and `values-openshift.yaml`.
 
 ## Public repo
 

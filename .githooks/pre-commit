@@ -18,6 +18,19 @@ function black_formatting()
     done
 }
 
+function update_values_yaml_files() {
+    # ensure that all helm values files are up to date.
+    scripts/evergreen/release/update_helm_values_files.py
+
+    # commit any changes we made
+    git add public/helm_chart/values.yaml
+    git add public/helm_chart/values-openshift.yaml
+
+    # these can change if the version of community operator is different
+    git add go.mod
+    git add go.sum
+}
+
 black_formatting
 
 # pre-commit hook will go vet all the files being committed
@@ -119,5 +132,7 @@ if [ ${#packages_to_analyze[@]} -ne 0 ]; then
         fi
     done
 fi
+
+update_values_yaml_files
 
 exit $exitcode

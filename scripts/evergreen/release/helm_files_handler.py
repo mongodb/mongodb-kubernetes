@@ -23,17 +23,4 @@ def update_single_helm_values_file(values_yaml_path: str, key: str, new_release:
     assert "registry" in doc
     with open(values_yaml_path, "w") as fd:
         yaml.dump(doc, fd)
-    print(f'Updated "{values_yaml_path}"')
-
-
-def update_operator_version_chart(new_release: str):
-    values_yaml = "public/helm_chart/Chart.yaml"
-    yaml = ruamel.yaml.YAML()
-    with open(values_yaml, "r") as fd:
-        doc = yaml.load(fd)
-
-    doc["version"] = new_release
-
-    with open(values_yaml, "w") as fd:
-        yaml.dump(doc, fd)
-    print(f'Updated "{values_yaml}"')
+    print(f'Set "{values_yaml_path} {key}.version to {new_release}"')
