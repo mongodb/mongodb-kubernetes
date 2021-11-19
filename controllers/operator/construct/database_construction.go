@@ -538,7 +538,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	} else {
 		// add vault specific annotations
-		annotations = vault.DatabaseAnnotations()
+		annotations = vault.DatabaseAnnotations(agents.ApiKeySecretName(opts.PodVars.ProjectID))
 	}
 
 	serviceAccountName := getServiceAccountName(opts)

@@ -114,16 +114,20 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 	return secretString, nil
 }
 
-func DatabaseAnnotations() map[string]string {
-	annotations := map[string]string{
-		"vault.hashicorp.com/agent-inject":                    "true",
-		"vault.hashicorp.com/agent-inject-secret-agentApiKey": fmt.Sprintf("%s/agentApiKey", DatabaseSecretPath),
-		"vault.hashicorp.com/role":                            DatabaseVaultRoleName,
-		"vault.hashicorp.com/secret-volume-path-agentApiKey":  "/mongodb-automation/agent-api-key",
-		"vault.hashicorp.com/preserve-secret-case":            "true",
-		"vault.hashicorp.com/agent-inject-template-agentApiKey": `{{- with secret "secret/mongodbenterprise/database/agentApiKey" -}}
+func DatabaseAnnotations(secretName string) map[string]string {
+	apiKeySecretPath := fmt.Sprintf("%s%s", DatabaseSecretPath, secretName)
+
+	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
           {{ .Data.data.agentApiKey }}
-          {{- end }}`,
+          {{- end }}`, apiKeySecretPath)
+
+	annotations := map[string]string{
+		"vault.hashicorp.com/agent-inject":                      "true",
+		"vault.hashicorp.com/agent-inject-secret-agentApiKey":   apiKeySecretPath,
+		"vault.hashicorp.com/role":                              DatabaseVaultRoleName,
+		"vault.hashicorp.com/secret-volume-path-agentApiKey":    "/mongodb-automation/agent-api-key",
+		"vault.hashicorp.com/preserve-secret-case":              "true",
+		"vault.hashicorp.com/agent-inject-template-agentApiKey": agentAPIKeyTemplate,
 	}
 	return annotations
 }

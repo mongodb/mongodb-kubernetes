@@ -58,7 +58,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 
 		if vault.IsVaultSecretBackend() {
 			// we only want to create secret if it doesn't exist in vault
-			APIKeyPath := fmt.Sprintf("%s/agentApiKey", vault.DatabaseSecretPath)
+			APIKeyPath := fmt.Sprintf("%s/%s", vault.DatabaseSecretPath, secretName)
 			_, err := secretGetCreator.VaultClient.ReadSecretBytes(APIKeyPath)
 			if err != nil && strings.HasPrefix(err.Error(), "secret not found") {
 				err = secretGetCreator.VaultClient.PutSecret(APIKeyPath, data)
