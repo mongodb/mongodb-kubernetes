@@ -9,16 +9,16 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"go.uber.org/zap"
 )
 
-func PrepareOpsManagerConnection(client kubernetesClient.Client, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, error) {
+func PrepareOpsManagerConnection(client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
+		return nil, fmt.Errorf("error reading or creating project in Ops Manager: %s", err)
 	}
 
 	omVersion := conn.OpsManagerVersion()

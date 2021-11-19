@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
@@ -527,9 +528,18 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
 	databaseScriptsVolumeMount := databaseScriptsVolumeMount(true)
 
-	// AGENT-API-KEY volume
-	agentAPIKeyVolume := statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID))
-	agentAPIKeyVolumeMount := statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath)
+	volumes := []corev1.Volume{scriptsVolume}
+	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+	annotations := make(map[string]string)
+
+	if !vault.IsVaultSecretBackend() {
+		// AGENT-API-KEY volume
+		volumes = append(volumes, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID)))
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
+	} else {
+		// add vault specific annotations
+		annotations = vault.DatabaseAnnotations()
+	}
 
 	serviceAccountName := getServiceAccountName(opts)
 
@@ -537,21 +547,22 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 		sharedDatabaseConfiguration(opts),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(serviceAccountName),
-		podtemplatespec.WithVolume(scriptsVolume),
-		podtemplatespec.WithVolume(agentAPIKeyVolume),
+		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithInitContainerByIndex(0,
 			buildDatabaseInitContainer(),
 		),
+		podtemplatespec.WithAnnotations(annotations),
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
 				container.WithName(util.DatabaseContainerName),
 				container.WithImage(databaseImageUrl),
 				container.WithEnvs(databaseEnvVars(opts)...),
 				container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-				container.WithVolumeMounts([]corev1.VolumeMount{databaseScriptsVolumeMount, agentAPIKeyVolumeMount}),
+				container.WithVolumeMounts(volumeMounts),
 			),
 		),
 	)
+
 }
 
 // getServiceAccountName returns the serviceAccount to be used by the mongoDB pod,

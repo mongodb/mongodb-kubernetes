@@ -134,7 +134,7 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 		return r.updateStatus(user, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
 		return r.updateStatus(user, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -159,7 +159,7 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err

@@ -136,7 +136,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -296,7 +296,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return err
 	}

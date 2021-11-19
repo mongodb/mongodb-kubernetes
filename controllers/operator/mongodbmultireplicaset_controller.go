@@ -98,7 +98,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, workflow.Failed("Error reading project config and credentials: %s", err), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed("error establishing connection to Ops Manager: %s", err), log)
 	}
@@ -626,7 +626,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(mrs mdbmultiv1.Mo
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", mrs.Spec)
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
 	if err != nil {
 		return err
 	}

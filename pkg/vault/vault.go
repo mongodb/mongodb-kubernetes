@@ -14,8 +14,9 @@ const (
 	VaultBackend     = "VAULT_BACKEND"
 	K8sSecretBackend = "K8S_SECRET_BACKEND"
 
-	OperatorSecretPath = "secret/data/mongodbenterprise/operator"
-	DatabaseSecretPath = "secret/data/mongodbenterprise/database"
+	OperatorSecretPath    = "secret/data/mongodbenterprise/operator"
+	DatabaseSecretPath    = "secret/data/mongodbenterprise/database/"
+	DatabaseVaultRoleName = "mongodbenterprisedatabase"
 )
 
 func IsVaultSecretBackend() bool {
@@ -111,4 +112,18 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 		secretString[k] = string(v)
 	}
 	return secretString, nil
+}
+
+func DatabaseAnnotations() map[string]string {
+	annotations := map[string]string{
+		"vault.hashicorp.com/agent-inject":                    "true",
+		"vault.hashicorp.com/agent-inject-secret-agentApiKey": fmt.Sprintf("%s/agentApiKey", DatabaseSecretPath),
+		"vault.hashicorp.com/role":                            DatabaseVaultRoleName,
+		"vault.hashicorp.com/secret-volume-path-agentApiKey":  "/mongodb-automation/agent-api-key",
+		"vault.hashicorp.com/preserve-secret-case":            "true",
+		"vault.hashicorp.com/agent-inject-template-agentApiKey": `{{- with secret "secret/mongodbenterprise/database/agentApiKey" -}}
+          {{ .Data.data.agentApiKey }}
+          {{- end }}`,
+	}
+	return annotations
 }

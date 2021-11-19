@@ -104,7 +104,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
@@ -411,7 +411,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
 		return err
 	}

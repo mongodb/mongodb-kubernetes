@@ -328,7 +328,7 @@ func prepareConnection(controller *ReconcileCommonController, omConnectionFunc o
 		LogLevel:    mdbv1.Warn,
 	}
 
-	conn, e := connection.PrepareOpsManagerConnection(controller.client, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
+	conn, e := connection.PrepareOpsManagerConnection(controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, newPodVars(conn, projectConfig, spec)

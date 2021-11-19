@@ -49,3 +49,8 @@ def vault_operator_policy_name() -> str:
 @fixture(scope="module")
 def vault_name() -> str:
     return vault_sts_name()
+
+
+@fixture(scope="module")
+def vault_database_policy_name() -> str:
+    return "mongodbenterprisedatabase"

@@ -8,6 +8,7 @@ from kubetester.mongodb import MongoDB, Phase
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
+DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
 
 
 @fixture(scope="module")
@@ -181,8 +182,59 @@ def test_store_om_credentials_in_vault(
 
 
 @mark.e2e_vault_setup
+def test_create_database_policy(vault_name: str, vault_namespace: str):
+    KubernetesTester.copy_file_inside_pod(
+        f"{vault_name}-0",
+        "vaultpolicies/database-policy.hcl",
+        "/tmp/database-policy.hcl",
+        namespace=vault_namespace,
+    )
+
+    cmd = [
+        "vault",
+        "policy",
+        "write",
+        "mongodbenterprisedatabase",
+        "/tmp/database-policy.hcl",
+    ]
+    run_command_in_vault(vault_namespace, vault_name, cmd)
+
+
+@mark.e2e_vault_setup
+def test_enable_vault_role_for_database_pod(
+    vault_name: str,
+    vault_namespace: str,
+    namespace: str,
+    vault_database_policy_name: str,
+):
+    cmd = [
+        "vault",
+        "write",
+        f"auth/kubernetes/role/{vault_database_policy_name}",
+        f"bound_service_account_names={DATABASE_SA_NAME}",
+        f"bound_service_account_namespaces={namespace}",
+        f"policies={vault_database_policy_name}",
+    ]
+    run_command_in_vault(vault_namespace, vault_name, cmd)
+
+
+@mark.e2e_vault_setup
 def test_mdb_created(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_vault_setup
+def test_api_key_in_pod(replica_set: MongoDB):
+    cmd = ["cat", "/mongodb-automation/agent-api-key/agentApiKey"]
+
+    result = KubernetesTester.run_command_in_pod_container(
+        pod_name=f"{replica_set.name}-0",
+        namespace=replica_set.namespace,
+        cmd=cmd,
+        container="mongodb-enterprise-database",
+    )
+
+    assert result != ""
 
 
 @mark.e2e_vault_setup

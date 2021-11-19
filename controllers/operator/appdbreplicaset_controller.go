@@ -509,7 +509,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 		return fmt.Errorf("error reading secret %s: %s", kube.ObjectKey(opsManager.Namespace, agents.ApiKeySecretName(conn.GroupID())), err)
 	}
 
-	if err := agents.EnsureAgentKeySecretExists(r.client, conn, opsManager.Namespace, agentKeyFromSecret, conn.GroupID(), log); err != nil {
+	if err := agents.EnsureAgentKeySecretExists(r.SecretClient, conn, opsManager.Namespace, agentKeyFromSecret, conn.GroupID(), log); err != nil {
 		return fmt.Errorf("error ensuring agent key secret exists: %s", err)
 	}
 

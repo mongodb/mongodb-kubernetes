@@ -3,13 +3,16 @@ package agents
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -32,19 +35,40 @@ type retryParams struct {
 // a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
 // was created externally and agent key wasn't generated before)
 // Returns the api key existing/generated
-func EnsureAgentKeySecretExists(secretGetCreator SecretGetCreator, agentKeyGenerator om.AgentKeyGenerator, nameSpace, agentKey, projectId string, log *zap.SugaredLogger) error {
+func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, nameSpace, agentKey, projectId string, log *zap.SugaredLogger) error {
 	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
-	_, err := secretGetCreator.GetSecret(kube.ObjectKey(nameSpace, secretName))
+	_, err := secretGetCreator.KubeClient.GetSecret(kube.ObjectKey(nameSpace, secretName))
 	if err != nil {
 		if agentKey == "" {
 			log.Info("Generating agent key as current project doesn't have it")
 
 			agentKey, err = agentKeyGenerator.GenerateAgentKey()
 			if err != nil {
-				return fmt.Errorf("Failed to generate agent key in OM: %s", err)
+				return fmt.Errorf("failed to generate agent key in OM: %s", err)
 			}
 			log.Info("Agent key was successfully generated")
+		}
+
+		data := map[string]interface{}{
+			"data": map[string]interface{}{
+				util.OmAgentApiKey: agentKey,
+			},
+		}
+
+		if vault.IsVaultSecretBackend() {
+			// we only want to create secret if it doesn't exist in vault
+			APIKeyPath := fmt.Sprintf("%s/agentApiKey", vault.DatabaseSecretPath)
+			_, err := secretGetCreator.VaultClient.ReadSecretBytes(APIKeyPath)
+			if err != nil && strings.HasPrefix(err.Error(), "secret not found") {
+				err = secretGetCreator.VaultClient.PutSecret(APIKeyPath, data)
+				if err != nil {
+					return fmt.Errorf("failed to create AgentKey secret in vault: %s", err)
+				}
+				log.Infof("Project agent key is saved in Vault")
+				return nil
+			}
+			return err
 		}
 
 		// todo pass a real owner in a next PR
@@ -52,7 +76,7 @@ func EnsureAgentKeySecretExists(secretGetCreator SecretGetCreator, agentKeyGener
 			if apiErrors.IsAlreadyExists(err) {
 				return nil
 			}
-			return fmt.Errorf("Failed to create Secret: %s", err)
+			return fmt.Errorf("failed to create Secret: %s", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
 		return nil
@@ -77,7 +101,7 @@ func WaitForRsAgentsToRegisterReplicasSpecified(set appsv1.StatefulSet, members 
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...) {
-		return errors.New("Some agents failed to register or the Operator is using the wrong host names for the pods. " +
+		return errors.New("some agents failed to register or the Operator is using the wrong host names for the pods. " +
 			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
 			"name ('cluster.local') ")
 	}
@@ -87,7 +111,7 @@ func WaitForRsAgentsToRegisterReplicasSpecified(set appsv1.StatefulSet, members 
 // WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster waits for the specified agents to registry with Ops Manager.
 func WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
 	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...) {
-		return errors.New("Some agents failed to register or the Operator is using the wrong host names for the pods. " +
+		return errors.New("some agents failed to register or the Operator is using the wrong host names for the pods. " +
 			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
 			"name ('cluster.local') ")
 	}
@@ -137,12 +161,12 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
 }
 
-func createAgentKeySecret(secretCreator secret.Creator, objectKey client.ObjectKey, agentKey string, owner v1.CustomResourceReadWriter) error {
+func createAgentKeySecret(secretCreator secrets.SecretClient, objectKey client.ObjectKey, agentKey string, owner v1.CustomResourceReadWriter) error {
 	agentKeySecret := secret.Builder().
 		SetField(util.OmAgentApiKey, agentKey).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetName(objectKey.Name).
 		SetNamespace(objectKey.Namespace).
 		Build()
-	return secretCreator.CreateSecret(agentKeySecret)
+	return secretCreator.KubeClient.CreateSecret(agentKeySecret)
 }

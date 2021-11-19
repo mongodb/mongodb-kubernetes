@@ -163,7 +163,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, workflow.Failed(err.Error())
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return nil, workflow.Failed(err.Error())
 	}
@@ -430,7 +430,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.client, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
 		return err
 	}
