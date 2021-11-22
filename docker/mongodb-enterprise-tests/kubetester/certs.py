@@ -130,7 +130,7 @@ def generate_cert(
             raise ValueError(
                 "When secret backend is Vault, a subpath must be specified"
             )
-        path += f"{vault_subpath}/{secret_name}"
+        path += f"{vault_subpath}/{namespace}/{secret_name}"
 
         data = read_secret(namespace, secret_name)
         store_secret_in_vault(vault_namespace_name(), vault_sts_name(), data, path)

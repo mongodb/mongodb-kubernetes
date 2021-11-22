@@ -305,6 +305,26 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts)
 
+	secretsToInject := vault.SecretsToInject{}
+	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
+		if opts.CertSecretTypes.IsCertTLSType(secretName) {
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+		}
+		if vault.IsVaultSecretBackend() {
+			secretsToInject.AgentCerts = secretName
+		} else {
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, secretName)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: agentCertMountPath,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumes = append(volumes, agentSecretVolume)
+		}
+
+	}
+
 	var mounts []corev1.VolumeMount
 	var pvcFuncs map[string]persistentvolumeclaim.Modification
 	if opts.Persistent == nil || *opts.Persistent {
@@ -351,6 +371,15 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		)
 	}
 
+	if !vault.IsVaultSecretBackend() {
+		// AGENT-API-KEY volume
+		volumes = append(volumes, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID)))
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
+	} else {
+		// add vault specific annotations
+		secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
+		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
+	}
 	return statefulset.Apply(
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(opts.Name),
@@ -486,20 +515,6 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	if mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
-		if databaseOpts.CertSecretTypes.IsCertTLSType(secretName) {
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-		}
-		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, secretName)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: agentCertMountPath,
-			Name:      agentSecretVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, agentSecretVolume)
-	}
-
 	// add volume for x509 cert used in internal cluster authentication
 	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
 		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(databaseOpts.Name)
@@ -530,16 +545,6 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 
 	volumes := []corev1.Volume{scriptsVolume}
 	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
-	annotations := make(map[string]string)
-
-	if !vault.IsVaultSecretBackend() {
-		// AGENT-API-KEY volume
-		volumes = append(volumes, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID)))
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
-	} else {
-		// add vault specific annotations
-		annotations = vault.DatabaseAnnotations(agents.ApiKeySecretName(opts.PodVars.ProjectID))
-	}
 
 	serviceAccountName := getServiceAccountName(opts)
 
@@ -551,7 +556,6 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespe
 		podtemplatespec.WithInitContainerByIndex(0,
 			buildDatabaseInitContainer(),
 		),
-		podtemplatespec.WithAnnotations(annotations),
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
 				container.WithName(util.DatabaseContainerName),

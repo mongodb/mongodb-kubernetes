@@ -357,7 +357,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         STANDALONE = "Standalone"
 
 
-def get_pods(podname, qty):
+def get_pods(podname, qty) -> List[str]:
     return [podname.format(i) for i in range(qty)]
 
 

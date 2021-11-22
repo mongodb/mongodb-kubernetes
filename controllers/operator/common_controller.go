@@ -560,7 +560,7 @@ func (r *ReconcileCommonController) configureAgentSubjects(namespace string, sec
 func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string, secretKeySelector corev1.SecretKeySelector, log *zap.SugaredLogger) (authentication.UserOptions, error) {
 	userOpts := authentication.UserOptions{}
 
-	agentCerts, err := secret.ReadStringData(r.client, kube.ObjectKey(namespace, secretKeySelector.Name))
+	agentCerts, err := r.SecretClient.ReadSecret(kube.ObjectKey(namespace, secretKeySelector.Name), vault.DatabaseSecretPath)
 	if err != nil {
 		return userOpts, err
 	}
@@ -620,7 +620,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(mdb *mdbv1.M
 			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled"), newTLSDesignMapping
 		}
 		agentSecretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.Name).Name
-		err, tlsFormat := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(r.client, kube.ObjectKey(mdb.Namespace, agentSecretName), log)
+		err, tlsFormat := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(r.SecretClient, kube.ObjectKey(mdb.Namespace, agentSecretName), log)
 		if err != nil {
 			return workflow.Failed(err.Error()), newTLSDesignMapping
 		}

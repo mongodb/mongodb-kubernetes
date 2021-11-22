@@ -226,7 +226,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 	}
 
 	if s.Type == corev1.SecretTypeTLS {
-		data, err := certs.VerifyTLSSecretForStatefulSet(s, certs.AppDBReplicaSetConfig(om))
+		data, err := certs.VerifyTLSSecretForStatefulSet(s.Data, s.Name, certs.AppDBReplicaSetConfig(om))
 		if err != nil {
 			return workflow.Failed("TLS secret %s is invalid: %s", secretName, err), corev1.SecretTypeOpaque
 		}

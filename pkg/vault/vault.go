@@ -15,9 +15,14 @@ const (
 	K8sSecretBackend = "K8S_SECRET_BACKEND"
 
 	OperatorSecretPath    = "secret/data/mongodbenterprise/operator"
-	DatabaseSecretPath    = "secret/data/mongodbenterprise/database/"
+	DatabaseSecretPath    = "secret/data/mongodbenterprise/database"
 	DatabaseVaultRoleName = "mongodbenterprisedatabase"
 )
+
+type SecretsToInject struct {
+	AgentCerts  string
+	AgentApiKey string
+}
 
 func IsVaultSecretBackend() bool {
 	return os.Getenv("SECRET_BACKEND") == VaultBackend
@@ -114,8 +119,8 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 	return secretString, nil
 }
 
-func DatabaseAnnotations(secretName string) map[string]string {
-	apiKeySecretPath := fmt.Sprintf("%s%s", DatabaseSecretPath, secretName)
+func (s SecretsToInject) DatabaseAnnotations(namespace string) map[string]string {
+	apiKeySecretPath := fmt.Sprintf("%s/%s", DatabaseSecretPath, s.AgentApiKey)
 
 	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
           {{ .Data.data.agentApiKey }}
@@ -128,6 +133,16 @@ func DatabaseAnnotations(secretName string) map[string]string {
 		"vault.hashicorp.com/secret-volume-path-agentApiKey":    "/mongodb-automation/agent-api-key",
 		"vault.hashicorp.com/preserve-secret-case":              "true",
 		"vault.hashicorp.com/agent-inject-template-agentApiKey": agentAPIKeyTemplate,
+	}
+	if s.AgentCerts != "" {
+		agentCertsPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.AgentCerts)
+		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPath
+		annotations["vault.hashicorp.com/secret-volume-path-mms-automation-agent-pem"] = "/mongodb-automation/agent-certs"
+		annotations["vault.hashicorp.com/agent-inject-template-mms-automation-agent-pem"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- $v }}
+          {{- end }}
+          {{- end }}`, agentCertsPath)
 	}
 	return annotations
 }

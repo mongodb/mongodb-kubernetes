@@ -82,7 +82,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 	}
 
 	// Basic validation of the PEM data.
-	data, err := certs.VerifyTLSSecretForStatefulSet(s, certs.Options{})
+	data, err := certs.VerifyTLSSecretForStatefulSet(s.Data, s.Name, certs.Options{})
 	if err != nil {
 		return err
 	}

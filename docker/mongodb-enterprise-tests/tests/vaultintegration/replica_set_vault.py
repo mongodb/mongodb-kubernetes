@@ -1,10 +1,11 @@
 from pytest import mark, fixture
-from kubetester import get_statefulset, read_secret
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from kubetester import get_pod_when_ready, get_statefulset, read_secret
 from kubetester.operator import Operator
-from kubetester.certs import create_mongodb_tls_certs
+from kubetester.certs import create_mongodb_tls_certs, create_agent_tls_certs
 from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
-from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb import MongoDB, Phase, get_pods
+from kubernetes import client
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
@@ -16,15 +17,33 @@ def replica_set(
     namespace: str,
     custom_mdb_version: str,
     server_certs: str,
+    agent_certs: str,
     issuer_ca_configmap: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace
     )
     resource.set_version(custom_mdb_version)
+    resource["spec"]["security"] = {
+        "tls": {"enabled": True, "ca": issuer_ca_configmap},
+        "authentication": {
+            "enabled": True,
+            "modes": ["X509"],
+            "agents": {
+                "mode": "X509",
+            },
+        },
+    }
     resource.create()
 
     return resource
+
+
+@fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_agent_tls_certs(
+        issuer, namespace, MDB_RESOURCE, secret_backend="Vault"
+    )
 
 
 @fixture(scope="module")
@@ -219,8 +238,11 @@ def test_enable_vault_role_for_database_pod(
 
 
 @mark.e2e_vault_setup
-def test_mdb_created(replica_set: MongoDB):
-    replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+def test_mdb_created(replica_set: MongoDB, namespace: str):
+    replica_set.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
+    for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
+        pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
+        assert len(pod.spec.containers) == 2
 
 
 @mark.e2e_vault_setup
@@ -238,10 +260,12 @@ def test_api_key_in_pod(replica_set: MongoDB):
 
 
 @mark.e2e_vault_setup
-def test_tls_certs_are_stored_in_vault(vault_namespace: str, vault_name: str):
+def test_tls_certs_are_stored_in_vault(
+    vault_namespace: str, vault_name: str, namespace: str
+):
     assert_secret_in_vault(
         vault_namespace,
         vault_name,
-        f"secret/mongodbenterprise/database/{MDB_RESOURCE}-cert",
+        f"secret/mongodbenterprise/database/{namespace}/agent-certs",
         ["tls.crt"],
     )

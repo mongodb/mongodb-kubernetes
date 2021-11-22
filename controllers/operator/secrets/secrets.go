@@ -2,9 +2,9 @@ package secrets
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -19,6 +19,13 @@ type SecretClient struct {
 
 func namespacedNameToVaultPath(nsName types.NamespacedName, basePath string) string {
 	return fmt.Sprintf("%s/%s/%s", basePath, nsName.Namespace, nsName.Name)
+}
+
+func secretNamespacedName(s corev1.Secret) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: s.Namespace,
+		Name:      s.Name,
+	}
 }
 
 func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error) {
@@ -44,14 +51,34 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 
 func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
-		secretPath := namespacedNameToVaultPath(kube.ObjectKey(s.Namespace, s.Name), basePath)
-		stringsAsInterface := map[string]interface{}{}
+		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
+		secretData := map[string]interface{}{}
 		for k, v := range s.StringData {
-			stringsAsInterface[k] = v
+			secretData[k] = v
 		}
-		return r.VaultClient.PutSecret(secretPath, stringsAsInterface)
+		for k, v := range s.Data {
+			secretData[k] = string(v)
+		}
+		data := map[string]interface{}{
+			"data": secretData,
+		}
+		return r.VaultClient.PutSecret(secretPath, data)
 	}
 
 	return secret.CreateOrUpdate(r.KubeClient, s)
 
+}
+
+func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error {
+	if vault.IsVaultSecretBackend() {
+		secret, err := r.ReadSecret(secretNamespacedName(s), basePath)
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			return err
+		}
+		if err != nil || !reflect.DeepEqual(secret, s.StringData) {
+			return r.PutSecret(s, basePath)
+		}
+
+	}
+	return secret.CreateOrUpdateIfNeeded(r.KubeClient, s)
 }
