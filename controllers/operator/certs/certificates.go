@@ -230,7 +230,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretsClient secrets.
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
-		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s", vault.DatabaseSecretPath, secret.Name))
+		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, secret.Namespace, secret.Name))
 		if err != nil {
 			return err, false
 		}
