@@ -1,11 +1,17 @@
 from pytest import mark, fixture
+from kubetester import get_statefulset, read_secret, create_configmap
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester import get_pod_when_ready, get_statefulset, read_secret
 from kubetester.operator import Operator
 from kubetester.certs import create_mongodb_tls_certs, create_agent_tls_certs
-from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
+from . import (
+    run_command_in_vault,
+    store_secret_in_vault,
+    assert_secret_in_vault,
+)
 from kubetester.mongodb import MongoDB, Phase, get_pods
 from kubernetes import client
+from typing import Dict
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
@@ -56,6 +62,30 @@ def server_certs(namespace: str, issuer: str) -> str:
         secret_backend="Vault",
         vault_subpath="database",
     )
+
+
+@fixture(scope="module")
+def sharded_cluster_configmap(namespace: str) -> str:
+    cm = KubernetesTester.read_configmap(namespace, "my-project")
+
+    project_name = "sharded-om-project"
+    data = {
+        "baseUrl": cm["baseUrl"],
+        "projectName": project_name,
+        "orgId": cm["orgId"],
+    }
+    create_configmap(namespace=namespace, name="sharded-om-project", data=data)
+    return project_name
+
+
+@fixture(scope="module")
+def sharded_cluster(namespace: str, sharded_cluster_configmap: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster.yaml"), namespace=namespace
+    )
+    resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
+
+    return resource.create()
 
 
 @mark.e2e_vault_setup
@@ -162,22 +192,6 @@ def test_operator_install_with_vault_backend(operator_vault_secret_backend: Oper
 
 
 @mark.e2e_vault_setup
-def test_secret_data_put_by_operator(
-    vault_name: str,
-    vault_namespace: str,
-):
-    cmd = [
-        "vault",
-        "kv",
-        "get",
-        "-field=keyfoo",
-        "secret/mongodbenterprise/operator/keyfoo",
-    ]
-    result = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
-    assert result == "valuebar"
-
-
-@mark.e2e_vault_setup
 def test_store_om_credentials_in_vault(
     vault_namespace: str, vault_name: str, namespace: str
 ):
@@ -239,7 +253,7 @@ def test_enable_vault_role_for_database_pod(
 
 @mark.e2e_vault_setup
 def test_mdb_created(replica_set: MongoDB, namespace: str):
-    replica_set.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         assert len(pod.spec.containers) == 2
@@ -269,3 +283,8 @@ def test_tls_certs_are_stored_in_vault(
         f"secret/mongodbenterprise/database/{namespace}/agent-certs",
         ["tls.crt"],
     )
+
+
+@mark.e2e_vault_setup
+def test_sharded_mdb_created(sharded_cluster: MongoDB):
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
