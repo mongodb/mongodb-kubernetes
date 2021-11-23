@@ -12,6 +12,7 @@ from . import (
 from kubetester.mongodb import MongoDB, Phase, get_pods
 from kubernetes import client
 from typing import Dict
+import uuid
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
@@ -68,13 +69,13 @@ def server_certs(namespace: str, issuer: str) -> str:
 def sharded_cluster_configmap(namespace: str) -> str:
     cm = KubernetesTester.read_configmap(namespace, "my-project")
 
-    project_name = "sharded-om-project"
+    project_name = "sharded-om-project" + uuid.uuid4().hex
     data = {
         "baseUrl": cm["baseUrl"],
         "projectName": project_name,
         "orgId": cm["orgId"],
     }
-    create_configmap(namespace=namespace, name="sharded-om-project", data=data)
+    create_configmap(namespace=namespace, name=project_name, data=data)
     return project_name
 
 
