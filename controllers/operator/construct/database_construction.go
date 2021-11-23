@@ -325,6 +325,26 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	}
 
+	// add volume for x509 cert used in internal cluster authentication
+	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)
+		if opts.CertSecretTypes.IsCertTLSType(secretName) {
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+		}
+		if vault.IsVaultSecretBackend() {
+			secretsToInject.InternalClusterAuth = secretName
+			secretsToInject.InternalClusterHash = opts.InternalClusterHash
+		} else {
+			internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, secretName)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: util.InternalClusterAuthMountPath,
+				Name:      internalClusterAuthVolume.Name,
+				ReadOnly:  true,
+			})
+			volumes = append(volumes, internalClusterAuthVolume)
+		}
+	}
+
 	var mounts []corev1.VolumeMount
 	var pvcFuncs map[string]persistentvolumeclaim.Modification
 	if opts.Persistent == nil || *opts.Persistent {
@@ -513,21 +533,6 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 			ReadOnly:  true,
 		})
 		volumesToAdd = append(volumesToAdd, caCertVolume)
-	}
-
-	// add volume for x509 cert used in internal cluster authentication
-	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
-		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(databaseOpts.Name)
-		if databaseOpts.CertSecretTypes.IsCertTLSType(secretName) {
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-		}
-		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, secretName)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: util.InternalClusterAuthMountPath,
-			Name:      internalClusterAuthVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
 	return volumesToAdd, volumeMounts

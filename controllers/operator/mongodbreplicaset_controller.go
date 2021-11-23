@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +36,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	util_int "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -133,7 +135,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	status, newTLSDesignMemberCert := certs.EnsureSSLCertsForStatefulSet(r.client, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+	status, newTLSDesignMemberCert := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
 	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -154,11 +156,23 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
+	// TODO this will be removed when every TLS cert will be supported in Vault
+	internalHash := ""
+	if vault.IsVaultSecretBackend() {
+		secretDataString, err := r.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, rs.Namespace, rsCertsConfig.InternalClusterSecretName))
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+		}
+
+		internalHash = enterprisepem.ReadHashFromData(secretDataString, log)
+	} else {
+		internalHash = enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.InternalClusterSecretName, log)
+	}
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.CertSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.InternalClusterSecretName, log)),
+		InternalClusterHash(internalHash),
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
 	)

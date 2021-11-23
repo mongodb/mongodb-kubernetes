@@ -41,6 +41,10 @@ func ReadHashFromSecret(secretGetter secret.Getter, namespace, name string, log 
 		log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
 		return ""
 	}
+	return ReadHashFromData(secretData, log)
+}
+
+func ReadHashFromData(secretData map[string]string, log *zap.SugaredLogger) string {
 	pemCollection := NewCollection()
 	for k, v := range secretData {
 		pemCollection.MergeEntry(k, NewFileFrom(v))

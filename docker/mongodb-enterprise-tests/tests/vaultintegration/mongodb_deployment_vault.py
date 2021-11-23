@@ -1,8 +1,9 @@
 from pytest import mark, fixture
 from kubetester import get_statefulset, read_secret, create_configmap
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
-from kubetester import get_pod_when_ready, get_statefulset, read_secret
+from kubetester import get_pod_when_ready, get_statefulset, read_secret, create_secret
 from kubetester.operator import Operator
+from kubetester.certs import create_x509_mongodb_tls_certs, create_x509_agent_tls_certs
 from kubetester.certs import create_mongodb_tls_certs, create_agent_tls_certs
 from . import (
     run_command_in_vault,
@@ -39,10 +40,9 @@ def replica_set(
         "tls": {"enabled": True, "ca": issuer_ca_configmap},
         "authentication": {
             "enabled": True,
-            "modes": ["X509", "SCRAM"],
-            "agents": {
-                "mode": "X509",
-            },
+            "modes": ["X509"],
+            "agents": {"mode": "X509"},
+            "internalCluster": "X509",
         },
     }
     resource.create()
@@ -52,20 +52,30 @@ def replica_set(
 
 @fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
-    return create_agent_tls_certs(
+    return create_x509_agent_tls_certs(
         issuer, namespace, MDB_RESOURCE, secret_backend="Vault"
     )
 
 
 @fixture(scope="module")
-def server_certs(namespace: str, issuer: str) -> str:
-    return create_mongodb_tls_certs(
+def server_certs(
+    vault_namespace: str, vault_name: str, namespace: str, issuer: str
+) -> str:
+    create_x509_mongodb_tls_certs(
         issuer,
         namespace,
         MDB_RESOURCE,
         f"{MDB_RESOURCE}-cert",
         secret_backend="Vault",
         vault_subpath="database",
+    )
+    secret_name = f"{MDB_RESOURCE}-cert"
+    data = read_secret(namespace, secret_name)
+    store_secret_in_vault(
+        vault_namespace,
+        vault_name,
+        data,
+        f"secret/mongodbenterprise/database/{namespace}/{MDB_RESOURCE}-clusterfile",
     )
 
 

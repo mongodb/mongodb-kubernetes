@@ -174,7 +174,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	if status, _ := certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
+	if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 

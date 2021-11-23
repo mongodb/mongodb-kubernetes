@@ -30,6 +30,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -54,24 +55,31 @@ import (
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
 type ReconcileMongoDbMultiReplicaSet struct {
 	*ReconcileCommonController
-	omConnectionFactory     om.ConnectionFactory
-	memberClusterClientsMap map[string]kubernetesClient.Client // holds the client for each of the memberclusters(where the MongoDB ReplicaSet is deployed)
+	omConnectionFactory           om.ConnectionFactory
+	memberClusterClientsMap       map[string]kubernetesClient.Client // holds the client for each of the memberclusters(where the MongoDB ReplicaSet is deployed)
+	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
 func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
+	secretClientsMap := make(map[string]secrets.SecretClient)
 
 	// extract client from each cluster object.
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v.GetClient())
+		secretClientsMap[k] = secrets.SecretClient{
+			VaultClient: nil, // Vault is not supported yet on multicluster
+			KubeClient:  clientsMap[k],
+		}
 	}
 
 	return &ReconcileMongoDbMultiReplicaSet{
-		ReconcileCommonController: newReconcileCommonController(mgr),
-		omConnectionFactory:       omFunc,
-		memberClusterClientsMap:   clientsMap,
+		ReconcileCommonController:     newReconcileCommonController(mgr),
+		omConnectionFactory:           omFunc,
+		memberClusterClientsMap:       clientsMap,
+		memberClusterSecretClientsMap: secretClientsMap,
 	}
 }
 
@@ -244,6 +252,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 	for i, item := range clusterSpecList {
 		memberClient := r.memberClusterClientsMap[item.ClusterName]
+		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(&mrs, item)
 		if err != nil {
 			return err
@@ -251,7 +260,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		// TODO in a separate PR
 		// Ensure TLS for multi-cluster statefulset
-		if status, _ := certs.EnsureSSLCertsForStatefulSet(memberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
+		if status, _ := certs.EnsureSSLCertsForStatefulSet(secretMemberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
 			return errors.New("failed to ensure Statefulset for MDB Multi")
 		}
 

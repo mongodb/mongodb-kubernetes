@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 
@@ -351,18 +353,18 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 	var status workflow.Status
 	status = workflow.OK()
 	mongosCert := certs.MongosConfig(*s, r.mongosScaler)
-	tStatus, mongosCertType := certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, mongosCert, log)
+	tStatus, mongosCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, mongosCert, log)
 	certSecretTypes[mongosCert.CertSecretName] = mongosCertType
 	status = status.Merge(tStatus)
 
 	configSrvCert := certs.ConfigSrvConfig(*s, r.configSrvScaler)
-	tStatus, configCertType := certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, configSrvCert, log)
+	tStatus, configCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, configSrvCert, log)
 	certSecretTypes[configSrvCert.CertSecretName] = configCertType
 	status = status.Merge(tStatus)
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardCert := certs.ShardConfig(*s, i, r.mongodsPerShardScaler)
-		tStatus, shardCertType := certs.EnsureSSLCertsForStatefulSet(r.client, *s.Spec.Security, shardCert, log)
+		tStatus, shardCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, shardCert, log)
 		certSecretTypes[shardCert.CertSecretName] = shardCertType
 		status = status.Merge(tStatus)
 	}
@@ -901,12 +903,25 @@ func (r shardedClusterScaler) CurrentReplicas() int {
 func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := certs.ConfigSrvConfig(sc, r.configSrvScaler).CertSecretName
 	internalClusterSecretName := certs.ConfigSrvConfig(sc, r.configSrvScaler).InternalClusterSecretName
+
+	internalHash := ""
+	if vault.IsVaultSecretBackend() {
+		secretDataString, err := r.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, sc.Namespace, internalClusterSecretName))
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			panic(err)
+		}
+
+		internalHash = enterprisepem.ReadHashFromData(secretDataString, log)
+	} else {
+		internalHash = enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, internalClusterSecretName, log)
+	}
+
 	return construct.ConfigServerOptions(
 		Replicas(r.getConfigSrvCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, certSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, internalClusterSecretName, log)),
+		InternalClusterHash(internalHash),
 		NewTLSDesignMap(certTLSTypes),
 	)
 }
@@ -915,12 +930,25 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := certs.MongosConfig(sc, r.mongosScaler).CertSecretName
 	internalClusterSecretName := certs.MongosConfig(sc, r.mongosScaler).InternalClusterSecretName
+
+	internalHash := ""
+	if vault.IsVaultSecretBackend() {
+		secretDataString, err := r.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, sc.Namespace, internalClusterSecretName))
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			panic(err)
+		}
+
+		internalHash = enterprisepem.ReadHashFromData(secretDataString, log)
+	} else {
+		internalHash = enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, internalClusterSecretName, log)
+	}
+
 	return construct.MongosOptions(
 		Replicas(r.getMongosCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, certSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, internalClusterSecretName, log)),
+		InternalClusterHash(internalHash),
 		NewTLSDesignMap(certTLSTypes),
 	)
 
@@ -930,12 +958,25 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podV
 func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := certs.ShardConfig(sc, shardNum, r.mongodsPerShardScaler).CertSecretName
 	internalClusterSecretName := certs.ShardConfig(sc, shardNum, r.mongodsPerShardScaler).InternalClusterSecretName
+
+	internalHash := ""
+	if vault.IsVaultSecretBackend() {
+		secretDataString, err := r.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, sc.Namespace, internalClusterSecretName))
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			panic(err)
+		}
+
+		internalHash = enterprisepem.ReadHashFromData(secretDataString, log)
+	} else {
+		internalHash = enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, internalClusterSecretName, log)
+	}
+
 	return construct.ShardOptions(shardNum,
 		Replicas(r.getMongodsPerShardCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, certSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.client, sc.Namespace, internalClusterSecretName, log)),
+		InternalClusterHash(internalHash),
 		NewTLSDesignMap(certTLSTypes),
 	)
 }

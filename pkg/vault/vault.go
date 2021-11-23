@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/hashicorp/vault/api"
 )
@@ -22,6 +23,9 @@ const (
 type SecretsToInject struct {
 	AgentCerts  string
 	AgentApiKey string
+
+	InternalClusterAuth string
+	InternalClusterHash string
 }
 
 func IsVaultSecretBackend() bool {
@@ -143,6 +147,18 @@ func (s SecretsToInject) DatabaseAnnotations(namespace string) map[string]string
           {{- $v }}
           {{- end }}
           {{- end }}`, agentCertsPath)
+	}
+	if s.InternalClusterAuth != "" {
+		internalClusterPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.InternalClusterAuth)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-internal-cluster"] = internalClusterPath
+		annotations["vault.hashicorp.com/agent-inject-file-internal-cluster"] = s.InternalClusterHash
+		annotations["vault.hashicorp.com/secret-volume-path-internal-cluster"] = util.InternalClusterAuthMountPath
+		annotations["vault.hashicorp.com/agent-inject-template-internal-cluster"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- $v }}
+          {{- end }}
+          {{- end }}`, internalClusterPath)
 	}
 	return annotations
 }

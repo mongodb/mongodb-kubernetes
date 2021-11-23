@@ -966,6 +966,8 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 		Build()
 
 	manager := mock.NewManager(rs)
+
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	client := manager.Client
 
 	addKubernetesTlsResources(client, rs)
@@ -980,7 +982,7 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 
 	_ = client.Update(context.TODO(), secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(client, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil, false)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("the secret %s-cert does not contain the expected key %s-%d-pem", rs.Name, rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
@@ -995,6 +997,7 @@ func TestInvalidPEM_CertificateIsNotComplete(t *testing.T) {
 		Build()
 
 	manager := mock.NewManager(rs)
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	client := manager.Client
 
 	addKubernetesTlsResources(client, rs)
@@ -1008,7 +1011,7 @@ func TestInvalidPEM_CertificateIsNotComplete(t *testing.T) {
 
 	_ = client.Update(context.TODO(), secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(client, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil, false)
 	assert.Contains(t, err.Error(), "the certificate is not complete")
 }
 
@@ -1023,6 +1026,7 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 	rs.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"foo"}
 
 	manager := mock.NewManager(rs)
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	client := manager.Client
 
 	addKubernetesTlsResources(client, rs)
@@ -1031,7 +1035,7 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 
 	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(client, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil, false)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
