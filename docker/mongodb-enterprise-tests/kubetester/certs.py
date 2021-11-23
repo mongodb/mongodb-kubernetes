@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import KubernetesTester
-from kubetester import random_k8s_name, create_secret, read_secret
+from kubetester import random_k8s_name, create_secret, read_secret, delete_secret
 from typing import Optional, Dict, List, Generator
 from kubeobject import CustomObject
 import copy
@@ -134,6 +134,8 @@ def generate_cert(
 
         data = read_secret(namespace, secret_name)
         store_secret_in_vault(vault_namespace_name(), vault_sts_name(), data, path)
+        cert.delete()
+        delete_secret(namespace, secret_name)
 
     return secret_name
 

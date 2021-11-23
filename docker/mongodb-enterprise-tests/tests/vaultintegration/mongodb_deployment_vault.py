@@ -1,19 +1,21 @@
 from pytest import mark, fixture
-from kubetester import get_statefulset, read_secret, create_configmap
+import pytest
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
-from kubetester import get_pod_when_ready, get_statefulset, read_secret, create_secret
+from kubetester import (
+    get_pod_when_ready,
+    get_statefulset,
+    read_secret,
+    create_secret,
+    delete_secret,
+    create_configmap,
+)
 from kubetester.operator import Operator
 from kubetester.certs import create_x509_mongodb_tls_certs, create_x509_agent_tls_certs
-from kubetester.certs import create_mongodb_tls_certs, create_agent_tls_certs
-from . import (
-    run_command_in_vault,
-    store_secret_in_vault,
-    assert_secret_in_vault,
-)
+from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
 from kubetester.mongodb import MongoDB, Phase, get_pods
 from kubetester.mongodb_user import MongoDBUser
 from kubernetes import client
-from typing import Dict
+from kubernetes.client.rest import ApiException
 import uuid
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
@@ -30,6 +32,7 @@ def replica_set(
     custom_mdb_version: str,
     server_certs: str,
     agent_certs: str,
+    clusterfile_certs: str,
     issuer_ca_configmap: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
@@ -66,6 +69,18 @@ def server_certs(
         namespace,
         MDB_RESOURCE,
         f"{MDB_RESOURCE}-cert",
+    )
+
+
+@fixture(scope="module")
+def clusterfile_certs(
+    vault_namespace: str, vault_name: str, namespace: str, issuer: str
+) -> str:
+    create_x509_mongodb_tls_certs(
+        issuer,
+        namespace,
+        MDB_RESOURCE,
+        f"{MDB_RESOURCE}-clusterfile",
         secret_backend="Vault",
         vault_subpath="database",
     )
@@ -243,6 +258,7 @@ def test_store_om_credentials_in_vault(
     run_command_in_vault(
         vault_namespace, vault_name, cmd, expected_message=["publicApiKey"]
     )
+    delete_secret(namespace, "my-credentials")
 
 
 @mark.e2e_vault_setup
@@ -291,6 +307,14 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_vault_setup
+def test_no_certs_in_kubernetes(namespace: str):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{MDB_RESOURCE}-clusterfile")
+    with pytest.raises(ApiException):
+        read_secret(namespace, "agent-certs")
+
+
+@mark.e2e_vault_setup
 def test_api_key_in_pod(replica_set: MongoDB):
     cmd = ["cat", "/mongodb-automation/agent-api-key/agentApiKey"]
 
@@ -318,7 +342,7 @@ def test_tls_certs_are_stored_in_vault(
 
 @mark.e2e_vault_setup
 def test_sharded_mdb_created(sharded_cluster: MongoDB):
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
 @mark.e2e_vault_setup
