@@ -249,7 +249,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 			return fmt.Errorf("scram Sha has not yet been configured")
 		}
 
-		password, err := user.GetPassword(r.client)
+		password, err := user.GetPassword(r.SecretClient)
 		if err != nil {
 			return err
 		}

@@ -560,7 +560,7 @@ func (r *ReconcileCommonController) configureAgentSubjects(namespace string, sec
 func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string, secretKeySelector corev1.SecretKeySelector, log *zap.SugaredLogger) (authentication.UserOptions, error) {
 	userOpts := authentication.UserOptions{}
 
-	agentCerts, err := r.SecretClient.ReadSecret(kube.ObjectKey(namespace, secretKeySelector.Name), vault.DatabaseSecretPath)
+	agentCerts, err := r.ReadSecret(kube.ObjectKey(namespace, secretKeySelector.Name), vault.DatabaseSecretPath)
 	if err != nil {
 		return userOpts, err
 	}

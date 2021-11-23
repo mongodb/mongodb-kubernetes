@@ -10,6 +10,7 @@ from . import (
     assert_secret_in_vault,
 )
 from kubetester.mongodb import MongoDB, Phase, get_pods
+from kubetester.mongodb_user import MongoDBUser
 from kubernetes import client
 from typing import Dict
 import uuid
@@ -17,6 +18,9 @@ import uuid
 OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
 DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
+USER_NAME = "my-user-1"
+PASSWORD_SECRET_NAME = "mms-user-1-password"
+USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
@@ -35,7 +39,7 @@ def replica_set(
         "tls": {"enabled": True, "ca": issuer_ca_configmap},
         "authentication": {
             "enabled": True,
-            "modes": ["X509"],
+            "modes": ["X509", "SCRAM"],
             "agents": {
                 "mode": "X509",
             },
@@ -86,6 +90,22 @@ def sharded_cluster(namespace: str, sharded_cluster_configmap: str) -> MongoDB:
     )
     resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
 
+    return resource.create()
+
+
+@fixture(scope="module")
+def mongodb_user(namespace: str) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("mongodb-user.yaml"), "vault-replica-set-scram-user", namespace
+    )
+
+    resource["spec"]["username"] = USER_NAME
+    resource["spec"]["passwordSecretKeyRef"] = {
+        "name": PASSWORD_SECRET_NAME,
+        "key": "password",
+    }
+
+    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     return resource.create()
 
 
@@ -289,3 +309,18 @@ def test_tls_certs_are_stored_in_vault(
 @mark.e2e_vault_setup
 def test_sharded_mdb_created(sharded_cluster: MongoDB):
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_vault_setup
+def test_create_mongodb_user(
+    mongodb_user: MongoDBUser, vault_name: str, vault_namespace: str, namespace: str
+):
+    data = {"password": USER_PASSWORD}
+    store_secret_in_vault(
+        vault_namespace,
+        vault_name,
+        data,
+        f"secret/mongodbenterprise/database/{namespace}/{PASSWORD_SECRET_NAME}",
+    )
+
+    mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)

@@ -1568,7 +1568,7 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.Mon
 		return "", "", workflow.Failed("Failed to fetch the user %s: %s", mongodbUserObjectKey, err)
 	}
 	userName := mongodbUser.Spec.Username
-	password, err := mongodbUser.GetPassword(r.client)
+	password, err := mongodbUser.GetPassword(r.SecretClient)
 	if err != nil {
 		return "", "", workflow.Failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
 	}
@@ -1609,7 +1609,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 			return backup.DataStoreConfig{}, workflow.Failed("Failed to fetch the user %s: %s", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err)
 		}
 		userName = mongodbUser.Spec.Username
-		password, err = mongodbUser.GetPassword(r.client)
+		password, err = mongodbUser.GetPassword(r.SecretClient)
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
 		}

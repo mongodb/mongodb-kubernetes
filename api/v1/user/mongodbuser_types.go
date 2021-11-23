@@ -3,10 +3,10 @@ package user
 import (
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -35,7 +35,7 @@ type MongoDBUser struct {
 // GetPassword returns the password of the user as stored in the referenced
 // secret. If the password secret reference is unset then a blank password and
 // a nil error will be returned.
-func (user MongoDBUser) GetPassword(secretGetter secret.Getter) (string, error) {
+func (user MongoDBUser) GetPassword(secretClient secrets.SecretClient) (string, error) {
 	if user.Spec.PasswordSecretKeyRef.Name == "" {
 		return "", nil
 	}
@@ -45,12 +45,12 @@ func (user MongoDBUser) GetPassword(secretGetter secret.Getter) (string, error) 
 		Name:      user.Spec.PasswordSecretKeyRef.Name,
 	}
 
-	s, err := secretGetter.GetSecret(nsName)
+	secretData, err := secretClient.ReadSecret(nsName, vault.DatabaseSecretPath)
 	if err != nil {
 		return "", fmt.Errorf("could not retrieve user password secret: %s", err)
 	}
 
-	passwordBytes, passwordIsSet := s.Data[user.Spec.PasswordSecretKeyRef.Key]
+	passwordBytes, passwordIsSet := secretData[user.Spec.PasswordSecretKeyRef.Key]
 	if !passwordIsSet {
 		return "", fmt.Errorf("password is not set in password secret")
 	}
