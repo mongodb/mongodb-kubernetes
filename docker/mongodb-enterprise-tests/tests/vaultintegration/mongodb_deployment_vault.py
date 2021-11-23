@@ -40,7 +40,7 @@ def replica_set(
         "tls": {"enabled": True, "ca": issuer_ca_configmap},
         "authentication": {
             "enabled": True,
-            "modes": ["X509"],
+            "modes": ["X509", "SCRAM"],
             "agents": {"mode": "X509"},
             "internalCluster": "X509",
         },
