@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,6 +19,8 @@ const (
 	OperatorSecretPath    = "secret/data/mongodbenterprise/operator"
 	DatabaseSecretPath    = "secret/data/mongodbenterprise/database"
 	DatabaseVaultRoleName = "mongodbenterprisedatabase"
+
+	DatabaseSecretMetadataPath = "secret/metadata/mongodbenterprise/database"
 )
 
 type SecretsToInject struct {
@@ -92,17 +95,40 @@ func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error 
 	return nil
 }
 
-func (v *VaultClient) ReadSecretBytes(path string) (map[string][]byte, error) {
+func (v *VaultClient) ReadSecretVersion(path string) (int, error) {
+	data, err := v.ReadSecret(path)
+	if err != nil {
+		return -1, err
+	}
+	current_version, err := data.Data["current_version"].(json.Number).Int64()
+	if err != nil {
+		// this shouldn't happen but if it does the caller should log it with error that
+		// secret rotation won't work
+		return -1, err
+	}
+	return int(current_version), nil
+}
+
+func (v *VaultClient) ReadSecret(path string) (*api.Secret, error) {
 	if err := v.Login(); err != nil {
-		return map[string][]byte{}, fmt.Errorf("unable to log in: %s", err)
+		return nil, fmt.Errorf("unable to log in: %s", err)
 	}
 	secret, err := v.client.Logical().Read(path)
 	if err != nil {
-		return map[string][]byte{}, fmt.Errorf("can't read secret from vault: %s", err)
+		return nil, fmt.Errorf("can't read secret from vault: %s", err)
 	}
 	if secret == nil {
-		return map[string][]byte{}, fmt.Errorf("secret not found at %s", path)
+		return nil, fmt.Errorf("secret not found at %s", path)
 	}
+	return secret, nil
+}
+
+func (v *VaultClient) ReadSecretBytes(path string) (map[string][]byte, error) {
+	secret, err := v.ReadSecret(path)
+	if err != nil {
+		return map[string][]byte{}, err
+	}
+
 	secrets := make(map[string][]byte)
 	for k, v := range maputil.ReadMapValueAsMap(secret.Data, "data") {
 		secrets[k] = []byte(fmt.Sprintf("%v", v))

@@ -15,6 +15,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -145,6 +146,18 @@ func main() {
 	commandLineFlags := parseCommandLineArgs()
 	crdsToWatch := commandLineFlags.crdsToWatch
 
+	if vault.IsVaultSecretBackend() {
+		vc, err := vault.GetVaultClient()
+		if err != nil {
+			log.Error(err)
+		}
+
+		data, err := vc.ReadSecretVersion(fmt.Sprintf("%s/%s", vault.DatabaseSecretMetadataPath, "619cc9be22723f0f6bd1d854-group-secret"))
+		if err != nil {
+			log.Error(err)
+		}
+		log.Infof("current secret version: %+v", data)
+	}
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]cluster.Cluster)
 
