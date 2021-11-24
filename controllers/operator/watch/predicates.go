@@ -1,8 +1,10 @@
 package watch
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"reflect"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -80,6 +82,17 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 			// this prevents the operator triggering reconciliations on resource that it is updating itself.
 			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
 				return false
+			}
+
+			// check if any one of the vault annotations are different in revision
+			if vault.IsVaultSecretBackend() {
+				vaultReconcile := false
+				for _, e := range vault.GetSecretKeys(oldResource.Namespace) {
+					if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
+						vaultReconcile = true
+					}
+				}
+				return newResource.Spec.ResourceType == resourceType && vaultReconcile
 			}
 
 			// ignore events that aren't related to our target Resource and any changes done to the status

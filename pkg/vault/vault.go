@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -187,4 +189,31 @@ func (s SecretsToInject) DatabaseAnnotations(namespace string) map[string]string
           {{- end }}`, internalClusterPath)
 	}
 	return annotations
+}
+
+// GetSecretKeys returns all the secret names that the operator is storing in vault. It fetches the path from the vault
+// and returns the last element from the path which is the secret name.
+func GetSecretKeys(namespace string) []string {
+	paths := GetSecretPaths(namespace)
+	res := make([]string, 0)
+
+	for _, p := range paths {
+		ss := strings.Split(p, "/")
+		res = append(paths, ss[len(ss)-1])
+	}
+	return res
+}
+
+func (v *VaultClient) GetSecretAnnotation(path string) map[string]string {
+	n, err := v.ReadSecretVersion(path)
+	if err != nil {
+		return map[string]string{}
+	}
+
+	ss := strings.Split(path, "/")
+	secretName := ss[len(ss)-1]
+
+	return map[string]string{
+		secretName: strconv.FormatInt(int64(n), 10),
+	}
 }

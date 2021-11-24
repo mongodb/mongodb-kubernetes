@@ -41,6 +41,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -233,6 +234,17 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
+	if vault.IsVaultSecretBackend() {
+		paths := vault.GetSecretPaths(rs.Namespace)
+		vaultMap := make(map[string]string)
+		for _, p := range paths {
+			vaultMap = r.VaultClient.GetSecretAnnotation(p)
+		}
+		for k, val := range vaultMap {
+			annotationsToAdd[k] = val
+		}
+	}
+
 	if err := annotations.SetAnnotations(rs.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
@@ -284,6 +296,26 @@ func AddReplicaSetController(mgr manager.Manager) error {
 		return err
 	}
 
+	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
+	if vault.IsVaultSecretBackend() {
+		eventChannel := make(chan event.GenericEvent)
+
+		// range over all the secret paths which could be rotated
+		namespaces := GetWatchedNamespace()
+		for _, ns := range namespaces {
+			for _, s := range vault.GetSecretPaths(ns) {
+				go vault.WatchSecretChange(zap.S(), eventChannel, s, reconciler.client, reconciler.VaultClient, mdbv1.ReplicaSet)
+			}
+		}
+
+		err = c.Watch(
+			&source.Channel{Source: eventChannel},
+			&handler.EnqueueRequestForObject{},
+		)
+		if err != nil {
+			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
+		}
+	}
 	zap.S().Infof("Registered controller %s", util.MongoDbReplicaSetController)
 
 	return nil

@@ -1,8 +1,9 @@
 package controllers
 
 import (
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
