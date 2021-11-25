@@ -28,6 +28,18 @@ func secretNamespacedName(s corev1.Secret) types.NamespacedName {
 	}
 }
 
+func (r SecretClient) ReadSecretKey(secretName types.NamespacedName, basePath string, key string) (string, error) {
+	secret, err := r.ReadSecret(secretName, basePath)
+	if err != nil {
+		return "", fmt.Errorf("can't read secret %s: %s", secretName, err)
+	}
+	val, ok := secret[key]
+	if !ok {
+		return "", fmt.Errorf("secret %s does not contain key %s", secretName, key)
+	}
+	return val, nil
+}
+
 func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error) {
 	secrets := make(map[string]string)
 	if vault.IsVaultSecretBackend() {

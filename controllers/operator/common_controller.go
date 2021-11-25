@@ -461,7 +461,8 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	}
 
 	if mdb.IsLDAPEnabled() {
-		bindUserPassword, err := secret.ReadKey(r.client, "password", kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name))
+		bindUserPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name), vault.DatabaseSecretPath, "password")
+
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
 		}
@@ -500,10 +501,11 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		}
 		if mdb.Spec.Security.ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := mdb.Spec.Security.Authentication.Agents.AutomationPasswordSecretRef
-			autoConfigPassword, err := secret.ReadKey(r.client, secretRef.Key, kube.ObjectKey(mdb.Namespace, secretRef.Name))
+			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, secretRef.Name), vault.DatabaseSecretPath, secretRef.Key)
 			if err != nil {
-				return workflow.Failed(fmt.Sprintf("error reading automation config  password: %s", err)), false
+				return workflow.Failed(fmt.Sprintf("error reading automation agent  password: %s", err)), false
 			}
+
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
 			agentName := mdb.Spec.Security.Authentication.Agents.AutomationUserName
