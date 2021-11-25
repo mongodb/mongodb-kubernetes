@@ -86,8 +86,14 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 	if err != nil {
 		return err
 	}
+	certHash := ""
+	secretData, err := secret.ReadStringData(secretGetterCreattor, kube.ObjectKey(opts.Namespace, s.Name))
+	if err != nil {
+		log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", s.Name)
 
-	certHash := enterprisepem.ReadHashFromSecret(secretGetterCreattor, opts.Namespace, s.Name, log)
+	} else {
+		certHash = enterprisepem.ReadHashFromData(secretData, log)
+	}
 
 	// The operator concatenates the two fields of the secret into a PEM secret
 	err = certs.CreatePEMSecret(secretGetterCreattor, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, log)

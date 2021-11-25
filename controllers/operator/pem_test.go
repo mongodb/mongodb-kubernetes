@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
@@ -119,6 +121,18 @@ func (m mockSecretGetter) GetSecret(_ client.ObjectKey) (corev1.Secret, error) {
 	return *m.secret, nil
 }
 
+func (m mockSecretGetter) CreateSecret(s corev1.Secret) error {
+	return nil
+}
+
+func (m mockSecretGetter) UpdateSecret(s corev1.Secret) error {
+	return nil
+}
+
+func (m mockSecretGetter) DeleteSecret(nsName types.NamespacedName) error {
+	return nil
+}
+
 func TestReadPemHashFromSecret(t *testing.T) {
 
 	name := "res-name"
@@ -127,6 +141,12 @@ func TestReadPemHashFromSecret(t *testing.T) {
 		Data:       map[string][]byte{"hello": []byte("world")},
 	}
 
-	assert.Empty(t, pem.ReadHashFromSecret(mockSecretGetter{}, mock.TestNamespace, name, zap.S()), "secret does not exist so pem hash should be empty")
-	assert.NotEmpty(t, pem.ReadHashFromSecret(mockSecretGetter{secret: secret}, mock.TestNamespace, name, zap.S()), "pem hash should be read from the secret")
+	assert.Empty(t, pem.ReadHashFromSecret(secrets.SecretClient{
+		VaultClient: nil,
+		KubeClient:  mockSecretGetter{},
+	}, mock.TestNamespace, name, zap.S()), "secret does not exist so pem hash should be empty")
+	assert.NotEmpty(t, pem.ReadHashFromSecret(secrets.SecretClient{
+		VaultClient: nil,
+		KubeClient:  mockSecretGetter{secret: secret},
+	}, mock.TestNamespace, name, zap.S()), "pem hash should be read from the secret")
 }

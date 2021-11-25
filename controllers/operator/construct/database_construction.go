@@ -398,6 +398,13 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	} else {
 		// add vault specific annotations
 		secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
+		if mdb.GetSecurity().TLSConfig.IsEnabled() {
+
+			secretName := mdb.GetSecurity().MemberCertificateSecretName(opts.Name)
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+			secretsToInject.MemberClusterAuth = secretName
+			secretsToInject.MemberClusterHash = opts.CertificateHash
+		}
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
 	}
 	return statefulset.Apply(
@@ -504,13 +511,14 @@ func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseSt
 		volumeSecretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 	}
 
-	secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		MountPath: secretMountPath,
-		Name:      secretVolume.Name,
-	})
-	volumes = append(volumes, secretVolume)
-
+	if !vault.IsVaultSecretBackend() {
+		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: secretMountPath,
+			Name:      secretVolume.Name,
+		})
+		volumes = append(volumes, secretVolume)
+	}
 	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
 		MountPath: configmapMountPath,

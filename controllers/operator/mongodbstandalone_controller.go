@@ -189,7 +189,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
 	standaloneOpts := construct.StandaloneOptions(
-		CertificateHash(pem.ReadHashFromSecret(r.client, s.Namespace, standaloneCertSecretName, log)),
+		CertificateHash(pem.ReadHashFromSecret(r.SecretClient, s.Namespace, standaloneCertSecretName, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 	)

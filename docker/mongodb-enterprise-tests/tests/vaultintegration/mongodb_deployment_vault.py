@@ -69,6 +69,8 @@ def server_certs(
         namespace,
         MDB_RESOURCE,
         f"{MDB_RESOURCE}-cert",
+        secret_backend="Vault",
+        vault_subpath="database",
     )
 
 
@@ -83,14 +85,6 @@ def clusterfile_certs(
         f"{MDB_RESOURCE}-clusterfile",
         secret_backend="Vault",
         vault_subpath="database",
-    )
-    secret_name = f"{MDB_RESOURCE}-cert"
-    data = read_secret(namespace, secret_name)
-    store_secret_in_vault(
-        vault_namespace,
-        vault_name,
-        data,
-        f"secret/mongodbenterprise/database/{namespace}/{MDB_RESOURCE}-clusterfile",
     )
 
 
@@ -311,6 +305,8 @@ def test_no_certs_in_kubernetes(namespace: str):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{MDB_RESOURCE}-clusterfile")
     with pytest.raises(ApiException):
+        read_secret(namespace, f"{MDB_RESOURCE}-cert")
+    with pytest.raises(ApiException):
         read_secret(namespace, "agent-certs")
 
 
@@ -326,18 +322,6 @@ def test_api_key_in_pod(replica_set: MongoDB):
     )
 
     assert result != ""
-
-
-@mark.e2e_vault_setup
-def test_tls_certs_are_stored_in_vault(
-    vault_namespace: str, vault_name: str, namespace: str
-):
-    assert_secret_in_vault(
-        vault_namespace,
-        vault_name,
-        f"secret/mongodbenterprise/database/{namespace}/agent-certs",
-        ["tls.crt"],
-    )
 
 
 @mark.e2e_vault_setup

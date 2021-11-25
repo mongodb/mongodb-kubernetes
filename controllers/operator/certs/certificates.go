@@ -94,14 +94,14 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, secretName stri
 
 // VerifyAndEnsureCertificatesForStatefulSet ensures that the provided certificates are correct.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger, useVault bool) (error, bool) {
+func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) (error, bool) {
 
 	needToCreatePEM := false
 	var err error
 	var secretData map[string][]byte
 	var s corev1.Secret
 
-	if vault.IsVaultSecretBackend() && useVault {
+	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
 		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, opts.Namespace, secretName))
 		if err != nil {
@@ -129,20 +129,10 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClien
 		if err != nil {
 			return err, true
 		}
-		if vault.IsVaultSecretBackend() && useVault {
-			secretDataString, err := secretsClient.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, opts.Namespace, secretName))
-			if err != nil {
-				return err, false
-			}
 
-			secretHash = enterprisepem.ReadHashFromData(secretDataString, log)
-		} else {
-			secretHash = enterprisepem.ReadHashFromSecret(secretsClient.KubeClient, opts.Namespace, secretName, log)
-		}
-		if useVault {
-			return CreatePEMSecretClient(secretsClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, log), true
-		}
-		return CreatePEMSecret(secretsClient.KubeClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, log), true
+		secretHash = enterprisepem.ReadHashFromSecret(secretsClient, opts.Namespace, secretName, log)
+		return CreatePEMSecretClient(secretsClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, log), true
+
 	}
 
 	var errs error
@@ -317,7 +307,7 @@ func ValidateSelfManagedSSLCertsForStatefulSet(secretClient secrets.SecretClient
 	// already populated with the certs and keys for this deployment.
 	// Because of the async nature of Kubernetes, this object might not be ready yet,
 	// in which case, we'll keep reconciling until the object is created and is correct.
-	err, newTlsDesign := VerifyAndEnsureCertificatesForStatefulSet(secretClient, secretName, opts, log, false)
+	err, newTlsDesign := VerifyAndEnsureCertificatesForStatefulSet(secretClient, secretName, opts, log)
 	if err != nil {
 		return workflow.Failed("The secret object '%s' does not contain all the valid certificates needed: %s", secretName, err), true
 	}

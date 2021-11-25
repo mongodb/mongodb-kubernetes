@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -157,23 +156,11 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
-	// TODO this will be removed when every TLS cert will be supported in Vault
-	internalHash := ""
-	if vault.IsVaultSecretBackend() {
-		secretDataString, err := r.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, rs.Namespace, rsCertsConfig.InternalClusterSecretName))
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			return r.updateStatus(rs, workflow.Failed(err.Error()), log)
-		}
-
-		internalHash = enterprisepem.ReadHashFromData(secretDataString, log)
-	} else {
-		internalHash = enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.InternalClusterSecretName, log)
-	}
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.client, rs.Namespace, rsCertsConfig.CertSecretName, log)),
-		InternalClusterHash(internalHash),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, log)),
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
 	)

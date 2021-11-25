@@ -230,8 +230,14 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 		if err != nil {
 			return workflow.Failed("TLS secret %s is invalid: %s", secretName, err), corev1.SecretTypeOpaque
 		}
+		secretHash := ""
+		secretData, err := secret.ReadStringData(secretGetUpdateCreator, kube.ObjectKey(rs.Namespace, s.Name))
+		if err != nil {
+			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", s.Name)
 
-		secretHash := enterprisepem.ReadHashFromSecret(secretGetUpdateCreator, om.Namespace, secretName, log)
+		} else {
+			secretHash = enterprisepem.ReadHashFromData(secretData, log)
+		}
 		secretStringData := map[string]string{secretHash: data}
 		err = certs.CreatePEMSecret(secretGetUpdateCreator, kube.ObjectKey(rs.Namespace, secretName), secretStringData, om.OwnerReferences, log)
 		if err != nil {
@@ -281,7 +287,13 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 	certHash := ""
 	if certSecretType == corev1.SecretTypeTLS {
 		tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
-		certHash = enterprisepem.ReadHashFromSecret(r.client, opsManager.Namespace, tlsSecretName, log)
+		secretData, err := secret.ReadStringData(r.client, kube.ObjectKey(opsManager.Namespace, tlsSecretName))
+		if err != nil {
+			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", tlsSecretName)
+
+		} else {
+			certHash = enterprisepem.ReadHashFromData(secretData, log)
+		}
 	}
 
 	return automationconfig.NewBuilder().

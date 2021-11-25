@@ -284,7 +284,7 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 
 	secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.ResourceName)
 
-	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.SecretClient, secretName, opts, log, true)
+	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.SecretClient, secretName, opts, log)
 	if err != nil {
 		return fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err), true
 	}

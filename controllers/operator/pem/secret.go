@@ -1,7 +1,11 @@
 package pem
 
 import (
+	"fmt"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"go.uber.org/zap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,11 +39,22 @@ func CreateOrUpdateSecret(secretGetUpdateCreator secret.GetUpdateCreator, name, 
 
 // ReadHashFromSecret reads the existing Pem from
 // the secret that stores this StatefulSet's Pem collection.
-func ReadHashFromSecret(secretGetter secret.Getter, namespace, name string, log *zap.SugaredLogger) string {
-	secretData, err := secret.ReadStringData(secretGetter, kube.ObjectKey(namespace, name))
-	if err != nil {
-		log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
-		return ""
+func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name string, log *zap.SugaredLogger) string {
+	var secretData map[string]string
+	var err error
+	if vault.IsVaultSecretBackend() {
+		path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, namespace, name)
+		secretData, err = secretClient.VaultClient.ReadSecretString(path)
+		if err != nil {
+			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
+			return ""
+		}
+	} else {
+		secretData, err = secret.ReadStringData(secretClient.KubeClient, kube.ObjectKey(namespace, name))
+		if err != nil {
+			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
+			return ""
+		}
 	}
 	return ReadHashFromData(secretData, log)
 }

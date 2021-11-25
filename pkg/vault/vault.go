@@ -31,6 +31,9 @@ type SecretsToInject struct {
 
 	InternalClusterAuth string
 	InternalClusterHash string
+
+	MemberClusterAuth string
+	MemberClusterHash string
 }
 
 func IsVaultSecretBackend() bool {
@@ -187,6 +190,21 @@ func (s SecretsToInject) DatabaseAnnotations(namespace string) map[string]string
           {{- $v }}
           {{- end }}
           {{- end }}`, internalClusterPath)
+	}
+	if s.MemberClusterAuth != "" {
+		memberClusterPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.InternalClusterAuth)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
+		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = s.MemberClusterHash
+		annotations["vault.hashicorp.com/secret-volume-path-tls-certificate"] = util.TLSCertMountPath
+		annotations["vault.hashicorp.com/agent-inject-template-tls-certificate"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- $v }}
+          {{- end }}
+          {{- end }}`, memberClusterPath)
+	}
+	if s.MemberClusterAuth != "" {
+
 	}
 	return annotations
 }
