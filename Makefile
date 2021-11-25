@@ -6,7 +6,7 @@ export MAKEFLAGS="-j 16" # enable parallelism
 
 usage:
 	@ echo "Development utility to work with Operator on daily basis. Just edit your configuration in '~/.operator-dev/contexts', "
-	@ echo "switch to it using 'make switch', make sure Ops Manager is running (use 'make om' or 'make om-evg') "
+	@ echo "switch to it using 'make switch', make sure Ops Manager is running (use 'make om') "
 	@ echo "and call 'make' to start the Kubernetes cluster and the Operator"
 	@ echo
 	@ echo "More information can be found by the link https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/dev/dev-start-guide.md"
@@ -31,8 +31,6 @@ usage:
 	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
 	@ echo "  om:                         install Test Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om"
-	@ echo "  om-evg:                     install Ops Manager into Evergreen if it's not installed yet. Initializes the connection"
-	@ echo "                              parameters in ~/operator-dev/om. You can pass custom Ubuntu Debian package url using 'url' parameter"
 	@ echo "  reset:                      cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
 	@ echo "                              to perform a \"light\" cleanup - delete only Mongodb resources"
 	@ echo "  e2e:                        runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
@@ -92,10 +90,6 @@ full: ensure-k8s-and-reset build-and-push-images
 # build-push appdb image
 appdb: aws_login
 	@ ./pipeline.py --include appdb
-
-# install OM in Evergreen
-om-evg:
-	@ scripts/dev/ensure_ops_manager_evg $(url)
 
 log:
 	@ . scripts/dev/read_context.sh

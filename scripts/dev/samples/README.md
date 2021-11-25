@@ -22,5 +22,3 @@ e2e and dev K8s clusters.
             registry is used (quay.io)
 * `MONGODB_RESOURCES`: (optional) the list of yaml config files that will be applied automatically after each "make full"
              run. For example "MONGODB_RESOURCES="rs.yaml; rs2.yaml"
-* `OPS_MANAGER_PACKAGE_URL`: the url which is used to download Ops Manager debian package for 'make om-evg' task. If
-            not specified some default one will be used (check 'ensure_ops_manager_evg' script). 
