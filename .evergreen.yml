@@ -1690,6 +1690,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_https_enabled_hybrid
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_ops_manager_https_enabled_prefix
   tags: ["patch-run"]
   commands:
@@ -2240,6 +2245,7 @@ task_groups:
     - e2e_om_ops_manager_backup_sharded_cluster
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_https_enabled
+    - e2e_om_ops_manager_https_enabled_hybrid
     - e2e_om_ops_manager_https_enabled_internet_mode
     - e2e_om_ops_manager_https_enabled_prefix
     - e2e_om_ops_manager_scale
