@@ -16,6 +16,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
@@ -468,6 +469,12 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
+	}
+
+	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
+		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ReplicaSetType, log); err != nil {
+			return err
+		}
 	}
 
 	currentCount := mdbv1.MongodbShardedClusterSizeConfig{

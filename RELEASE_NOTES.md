@@ -5,7 +5,8 @@
 
 
 ## MongoDB Resource
-
+* Changes:
+  * A new field has been added: `spec.backup.autoTerminateOnDeletion`. AutoTerminateOnDeletion indicates if the Operator should stop and terminate the Backup before the cleanup, when the MongoDB Resource is deleted.
 * Bug fixes
   * Fixes an issue which would make a ShardedCluster Resource fail when disabling authentication.
 

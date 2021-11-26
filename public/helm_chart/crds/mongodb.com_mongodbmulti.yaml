@@ -62,6 +62,11 @@ spec:
                 description: Backup contains configuration options for configuring
                   backup for this MongoDB resource
                 properties:
+                  autoTerminateOnDeletion:
+                    description: AutoTerminateOnDeletion indicates if the Operator
+                      should stop and terminate the Backup before the cleanup, when
+                      the MongoDB CR is deleted
+                    type: boolean
                   mode:
                     enum:
                     - enabled

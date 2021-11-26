@@ -10,6 +10,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
@@ -465,6 +466,12 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return err
+	}
+
+	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
+		if err := backup.StopBackupIfEnabled(conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
+			return err
+		}
 	}
 
 	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members))

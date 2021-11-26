@@ -304,6 +304,11 @@ type Backup struct {
 	// +kubebuilder:validation:Enum=enabled;disabled;terminated
 	// +optional
 	Mode BackupMode `json:"mode"`
+
+	// AutoTerminateOnDeletion indicates if the Operator should stop and terminate the Backup before the cleanup,
+	// when the MongoDB CR is deleted
+	// +optional
+	AutoTerminateOnDeletion bool `json:"autoTerminateOnDeletion,omitempty"`
 }
 
 type AgentConfig struct {
