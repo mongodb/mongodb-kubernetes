@@ -478,7 +478,7 @@ functions:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
           APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
-          DATABASE_REGISTRY: ${database_registry|quay.io/mongodb}
+          DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
           INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
           INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
           INIT_DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
@@ -832,6 +832,24 @@ tasks:
     vars:
       image_name: init-database
       skip_tags: ubuntu,release
+
+- name: build_database_image_ubi
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: database
+      skip_tags: ubuntu,release
+
+- name: build_database_image_ubuntu
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: database
+      skip_tags: ubi,release
 
 - name: prepare_cluster_vanilla
   exec_timeout_secs: 1800
@@ -2348,6 +2366,8 @@ buildvariants:
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
     - name: build_test_image
       variant: init_test_run
   expansions:
@@ -2385,6 +2405,8 @@ buildvariants:
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
     - name: build_test_image
       variant: init_test_run
     - name: prepare_cluster_vanilla
@@ -2405,6 +2427,8 @@ buildvariants:
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
@@ -2435,6 +2459,8 @@ buildvariants:
   - name: build_init_om_images_ubuntu
     variant: init_test_run
   - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
     variant: init_test_run
   - name: build_init_appdb_images_ubuntu
     variant: init_test_run
@@ -2469,6 +2495,8 @@ buildvariants:
   - name: build_init_om_images_ubi
     variant: init_test_run
   - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_database_image_ubi
     variant: init_test_run
   - name: build_init_appdb_images_ubi
     variant: init_test_run
@@ -2509,6 +2537,8 @@ buildvariants:
     variant: init_test_run
   - name: build_init_database_image_ubuntu
     variant: init_test_run
+  - name: build_database_image_ubuntu
+    variant: init_test_run
   - name: build_init_appdb_images_ubuntu
     variant: init_test_run
   expansions:
@@ -2544,6 +2574,8 @@ buildvariants:
     variant: init_test_run
   - name: build_init_database_image_ubi
     variant: init_test_run
+  - name: build_database_image_ubi
+    variant: init_test_run
   - name: build_init_appdb_images_ubi
     variant: init_test_run
   expansions:
@@ -2578,6 +2610,8 @@ buildvariants:
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
     image_type: ubuntu
@@ -2596,6 +2630,8 @@ buildvariants:
   - name: build_operator_ubuntu
     variant: init_test_run
   - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
     variant: init_test_run
   - name: build_init_om_images_ubuntu
     variant: init_test_run
@@ -2621,6 +2657,8 @@ buildvariants:
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
       variant: init_test_run
     - name: build_init_om_images_ubi
       variant: init_test_run
@@ -2665,7 +2703,11 @@ buildvariants:
       variant: init_test_run
     - name: build_init_database_image_ubuntu
       variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
     - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
       variant: init_test_run
   run_on:
     - ubuntu1804-small
@@ -2676,6 +2718,7 @@ buildvariants:
     - name: release_init_appdb
     - name: release_init_database
     - name: release_init_ops_manager
+    - name: release_database
 
 
 - name: release_blocker
@@ -2703,6 +2746,8 @@ buildvariants:
     - name: build_init_om_images_ubi
     - name: build_init_database_image_ubuntu
     - name: build_init_database_image_ubi
+    - name: build_database_image_ubuntu
+    - name: build_database_image_ubi
     - name: prepare_cluster_vanilla
     - name: prepare_cluster_vanilla_om
     - name: prepare_multi_cluster
@@ -2720,6 +2765,8 @@ buildvariants:
     - name: build_init_om_images_ubuntu
       variant: init_test_run
     - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
       variant: init_test_run
   expansions:
     image_type: ubuntu
@@ -2757,14 +2804,6 @@ buildvariants:
   - ubuntu1804-small
   tasks:
   - name: operator-sdk-bundle-push
-
-# build Database: to be launched independently of the operator build process (evergreen patch)
-- name: build_and_push_database_images
-  display_name: build_and_push_database_images
-  run_on:
-  - ubuntu1804-small
-  tasks:
-  - name: release_database
 
 # build AppDB: to be launched independently of the operator build process (evergreen patch)
 # evergreen patch --project ops-manager-kubernetes -v build_and_push_appdb_images -d "AppDB release" --finalize

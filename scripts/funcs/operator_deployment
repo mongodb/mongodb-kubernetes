@@ -38,6 +38,7 @@ prepare_operator_config_map() {
       "--from-literal" "initOpsManager.version=${version_id}"
       "--from-literal" "initAppDb.version=${version_id}"
       "--from-literal" "initDatabase.version=${version_id}"
+      "--from-literal" "database.version=${version_id}"
       "--from-literal" "agent.version=${agent_version}"
     )
 
