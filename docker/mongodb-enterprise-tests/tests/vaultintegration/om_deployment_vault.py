@@ -2,6 +2,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from tests.opsmanager.conftest import custom_appdb_version
 from typing import Optional
 from pytest import fixture, mark
+import pytest
 from kubetester.operator import Operator
 from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
 from kubetester import (
@@ -9,9 +10,11 @@ from kubetester import (
     create_secret,
     delete_secret,
     create_configmap,
+    read_secret,
 )
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import Phase
+from kubernetes.client.rest import ApiException
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 APPDB_SA_NAME = "mongodb-enterprise-appdb"
@@ -165,4 +168,12 @@ def test_enable_vault_role_for_appdb_pod(
 
 @mark.e2e_vault_setup_om
 def test_om_created(ops_manager: MongoDBOpsManager):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_vault_setup_om
+def test_no_admin_key_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{namespace}-{ops_manager.name}-admin-key")

@@ -1843,7 +1843,11 @@ tasks:
   commands:
     - func: e2e_test
 
-
+- name: e2e_vault_setup_om
+  tags: ["patch-run"]
+  exec_timeout_secs: 1500
+  commands:
+    - func: e2e_test
 - name: release_appdb
   git_tag_only: true
   commands:
@@ -2274,6 +2278,7 @@ task_groups:
     - e2e_om_multiple
     - e2e_om_appdb_configure_all_images
     - e2e_om_feature_controls
+    - e2e_vault_setup_om
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
