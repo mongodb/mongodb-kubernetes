@@ -22,6 +22,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
@@ -222,11 +223,14 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	if vault.IsVaultSecretBackend() {
-		paths := vault.GetSecretPaths(rs.Namespace)
+		secrets := rs.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
-		for _, p := range paths {
-			vaultMap = r.VaultClient.GetSecretAnnotation(p)
+		for _, s := range secrets {
+			path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretMetadataPath, rs.Namespace, s)
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
+		path := fmt.Sprintf("%s/%s/%s", vault.OperatorSecretMetadataPath, rs.Namespace, rs.Spec.Credentials)
+		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		for k, val := range vaultMap {
 			annotationsToAdd[k] = val
 		}
@@ -286,14 +290,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
-
-		// range over all the secret paths which could be rotated
-		namespaces := GetWatchedNamespace()
-		for _, ns := range namespaces {
-			for _, s := range vault.GetSecretPaths(ns) {
-				go vault.WatchSecretChange(zap.S(), eventChannel, s, reconciler.client, reconciler.VaultClient, mdbv1.ReplicaSet)
-			}
-		}
+		go vault.WatchSecretChange(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ReplicaSet)
 
 		err = c.Watch(
 			&source.Channel{Source: eventChannel},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
@@ -39,6 +41,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -90,6 +94,19 @@ func AddStandaloneController(mgr manager.Manager) error {
 		return err
 	}
 
+	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
+	if vault.IsVaultSecretBackend() {
+		eventChannel := make(chan event.GenericEvent)
+		go vault.WatchSecretChange(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.Standalone)
+
+		err = c.Watch(
+			&source.Channel{Source: eventChannel},
+			&handler.EnqueueRequestForObject{},
+		)
+		if err != nil {
+			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
+		}
+	}
 	zap.S().Infof("Registered controller %s", util.MongoDbStandaloneController)
 
 	return nil
@@ -223,6 +240,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}
 
+	if vault.IsVaultSecretBackend() {
+		secrets := s.GetSecretsMountedIntoDBPod()
+		vaultMap := make(map[string]string)
+		for _, secret := range secrets {
+			path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretMetadataPath, s.Namespace, secret)
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		}
+		path := fmt.Sprintf("%s/%s/%s", vault.OperatorSecretMetadataPath, s.Namespace, s.Spec.Credentials)
+		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		for k, val := range vaultMap {
+			annotationsToAdd[k] = val
+		}
+	}
 	if err := annotations.SetAnnotations(s.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(s, workflow.Failed(err.Error()), log)
 	}

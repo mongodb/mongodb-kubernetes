@@ -113,6 +113,44 @@ func (m *MongoDB) GetResourceName() string {
 	return m.Name
 }
 
+// GetSecretsMountedIntoDBPod returns a list of all the optional secret names that are used by this resource.
+func (m MongoDB) GetSecretsMountedIntoDBPod() []string {
+	secrets := []string{}
+	var tls string
+	if m.Spec.ResourceType == ShardedCluster {
+		for i := 0; i < m.Spec.ShardCount; i++ {
+			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
+			if tls != "" {
+				secrets = append(secrets, tls)
+			}
+		}
+		tls = m.GetSecurity().MemberCertificateSecretName(m.ConfigRsName())
+		if tls != "" {
+			secrets = append(secrets, tls)
+		}
+		tls = m.GetSecurity().MemberCertificateSecretName(m.ConfigRsName())
+		if tls != "" {
+			secrets = append(secrets, tls)
+		}
+	} else {
+		tls = m.GetSecurity().MemberCertificateSecretName(m.Name)
+		if tls != "" {
+			secrets = append(secrets, tls)
+		}
+	}
+	agentCerts := m.GetSecurity().AgentClientCertificateSecretName(m.Name).Name
+	if agentCerts != "" {
+		secrets = append(secrets, agentCerts)
+	}
+	if m.Spec.Security.Authentication != nil && m.Spec.Security.Authentication.Ldap != nil {
+		secrets = append(secrets, m.Spec.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name)
+		if m.Spec.Security.Authentication != nil && m.Spec.Security.Authentication.Agents.AutomationPasswordSecretRef.Name != "" {
+			secrets = append(secrets, m.Spec.Security.Authentication.Agents.AutomationPasswordSecretRef.Name)
+		}
+	}
+	return secrets
+}
+
 type AdditionalMongodConfigType int
 
 const (

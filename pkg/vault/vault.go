@@ -22,6 +22,7 @@ const (
 	DatabaseSecretPath    = "secret/data/mongodbenterprise/database"
 	DatabaseVaultRoleName = "mongodbenterprisedatabase"
 
+	OperatorSecretMetadataPath = "secret/metadata/mongodbenterprise/operator"
 	DatabaseSecretMetadataPath = "secret/metadata/mongodbenterprise/database"
 )
 
@@ -207,19 +208,6 @@ func (s SecretsToInject) DatabaseAnnotations(namespace string) map[string]string
 
 	}
 	return annotations
-}
-
-// GetSecretKeys returns all the secret names that the operator is storing in vault. It fetches the path from the vault
-// and returns the last element from the path which is the secret name.
-func GetSecretKeys(namespace string) []string {
-	paths := GetSecretPaths(namespace)
-	res := make([]string, 0)
-
-	for _, p := range paths {
-		ss := strings.Split(p, "/")
-		res = append(paths, ss[len(ss)-1])
-	}
-	return res
 }
 
 func (v *VaultClient) GetSecretAnnotation(path string) map[string]string {

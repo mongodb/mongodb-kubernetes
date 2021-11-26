@@ -14,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
 
@@ -49,6 +50,8 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -126,6 +129,19 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
 	}
 
+	if vault.IsVaultSecretBackend() {
+		secrets := sc.GetSecretsMountedIntoDBPod()
+		vaultMap := make(map[string]string)
+		for _, s := range secrets {
+			path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretMetadataPath, sc.Namespace, s)
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		}
+		path := fmt.Sprintf("%s/%s/%s", vault.OperatorSecretMetadataPath, sc.Namespace, sc.Spec.Credentials)
+		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		for k, val := range vaultMap {
+			annotationsToAdd[k] = val
+		}
+	}
 	if err := annotations.SetAnnotations(sc.DeepCopy(), annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
 	}
@@ -522,7 +538,19 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	if err != nil {
 		return err
 	}
+	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
+	if vault.IsVaultSecretBackend() {
+		eventChannel := make(chan event.GenericEvent)
+		go vault.WatchSecretChange(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ShardedCluster)
 
+		err = c.Watch(
+			&source.Channel{Source: eventChannel},
+			&handler.EnqueueRequestForObject{},
+		)
+		if err != nil {
+			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
+		}
+	}
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 
 	return nil

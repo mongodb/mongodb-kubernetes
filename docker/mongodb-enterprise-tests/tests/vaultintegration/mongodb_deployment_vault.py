@@ -301,6 +301,26 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_vault_setup
+def test_rotate_agent_certs(
+    replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str
+):
+    replica_set.load()
+    old_version = replica_set["metadata"]["annotations"]["agent-certs"]
+    cmd = [
+        "vault",
+        "kv",
+        "patch",
+        f"secret/mongodbenterprise/database/{namespace}/agent-certs",
+        "foo=bar",
+    ]
+    run_command_in_vault(vault_namespace, vault_name, cmd, ["version"])
+    replica_set.assert_reaches_phase(Phase.Reconciling, timeout=100)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
+    replica_set.load()
+    assert old_version != replica_set["metadata"]["annotations"]["agent-certs"]
+
+
+@mark.e2e_vault_setup
 def test_no_certs_in_kubernetes(namespace: str):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{MDB_RESOURCE}-clusterfile")

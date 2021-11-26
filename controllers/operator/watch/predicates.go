@@ -87,7 +87,11 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 			// check if any one of the vault annotations are different in revision
 			if vault.IsVaultSecretBackend() {
 				vaultReconcile := false
-				for _, e := range vault.GetSecretKeys(oldResource.Namespace) {
+				credentialsAnnotation := newResource.Spec.Credentials
+				if oldResource.GetAnnotations()[credentialsAnnotation] != newResource.GetAnnotations()[credentialsAnnotation] {
+					vaultReconcile = true
+				}
+				for _, e := range oldResource.GetSecretsMountedIntoDBPod() {
 					if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
 						vaultReconcile = true
 					}
