@@ -9,8 +9,15 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 )
+
+type SecretClientInterface interface {
+	ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error)
+}
+
+var _ SecretClientInterface = (*SecretClient)(nil)
 
 type SecretClient struct {
 	VaultClient *vault.VaultClient
@@ -93,4 +100,11 @@ func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error
 
 	}
 	return secret.CreateOrUpdateIfNeeded(r.KubeClient, s)
+}
+
+func SecretNotExist(err error) bool {
+	if err == nil {
+		return false
+	}
+	return apiErrors.IsNotFound(err) || strings.Contains(err.Error(), "secret not found")
 }

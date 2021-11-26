@@ -820,8 +820,6 @@ func configureBackupResources(m *mock.MockedClient, testOm omv1.MongoDBOpsManage
 	}
 }
 
-// ******************************************* Helper methods *********************************************************
-
 func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*OpsManagerReconciler, *mock.MockedClient,
 	*MockedInitializer) {
 	manager := mock.NewManager(&opsManager)

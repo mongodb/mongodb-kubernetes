@@ -6,9 +6,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -20,10 +21,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -66,7 +65,7 @@ func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }
 
-func (om MongoDBOpsManager) GetAppDBProjectConfig(client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+func (om MongoDBOpsManager) GetAppDBProjectConfig(client secrets.SecretClient) (mdbv1.ProjectConfig, error) {
 	secretName, err := om.APIKeySecretName(client)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
@@ -534,14 +533,14 @@ func (m MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
-func (m *MongoDBOpsManager) APIKeySecretName(client secret.Getter) (string, error) {
+func (m *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface) (string, error) {
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", m.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
-	_, err := secret.ReadStringData(client, oldAPIKeySecretNamespacedName)
+	_, err := client.ReadSecret(oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", vault.OperatorSecretPath, operatorNamespace, oldAPISecretName))
 	if err != nil {
-		if apiErrors.IsNotFound(err) {
+		if secrets.SecretNotExist(err) {
 			return fmt.Sprintf("%s-%s-admin-key", m.Namespace, m.Name), nil
 		}
 

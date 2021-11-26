@@ -86,7 +86,7 @@ func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
 
 	err := createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
-	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
 
 	s, err := kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -165,7 +165,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 
 	// create
 	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
-	_, err := reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err := reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
 
 	ac, err := automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -173,7 +173,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	assert.Equal(t, 1, ac.Version)
 
 	// publishing the config without updates should not result in API call
-	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
 
 	ac, err = automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -186,7 +186,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	opsManager.Spec.AppDB.FeatureCompatibilityVersion = &fcv
 	kubeManager.Client.Update(context.TODO(), &opsManager)
 
-	_, err = reconciler.Reconcile(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
 
 	ac, err = automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -315,7 +315,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 		util.OmPublicApiKey: "publicApiKey",
 		util.OmPrivateKey:   "privateApiKey",
 	}
-	APIKeySecretName, err := opsManager.APIKeySecretName(client)
+	APIKeySecretName, err := opsManager.APIKeySecretName(client.MockedSecretClient)
 	assert.NoError(t, err)
 
 	apiKeySecret := secret.Builder().
@@ -502,7 +502,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	err = client.CreateStatefulSet(appDbSts)
 	assert.NoError(t, err)
 
-	res, err := reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
+	res, err := reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
 
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
@@ -516,7 +516,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 			err = client.Update(context.TODO(), &opsManager)
 			assert.NoError(t, err)
 
-			res, err = reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
+			res, err = reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
 
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
@@ -526,14 +526,14 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 			err = client.Update(context.TODO(), &opsManager)
 			assert.NoError(t, err)
 
-			res, err = reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
+			res, err = reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
 
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
 		}
 	}
 
-	res, err = reconciler.Reconcile(&opsManager, "i6ocEoHYJTteoNTX")
+	res, err = reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
 

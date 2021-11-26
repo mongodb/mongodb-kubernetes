@@ -189,6 +189,10 @@ func (c *MockedSecretClient) DeleteService(key client.ObjectKey) error {
 	return nil
 }
 
+func (c *MockedSecretClient) ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error) {
+	return map[string]string{}, &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
+}
+
 type MockedStatefulSetClient struct {
 	client client.Client
 }

@@ -69,8 +69,8 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, o
 	}
 }
 
-// Reconcile deploys the "headless" agent, and wait until it reaches the goal state
-func (r *ReconcileAppDbReplicaSet) Reconcile(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string) (res reconcile.Result, e error) {
+// ReconcileAppDB deploys the "headless" agent, and wait until it reaches the goal state
+func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	rs := opsManager.Spec.AppDB
 	log := zap.S().With("ReplicaSet (AppDB)", kube.ObjectKey(opsManager.Namespace, rs.Name()))
 
@@ -531,7 +531,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
 func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
-	APIKeySecretName, err := opsManager.APIKeySecretName(r.client)
+	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient)
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error getting opsManager secret name: %s", err)
 	}
@@ -548,7 +548,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return env.PodEnvVars{}, fmt.Errorf("error reading existing podVars: %s", err)
 	}
 
-	projectConfig, err := opsManager.GetAppDBProjectConfig(r.client)
+	projectConfig, err := opsManager.GetAppDBProjectConfig(r.SecretClient)
 	if err != nil {
 		return existingPodVars, fmt.Errorf("error getting existing project config: %s", err)
 	}
@@ -607,7 +607,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return env.PodEnvVars{}, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
-	APISecretName, err := om.APIKeySecretName(r.client)
+	APISecretName, err := om.APIKeySecretName(r.SecretClient)
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error getting ops-manager API secret name: %s", err)
 	}

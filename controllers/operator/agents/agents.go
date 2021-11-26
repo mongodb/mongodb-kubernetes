@@ -3,7 +3,6 @@ package agents
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -60,7 +59,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 			// we only want to create secret if it doesn't exist in vault
 			APIKeyPath := fmt.Sprintf("%s/%s", vault.DatabaseSecretPath, secretName)
 			_, err := secretGetCreator.VaultClient.ReadSecretBytes(APIKeyPath)
-			if err != nil && strings.HasPrefix(err.Error(), "secret not found") {
+			if err != nil && secrets.SecretNotExist(err) {
 				err = secretGetCreator.VaultClient.PutSecret(APIKeyPath, data)
 				if err != nil {
 					return fmt.Errorf("failed to create AgentKey secret in vault: %s", err)
