@@ -24,9 +24,10 @@ const (
 
 	OperatorSecretMetadataPath = "secret/metadata/mongodbenterprise/operator"
 	DatabaseSecretMetadataPath = "secret/metadata/mongodbenterprise/database"
+	AppDBVaultRoleName         = "mongodbenterpriseappdb"
 )
 
-type SecretsToInject struct {
+type DatabaseSecretsToInject struct {
 	AgentCerts  string
 	AgentApiKey string
 
@@ -35,6 +36,10 @@ type SecretsToInject struct {
 
 	MemberClusterAuth string
 	MemberClusterHash string
+}
+
+type AppDBSecretsToInject struct {
+	AgentApiKey string
 }
 
 func IsVaultSecretBackend() bool {
@@ -155,7 +160,7 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 	return secretString, nil
 }
 
-func (s SecretsToInject) DatabaseAnnotations(namespace string) map[string]string {
+func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[string]string {
 	apiKeySecretPath := fmt.Sprintf("%s/%s", DatabaseSecretPath, s.AgentApiKey)
 
 	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
@@ -222,4 +227,22 @@ func (v *VaultClient) GetSecretAnnotation(path string) map[string]string {
 	return map[string]string{
 		secretName: strconv.FormatInt(int64(n), 10),
 	}
+}
+
+func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]string {
+	apiKeySecretPath := fmt.Sprintf("%s/%s", DatabaseSecretPath, a.AgentApiKey)
+	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ .Data.data.agentApiKey }}
+          {{- end }}`, apiKeySecretPath)
+
+	annotations := map[string]string{
+		"vault.hashicorp.com/agent-inject":                      "true",
+		"vault.hashicorp.com/agent-inject-secret-agentApiKey":   apiKeySecretPath,
+		"vault.hashicorp.com/role":                              AppDBVaultRoleName,
+		"vault.hashicorp.com/secret-volume-path-agentApiKey":    "/mongodb-automation/agent-api-key",
+		"vault.hashicorp.com/preserve-secret-case":              "true",
+		"vault.hashicorp.com/agent-inject-template-agentApiKey": agentAPIKeyTemplate,
+	}
+
+	return annotations
 }

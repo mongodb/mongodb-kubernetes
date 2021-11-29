@@ -8,6 +8,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -215,6 +216,21 @@ func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType core
 	)
 }
 
+func agentAPIConfig(appDB om.AppDBSpec, podVars *env.PodEnvVars) podtemplatespec.Modification {
+	if vault.IsVaultSecretBackend() && podVars != nil && podVars.ProjectID != "" {
+		var appDBSecretsToInject vault.AppDBSecretsToInject
+		appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
+
+		return podtemplatespec.Apply(
+			podtemplatespec.WithAnnotations(appDBSecretsToInject.AppDBAnnotations(appDB.Namespace)),
+		)
+	}
+	// AGENT-API-KEY volume
+	return podtemplatespec.Apply(
+		podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
+	)
+}
+
 // customPersistenceConfig applies to the statefulset the modifications
 // provided by the user through spec.persistence.
 func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
@@ -297,9 +313,6 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
-	// AGENT-API-KEY volume
-	agentAPIKeyVolume := statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))
-
 	sts := statefulset.New(
 		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, opsManager),
 		customPersistenceConfig(*appDb),
@@ -315,7 +328,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 						container.WithEnvs(appdbContainerEnv(*appDb, podVars)...),
 					),
 				),
-				podtemplatespec.WithVolume(agentAPIKeyVolume),
+				agentAPIConfig(*appDb, podVars),
 				appDbPodSpec(*appDb),
 				monitoringModification,
 				tlsVolumes(*appDb, podVars, certSecretType),
@@ -394,11 +407,9 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	command += startupParams.ToCommandLineArgs()
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
-	// AGENT_API_KEY volume
-	agentAPIKeyVolumeMount := statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath)
-
 	// Add additional TLS volumes if needed
 	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, certSecretType)
+
 	return podtemplatespec.Apply(
 		podtemplatespec.WithVolume(monitoringAcVolume),
 		// This is a function that reads the automation agent containers, copies it and modifies it.
@@ -429,12 +440,16 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 				journalVolumeMount := statefulset.CreateVolumeMount(appDB.DataVolumeName(), util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal))
 				volumeMounts = append(volumeMounts, journalVolumeMount, logsVolumeMount)
 			}
+
+			if !vault.IsVaultSecretBackend() {
+				// AGENT_API_KEY volume
+				volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
+			}
 			container.Apply(
 				container.WithVolumeMounts(volumeMounts),
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*newDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
-				container.WithVolumeMounts([]corev1.VolumeMount{agentAPIKeyVolumeMount}),
 				container.WithEnvs(appdbContainerEnv(appDB, &podVars)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)

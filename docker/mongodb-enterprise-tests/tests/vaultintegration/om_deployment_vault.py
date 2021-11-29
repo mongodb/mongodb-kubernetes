@@ -13,8 +13,9 @@ from kubetester import (
     read_secret,
 )
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from kubetester.mongodb import Phase, get_pods
 from kubernetes.client.rest import ApiException
+from kubernetes import client
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 APPDB_SA_NAME = "mongodb-enterprise-appdb"
@@ -142,7 +143,7 @@ def test_create_appdb_policy(vault_name: str, vault_namespace: str):
         "vault",
         "policy",
         "write",
-        "mongodbenterprisedatabase",
+        "mongodbenterpriseappdb",
         "/tmp/appdb-policy.hcl",
     ]
     run_command_in_vault(vault_namespace, vault_name, cmd)
@@ -177,3 +178,14 @@ def test_no_admin_key_secret_in_kubernetes(
 ):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{namespace}-{ops_manager.name}-admin-key")
+
+
+@mark.e2e_vault_setup_om
+def test_appdb_reached_running_and_pod_count(
+    ops_manager: MongoDBOpsManager, namespace: str
+):
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    # check AppDB has 4 containers(+1 because of vault-agent)
+    for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
+        pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
+        assert len(pod.spec.containers) == 4

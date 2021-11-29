@@ -305,7 +305,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts)
 
-	secretsToInject := vault.SecretsToInject{}
+	secretsToInject := vault.DatabaseSecretsToInject{}
 	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
 		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
 		if opts.CertSecretTypes.IsCertTLSType(secretName) {
