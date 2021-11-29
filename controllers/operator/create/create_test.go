@@ -4,12 +4,14 @@ import (
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -46,7 +48,11 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 		Build()
 
 	client := mock.NewClient()
-	sts, err := construct.OpsManagerStatefulSet(client, testOm, zap.S())
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
@@ -77,7 +83,11 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 		}).
 		Build()
 	client := mock.NewClient()
-	sts, err := construct.OpsManagerStatefulSet(client, testOm, zap.S())
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
@@ -112,7 +122,12 @@ func TestBackupServiceCreated_ClusterIP(t *testing.T) {
 		Build()
 
 	client := mock.NewClient()
-	sts, err := construct.OpsManagerStatefulSet(client, testOm, zap.S())
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
@@ -131,7 +146,7 @@ func TestBackupServiceCreated_ClusterIP(t *testing.T) {
 		}).AddConfiguration("brs.queryable.proxyPort", "1234").
 		Build()
 
-	sts, err = construct.OpsManagerStatefulSet(client, testOm, zap.S())
+	sts, err = construct.OpsManagerStatefulSet(secretsClient, testOm, zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())

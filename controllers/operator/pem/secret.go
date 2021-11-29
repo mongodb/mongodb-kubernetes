@@ -39,11 +39,11 @@ func CreateOrUpdateSecret(secretGetUpdateCreator secret.GetUpdateCreator, name, 
 
 // ReadHashFromSecret reads the existing Pem from
 // the secret that stores this StatefulSet's Pem collection.
-func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name string, log *zap.SugaredLogger) string {
+func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name string, basePath string, log *zap.SugaredLogger) string {
 	var secretData map[string]string
 	var err error
 	if vault.IsVaultSecretBackend() {
-		path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, namespace, name)
+		path := fmt.Sprintf("%s/%s/%s", basePath, namespace, name)
 		secretData, err = secretClient.VaultClient.ReadSecretString(path)
 		if err != nil {
 			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)

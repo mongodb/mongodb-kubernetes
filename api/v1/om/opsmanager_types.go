@@ -640,6 +640,15 @@ func (m MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdate
 	return appsv1.OnDeleteStatefulSetStrategyType
 }
 
+func (m MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
+	secrets := []string{}
+	tls := m.TLSCertificateSecretName()
+	if tls != "" {
+		secrets = append(secrets, tls)
+	}
+	return secrets
+}
+
 // newBackup returns an empty backup object
 func newBackup() *MongoDBOpsManagerBackup {
 	return &MongoDBOpsManagerBackup{Enabled: true}

@@ -8,13 +8,20 @@ import (
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildBackupDaemonStatefulSet(t *testing.T) {
-	sts, err := BackupDaemonStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om-backup-daemon", sts.ObjectMeta.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
@@ -22,14 +29,24 @@ func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 }
 
 func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {
-	set, err := BackupDaemonStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+	set, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
 	assert.NoError(t, err)
 	podSpecTemplate := set.Spec.Template
 	assert.Equal(t, int64(4200), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
 }
 
 func TestBuildBackupDaemonContainer(t *testing.T) {
-	sts, err := BackupDaemonStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build(), zap.S())
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build(), zap.S())
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 	container := template.Spec.Containers[0]
@@ -45,7 +62,12 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 }
 
 func TestMultipleBackupDaemons(t *testing.T) {
-	sts, err := BackupDaemonStatefulSet(mock.NewClient(), omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").SetBackupMembers(3).Build(), zap.S())
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").SetBackupMembers(3).Build(), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, 3, int(*sts.Spec.Replicas))
 }

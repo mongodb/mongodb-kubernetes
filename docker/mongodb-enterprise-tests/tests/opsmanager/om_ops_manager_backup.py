@@ -15,7 +15,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
-    run_periodically
+    run_periodically,
 )
 from kubernetes.client.rest import ApiException
 
@@ -597,9 +597,7 @@ class TestBackupForMongodb:
         mdb_latest.wait_for(reaches_backup_status("TERMINATING"), timeout=600)
 
     def test_backup_terminated_for_deleted_resource(
-        self,
-        ops_manager: MongoDBOpsManager,
-        mdb_prev: MongoDB
+        self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB
     ):
         # re-enable backup
         mdb_prev.configure_backup(mode="enabled")
@@ -617,9 +615,10 @@ class TestBackupForMongodb:
 
         # wait until the resource is deleted
         run_periodically(resource_is_deleted, timeout=300)
-        
+
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=0)
+
 
 def reaches_backup_status(expected_status: str) -> Callable[[MongoDB], bool]:
     def _fn(mdb: MongoDB):

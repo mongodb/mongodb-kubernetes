@@ -941,8 +941,8 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 		Replicas(r.getConfigSrvCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vault.DatabaseSecretPath, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignMap(certTLSTypes),
 	)
 }
@@ -956,8 +956,8 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podV
 		Replicas(r.getMongosCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vault.DatabaseSecretPath, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignMap(certTLSTypes),
 	)
 
@@ -972,8 +972,8 @@ func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shard
 		Replicas(r.getMongodsPerShardCountThisReconciliation()),
 		PodEnvVars(podVars),
 		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vault.DatabaseSecretPath, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignMap(certTLSTypes),
 	)
 }

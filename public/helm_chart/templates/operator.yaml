@@ -66,7 +66,7 @@ spec:
           value: {{ .Values.operator.env }}
 {{- if .Values.operator.useVaultSecretBackend }}
         - name: SECRET_BACKEND
-          value: "VAULT_BACKEND"
+          value: VAULT_BACKEND
 {{- end }}
         - name: WATCH_NAMESPACE
 {{- if .Values.operator.watchNamespace }}

@@ -94,6 +94,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	}).Build()
 
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
+	addOMTLSResources(client, "om-tls-secret")
 	addAppDBTLSResources(client, testOm.Spec.AppDB, "om-appdb-tls-secret")
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
@@ -900,6 +901,23 @@ func addAppDBTLSResources(client *mock.MockedClient, rs omv1.AppDBSpec, secretNa
 		pemFile := createMockCertAndKeyBytes()
 		certs[fmt.Sprintf("%s-%d-pem", rs.Name(), i)] = pemFile
 	}
+
+	secret.Data = certs
+	_ = client.Create(context.TODO(), secret)
+}
+func addOMTLSResources(client *mock.MockedClient, secretName string) {
+	// Lets create a secret with Certificates and private keys!
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: mock.TestNamespace,
+		},
+	}
+
+	certs := map[string][]byte{}
+
+	pemFile := createMockCertAndKeyBytes()
+	certs["server.pem"] = pemFile
 
 	secret.Data = certs
 	_ = client.Create(context.TODO(), secret)

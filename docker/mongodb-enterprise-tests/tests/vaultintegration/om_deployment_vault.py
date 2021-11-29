@@ -12,6 +12,7 @@ from kubetester import (
     create_configmap,
     read_secret,
 )
+from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import Phase, get_pods
 from kubernetes.client.rest import ApiException
@@ -19,15 +20,30 @@ from kubernetes import client
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 APPDB_SA_NAME = "mongodb-enterprise-appdb"
+OM_SA_NAME = "mongodb-enterprise-ops-manager"
+
+
+@fixture(scope="module")
+def ops_manager_certs(namespace: str, issuer: str):
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-basic", secret_backend="Vault"
+    )
 
 
 @fixture(scope="module")
 def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+    namespace: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
+    issuer_ca_configmap: str,
+    ops_manager_certs: str,
 ) -> MongoDBOpsManager:
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
+    om["spec"]["security"] = {
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+    }
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
@@ -150,6 +166,25 @@ def test_create_appdb_policy(vault_name: str, vault_namespace: str):
 
 
 @mark.e2e_vault_setup_om
+def test_create_om_policy(vault_name: str, vault_namespace: str):
+    KubernetesTester.copy_file_inside_pod(
+        f"{vault_name}-0",
+        "vaultpolicies/opsmanager-policy.hcl",
+        "/tmp/om-policy.hcl",
+        namespace=vault_namespace,
+    )
+
+    cmd = [
+        "vault",
+        "policy",
+        "write",
+        "mongodbenterpriseopsmanager",
+        "/tmp/om-policy.hcl",
+    ]
+    run_command_in_vault(vault_namespace, vault_name, cmd)
+
+
+@mark.e2e_vault_setup_om
 def test_enable_vault_role_for_appdb_pod(
     vault_name: str,
     vault_namespace: str,
@@ -163,6 +198,24 @@ def test_enable_vault_role_for_appdb_pod(
         f"bound_service_account_names={APPDB_SA_NAME}",
         f"bound_service_account_namespaces={namespace}",
         f"policies={vault_appdb_policy_name}",
+    ]
+    run_command_in_vault(vault_namespace, vault_name, cmd)
+
+
+@mark.e2e_vault_setup_om
+def test_enable_vault_role_for_om_pod(
+    vault_name: str,
+    vault_namespace: str,
+    namespace: str,
+    vault_om_policy_name: str,
+):
+    cmd = [
+        "vault",
+        "write",
+        f"auth/kubernetes/role/{vault_om_policy_name}",
+        f"bound_service_account_names={OM_SA_NAME}",
+        f"bound_service_account_namespaces={namespace}",
+        f"policies={vault_om_policy_name}",
     ]
     run_command_in_vault(vault_namespace, vault_name, cmd)
 

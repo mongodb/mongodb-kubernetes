@@ -161,8 +161,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, vault.DatabaseSecretPath, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
 	)

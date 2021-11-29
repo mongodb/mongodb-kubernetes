@@ -4,11 +4,11 @@ import (
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
@@ -28,7 +28,7 @@ const (
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
-func BackupDaemonStatefulSet(secretGetUpdateCreator secret.GetUpdateCreator, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func BackupDaemonStatefulSet(secretGetUpdateCreator secrets.SecretClient, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := backupOptions(additionalOpts...)(opsManager)
 	if err := opts.updateHTTPSCertSecret(secretGetUpdateCreator, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err

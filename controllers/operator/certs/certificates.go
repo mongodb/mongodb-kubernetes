@@ -25,10 +25,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+type certDestination string
+
 const (
-	NumAgents                   = 3
 	OperatorGeneratedCertSuffix = "-pem"
 	CertHashAnnotationkey       = "certHash"
+
+	Database   = "database"
+	OpsManager = "opsmanager"
 )
 
 // CreatePEMSecret creates a PEM secret from the original secretName.
@@ -49,7 +53,7 @@ func CreatePEMSecret(secretGetUpdater secret.GetUpdateCreator, secretNamespacedN
 }
 
 // CreatePEMSecretClient creates a PEM secret from the original secretName.
-func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, data map[string]string, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
+func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, data map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination, log *zap.SugaredLogger) error {
 	operatorGeneratedSecret := secretNamespacedName
 	operatorGeneratedSecret.Name = fmt.Sprintf("%s%s", secretNamespacedName.Name, OperatorGeneratedCertSuffix)
 
@@ -62,7 +66,15 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 		secretBuilder = secretBuilder.SetField(k, v)
 	}
 
-	return secretClient.PutSecretIfChanged(secretBuilder.Build(), vault.DatabaseSecretPath)
+	var path string
+
+	switch podType {
+	case Database:
+		path = vault.DatabaseSecretPath
+	case OpsManager:
+		path = vault.OpsManagerSecretPath
+	}
+	return secretClient.PutSecretIfChanged(secretBuilder.Build(), path)
 }
 
 // VerifyTLSSecretForStatefulSet verifies a secret of type kubernetes.io/tls.
@@ -130,8 +142,8 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClien
 			return err, true
 		}
 
-		secretHash = enterprisepem.ReadHashFromSecret(secretsClient, opts.Namespace, secretName, log)
-		return CreatePEMSecretClient(secretsClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, log), true
+		secretHash = enterprisepem.ReadHashFromSecret(secretsClient, opts.Namespace, secretName, vault.DatabaseSecretPath, log)
+		return CreatePEMSecretClient(secretsClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database, log), true
 
 	}
 
@@ -272,7 +284,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretsClient secrets.
 		dataMap := map[string]string{
 			util.AutomationAgentPemSecretKey: data,
 		}
-		return CreatePEMSecretClient(secretsClient, secret, dataMap, []metav1.OwnerReference{}, log), true
+		return CreatePEMSecretClient(secretsClient, secret, dataMap, []metav1.OwnerReference{}, Database, log), true
 	}
 
 	additionalDomains := []string{} // agents have no additional domains

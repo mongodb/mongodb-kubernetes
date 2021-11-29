@@ -18,9 +18,12 @@ const (
 	VaultBackend     = "VAULT_BACKEND"
 	K8sSecretBackend = "K8S_SECRET_BACKEND"
 
-	OperatorSecretPath    = "secret/data/mongodbenterprise/operator"
-	DatabaseSecretPath    = "secret/data/mongodbenterprise/database"
-	DatabaseVaultRoleName = "mongodbenterprisedatabase"
+	OperatorSecretPath   = "secret/data/mongodbenterprise/operator"
+	DatabaseSecretPath   = "secret/data/mongodbenterprise/database"
+	OpsManagerSecretPath = "secret/data/mongodbenterprise/opsmanager"
+
+	DatabaseVaultRoleName   = "mongodbenterprisedatabase"
+	OpsManagerVaultRoleName = "mongodbenterpriseopsmanager"
 
 	OperatorSecretMetadataPath = "secret/metadata/mongodbenterprise/operator"
 	DatabaseSecretMetadataPath = "secret/metadata/mongodbenterprise/database"
@@ -40,6 +43,11 @@ type DatabaseSecretsToInject struct {
 
 type AppDBSecretsToInject struct {
 	AgentApiKey string
+}
+
+type OpsManagerSecretsToInject struct {
+	OpsManagerTLSSecretName string
+	OpsManagerTLSHash       string
 }
 
 func IsVaultSecretBackend() bool {
@@ -158,6 +166,27 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 		secretString[k] = string(v)
 	}
 	return secretString, nil
+}
+
+func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[string]string {
+	annotations := map[string]string{
+		"vault.hashicorp.com/agent-inject":         "true",
+		"vault.hashicorp.com/role":                 OpsManagerVaultRoleName,
+		"vault.hashicorp.com/preserve-secret-case": "true",
+	}
+
+	if s.OpsManagerTLSSecretName != "" {
+		omTLSPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.OpsManagerTLSSecretName)
+		annotations["vault.hashicorp.com/agent-inject-secret-om-tls-cert-pem"] = omTLSPath
+		annotations["vault.hashicorp.com/agent-inject-file-om-tls-cert-pem"] = s.OpsManagerTLSHash
+		annotations["vault.hashicorp.com/secret-volume-path-om-tls-cert-pem"] = util.MmsPemKeyFileDirInContainer
+		annotations["vault.hashicorp.com/agent-inject-template-om-tls-cert-pem"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- $v }}
+          {{- end }}
+          {{- end }}`, omTLSPath)
+	}
+	return annotations
 }
 
 func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[string]string {
