@@ -142,6 +142,20 @@ def test_enable_vault_role_for_operator_pod(
 
 
 @mark.e2e_vault_setup_om
+def test_put_admin_credentials_to_vault(
+    namespace: str, vault_namespace: str, vault_name: str
+):
+    admin_credentials_secret_name = "ops-manager-admin-secret"
+    # read the -admin-secret from namespace and store in vault
+    data = read_secret(namespace, admin_credentials_secret_name)
+    path = (
+        f"secret/mongodbenterprise/operator/{namespace}/{admin_credentials_secret_name}"
+    )
+    store_secret_in_vault(vault_namespace, vault_name, data, path)
+    delete_secret(namespace, admin_credentials_secret_name)
+
+
+@mark.e2e_vault_setup_om
 def test_operator_install_with_vault_backend(operator_vault_secret_backend: Operator):
     operator_vault_secret_backend.assert_is_running()
 

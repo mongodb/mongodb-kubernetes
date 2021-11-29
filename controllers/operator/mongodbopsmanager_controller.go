@@ -1016,7 +1016,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
 	// 1. Read the admin secret
-	userData, err := secret.ReadStringData(r.client, adminObjectKey)
+	userData, err := r.ReadSecret(adminObjectKey, vault.OperatorSecretPath)
 
 	if secrets.SecretNotExist(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
