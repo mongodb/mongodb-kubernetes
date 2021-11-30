@@ -221,15 +221,21 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
 	omVolumeMounts = append(omVolumeMounts, omScriptsVolumeMount)
 
-	genKeyVolume := statefulset.CreateVolumeFromSecret("gen-key", fmt.Sprintf("%s-gen-key", opts.OwnerName))
-	genKeyVolumeMount := corev1.VolumeMount{
-		Name:      genKeyVolume.Name,
-		ReadOnly:  true,
-		MountPath: util.GenKeyPath,
-	}
-	omVolumeMounts = append(omVolumeMounts, genKeyVolumeMount)
-
+	genKeyVolumeFunction := podtemplatespec.NOOP()
 	vaultSecrets := vault.OpsManagerSecretsToInject{}
+	if vault.IsVaultSecretBackend() {
+		vaultSecrets.GenKeyPath = fmt.Sprintf("%s-gen-key", opts.OwnerName)
+	} else {
+		genKeyVolume := statefulset.CreateVolumeFromSecret("gen-key", fmt.Sprintf("%s-gen-key", opts.OwnerName))
+		genKeyVolumeFunction = podtemplatespec.WithVolume(genKeyVolume)
+		genKeyVolumeMount := corev1.VolumeMount{
+			Name:      genKeyVolume.Name,
+			ReadOnly:  true,
+			MountPath: util.GenKeyPath,
+		}
+		omVolumeMounts = append(omVolumeMounts, genKeyVolumeMount)
+	}
+
 	omHTTPSVolumeFunc := podtemplatespec.NOOP()
 	if opts.HTTPSCertSecretName != "" {
 		if vault.IsVaultSecretBackend() {
@@ -286,7 +292,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				appDbTLSConfigMapVolumeFunc,
 				podtemplateAnnotation,
 				podtemplatespec.WithVolume(omScriptsVolume),
-				podtemplatespec.WithVolume(genKeyVolume),
+				genKeyVolumeFunction,
 				podtemplatespec.WithVolume(mmsMongoUriVolume),
 				configurePodSpecSecurityContext,
 				podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),

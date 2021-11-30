@@ -52,6 +52,8 @@ type AppDBSecretsToInject struct {
 type OpsManagerSecretsToInject struct {
 	OpsManagerTLSSecretName string
 	OpsManagerTLSHash       string
+
+	GenKeyPath string
 }
 
 func IsVaultSecretBackend() bool {
@@ -189,6 +191,18 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
           {{- $v }}
           {{- end }}
           {{- end }}`, omTLSPath)
+	}
+
+	if s.GenKeyPath != "" {
+		genKeyPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.GenKeyPath)
+		annotations["vault.hashicorp.com/agent-inject-secret-gen-key"] = genKeyPath
+		annotations["vault.hashicorp.com/agent-inject-file-gen-key"] = "gen.key"
+		annotations["vault.hashicorp.com/secret-volume-path-gen-key"] = util.GenKeyPath
+		annotations["vault.hashicorp.com/agent-inject-template-gen-key"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- base64Decode $v }}
+          {{- end }}
+          {{- end }}`, genKeyPath)
 	}
 	return annotations
 }

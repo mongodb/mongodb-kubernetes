@@ -269,6 +269,14 @@ def test_no_admin_key_secret_in_kubernetes(
 
 
 @mark.e2e_vault_setup_om
+def test_no_gen_key_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-gen-key")
+
+
+@mark.e2e_vault_setup_om
 def test_appdb_reached_running_and_pod_count(
     ops_manager: MongoDBOpsManager, namespace: str
 ):

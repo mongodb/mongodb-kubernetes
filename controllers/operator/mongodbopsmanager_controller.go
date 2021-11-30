@@ -809,7 +809,7 @@ func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, lo
 // ensureGenKey
 func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	objectKey := kube.ObjectKey(om.Namespace, om.Name+"-gen-key")
-	_, err := r.client.GetSecret(objectKey)
+	_, err := r.ReadSecret(objectKey, vault.OpsManagerSecretPath)
 
 	if secrets.SecretNotExist(err) {
 		// todo if the key is not found but the AppDB is initialized - OM will fail to start as preflight
@@ -829,7 +829,7 @@ func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.S
 			SetByteData(keyMap).
 			Build()
 
-		return r.client.CreateSecret(genKeySecret)
+		return r.PutBinarySecret(genKeySecret, vault.OpsManagerSecretPath)
 	}
 	return err
 }

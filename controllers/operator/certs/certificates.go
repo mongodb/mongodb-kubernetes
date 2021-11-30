@@ -61,11 +61,8 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 	secretBuilder := secret.Builder().
 		SetName(operatorGeneratedSecret.Name).
 		SetNamespace(operatorGeneratedSecret.Namespace).
+		SetStringData(data).
 		SetOwnerReferences(ownerReferences)
-
-	for k, v := range data {
-		secretBuilder = secretBuilder.SetField(k, v)
-	}
 
 	var path string
 

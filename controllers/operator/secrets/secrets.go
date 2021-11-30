@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"strings"
@@ -86,7 +87,22 @@ func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
 	}
 
 	return secret.CreateOrUpdate(r.KubeClient, s)
+}
 
+func (r SecretClient) PutBinarySecret(s corev1.Secret, basePath string) error {
+	if vault.IsVaultSecretBackend() {
+		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
+		secretData := map[string]interface{}{}
+		for k, v := range s.Data {
+			secretData[k] = base64.StdEncoding.EncodeToString(v)
+		}
+		data := map[string]interface{}{
+			"data": secretData,
+		}
+		return r.VaultClient.PutSecret(secretPath, data)
+	}
+
+	return secret.CreateOrUpdate(r.KubeClient, s)
 }
 
 func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error {
