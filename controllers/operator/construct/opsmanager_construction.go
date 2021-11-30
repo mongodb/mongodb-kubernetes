@@ -238,20 +238,23 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	}
 
 	omHTTPSVolumeFunc := podtemplatespec.NOOP()
-	if opts.HTTPSCertSecretName != "" {
-		if vault.IsVaultSecretBackend() {
+
+	if vault.IsVaultSecretBackend() {
+		if opts.HTTPSCertSecretName != "" {
 			vaultSecrets.TLSSecretName = opts.HTTPSCertSecretName
 			vaultSecrets.TLSHash = opts.CertHash
-			vaultSecrets.AppDBConnection = opts.AppDBConnectionSecretName
-			vaultSecrets.AppDBConnectionVolume = AppDBConnectionStringPath
-		} else {
-			omHTTPSCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", opts.HTTPSCertSecretName)
-			omHTTPSVolumeFunc = podtemplatespec.WithVolume(omHTTPSCertificateVolume)
-			omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
-				Name:      omHTTPSCertificateVolume.Name,
-				MountPath: util.MmsPemKeyFileDirInContainer,
-			})
 		}
+		vaultSecrets.AppDBConnection = opts.AppDBConnectionSecretName
+		vaultSecrets.AppDBConnectionVolume = AppDBConnectionStringPath
+	} else if opts.HTTPSCertSecretName != "" {
+
+		omHTTPSCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", opts.HTTPSCertSecretName)
+		omHTTPSVolumeFunc = podtemplatespec.WithVolume(omHTTPSCertificateVolume)
+		omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
+			Name:      omHTTPSCertificateVolume.Name,
+			MountPath: util.MmsPemKeyFileDirInContainer,
+		})
+
 	}
 
 	appDbTLSConfigMapVolumeFunc := podtemplatespec.NOOP()

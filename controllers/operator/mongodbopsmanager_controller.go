@@ -1414,7 +1414,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 // readS3Credentials reads the access and secret keys from the awsCredentials secret specified
 // in the resource
 func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string) (*backup.S3Credentials, error) {
-	s3SecretData, err := secret.ReadStringData(r.client, kube.ObjectKey(namespace, s3SecretName))
+	s3SecretData, err := r.ReadSecret(kube.ObjectKey(namespace, s3SecretName), vault.OperatorSecretPath)
 	if err != nil {
 		return nil, err
 	}
