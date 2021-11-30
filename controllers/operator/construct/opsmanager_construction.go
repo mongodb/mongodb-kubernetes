@@ -218,29 +218,32 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	var omVolumeMounts []corev1.VolumeMount
 
 	omScriptsVolume := statefulset.CreateVolumeFromEmptyDir("ops-manager-scripts")
+	omVolumes := []corev1.Volume{omScriptsVolume}
+
 	omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
 	omVolumeMounts = append(omVolumeMounts, omScriptsVolumeMount)
 
-	genKeyVolumeFunction := podtemplatespec.NOOP()
 	vaultSecrets := vault.OpsManagerSecretsToInject{}
 	if vault.IsVaultSecretBackend() {
 		vaultSecrets.GenKeyPath = fmt.Sprintf("%s-gen-key", opts.OwnerName)
 	} else {
 		genKeyVolume := statefulset.CreateVolumeFromSecret("gen-key", fmt.Sprintf("%s-gen-key", opts.OwnerName))
-		genKeyVolumeFunction = podtemplatespec.WithVolume(genKeyVolume)
 		genKeyVolumeMount := corev1.VolumeMount{
 			Name:      genKeyVolume.Name,
 			ReadOnly:  true,
 			MountPath: util.GenKeyPath,
 		}
 		omVolumeMounts = append(omVolumeMounts, genKeyVolumeMount)
+		omVolumes = append(omVolumes, genKeyVolume)
 	}
 
 	omHTTPSVolumeFunc := podtemplatespec.NOOP()
 	if opts.HTTPSCertSecretName != "" {
 		if vault.IsVaultSecretBackend() {
-			vaultSecrets.OpsManagerTLSSecretName = opts.HTTPSCertSecretName
-			vaultSecrets.OpsManagerTLSHash = opts.CertHash
+			vaultSecrets.TLSSecretName = opts.HTTPSCertSecretName
+			vaultSecrets.TLSHash = opts.CertHash
+			vaultSecrets.AppDBConnection = opts.AppDBConnectionSecretName
+			vaultSecrets.AppDBConnectionVolume = AppDBConnectionStringPath
 		} else {
 			omHTTPSCertificateVolume := statefulset.CreateVolumeFromSecret("om-https-certificate", opts.HTTPSCertSecretName)
 			omHTTPSVolumeFunc = podtemplatespec.WithVolume(omHTTPSCertificateVolume)
@@ -273,9 +276,13 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 			),
 		)
 	}
-	// configure the AppDB Connection String volume from a secret
-	mmsMongoUriVolume, mmsMongoUriVolumeMount := buildMmsMongoUriVolume(opts)
-	omVolumeMounts = append(omVolumeMounts, mmsMongoUriVolumeMount)
+
+	if !vault.IsVaultSecretBackend() {
+		// configure the AppDB Connection String volume from a secret
+		mmsMongoUriVolume, mmsMongoUriVolumeMount := buildMmsMongoUriVolume(opts)
+		omVolumeMounts = append(omVolumeMounts, mmsMongoUriVolumeMount)
+		omVolumes = append(omVolumes, mmsMongoUriVolume)
+	}
 
 	labels := defaultPodLabels(opts.ServiceName, opts.Name)
 	return statefulset.Apply(
@@ -291,9 +298,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				omHTTPSVolumeFunc,
 				appDbTLSConfigMapVolumeFunc,
 				podtemplateAnnotation,
-				podtemplatespec.WithVolume(omScriptsVolume),
-				genKeyVolumeFunction,
-				podtemplatespec.WithVolume(mmsMongoUriVolume),
+				podtemplatespec.WithVolumes(omVolumes),
 				configurePodSpecSecurityContext,
 				podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
 				pullSecretsConfigurationFunc,

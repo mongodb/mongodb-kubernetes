@@ -597,29 +597,34 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
 func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
-	connectionStringSecret, err := r.client.GetSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+	_, err := r.ReadSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), vault.OpsManagerSecretPath)
 
 	if err != nil {
 		if secrets.SecretNotExist(err) {
 			log.Debugf("AppDB connection string secret was not found, creating %s now", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 			// assume the secret was not found, need to create it
 
-			connectionStringSecret = secret.Builder().
+			connectionStringSecret := secret.Builder().
 				SetName(opsManager.AppDBMongoConnectionStringSecretName()).
 				SetNamespace(opsManager.Namespace).
 				SetField(util.AppDbConnectionStringKey, computedConnectionString).
 				Build()
 
-			return r.client.CreateSecret(connectionStringSecret)
+			return r.PutSecret(connectionStringSecret, vault.OpsManagerSecretPath)
 		}
 		log.Warnf("Error getting connection string secret: %s", err)
 		return err
 	}
-	connectionStringSecret.StringData = map[string]string{
+
+	connectionStringSecretData := map[string]string{
 		util.AppDbConnectionStringKey: computedConnectionString,
 	}
+	connectionStringSecret := secret.Builder().
+		SetName(opsManager.AppDBMongoConnectionStringSecretName()).
+		SetNamespace(opsManager.Namespace).
+		SetStringData(connectionStringSecretData).Build()
 	log.Debugf("Connection string secret already exists, updating %s", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
-	return r.client.UpdateSecret(connectionStringSecret)
+	return r.PutSecret(connectionStringSecret, vault.OpsManagerSecretPath)
 }
 
 func hashConnectionString(connectionString string) string {

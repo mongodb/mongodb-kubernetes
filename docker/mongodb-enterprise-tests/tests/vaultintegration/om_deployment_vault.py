@@ -285,3 +285,11 @@ def test_appdb_reached_running_and_pod_count(
     for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         assert len(pod.spec.containers) == 4
+
+
+@mark.e2e_vault_setup_om
+def test_no_appdb_connection_string_secret(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-connection-string")

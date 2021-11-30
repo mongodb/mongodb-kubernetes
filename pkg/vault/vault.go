@@ -50,10 +50,12 @@ type AppDBSecretsToInject struct {
 }
 
 type OpsManagerSecretsToInject struct {
-	OpsManagerTLSSecretName string
-	OpsManagerTLSHash       string
+	TLSSecretName string
+	TLSHash       string
 
-	GenKeyPath string
+	GenKeyPath            string
+	AppDBConnection       string
+	AppDBConnectionVolume string
 }
 
 func IsVaultSecretBackend() bool {
@@ -181,10 +183,10 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 		"vault.hashicorp.com/preserve-secret-case": "true",
 	}
 
-	if s.OpsManagerTLSSecretName != "" {
-		omTLSPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.OpsManagerTLSSecretName)
+	if s.TLSSecretName != "" {
+		omTLSPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.TLSSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-om-tls-cert-pem"] = omTLSPath
-		annotations["vault.hashicorp.com/agent-inject-file-om-tls-cert-pem"] = s.OpsManagerTLSHash
+		annotations["vault.hashicorp.com/agent-inject-file-om-tls-cert-pem"] = s.TLSHash
 		annotations["vault.hashicorp.com/secret-volume-path-om-tls-cert-pem"] = util.MmsPemKeyFileDirInContainer
 		annotations["vault.hashicorp.com/agent-inject-template-om-tls-cert-pem"] = fmt.Sprintf(`{{- with secret "%s" -}}
           {{ range $k, $v := .Data.data }}
@@ -204,6 +206,15 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
           {{- end }}
           {{- end }}`, genKeyPath)
 	}
+
+	// add appDB connection string
+	appDBConnPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.AppDBConnection)
+	annotations["vault.hashicorp.com/agent-inject-secret-appdb-connection-string"] = appDBConnPath
+	annotations["vault.hashicorp.com/agent-inject-file-appdb-connection-string"] = "connectionString"
+	annotations["vault.hashicorp.com/secret-volume-path-appdb-connection-string"] = s.AppDBConnectionVolume
+	annotations["vault.hashicorp.com/agent-inject-template-appdb-connection-string"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ .Data.data.connectionString }}
+          {{- end }}`, appDBConnPath)
 	return annotations
 }
 
@@ -255,9 +266,6 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
           {{- $v }}
           {{- end }}
           {{- end }}`, memberClusterPath)
-	}
-	if s.MemberClusterAuth != "" {
-
 	}
 	return annotations
 }

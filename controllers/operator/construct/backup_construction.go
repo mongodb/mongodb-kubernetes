@@ -10,6 +10,7 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
@@ -81,8 +82,15 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 
-	// configure the AppDB Connection String volume from a secret
-	mmsMongoUriVolume, mmsMongoUriMount := buildMmsMongoUriVolume(opts)
+	volumeMounts := []corev1.VolumeMount{headDbMount}
+	mmsMongoUriVolume := corev1.Volume{}
+	var mmsMongoUriMount corev1.VolumeMount
+
+	if !vault.IsVaultSecretBackend() {
+		// configure the AppDB Connection String volume from a secret
+		mmsMongoUriVolume, mmsMongoUriMount = buildMmsMongoUriVolume(opts)
+		volumeMounts = append(volumeMounts, mmsMongoUriMount)
+	}
 
 	return statefulset.Apply(
 		backupAndOpsManagerSharedConfiguration(opts),
@@ -91,19 +99,26 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 			podtemplatespec.Apply(
 				// 70 minutes for Backup Damon (internal timeout is 65 minutes, see CLOUDP-61849)
 				podtemplatespec.WithTerminationGracePeriodSeconds(4200),
-				podtemplatespec.WithVolume(mmsMongoUriVolume),
+				addUriVolume(mmsMongoUriVolume),
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						container.WithName(util.BackupDaemonContainerName),
 						container.WithEnvs(backupDaemonEnvVars()...),
 						container.WithLifecycle(buildBackupDaemonLifecycle()),
-						container.WithVolumeMounts([]corev1.VolumeMount{headDbMount, mmsMongoUriMount}),
+						container.WithVolumeMounts(volumeMounts),
 						container.WithLivenessProbe(buildBackupDaemonLivenessProbe()),
 						container.WithReadinessProbe(buildBackupDaemonReadinessProbe()),
 					),
 				)),
 		),
 	)
+}
+
+func addUriVolume(volume corev1.Volume) podtemplatespec.Modification {
+	if !vault.IsVaultSecretBackend() {
+		return podtemplatespec.WithVolume(volume)
+	}
+	return podtemplatespec.NOOP()
 }
 
 func backupDaemonEnvVars() []corev1.EnvVar {
