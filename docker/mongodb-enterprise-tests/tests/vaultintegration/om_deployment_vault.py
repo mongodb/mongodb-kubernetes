@@ -12,7 +12,7 @@ from kubetester import (
     create_configmap,
     read_secret,
 )
-from kubetester.certs import create_ops_manager_tls_certs
+from kubetester.certs import create_ops_manager_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import Phase, get_pods
 from kubernetes.client.rest import ApiException
@@ -21,13 +21,27 @@ from kubernetes import client
 OPERATOR_NAME = "mongodb-enterprise-operator"
 APPDB_SA_NAME = "mongodb-enterprise-appdb"
 OM_SA_NAME = "mongodb-enterprise-ops-manager"
+OM_NAME = "om-basic"
 
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
     return create_ops_manager_tls_certs(
-        issuer, namespace, "om-basic", secret_backend="Vault"
+        issuer, namespace, OM_NAME, secret_backend="Vault"
     )
+
+
+@fixture(scope="module")
+def appdb_certs(namespace: str, issuer: str):
+    create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        f"{OM_NAME}-db",
+        f"appdb-{OM_NAME}-db-cert",
+        secret_backend="Vault",
+        vault_subpath="appdb",
+    )
+    return "appdb"
 
 
 @fixture(scope="module")
@@ -35,6 +49,7 @@ def ops_manager(
     namespace: str,
     custom_version: Optional[str],
     custom_appdb_version: str,
+    appdb_certs: str,
     issuer_ca_configmap: str,
     ops_manager_certs: str,
 ) -> MongoDBOpsManager:
@@ -43,6 +58,12 @@ def ops_manager(
     )
     om["spec"]["security"] = {
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+    }
+    om["spec"]["applicationDatabase"]["security"] = {
+        "tls": {
+            "ca": issuer_ca_configmap,
+            "secretRef": {"prefix": "appdb"},
+        },
     }
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)

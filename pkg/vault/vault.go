@@ -21,13 +21,14 @@ const (
 	OperatorSecretPath   = "secret/data/mongodbenterprise/operator"
 	DatabaseSecretPath   = "secret/data/mongodbenterprise/database"
 	OpsManagerSecretPath = "secret/data/mongodbenterprise/opsmanager"
+	AppDBSecretPath      = "secret/data/mongodbenterprise/appdb"
 
 	DatabaseVaultRoleName   = "mongodbenterprisedatabase"
 	OpsManagerVaultRoleName = "mongodbenterpriseopsmanager"
+	AppDBVaultRoleName      = "mongodbenterpriseappdb"
 
 	OperatorSecretMetadataPath = "secret/metadata/mongodbenterprise/operator"
 	DatabaseSecretMetadataPath = "secret/metadata/mongodbenterprise/database"
-	AppDBVaultRoleName         = "mongodbenterpriseappdb"
 )
 
 type DatabaseSecretsToInject struct {
@@ -43,6 +44,9 @@ type DatabaseSecretsToInject struct {
 
 type AppDBSecretsToInject struct {
 	AgentApiKey string
+
+	TLSSecretName  string
+	TLSClusterHash string
 }
 
 type OpsManagerSecretsToInject struct {
@@ -190,7 +194,7 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 }
 
 func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[string]string {
-	apiKeySecretPath := fmt.Sprintf("%s/%s", DatabaseSecretPath, s.AgentApiKey)
+	apiKeySecretPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.AgentApiKey)
 
 	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
           {{ .Data.data.agentApiKey }}
@@ -259,19 +263,36 @@ func (v *VaultClient) GetSecretAnnotation(path string) map[string]string {
 }
 
 func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]string {
-	apiKeySecretPath := fmt.Sprintf("%s/%s", DatabaseSecretPath, a.AgentApiKey)
-	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
+
+	annotations := map[string]string{
+		"vault.hashicorp.com/agent-inject":         "true",
+		"vault.hashicorp.com/role":                 AppDBVaultRoleName,
+		"vault.hashicorp.com/preserve-secret-case": "true",
+	}
+
+	if a.AgentApiKey != "" {
+
+		apiKeySecretPath := fmt.Sprintf("%s/%s/%s", AppDBSecretPath, namespace, a.AgentApiKey)
+		agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
           {{ .Data.data.agentApiKey }}
           {{- end }}`, apiKeySecretPath)
 
-	annotations := map[string]string{
-		"vault.hashicorp.com/agent-inject":                      "true",
-		"vault.hashicorp.com/agent-inject-secret-agentApiKey":   apiKeySecretPath,
-		"vault.hashicorp.com/role":                              AppDBVaultRoleName,
-		"vault.hashicorp.com/secret-volume-path-agentApiKey":    "/mongodb-automation/agent-api-key",
-		"vault.hashicorp.com/preserve-secret-case":              "true",
-		"vault.hashicorp.com/agent-inject-template-agentApiKey": agentAPIKeyTemplate,
+		annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"] = apiKeySecretPath
+		annotations["vault.hashicorp.com/secret-volume-path-agentApiKey"] = "/mongodb-automation/agent-api-key"
+		annotations["vault.hashicorp.com/agent-inject-template-agentApiKey"] = agentAPIKeyTemplate
 	}
 
+	if a.TLSSecretName != "" {
+		memberClusterPath := fmt.Sprintf("%s/%s/%s", AppDBSecretPath, namespace, a.TLSSecretName)
+		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
+		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = a.TLSClusterHash
+		annotations["vault.hashicorp.com/secret-volume-path-tls-certificate"] = util.SecretVolumeMountPath + "/certs"
+		annotations["vault.hashicorp.com/agent-inject-template-tls-certificate"] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- $v }}
+          {{- end }}
+          {{- end }}`, memberClusterPath)
+
+	}
 	return annotations
 }

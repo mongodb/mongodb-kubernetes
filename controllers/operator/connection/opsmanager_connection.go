@@ -12,6 +12,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"go.uber.org/zap"
 )
 
@@ -40,7 +41,7 @@ func PrepareOpsManagerConnection(client secrets.SecretClient, projectConfig mdbv
 
 	// TODO: we may want to remove this from this function in the future, this is not strictly related
 	// to establishing an Ops Manager connection
-	if err = agents.EnsureAgentKeySecretExists(client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), log); err != nil {
+	if err = agents.EnsureAgentKeySecretExists(client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), vault.DatabaseSecretPath, log); err != nil {
 		return nil, err
 	}
 	return conn, nil

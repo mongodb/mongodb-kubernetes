@@ -53,6 +53,7 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 		var err error
 		secretPath := namespacedNameToVaultPath(secretName, basePath)
 		secrets, err = r.VaultClient.ReadSecretString(secretPath)
+		fmt.Printf("Secrets: %v\n", secrets)
 		if err != nil {
 			return nil, err
 		}

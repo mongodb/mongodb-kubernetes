@@ -33,6 +33,7 @@ const (
 
 	Database   = "database"
 	OpsManager = "opsmanager"
+	AppDB      = "appdb"
 )
 
 // CreatePEMSecret creates a PEM secret from the original secretName.
@@ -73,6 +74,10 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 		path = vault.DatabaseSecretPath
 	case OpsManager:
 		path = vault.OpsManagerSecretPath
+	case AppDB:
+		path = vault.AppDBSecretPath
+	default:
+		return fmt.Errorf("unexpected pod type got: %s", podType)
 	}
 	return secretClient.PutSecretIfChanged(secretBuilder.Build(), path)
 }

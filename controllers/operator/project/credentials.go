@@ -18,7 +18,6 @@ func ReadCredentials(secretClient secrets.SecretClient, credentialsSecret client
 	if err != nil {
 		return mdbv1.Credentials{}, err
 	}
-
 	oldSecretEntries, user, publicAPIKey := secretContainsPairOfKeys(secret, util.OldOmUser, util.OldOmPublicApiKey)
 
 	newSecretEntries, publicKey, privateKey := secretContainsPairOfKeys(secret, util.OmPublicApiKey, util.OmPrivateKey)

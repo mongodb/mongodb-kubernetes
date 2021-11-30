@@ -34,10 +34,10 @@ type retryParams struct {
 // a rare operation as the group creation api generates agent key already (so the only possible situation is when the group
 // was created externally and agent key wasn't generated before)
 // Returns the api key existing/generated
-func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, nameSpace, agentKey, projectId string, log *zap.SugaredLogger) error {
+func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId string, basePath string, log *zap.SugaredLogger) error {
 	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
-	_, err := secretGetCreator.KubeClient.GetSecret(kube.ObjectKey(nameSpace, secretName))
+	_, err := secretGetCreator.KubeClient.GetSecret(kube.ObjectKey(namespace, secretName))
 	if err != nil {
 		if agentKey == "" {
 			log.Info("Generating agent key as current project doesn't have it")
@@ -57,7 +57,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 
 		if vault.IsVaultSecretBackend() {
 			// we only want to create secret if it doesn't exist in vault
-			APIKeyPath := fmt.Sprintf("%s/%s", vault.DatabaseSecretPath, secretName)
+			APIKeyPath := fmt.Sprintf("%s/%s/%s", basePath, namespace, secretName)
 			_, err := secretGetCreator.VaultClient.ReadSecretBytes(APIKeyPath)
 			if err != nil && secrets.SecretNotExist(err) {
 				err = secretGetCreator.VaultClient.PutSecret(APIKeyPath, data)
@@ -71,7 +71,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 		}
 
 		// todo pass a real owner in a next PR
-		if err = createAgentKeySecret(secretGetCreator, kube.ObjectKey(nameSpace, secretName), agentKey, nil); err != nil {
+		if err = createAgentKeySecret(secretGetCreator, kube.ObjectKey(namespace, secretName), agentKey, nil); err != nil {
 			if apiErrors.IsAlreadyExists(err) {
 				return nil
 			}

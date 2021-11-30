@@ -1,6 +1,6 @@
-path "secret/data/mongodbenterprise/database/*" {
+path "secret/data/mongodbenterprise/appdb/*" {
   capabilities = ["read", "list"]
 }
-path "secret/metadata/mongodbenterprise/database/*" {
+path "secret/metadata/mongodbenterprise/appdb/*" {
   capabilities = ["list"]
 }

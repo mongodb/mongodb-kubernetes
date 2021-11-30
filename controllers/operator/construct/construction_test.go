@@ -121,7 +121,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts, err := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build(), &env.PodEnvVars{ProjectID: "abcd"}, "", "")
+	appDbSts, err := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build(), &env.PodEnvVars{ProjectID: "abcd"}, "", "", "")
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)

@@ -168,14 +168,15 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, c
 		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
 		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
 	}
-	secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		MountPath: util.SecretVolumeMountPath + "/certs",
-		Name:      secretVolume.Name,
-		ReadOnly:  true,
-	})
-	volumesToAdd = append(volumesToAdd, secretVolume)
-
+	if !vault.IsVaultSecretBackend() {
+		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: util.SecretVolumeMountPath + "/certs",
+			Name:      secretVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, secretVolume)
+	}
 	caName := fmt.Sprintf("%s-ca", appDb.Name())
 
 	if tlsConfig.CA != "" {
@@ -216,19 +217,32 @@ func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType core
 	)
 }
 
-func agentAPIConfig(appDB om.AppDBSpec, podVars *env.PodEnvVars) podtemplatespec.Modification {
-	if vault.IsVaultSecretBackend() && podVars != nil && podVars.ProjectID != "" {
-		var appDBSecretsToInject vault.AppDBSecretsToInject
-		appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
-
-		return podtemplatespec.Apply(
+func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, certHash string) podtemplatespec.Modification {
+	modification := podtemplatespec.NOOP()
+	if vault.IsVaultSecretBackend() {
+		appDBSecretsToInject := vault.AppDBSecretsToInject{}
+		if podVars != nil && podVars.ProjectID != "" {
+			appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
+		}
+		if appDB.GetSecurity().IsTLSEnabled() {
+			secretName := appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()) + certs.OperatorGeneratedCertSuffix
+			appDBSecretsToInject.TLSSecretName = secretName
+			appDBSecretsToInject.TLSClusterHash = certHash
+		}
+		modification = podtemplatespec.Apply(
+			modification,
 			podtemplatespec.WithAnnotations(appDBSecretsToInject.AppDBAnnotations(appDB.Namespace)),
 		)
+	} else {
+		if podVars != nil && podVars.ProjectID != "" {
+			// AGENT-API-KEY volume
+			modification = podtemplatespec.Apply(
+				modification,
+				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
+			)
+		}
 	}
-	// AGENT-API-KEY volume
-	return podtemplatespec.Apply(
-		podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
-	)
+	return modification
 }
 
 // customPersistenceConfig applies to the statefulset the modifications
@@ -292,7 +306,7 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, monitoringAgentVersion string, certSecretType corev1.SecretType) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, monitoringAgentVersion string, certSecretType corev1.SecretType, certHash string) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
@@ -328,7 +342,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 						container.WithEnvs(appdbContainerEnv(*appDb, podVars)...),
 					),
 				),
-				agentAPIConfig(*appDb, podVars),
+				vaultModification(*appDb, podVars, certHash),
 				appDbPodSpec(*appDb),
 				monitoringModification,
 				tlsVolumes(*appDb, podVars, certSecretType),
