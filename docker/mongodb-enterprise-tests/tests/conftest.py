@@ -225,9 +225,14 @@ def multi_cluster_issuer_ca_configmap(
 
 
 @fixture(scope="module")
-def issuer_ca_configmap(namespace: str) -> str:
+def issuer_ca_filepath():
+    return _fixture("ca-tls.crt")
+
+
+@fixture(scope="module")
+def issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
     """This is the CA file which verifies the certificates signed by it."""
-    ca = open(_fixture("ca-tls.crt")).read()
+    ca = open(issuer_ca_filepath).read()
 
     # The operator expects the CA that validates Ops Manager is contained in
     # an entry with a name of "mms-ca.crt"
@@ -239,14 +244,14 @@ def issuer_ca_configmap(namespace: str) -> str:
 
 
 @fixture(scope="module")
-def issuer_ca_plus(namespace: str) -> str:
+def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
     """Returns the name of a ConfigMap which includes a custom CA and the full
     certificate chain for downloads.mongodb.com, fastdl.mongodb.org,
     downloads.mongodb.org. This allows for the use of a custom CA while still
     allowing the agent to download from MongoDB servers.
 
     """
-    ca = open(_fixture("ca-tls.crt")).read()
+    ca = open(issuer_ca_filepath).read()
     plus_ca = open(_fixture("downloads.mongodb.com.chained+root.crt")).read()
 
     # The operator expects the CA that validates Ops Manager is contained in

@@ -194,7 +194,7 @@ func (a *DefaultOmAdmin) DeleteOplogStoreConfig(id string) error {
 }
 
 func (a *DefaultOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
-	res, _, err := a.get("admin/backup/oplog/s3Configs/")
+	res, _, err := a.get("admin/backup/oplog/s3Configs")
 	if err != nil {
 		return nil, err
 	}

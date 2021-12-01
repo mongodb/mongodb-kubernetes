@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 prepare_operator_config_map() {
     local context=${1}
     title "Preparing the ConfigMap with Operator installation configuration"
@@ -61,6 +63,6 @@ prepare_operator_config_map() {
       config+=("--from-literal useRunningOperator=true")
     fi
 
-    # shellcheck disable=SC2086
+    # shellcheck disable=SC2086,SC2048
     kubectl --context "${context}" create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config[*]} || true
 }

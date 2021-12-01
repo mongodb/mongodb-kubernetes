@@ -51,6 +51,7 @@ type OpsManagerStatefulSetOptions struct {
 	Namespace                 string
 	OwnerName                 string
 	ServicePort               int
+	OpsManagerCaName          string
 	StatefulSetSpecOverride   *appsv1.StatefulSetSpec
 
 	// backup daemon only

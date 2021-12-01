@@ -82,10 +82,10 @@ func getPercentOfQuantityAsInt(q resource.Quantity, percent int) (int, error) {
 	if !canConvert {
 		// the container's mem can't be converted to int64, use default of 5G
 		podMem, err := resource.ParseQuantity(util.DefaultMemoryOpsManager)
-		quantityAsInt, canConvert = podMem.AsInt64()
 		if err != nil {
 			return 0, err
 		}
+		quantityAsInt, canConvert = podMem.AsInt64()
 		if !canConvert {
 			return 0, fmt.Errorf("cannot convert %s to int64", podMem.String())
 		}

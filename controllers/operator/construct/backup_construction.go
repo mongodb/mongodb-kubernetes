@@ -26,6 +26,8 @@ const (
 	healthEndpointPortEnv             = "HEALTH_ENDPOINT_PORT"
 	backupDaemonReadinessProbeCommand = "/opt/scripts/backup-daemon-readiness-probe"
 	backupDaemonLivenessProbeCommand  = "/opt/scripts/backup-daemon-liveness-probe.sh"
+	// mmsHome corresponds to MMS_HOME in the Ops Manager Dockerfile.
+	mmsHome = "/mongodb-ops-manager"
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
@@ -58,6 +60,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 		opts.Name = opsManager.BackupStatefulSetName()
 		opts.Replicas = opsManager.Spec.Backup.Members
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
+		opts.OpsManagerCaName = opsManager.Spec.GetOpsManagerCA()
 
 		if opsManager.Spec.Backup != nil {
 			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {
@@ -82,6 +85,32 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 
+	postStart := func(lc *corev1.Lifecycle) {}
+
+	caVolumeFunc := podtemplatespec.NOOP()
+	caVolumeMountFunc := container.NOOP()
+	if opts.OpsManagerCaName != "" {
+		//This volume wil contain the OM CA
+		caCertVolume := statefulset.CreateVolumeFromConfigMap("ops-manager-ca", opts.OpsManagerCaName)
+		caVolumeFunc = podtemplatespec.WithVolume(caCertVolume)
+		caVolumeMountFunc = container.WithVolumeMounts([]corev1.VolumeMount{{
+			MountPath: fmt.Sprintf("%s/%s", mmsHome, caCertVolume.Name),
+			Name:      caCertVolume.Name,
+			ReadOnly:  true,
+		}})
+
+		// It will add each X.509 public key certificate into JVM's trust store
+		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
+		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
+		postStartScript := fmt.Sprintf(`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s/%s/ca-pem`, mmsHome, mmsHome, mmsHome, caCertVolume.Name)
+		postStart = func(lc *corev1.Lifecycle) {
+			if lc.PostStart == nil {
+				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}
+			}
+			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScript}
+		}
+	}
+
 	volumeMounts := []corev1.VolumeMount{headDbMount}
 	mmsMongoUriVolume := corev1.Volume{}
 	var mmsMongoUriMount corev1.VolumeMount
@@ -100,14 +129,17 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 				// 70 minutes for Backup Damon (internal timeout is 65 minutes, see CLOUDP-61849)
 				podtemplatespec.WithTerminationGracePeriodSeconds(4200),
 				addUriVolume(mmsMongoUriVolume),
+				caVolumeFunc,
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						container.WithName(util.BackupDaemonContainerName),
 						container.WithEnvs(backupDaemonEnvVars()...),
 						container.WithLifecycle(buildBackupDaemonLifecycle()),
+						container.WithLifecycle(postStart),
 						container.WithVolumeMounts(volumeMounts),
 						container.WithLivenessProbe(buildBackupDaemonLivenessProbe()),
 						container.WithReadinessProbe(buildBackupDaemonReadinessProbe()),
+						caVolumeMountFunc,
 					),
 				)),
 		),

@@ -1,5 +1,4 @@
 import os
-from kubetester.certs import Certificate
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -33,6 +32,7 @@ def ops_manager(
     appdb_certs: str,
     ops_manager_certs: str,
     custom_version: Optional[str],
+    issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
 
     print("Creating OM object")
@@ -41,21 +41,9 @@ def ops_manager(
     )
     om.set_version(custom_version)
 
-    _copy_ca_into_test_pod(namespace, issuer_ca_configmap, CA_FILE_PATH_IN_TEST_POD)
-
     # ensure the requests library will use this CA when communicating with Ops Manager
-    os.environ["REQUESTS_CA_BUNDLE"] = CA_FILE_PATH_IN_TEST_POD
+    os.environ["REQUESTS_CA_BUNDLE"] = issuer_ca_filepath
     return om.create()
-
-
-def _copy_ca_into_test_pod(
-    namespace: str, configmap_name: str, ca_destination_path: str
-):
-    ca_contents = KubernetesTester.read_configmap(namespace, configmap_name)[
-        "mms-ca.crt"
-    ]
-    with open(ca_destination_path, "w+") as f:
-        f.write(ca_contents)
 
 
 @mark.e2e_om_appdb_monitoring_tls

@@ -14,6 +14,8 @@
 
 * Bug Fixes
   * Fixes an issue where the operator would not properly trigger a reconciliation when rotating the AppDB TLS Certificate.
+  * Fixes an issue where a custom CA specified in the MongoDBOpsManager resource was not mounted into the Backup Daemon pod,
+  which prevented backups from working when Ops Manager was configured in hybrid mode and used a custom CA.
 * Changes
   * Added support for configuring S3 Oplog Stores using the `spec.backup.s3OpLogStores` field.
   

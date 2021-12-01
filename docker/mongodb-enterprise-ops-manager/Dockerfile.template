@@ -38,6 +38,7 @@ RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \
 # permissions
 RUN chmod -R 0775 "${MMS_LOG_DIR}" \
     && chmod -R 0775 "${MMS_HOME}/conf" \
+    && chmod -R 0775 "${MMS_HOME}/jdk" \
     && chmod -R 0775 "${MMS_HOME}/tmp" \
     && mkdir "${MMS_HOME}/mongodb-releases/" \
     && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
