@@ -124,3 +124,40 @@ func SecretNotExist(err error) bool {
 	}
 	return apiErrors.IsNotFound(err) || strings.Contains(err.Error(), "secret not found")
 }
+
+// These methods implement the secretGetterUpdateCreateDeleter interface from community.
+// We hardcode here the AppDB subpath for Vault since community is used only to deploy
+// AppDB pods. This allows us to minimize the changes to Community.
+
+func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret, error) {
+	s := corev1.Secret{}
+	data, err := r.ReadSecret(secretName, vault.AppDBSecretPath)
+	if err != nil {
+		return s, err
+	}
+	s.StringData = data
+	s.Data = make(map[string][]byte)
+	for k, v := range data {
+		s.Data[k] = []byte(v)
+	}
+	return s, nil
+}
+
+func (r SecretClient) CreateSecret(s corev1.Secret) error {
+	return r.PutSecret(s, vault.AppDBSecretPath)
+}
+
+func (r SecretClient) UpdateSecret(s corev1.Secret) error {
+	if vault.IsVaultSecretBackend() {
+		return r.CreateSecret(s)
+	}
+	return r.KubeClient.UpdateSecret(s)
+}
+
+func (r SecretClient) DeleteSecret(secretName types.NamespacedName) error {
+	if vault.IsVaultSecretBackend() {
+		// TODO deletion logic
+		return nil
+	}
+	return r.KubeClient.DeleteSecret(secretName)
+}
