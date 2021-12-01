@@ -229,6 +229,9 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, certHash str
 			appDBSecretsToInject.TLSSecretName = secretName
 			appDBSecretsToInject.TLSClusterHash = certHash
 		}
+		appDBSecretsToInject.AutomationConfigSecretName = appDB.AutomationConfigSecretName()
+		appDBSecretsToInject.AutomationConfigPath = util.AppDBAutomationConfigKey
+		appDBSecretsToInject.AgentType = "automation-agent"
 		modification = podtemplatespec.Apply(
 			modification,
 			podtemplatespec.WithAnnotations(appDBSecretsToInject.AppDBAnnotations(appDB.Namespace)),
@@ -327,6 +330,21 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
+	acPodTemplateFunc := podtemplatespec.NOOP()
+	acContainerFunc := container.NOOP()
+	if vault.IsVaultSecretBackend() {
+		// Add the automation config config map containing the goal version
+		acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
+		acVersionMount := corev1.VolumeMount{
+			Name:      acVersionConfigMapVolume.Name,
+			ReadOnly:  true,
+			MountPath: "/var/lib/automation/config/acVersion",
+		}
+
+		acPodTemplateFunc = podtemplatespec.WithVolume(acVersionConfigMapVolume)
+		acContainerFunc = container.WithVolumeMounts([]corev1.VolumeMount{acVersionMount})
+	}
+
 	sts := statefulset.New(
 		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, opsManager),
 		customPersistenceConfig(*appDb),
@@ -336,10 +354,12 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podtemplatespec.WithServiceAccount(appDBServiceAccount),
+				acPodTemplateFunc,
 				podtemplatespec.WithContainer(construct.AgentName,
 					container.Apply(
 						container.WithCommand(automationAgentCommand),
 						container.WithEnvs(appdbContainerEnv(*appDb, podVars)...),
+						acContainerFunc,
 					),
 				),
 				vaultModification(*appDb, podVars, certHash),
@@ -380,15 +400,35 @@ func replaceImageTag(image string, newTag string) string {
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
 func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitoringAgentVerison string, certSecretType corev1.SecretType) podtemplatespec.Modification {
 
-	// Create a volume to store the monitoring automation config.
-	// This is different from the AC for the automation agent, since:
-	// - It contains entries for "MonitoringVersions"
-	// - It has empty entries for ReplicaSets and Processes
-	monitoringAcVolume := statefulset.CreateVolumeFromSecret("monitoring-automation-config", appDB.MonitoringAutomationConfigSecretName())
-
+	var monitoringAcVolume corev1.Volume
+	var monitoringACFunc podtemplatespec.Modification
+	if vault.IsVaultSecretBackend() {
+		secretsToInject := vault.AppDBSecretsToInject{}
+		secretsToInject.AutomationConfigSecretName = appDB.MonitoringAutomationConfigSecretName()
+		secretsToInject.AutomationConfigPath = util.AppDBMonitoringAutomationConfigKey
+		secretsToInject.AgentType = "monitoring-agent"
+		monitoringACFunc = podtemplatespec.WithAnnotations(secretsToInject.AppDBAnnotations(appDB.Namespace))
+	} else {
+		// Create a volume to store the monitoring automation config.
+		// This is different from the AC for the automation agent, since:
+		// - It contains entries for "MonitoringVersions"
+		// - It has empty entries for ReplicaSets and Processes
+		monitoringAcVolume := statefulset.CreateVolumeFromSecret("monitoring-automation-config", appDB.MonitoringAutomationConfigSecretName())
+		monitoringACFunc = podtemplatespec.WithVolume(monitoringAcVolume)
+	}
 	// Construct the command by concatenating:
 	// 1. The base command - from community
 	command := construct.MongodbUserCommand + construct.BaseAgentCommand()
+
+	// 2. Add the cluster config file path
+	// If we are using k8s secrets, this is the same as community (and the same as the other agent container)
+	// But this is not possible in vault so we need two separate paths
+	if vault.IsVaultSecretBackend() {
+		command += " -cluster /var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
+	} else {
+
+		command += " -cluster /var/lib/automation/config/" + util.AppDBAutomationConfigKey
+	}
 
 	// 2. Startup parameters for the agent to enable monitoring
 	startupParams := mdbv1.StartupParameters{
@@ -425,7 +465,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, certSecretType)
 
 	return podtemplatespec.Apply(
-		podtemplatespec.WithVolume(monitoringAcVolume),
+		monitoringACFunc,
 		// This is a function that reads the automation agent containers, copies it and modifies it.
 		// We do this since the two containers are very similar with just a few differences
 		func(podTemplateSpec *corev1.PodTemplateSpec) {
@@ -436,14 +476,14 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 			if monitoringAgentVerison != "" {
 				monitoringContainer.Image = replaceImageTag(monitoringContainer.Image, monitoringAgentVerison)
 			}
-
-			// Replace the automation config volume
 			volumeMounts := monitoringContainer.VolumeMounts
-			acMountIndex := getVolumeMountIndexByName(volumeMounts, "automation-config")
-			if acMountIndex == -1 {
-				return
+			if !vault.IsVaultSecretBackend() {
+				// Replace the automation config volume
+				acMountIndex := getVolumeMountIndexByName(volumeMounts, "automation-config")
+				if acMountIndex != -1 {
+					volumeMounts[acMountIndex].Name = monitoringAcVolume.Name
+				}
 			}
-			volumeMounts[acMountIndex].Name = monitoringAcVolume.Name
 
 			// Set up custom persistence options - see customPersistenceConfig() for an explanation
 			if appDB.HasSeparateDataAndLogsVolumes() {

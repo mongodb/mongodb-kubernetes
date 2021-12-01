@@ -47,6 +47,10 @@ type AppDBSecretsToInject struct {
 
 	TLSSecretName  string
 	TLSClusterHash string
+
+	AutomationConfigSecretName string
+	AutomationConfigPath       string
+	AgentType                  string
 }
 
 type OpsManagerSecretsToInject struct {
@@ -314,7 +318,20 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
           {{- $v }}
           {{- end }}
           {{- end }}`, memberClusterPath)
+	}
 
+	if a.AutomationConfigSecretName != "" {
+		// There are two different type of annotations here: for the automation agent
+		// and for the monitoring agent.
+		acSecretPath := fmt.Sprintf("%s/%s/%s", AppDBSecretPath, namespace, a.AutomationConfigSecretName)
+		annotations["vault.hashicorp.com/agent-inject-secret-"+a.AgentType] = acSecretPath
+		annotations["vault.hashicorp.com/agent-inject-file-"+a.AgentType] = a.AutomationConfigPath
+		annotations["vault.hashicorp.com/secret-volume-path-"+a.AgentType] = "/var/lib/automation/config"
+		annotations["vault.hashicorp.com/agent-inject-template-"+a.AgentType] = fmt.Sprintf(`{{- with secret "%s" -}}
+          {{ range $k, $v := .Data.data }}
+          {{- $v }}
+          {{- end }}
+          {{- end }}`, acSecretPath)
 	}
 	return annotations
 }
