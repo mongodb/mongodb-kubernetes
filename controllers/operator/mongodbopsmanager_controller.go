@@ -134,7 +134,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
-	if err := ensureResourcesForArchitectureChange(r.SecretClient, *opsManager); err != nil {
+	if err := ensureResourcesForArchitectureChange(r.client, *opsManager); err != nil {
 		return r.updateStatus(opsManager, workflow.Failed("Error ensuring resources for upgrade from 1 to 3 container AppDB: %s", err), log, opsManagerExtraStatusParams)
 	}
 
@@ -258,7 +258,7 @@ func ensureSharedGlobalResources(secretGetUpdaterCreator secret.GetUpdateCreator
 }
 
 //ensureResourcesForArchitectureChange ensures that the new resources expected to be present.
-func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secrets.SecretClient, opsManager omv1.MongoDBOpsManager) error {
+func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpdateCreator, opsManager omv1.MongoDBOpsManager) error {
 	acSecret, err := secretGetUpdaterCreator.GetSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()))
 
 	// if the automation config does not exist, we are not upgrading from an existing deployment. We can create everything from scratch.
@@ -287,7 +287,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secrets.Secret
 		return fmt.Errorf("ops manager user not present in the automation config")
 	}
 
-	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator.KubeClient, secret.Builder().
+	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
 		SetName(opsManager.Spec.AppDB.OpsManagerUserScramCredentialsName()).
 		SetNamespace(opsManager.Namespace).
 		SetField("sha1-salt", omUser.ScramSha1Creds.Salt).
@@ -303,7 +303,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secrets.Secret
 	}
 
 	// ensure that the agent password stays consistent with what it was previously
-	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator.KubeClient, secret.Builder().
+	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
 		SetName(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Name).
 		SetNamespace(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Namespace).
 		SetField(scram.AgentPasswordKey, ac.Auth.AutoPwd).
@@ -314,7 +314,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secrets.Secret
 	}
 
 	// ensure that the keyfile stays consistent with what it was previously
-	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator.KubeClient, secret.Builder().
+	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
 		SetName(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name).
 		SetNamespace(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Namespace).
 		SetField(scram.AgentKeyfileKey, ac.Auth.Key).

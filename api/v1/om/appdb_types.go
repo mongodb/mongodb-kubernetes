@@ -11,7 +11,6 @@ import (
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	appsv1 "k8s.io/api/apps/v1"
 )
 
@@ -390,12 +389,4 @@ func (m AppDBSpec) DataVolumeName() string {
 
 func (m AppDBSpec) LogsVolumeName() string {
 	return "logs"
-}
-
-func (m AppDBSpec) NeedsAutomationConfigVolume() bool {
-	return !vault.IsVaultSecretBackend()
-}
-
-func (m AppDBSpec) AutomationConfigConfigMapName() string {
-	return fmt.Sprintf("%s-automation-config-version", m.Name())
 }

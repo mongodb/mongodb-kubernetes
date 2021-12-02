@@ -152,7 +152,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
-	currentAc, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{
+	currentAc, err := automationconfig.ReadFromSecret(r.client, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
 	})
@@ -266,22 +266,10 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 // object and the probability that the user will edit the config map manually in the same time is extremely low
 // returns the version of AutomationConfig just published
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.MongoDBOpsManager, automationConfig automationconfig.AutomationConfig, secretName string) (int, error) {
-	ac, err := automationconfig.EnsureSecret(r.SecretClient, kube.ObjectKey(opsManager.Namespace, secretName), kube.BaseOwnerReference(&opsManager), automationConfig)
+	ac, err := automationconfig.EnsureSecret(r.client, kube.ObjectKey(opsManager.Namespace, secretName), kube.BaseOwnerReference(&opsManager), automationConfig)
 	if err != nil {
 		return -1, err
 	}
-
-	if vault.IsVaultSecretBackend() {
-		acVersionConfigMap := configmap.Builder().
-			SetNamespace(opsManager.Namespace).
-			SetName(opsManager.Spec.AppDB.AutomationConfigConfigMapName()).
-			SetDataField("version", fmt.Sprintf("%d", ac.Version)).
-			Build()
-		if err := configmap.CreateOrUpdate(r.client, acVersionConfigMap); err != nil {
-			return -1, err
-		}
-	}
-
 	return ac.Version, err
 }
 
@@ -299,7 +287,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 	if acType == monitoring {
 		secretName = rs.MonitoringAutomationConfigSecretName()
 	}
-	existingAutomationConfig, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{Name: secretName, Namespace: opsManager.Namespace})
+	existingAutomationConfig, err := automationconfig.ReadFromSecret(r.client, types.NamespacedName{Name: secretName, Namespace: opsManager.Namespace})
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}

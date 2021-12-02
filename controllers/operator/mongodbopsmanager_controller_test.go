@@ -17,7 +17,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
@@ -28,7 +27,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -607,10 +605,8 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 	om := DefaultOpsManagerBuilder().Build()
 
 	t.Run("When no automation config is present, there is no error", func(t *testing.T) {
-		err := ensureResourcesForArchitectureChange(secrets.SecretClient{
-			VaultClient: &vault.VaultClient{},
-			KubeClient:  mock.NewClient(),
-		}, om)
+		client := mock.NewClient()
+		err := ensureResourcesForArchitectureChange(client, om)
 		assert.NoError(t, err)
 	})
 
@@ -632,12 +628,10 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
 		assert.NoError(t, err)
 
-		err = ensureResourcesForArchitectureChange(secrets.SecretClient{
-			VaultClient: &vault.VaultClient{},
-			KubeClient:  client,
-		}, om)
+		err = ensureResourcesForArchitectureChange(client, om)
 		assert.Error(t, err)
 	})
+
 	t.Run("If an automation config is present, all secrets are created with the correct values", func(t *testing.T) {
 		client := mock.NewClient()
 		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
@@ -672,10 +666,7 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.Name()+"-password").SetField("my-password", "jrJP7eUeyn").Build())
 		assert.NoError(t, err)
 
-		err = ensureResourcesForArchitectureChange(secrets.SecretClient{
-			VaultClient: &vault.VaultClient{},
-			KubeClient:  client,
-		}, om)
+		err = ensureResourcesForArchitectureChange(client, om)
 		assert.NoError(t, err)
 
 		t.Run("Scram credentials have been created", func(t *testing.T) {
