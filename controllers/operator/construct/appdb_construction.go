@@ -389,6 +389,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	// Construct the command by concatenating:
 	// 1. The base command - from community
 	command := construct.MongodbUserCommand + construct.BaseAgentCommand()
+	command += " -cluster /var/lib/automation/config/" + util.AppDBAutomationConfigKey
 
 	// 2. Startup parameters for the agent to enable monitoring
 	startupParams := mdbv1.StartupParameters{

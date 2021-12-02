@@ -191,6 +191,10 @@ func (m AppDBSpec) OpsManagerUserScramCredentialsName() string {
 	return m.Name() + "-om-user-scram-credentials"
 }
 
+func (m AppDBSpec) NeedsAutomationConfigVolume() bool {
+	return true
+}
+
 type ConnectionSpec struct {
 	// Transient field - the name of the project. By default is equal to the name of the resource
 	// though can be overridden if the ConfigMap specifies a different name

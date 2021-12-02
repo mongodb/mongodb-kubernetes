@@ -25,6 +25,7 @@ import (
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -179,7 +180,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	}
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
-			log.Infof("Deploying Automation Config\n")
+			log.Info("Deploying Automation Config")
 			return r.deployAutomationConfig(opsManager, appDbSts, certSecretType, log)
 		},
 		func() workflow.Status {
@@ -190,7 +191,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 				return workflow.Failed(err.Error())
 			}
 
-			log.Infof("Deploying Statefulset\n")
+			log.Info("Deploying Statefulset")
 			return r.deployStatefulSet(opsManager, appDbSts, log)
 		})
 }
@@ -278,7 +279,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
 	auth := automationconfig.Auth{}
 	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: opsManager}
-	if err := scram.Enable(&auth, r.client, appDBConfigurable); err != nil {
+	if err := scram.Enable(&auth, r.SecretClient, appDBConfigurable); err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
 	// the existing automation config is required as we compare it against what we build to determine
@@ -450,7 +451,7 @@ func (r OpsManagerReconciler) generatePasswordAndCreateSecret(opsManager omv1.Mo
 		SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 		Build()
 
-	if err := r.client.CreateSecret(appDbPasswordSecret); err != nil {
+	if err := r.CreateSecret(appDbPasswordSecret); err != nil {
 		return "", err
 	}
 
@@ -465,10 +466,10 @@ func (r OpsManagerReconciler) ensureAppDbPassword(opsManager omv1.MongoDBOpsMana
 		if passwordRef.Key == "" {
 			passwordRef.Key = "password"
 		}
-		password, err := secret.ReadKey(r.client, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
+		password, err := secret.ReadKey(r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 
 		if err != nil {
-			if apiErrors.IsNotFound(err) {
+			if secrets.SecretNotExist(err) {
 				log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 				return r.generatePasswordAndCreateSecret(opsManager, log)
 			}
@@ -488,7 +489,7 @@ func (r OpsManagerReconciler) ensureAppDbPassword(opsManager omv1.MongoDBOpsMana
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
 		// the user password is deleted
 		log.Debugf("Deleting Operator managed password secret/%s from namespace", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Namespace)
-		if err := r.client.DeleteSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !apiErrors.IsNotFound(err) {
+		if err := r.DeleteSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secrets.SecretNotExist(err) {
 			return "", err
 		}
 		return password, nil
@@ -496,9 +497,9 @@ func (r OpsManagerReconciler) ensureAppDbPassword(opsManager omv1.MongoDBOpsMana
 
 	// otherwise we'll ensure the auto generated password exists
 	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
-	appDbPasswordSecretStringData, err := secret.ReadStringData(r.client, secretObjectKey)
+	appDbPasswordSecretStringData, err := secret.ReadStringData(r.SecretClient, secretObjectKey)
 
-	if apiErrors.IsNotFound(err) {
+	if secrets.SecretNotExist(err) {
 		// create the password
 		if password, err := r.generatePasswordAndCreateSecret(opsManager, log); err != nil {
 			return "", err

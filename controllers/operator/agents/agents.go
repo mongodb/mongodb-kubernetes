@@ -37,7 +37,7 @@ type retryParams struct {
 func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId string, basePath string, log *zap.SugaredLogger) error {
 	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
-	_, err := secretGetCreator.KubeClient.GetSecret(kube.ObjectKey(namespace, secretName))
+	_, err := secretGetCreator.GetSecret(kube.ObjectKey(namespace, secretName))
 	if err != nil {
 		if agentKey == "" {
 			log.Info("Generating agent key as current project doesn't have it")

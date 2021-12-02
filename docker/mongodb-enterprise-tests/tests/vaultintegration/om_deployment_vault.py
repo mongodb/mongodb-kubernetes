@@ -293,3 +293,35 @@ def test_no_appdb_connection_string_secret(
 ):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-connection-string")
+
+
+@mark.e2e_vault_setup_om
+def test_no_db_agent_password_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-agent-password")
+
+
+@mark.e2e_vault_setup_om
+def test_no_db_scram_password_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-om-user-scram-credentials")
+
+
+@mark.e2e_vault_setup_om
+def test_no_om_password_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-om-password")
+
+
+@mark.e2e_vault_setup_om
+def test_no_db_keyfile_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-keyfile")

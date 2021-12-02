@@ -286,7 +286,7 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 
 	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.SecretClient, secretName, opts, log)
 	if err != nil {
-		return fmt.Errorf("The secret object '%s' does not contain all the certificates needed: %s", secretName, err), true
+		return fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err), true
 	}
 
 	if newTLSDesign {

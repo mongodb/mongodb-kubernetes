@@ -543,8 +543,6 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	assert.Equal(t, finalMembers, opsManager.Status.AppDbStatus.Members)
 }
 
-// ***************** Helper methods *******************************
-
 func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager *mock.MockedManager, acType agentType) (automationconfig.AutomationConfig, error) {
 	opsManager := builder.Build()
 

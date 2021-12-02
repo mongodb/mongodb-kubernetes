@@ -97,7 +97,7 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 // Backup daemon statefulset is created/updated and configured optionally if backup is enabled.
 // Note, that the pointer to ops manager resource is used in 'Reconcile' method as resource status is mutated
 // many times during reconciliation and its important to keep updates to avoid status override
-func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", request.NamespacedName)
 
 	opsManager := &omv1.MongoDBOpsManager{}
@@ -134,7 +134,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
-	if err := ensureResourcesForArchitectureChange(r.client, *opsManager); err != nil {
+	if err := ensureResourcesForArchitectureChange(r.SecretClient, *opsManager); err != nil {
 		return r.updateStatus(opsManager, workflow.Failed("Error ensuring resources for upgrade from 1 to 3 container AppDB: %s", err), log, opsManagerExtraStatusParams)
 	}
 
