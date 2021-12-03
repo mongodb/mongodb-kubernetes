@@ -8,10 +8,10 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -67,33 +67,35 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 }
 
 // getMongoDB return a MongoDB deployment of type Single or Multi cluster based on the clusterType passed
-func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser, clusterType ClusterType) (project.Reader, error) {
+func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (project.Reader, error) {
 	name := kube.ObjectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
 
-	if clusterType == Single {
-		mdb := &mdbv1.MongoDB{}
-		if err := r.client.Get(context.TODO(), name, mdb); err != nil {
-			return mdb, err
-		}
+	// Try the single cluster resource
+	mdb := &mdbv1.MongoDB{}
+	if err := r.client.Get(context.TODO(), name, mdb); err == nil {
 		return mdb, nil
 	}
 
+	// Try the multi-cluster next
 	mdbm := &mdbmulti.MongoDBMulti{}
-	if err := r.client.Get(context.TODO(), name, mdbm); err != nil {
-		return mdbm, err
-	}
-	return mdbm, nil
+	err := r.client.Get(context.TODO(), name, mdbm)
+	return mdbm, err
 }
 
-// getProjectReader returns a project.Reader object corresponsing to MongoDB single or multi-cluster deployment
-func (r *MongoDBUserReconciler) getProjectReader(user userv1.MongoDBUser) (project.Reader, error) {
-	// first try to fetch if MongoDB Single Cluster deployment exists
-	mdb, err := r.getMongoDB(user, Single)
-	if err != nil && apiErrors.IsNotFound(err) {
-		// try to fetch MongoDB Multi Cluster deployment if couldn't find single cluster resource
-		return r.getMongoDB(user, Multi)
+// getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
+func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
+	name := kube.ObjectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
+
+	// Try single cluster resource
+	mdb := &mdbv1.MongoDB{}
+	if err := r.client.Get(context.TODO(), name, mdb); err == nil {
+		return mdb, nil
 	}
-	return mdb, err
+
+	// Try the multi-cluster next
+	mdbm := &mdbmulti.MongoDBMulti{}
+	err := r.client.Get(context.TODO(), name, mdbm)
+	return mdbm, err
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
@@ -113,7 +115,7 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 	var mdb project.Reader
 
 	if user.Spec.MongoDBResourceRef.Name != "" {
-		if mdb, err = r.getProjectReader(*user); err != nil {
+		if mdb, err = r.getMongoDB(*user); err != nil {
 			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, err: %s", user.Spec.MongoDBResourceRef.Name, err)
 			return r.updateStatus(user, workflow.Pending(err.Error()), log)
 		}
@@ -139,6 +141,10 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 		return r.updateStatus(user, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
 	}
 
+	if err = r.updateConnectionStringSecret(*user, log); err != nil {
+		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+	}
+
 	if user.Spec.Database == authentication.ExternalDB {
 		return r.handleExternalAuthUser(user, conn, log)
 	} else {
@@ -149,7 +155,7 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
 	user := obj.(*userv1.MongoDBUser)
 
-	mdb, err := r.getProjectReader(*user)
+	mdb, err := r.getMongoDB(*user)
 	if err != nil {
 		return err
 	}
@@ -173,8 +179,39 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 	}, log)
 }
 
+func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDBUser, log *zap.SugaredLogger) error {
+	var err error
+	var password string
+
+	if user.Spec.Database != authentication.ExternalDB {
+		password, err = user.GetPassword(r.SecretClient)
+		if err != nil {
+			log.Debug("User does not have a configured password.")
+		}
+	}
+
+	connectionBuilder, err := r.getMongoDBConnectionBuilder(user)
+	if err != nil {
+		return err
+	}
+
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{})
+
+	connectionStringSecret := secret.Builder().
+		SetName(user.GetConnectionStringSecretName()).
+		SetNamespace(user.Namespace).
+		SetField("connectionString.standard", mongoAuthUserURI).
+		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
+		SetField("username", user.Spec.Username).
+		SetField("password", password).
+		SetOwnerReferences(user.GetOwnerReferences()).
+		Build()
+
+	return secret.CreateOrUpdate(r.client, connectionStringSecret)
+}
+
 func AddMongoDBUserController(mgr manager.Manager) error {
-	// Create a new controller
 	reconciler := newMongoDBUserReconciler(mgr, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {

@@ -1,18 +1,16 @@
-import re
+import json
 import os
 import random
+import re
+import ssl
 import string
 import sys
-import time
-import ssl
-import tempfile
 import tarfile
-import json
-from base64 import b64decode, b64encode
-
-from typing import Dict, List, Optional
-
 import tempfile
+import time
+import warnings
+from base64 import b64decode, b64encode
+from typing import Dict, List, Optional
 
 import jsonpatch
 import kubernetes.client
@@ -21,16 +19,15 @@ import pytest
 import requests
 import semver
 import yaml
-import warnings
-
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from kubeobject import CustomObject
 from kubernetes import client, config
 from kubernetes.client import V1ObjectMeta
-from kubernetes.stream import stream
 from kubernetes.client.rest import ApiException
+from kubernetes.stream import stream
 from requests.auth import HTTPDigestAuth
+
 from kubetester.crypto import wait_for_certs_to_be_issued
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
@@ -124,7 +121,11 @@ class KubernetesTester(object):
 
     @classmethod
     def update_secret(cls, namespace: str, name: str, data: Dict[str, str]):
-        """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
+        """
+        Deprecated: use kubetester.update_secret instead.
+
+        Updates a secret in a given namespace with the given name and data—handles base64 encoding.
+        """
         secret = cls.clients("client").V1Secret(
             metadata=cls.clients("client").V1ObjectMeta(name=name), string_data=data
         )

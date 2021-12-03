@@ -3,7 +3,6 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -20,7 +20,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/blang/semver"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -977,17 +976,6 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
-// ConnectionURL returns connection url to the MongoDB based on its internal state. Username and password are
-// provided as parameters as they need to be fetched by the caller
-func (m *MongoDB) ConnectionURL(userName, password string, connectionParams map[string]string) string {
-	statefulsetName := m.Name
-	if m.Spec.ResourceType == ShardedCluster {
-		statefulsetName = m.MongosRsName()
-	}
-
-	return BuildConnectionUrl(statefulsetName, m.ServiceName(), m.Namespace, userName, password, m.GetSpec(), connectionParams)
-}
-
 func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
@@ -1214,59 +1202,26 @@ func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}}
 }
 
-func BuildConnectionUrl(statefulsetName, serviceName, namespace, userName, password string, spec DbSpec, connectionParams map[string]string) string {
-	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) && (userName == "" || password == "") {
-		panic("Dev error: UserName and Password must be specified if the resource has SCRAM-SHA enabled")
+// BuildConnectionString returns a string with a connection string for this resource.
+func (m MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	name := m.Name
+	if m.Spec.ResourceType == ShardedCluster {
+		name = m.MongosRsName()
 	}
-	replicasCount := spec.Replicas()
+	builder := connectionstring.Builder().
+		SetName(name).
+		SetNamespace(m.Namespace).
+		SetUsername(username).
+		SetPassword(password).
+		SetReplicas(m.Spec.Replicas()).
+		SetService(m.ServiceName()).
+		SetVersion(m.Spec.GetMongoDBVersion()).
+		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
+		SetClusterDomain(m.Spec.GetClusterDomain()).
+		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
+		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
+		SetConnectionParams(connectionParams).
+		SetScheme(scheme)
 
-	hostnames, _ := dns.GetDNSNames(statefulsetName, serviceName, namespace, spec.GetClusterDomain(), replicasCount)
-	uri := "mongodb://"
-	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) {
-		uri += fmt.Sprintf("%s:%s@", url.QueryEscape(userName), url.QueryEscape(password))
-	}
-	for i, h := range hostnames {
-		hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
-	}
-	uri += strings.Join(hostnames, ",")
-
-	// default and calculated query parameters
-	params := map[string]string{"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
-	if spec.GetResourceType() == ReplicaSet {
-		params["replicaSet"] = statefulsetName
-	}
-	if spec.IsSecurityTLSConfigEnabled() {
-		params["ssl"] = "true"
-	}
-	if stringutil.Contains(spec.GetSecurityAuthenticationModes(), util.SCRAM) {
-		params["authSource"] = util.DefaultUserDatabase
-
-		comparison, err := util.CompareVersions(spec.GetMongoDBVersion(), util.MinimumScramSha256MdbVersion)
-		if err != nil {
-			// This is the dev error - the object must have a correct state by this stage and the version must be
-			// validated in the controller/web hook
-			panic(err)
-		}
-		if comparison < 0 {
-			params["authMechanism"] = "SCRAM-SHA-1"
-		} else {
-			params["authMechanism"] = "SCRAM-SHA-256"
-		}
-	}
-	// custom parameters may override the default ones
-	for k, v := range connectionParams {
-		params[k] = v
-	}
-
-	var keys []string
-	for k := range params {
-		keys = append(keys, k)
-	}
-	uri += "/?"
-	// sorting parameters to make a url stable
-	sort.Strings(keys)
-	for _, k := range keys {
-		uri += fmt.Sprintf("%s=%s&", k, params[k])
-	}
-	return strings.TrimSuffix(uri, "&")
+	return builder.Build()
 }

@@ -3,8 +3,10 @@ package mdbmulti
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"sort"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
@@ -469,6 +471,28 @@ func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
 	index := getNextIndex(m.Spec.Mapping)
 	m.Spec.Mapping[clusterName] = index
 	return index
+}
+
+// BuildConnectionString for a MultiCluster user.
+//
+// Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
+// to complete.
+func (m MongoDBMulti) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	builder := connectionstring.Builder().
+		SetName(m.Name).
+		SetNamespace(m.Namespace).
+		SetUsername(username).
+		SetPassword(password).
+		SetReplicas(m.Spec.Replicas()).
+		SetService(m.Name + "-svc").
+		SetVersion(m.Spec.GetMongoDBVersion()).
+		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
+		SetClusterDomain(m.Spec.GetClusterDomain()).
+		SetIsReplicaSet(true).
+		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
+		SetScheme(scheme)
+
+	return builder.Build()
 }
 
 // getNextIndex returns the next higher index from the current cluster indexes

@@ -71,7 +71,7 @@ timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TES
 # Dump information from all clusters.
 # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
 # shellcheck disable=SC2154
-if [[ "${kube_environment_name}" = "multi" ]]; then
+if [[ "${kube_environment_name:-}" = "multi" ]]; then
     echo "Dumping diagnostics for context ${central_cluster}"
     dump_all "${central_cluster}" || true
 

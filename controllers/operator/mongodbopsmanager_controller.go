@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 
@@ -794,11 +795,18 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 	}
 }
 
-// buildMongoConnectionUrl builds the connection url to the appdb. Note, that it overrides the default authMechanism
-// (which internally depends on the mongodb version)
+// buildMongoConnectionUrl returns a connection URL to the appdb.
+//
+// Note, that it overrides the default authMechanism (which internally depends
+// on the mongodb version).
 func buildMongoConnectionUrl(opsManager omv1.MongoDBOpsManager, password string) string {
-	return opsManager.Spec.AppDB.ConnectionURL(util.OpsManagerMongoDBUserName, password,
+	connectionString := opsManager.Spec.AppDB.BuildConnectionURL(
+		util.OpsManagerMongoDBUserName,
+		password,
+		connectionstring.SchemeMongoDB,
 		map[string]string{"authMechanism": "SCRAM-SHA-256"})
+
+	return connectionString
 }
 
 func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
@@ -1521,7 +1529,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		}
 	}
 
-	uri := mongodb.ConnectionURL(userName, password, map[string]string{})
+	uri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{})
 
 	bucket := backup.S3Bucket{
 		Endpoint: config.S3BucketEndpoint,
@@ -1621,7 +1629,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 	}
 
 	tls := mongodb.Spec.Security.TLSConfig.Enabled
-	mongoUri := mongodb.ConnectionURL(userName, password, map[string]string{})
+	mongoUri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{})
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), workflow.OK()
 }
 

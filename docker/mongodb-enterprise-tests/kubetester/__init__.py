@@ -131,6 +131,12 @@ def read_secret(
     )
 
 
+def update_secret(namespace: str, name: str, data: Dict[str, str]):
+    """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
+    secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
+    client.CoreV1Api().patch_namespaced_secret(name, namespace, secret)
+
+
 def delete_secret(namespace: str, name: str):
     client.CoreV1Api().delete_namespaced_secret(name, namespace)
 

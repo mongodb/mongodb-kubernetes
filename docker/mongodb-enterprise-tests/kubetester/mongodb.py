@@ -21,6 +21,7 @@ from .mongotester import (
     ReplicaSetTester,
     ShardedClusterTester,
     StandaloneTester,
+    MongoTester,
 )
 
 
@@ -157,6 +158,14 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def assert_connectivity(self, ca_path: Optional[str] = None):
         return self.tester(ca_path).assert_connectivity()
+
+    def assert_connectivity_from_connection_string(
+        self, cnx_string: str, tls: bool, ca_path: Optional[str] = None
+    ):
+        """
+        Tries to connect to a database using a connection string only.
+        """
+        return MongoTester(cnx_string, tls, ca_path).assert_connectivity()
 
     def __repr__(self):
         # FIX: this should be __unicode__

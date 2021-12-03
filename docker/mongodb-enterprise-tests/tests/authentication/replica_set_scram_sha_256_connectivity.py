@@ -1,81 +1,92 @@
-import pytest
+from typing import Dict
 
+from kubetester import create_secret, find_fixture, read_secret, update_secret
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb_user import MongoDBUser
+from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+USER_DATABASE = "admin"
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
+@fixture(scope="module")
+def replica_set(namespace: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        find_fixture("replica-set-scram-sha-256.yaml"),
+        namespace=namespace,
+        name=MDB_RESOURCE,
+    )
+
+    resource["spec"]["security"]["authentication"] = {
+        "ignoreUnknownUsers": True,
+        "enabled": True,
+        "modes": ["SCRAM"],
+    }
+
+    return resource.create()
+
+
+@fixture(scope="module")
+def scram_user(namespace: str) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(
+        find_fixture("scram-sha-user.yaml"), namespace=namespace
+    )
+
+    create_secret(
+        KubernetesTester.get_namespace(),
+        resource.get_secret_name(),
+        {"password": USER_PASSWORD},
+    )
+
+    return resource.create()
+
+
+@fixture(scope="module")
+def standard_secret(replica_set: MongoDB):
+    secret_name = "{}-{}-{}".format(replica_set.name, USER_NAME, USER_DATABASE)
+    return read_secret(replica_set.namespace, secret_name)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestReplicaSetCreation(KubernetesTester):
-    """
-    description: |
-      Creates a Replica set and checks everything is created as expected.
-    create:
-      file: replica-set-scram-sha-256.yaml
-      patch: '[{"op":"replace","path":"/spec/security/authentication", "value" : {"ignoreUnknownUsers": true , "enabled" : true, "modes" : ["SCRAM"]}} ]'
-      wait_until: in_running_state
-    """
+    def test_replica_set_created(self, replica_set: MongoDB):
+        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
-    def test_replica_set_connectivity(self):
-        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
+    def test_replica_set_connectivity(self, replica_set: MongoDB):
+        replica_set.assert_connectivity()
 
-    def test_ops_manager_state_correctly_updated(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    def test_ops_manager_state_correctly_updated(self, replica_set: MongoDB):
+        tester = replica_set.get_automation_config_tester()
+
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
         tester.assert_expected_users(0)
         tester.assert_authoritative_set(False)
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
-class TestCreateMongoDBUser(KubernetesTester):
-    """
-    description: |
-      Creates a MongoDBUser
-    create:
-      file: scram-sha-user.yaml
-      wait_until: in_updated_state
-      timeout: 150
-    """
-
-    @classmethod
-    def setup_class(cls):
-        print(
-            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
-        )
-        KubernetesTester.create_secret(
-            KubernetesTester.get_namespace(),
-            PASSWORD_SECRET_NAME,
-            {
-                "password": USER_PASSWORD,
-            },
-        )
-        super().setup_class()
-
-    def test_create_user(self):
-        pass
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_create_user(scram_user: MongoDBUser):
+    scram_user.assert_reaches_phase(Phase.Updated)
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
-    def test_replica_set_connectivity(self):
-        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
+    def test_replica_set_connectivity(self, replica_set: MongoDB):
+        replica_set.assert_connectivity()
 
-    def test_ops_manager_state_correctly_updated(self):
+    def test_ops_manager_state_correctly_updated(self, replica_set: MongoDB):
         expected_roles = {
-            ("admin", "clusterAdmin"),
-            ("admin", "userAdminAnyDatabase"),
-            ("admin", "readWrite"),
-            ("admin", "userAdminAnyDatabase"),
+            (USER_DATABASE, "clusterAdmin"),
+            (USER_DATABASE, "userAdminAnyDatabase"),
+            (USER_DATABASE, "readWrite"),
+            (USER_DATABASE, "userAdminAnyDatabase"),
         }
 
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+        tester = replica_set.get_automation_config_tester()
         tester.assert_has_user(USER_NAME)
         tester.assert_user_has_roles(USER_NAME, expected_roles)
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
@@ -83,56 +94,77 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
         tester.assert_expected_users(1)
         tester.assert_authoritative_set(False)
 
-    def test_user_cannot_authenticate_with_incorrect_password(self):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication_fails(
+    def test_user_cannot_authenticate_with_incorrect_password(
+        self, replica_set: MongoDB
+    ):
+        replica_set.tester().assert_scram_sha_authentication_fails(
             password="invalid-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
 
-    def test_user_can_authenticate_with_correct_password(self):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication(
+    def test_user_can_authenticate_with_correct_password(self, replica_set: MongoDB):
+        replica_set.tester().assert_scram_sha_authentication(
             password="my-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestCanChangePassword(KubernetesTester):
-    @classmethod
-    def setup_env(cls):
-        print(
-            f"updating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME}"
-        )
-        KubernetesTester.update_secret(
-            KubernetesTester.get_namespace(),
-            PASSWORD_SECRET_NAME,
-            {"password": "my-new-password"},
-        )
-
-    def test_user_can_authenticate_with_new_password(self):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication(
+    def test_user_can_authenticate_with_new_password(
+        self, namespace: str, replica_set: MongoDB
+    ):
+        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": "my-new-password"})
+        replica_set.tester().assert_scram_sha_authentication(
             password="my-new-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
 
-    def test_user_cannot_authenticate_with_old_password(self):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication_fails(
+    def test_user_cannot_authenticate_with_old_password(self, replica_set: MongoDB):
+        replica_set.tester().assert_scram_sha_authentication_fails(
             password="my-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_authentication_is_still_configured_after_remove_authentication(namespace: str):
-    replica_set = MongoDB(name=MDB_RESOURCE, namespace=namespace).load()
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_credentials_secret_is_created(
+    replica_set: MongoDB, standard_secret: Dict[str, str]
+):
+    assert "username" in standard_secret
+    assert "password" in standard_secret
+    assert "connectionString.standard" in standard_secret
+    assert "connectionString.standardSrv" in standard_secret
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_credentials_can_connect_to_db(
+    replica_set: MongoDB, standard_secret: Dict[str, str]
+):
+    print("Connecting with {}".format(standard_secret["connectionString.standard"]))
+    replica_set.assert_connectivity_from_connection_string(
+        standard_secret["connectionString.standard"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_credentials_can_connect_to_db_with_srv(
+    replica_set: MongoDB, standard_secret: Dict[str, str]
+):
+    print("Connecting with {}".format(standard_secret["connectionString.standardSrv"]))
+    replica_set.assert_connectivity_from_connection_string(
+        standard_secret["connectionString.standardSrv"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_authentication_is_still_configured_after_remove_authentication(
+    namespace: str, replica_set: MongoDB
+):
     replica_set["spec"]["security"]["authentication"] = None
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
@@ -147,9 +179,10 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
     tester.assert_authoritative_set(False)
 
 
-@pytest.mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_authentication_can_be_disabled_without_modes(namespace: str):
-    replica_set = MongoDB(name=MDB_RESOURCE, namespace=namespace).load()
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_authentication_can_be_disabled_without_modes(
+    namespace: str, replica_set: MongoDB
+):
     replica_set["spec"]["security"]["authentication"] = {
         "enabled": False,
     }

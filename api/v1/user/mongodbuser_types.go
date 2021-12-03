@@ -2,8 +2,10 @@ package user
 
 import (
 	"fmt"
+	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
@@ -125,6 +127,20 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 		u.Status.Database = u.Spec.Database
 		u.Status.Username = u.Spec.Username
 	}
+}
+
+func (u MongoDBUser) GetConnectionStringSecretName() string {
+	var resourceRef string
+	if u.Spec.MongoDBResourceRef.Name != "" {
+		resourceRef = u.Spec.MongoDBResourceRef.Name + "-"
+	}
+
+	database := u.Spec.Database
+	if database == "$external" {
+		database = strings.TrimPrefix(database, "$")
+	}
+
+	return fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database)
 }
 
 func (m *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {

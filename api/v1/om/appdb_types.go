@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
@@ -372,11 +373,6 @@ func (a AppDBSpec) GetTlsCertificatesSecretName() string {
 	return fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, a.Name())
 }
 
-// ConnectionURL returns the connection url to the AppDB
-func (m AppDBSpec) ConnectionURL(userName, password string, connectionParams map[string]string) string {
-	return mdbv1.BuildConnectionUrl(m.Name(), m.ServiceName(), m.Namespace, userName, password, &m, connectionParams)
-}
-
 func (m AppDBSpec) GetName() string {
 	return m.Name()
 }
@@ -402,4 +398,23 @@ func (m AppDBSpec) AutomationConfigConfigMapName() string {
 
 func (m AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
 	return fmt.Sprintf("%s-monitoring-automation-config-version", m.Name())
+}
+
+func (m AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	builder := connectionstring.Builder().
+		SetName(m.Name()).
+		SetNamespace(m.Namespace).
+		SetUsername(username).
+		SetPassword(password).
+		SetReplicas(m.Replicas()).
+		SetService(m.ServiceName()).
+		SetVersion(m.GetMongoDBVersion()).
+		SetAuthenticationModes(m.GetSecurityAuthenticationModes()).
+		SetClusterDomain(m.GetClusterDomain()).
+		SetIsReplicaSet(true).
+		SetIsTLSEnabled(m.IsSecurityTLSConfigEnabled()).
+		SetConnectionParams(connectionParams).
+		SetScheme(scheme)
+
+	return builder.Build()
 }
