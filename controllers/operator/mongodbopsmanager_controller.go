@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
@@ -42,12 +43,15 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -189,6 +193,23 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log)
+	}
+
+	if vault.IsVaultSecretBackend() {
+
+		vaultMap := make(map[string]string)
+		for _, s := range opsManager.GetSecretsMountedIntoPod() {
+			path := fmt.Sprintf("%s/%s/%s", vault.OpsManagerSecretMetadataPath, rs.Namespace, s)
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		}
+		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
+			path := fmt.Sprintf("%s/%s/%s", vault.AppDBSecretMetadataPath, rs.Namespace, s)
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		}
+
+		for k, val := range vaultMap {
+			annotationsToAdd[k] = val
+		}
 	}
 
 	if err := annotations.SetAnnotations(opsManager.DeepCopy(), annotationsToAdd, r.client); err != nil {
@@ -699,6 +720,19 @@ func AddOpsManagerController(mgr manager.Manager) error {
 		return err
 	}
 
+	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
+	if vault.IsVaultSecretBackend() {
+		eventChannel := make(chan event.GenericEvent)
+		go vaultwatcher.WatchSecretChangeForOM(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient)
+
+		err = c.Watch(
+			&source.Channel{Source: eventChannel},
+			&handler.EnqueueRequestForObject{},
+		)
+		if err != nil {
+			zap.S().Errorf("Failed to watch for vault secret changes: %w", err)
+		}
+	}
 	zap.S().Infof("Registered controller %s", util.MongoDbOpsManagerController)
 	return nil
 }

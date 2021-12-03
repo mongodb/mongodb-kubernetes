@@ -15,6 +15,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/replicaset"
@@ -548,7 +549,7 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
-		go vault.WatchSecretChange(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ShardedCluster)
+		go vaultwatcher.WatchSecretChangeForMDB(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ShardedCluster)
 
 		err = c.Watch(
 			&source.Channel{Source: eventChannel},

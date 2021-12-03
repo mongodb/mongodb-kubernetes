@@ -51,6 +51,22 @@ func PredicatesForOpsManager() predicate.Funcs {
 			if !reflect.DeepEqual(oldSpecAnnotation, newSpecAnnotation) {
 				return false
 			}
+			// check if any one of the vault annotations are different in revision
+			if vault.IsVaultSecretBackend() {
+
+				for _, e := range oldResource.GetSecretsMountedIntoPod() {
+					if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
+						return true
+					}
+				}
+
+				for _, e := range oldResource.Spec.AppDB.GetSecretsMountedIntoPod() {
+					if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
+						return true
+					}
+				}
+				return false
+			}
 
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},

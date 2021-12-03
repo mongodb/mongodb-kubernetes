@@ -640,12 +640,26 @@ func (m MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdate
 	return appsv1.OnDeleteStatefulSetStrategyType
 }
 
+// GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.
 func (m MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 	secrets := []string{}
 	tls := m.TLSCertificateSecretName()
 	if tls != "" {
 		secrets = append(secrets, tls)
 	}
+
+	if m.Spec.AdminSecret != "" {
+		secrets = append(secrets, m.Spec.AdminSecret)
+	}
+
+	if m.Spec.Backup != nil {
+		for _, config := range m.Spec.Backup.S3Configs {
+			if config.S3SecretRef.Name != "" {
+				secrets = append(secrets, config.S3SecretRef.Name)
+			}
+		}
+	}
+
 	return secrets
 }
 

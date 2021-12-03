@@ -400,6 +400,20 @@ func (m AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
 	return fmt.Sprintf("%s-monitoring-automation-config-version", m.Name())
 }
 
+// GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.
+func (m AppDBSpec) GetSecretsMountedIntoPod() []string {
+	secrets := []string{}
+	if m.PasswordSecretKeyRef != nil {
+		secrets = append(secrets, m.PasswordSecretKeyRef.Name)
+	}
+
+	tls := m.GetTlsCertificatesSecretName()
+	if tls != "" {
+		secrets = append(secrets, tls)
+	}
+	return secrets
+}
+
 func (m AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	builder := connectionstring.Builder().
 		SetName(m.Name()).

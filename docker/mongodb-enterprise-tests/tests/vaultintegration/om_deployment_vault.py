@@ -341,3 +341,28 @@ def test_no_db_monitoring_automation_config_secret_in_kubernetes(
 ):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-monitoring-config")
+
+
+@mark.e2e_vault_setup_om
+def test_rotate_appdb_certs(
+    ops_manager: MongoDBOpsManager,
+    vault_namespace: str,
+    vault_name: str,
+    namespace: str,
+):
+    ops_manager.load()
+    secret_name = f"appdb-{ops_manager.name}-db-cert"
+    old_version = ops_manager["metadata"]["annotations"][secret_name]
+    cmd = [
+        "vault",
+        "kv",
+        "patch",
+        f"secret/mongodbenterprise/appdb/{namespace}/{secret_name}",
+        "foo=bar",
+    ]
+
+    run_command_in_vault(vault_namespace, vault_name, cmd, ["version"])
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+
+    ops_manager.load()
+    assert old_version != ops_manager["metadata"]["annotations"][secret_name]

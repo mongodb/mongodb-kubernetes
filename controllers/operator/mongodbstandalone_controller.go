@@ -17,6 +17,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
@@ -97,7 +98,7 @@ func AddStandaloneController(mgr manager.Manager) error {
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
-		go vault.WatchSecretChange(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.Standalone)
+		go vaultwatcher.WatchSecretChangeForMDB(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.Standalone)
 
 		err = c.Watch(
 			&source.Channel{Source: eventChannel},

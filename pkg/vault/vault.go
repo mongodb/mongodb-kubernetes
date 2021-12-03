@@ -27,8 +27,10 @@ const (
 	OpsManagerVaultRoleName = "mongodbenterpriseopsmanager"
 	AppDBVaultRoleName      = "mongodbenterpriseappdb"
 
-	OperatorSecretMetadataPath = "secret/metadata/mongodbenterprise/operator"
-	DatabaseSecretMetadataPath = "secret/metadata/mongodbenterprise/database"
+	OperatorSecretMetadataPath   = "secret/metadata/mongodbenterprise/operator"
+	OpsManagerSecretMetadataPath = "secret/metadata/mongodbenterprise/opsmanager"
+	DatabaseSecretMetadataPath   = "secret/metadata/mongodbenterprise/database"
+	AppDBSecretMetadataPath      = "secret/metadata/mongodbenterprise/appdb"
 )
 
 type DatabaseSecretsToInject struct {

@@ -38,6 +38,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	util_int "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -291,7 +292,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
-		go vault.WatchSecretChange(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ReplicaSet)
+		go vaultwatcher.WatchSecretChangeForMDB(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ReplicaSet)
 
 		err = c.Watch(
 			&source.Channel{Source: eventChannel},
