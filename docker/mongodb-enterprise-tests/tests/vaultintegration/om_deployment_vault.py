@@ -325,3 +325,19 @@ def test_no_db_keyfile_secret_in_kubernetes(
 ):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-keyfile")
+
+
+@mark.e2e_vault_setup_om
+def test_no_db_automation_config_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-config")
+
+
+@mark.e2e_vault_setup_om
+def test_no_db_monitoring_automation_config_secret_in_kubernetes(
+    namespace: str, ops_manager: MongoDBOpsManager
+):
+    with pytest.raises(ApiException):
+        read_secret(namespace, f"{ops_manager.name}-db-monitoring-config")

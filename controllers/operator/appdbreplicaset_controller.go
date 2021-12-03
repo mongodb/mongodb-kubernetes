@@ -153,7 +153,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
-	currentAc, err := automationconfig.ReadFromSecret(r.client, types.NamespacedName{
+	currentAc, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
 	})
@@ -178,6 +178,23 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 		log.Info("Version change in progress, the StatefulSet must be updated first")
 		automationConfigFirst = false
 	}
+
+	if !automationConfigFirst {
+		// In an upgrade scenario from pre-config map, we would be pushing the StatefulSet first.
+		// In this case, the ConfigMap would not be present and the statefulset will fail in creating the pods.
+		// So we make sure that the configmap is there.
+		r.publishACVersionAsConfigMap(opsManager.Spec.AppDB.AutomationConfigConfigMapName(), opsManager.Namespace, currentAc.Version)
+
+		currentMonitoringAc, err := automationconfig.ReadFromSecret(r.SecretClient, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.MonitoringAutomationConfigSecretName()))
+		if err != nil {
+			if !secrets.SecretNotExist(err) {
+				return workflow.Failed("can't read existing monitoring automation config: %s", err.Error())
+			}
+		} else {
+			r.publishACVersionAsConfigMap(opsManager.Spec.AppDB.MonitoringAutomationConfigConfigMapName(), opsManager.Namespace, currentMonitoringAc.Version)
+		}
+	}
+
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
 			log.Info("Deploying Automation Config")
@@ -267,7 +284,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 // object and the probability that the user will edit the config map manually in the same time is extremely low
 // returns the version of AutomationConfig just published
 func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.MongoDBOpsManager, automationConfig automationconfig.AutomationConfig, secretName string) (int, error) {
-	ac, err := automationconfig.EnsureSecret(r.client, kube.ObjectKey(opsManager.Namespace, secretName), kube.BaseOwnerReference(&opsManager), automationConfig)
+	ac, err := automationconfig.EnsureSecret(r.SecretClient, kube.ObjectKey(opsManager.Namespace, secretName), kube.BaseOwnerReference(&opsManager), automationConfig)
 	if err != nil {
 		return -1, err
 	}
@@ -629,6 +646,18 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 	}, nil
 }
 
+func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(cmName string, namespace string, version int) workflow.Status {
+	acVersionConfigMap := configmap.Builder().
+		SetNamespace(namespace).
+		SetName(cmName).
+		SetDataField("version", fmt.Sprintf("%d", version)).
+		Build()
+	if err := configmap.CreateOrUpdate(r.client, acVersionConfigMap); err != nil {
+		return workflow.Failed(err.Error())
+	}
+	return workflow.OK()
+}
+
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
 func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
@@ -645,12 +674,20 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 		return workflow.Failed(err.Error())
 	}
 
-	if _, err = r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, certSecretType, log); err != nil {
+	if status := r.publishACVersionAsConfigMap(opsManager.Spec.AppDB.AutomationConfigConfigMapName(), opsManager.Namespace, configVersion); !status.IsOK() {
+		return status
+	}
+
+	monitoringAc, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, certSecretType, log)
+	if err != nil {
 		return workflow.Failed(err.Error())
 	}
 
 	if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, certSecretType, log); err != nil {
 		return workflow.Failed(err.Error())
+	}
+	if status := r.publishACVersionAsConfigMap(opsManager.Spec.AppDB.MonitoringAutomationConfigConfigMapName(), opsManager.Namespace, monitoringAc.Version); !status.IsOK() {
+		return status
 	}
 
 	return r.allAgentsReachedGoalState(opsManager, configVersion, log)

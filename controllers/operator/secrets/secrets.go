@@ -130,17 +130,21 @@ func SecretNotExist(err error) bool {
 // AppDB pods. This allows us to minimize the changes to Community.
 
 func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret, error) {
-	s := corev1.Secret{}
-	data, err := r.ReadSecret(secretName, vault.AppDBSecretPath)
-	if err != nil {
-		return s, err
+	if vault.IsVaultSecretBackend() {
+		s := corev1.Secret{}
+
+		data, err := r.ReadSecret(secretName, vault.AppDBSecretPath)
+		if err != nil {
+			return s, err
+		}
+		s.StringData = data
+		s.Data = make(map[string][]byte)
+		for k, v := range data {
+			s.Data[k] = []byte(v)
+		}
+		return s, nil
 	}
-	s.StringData = data
-	s.Data = make(map[string][]byte)
-	for k, v := range data {
-		s.Data[k] = []byte(v)
-	}
-	return s, nil
+	return r.KubeClient.GetSecret(secretName)
 }
 
 func (r SecretClient) CreateSecret(s corev1.Secret) error {

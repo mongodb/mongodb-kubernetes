@@ -11,6 +11,7 @@ import (
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	appsv1 "k8s.io/api/apps/v1"
 )
 
@@ -189,10 +190,6 @@ func (m AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
 // which will store the Ops Manager MongoDB user's scram credentials.
 func (m AppDBSpec) OpsManagerUserScramCredentialsName() string {
 	return m.Name() + "-om-user-scram-credentials"
-}
-
-func (m AppDBSpec) NeedsAutomationConfigVolume() bool {
-	return true
 }
 
 type ConnectionSpec struct {
@@ -393,4 +390,16 @@ func (m AppDBSpec) DataVolumeName() string {
 
 func (m AppDBSpec) LogsVolumeName() string {
 	return "logs"
+}
+
+func (m AppDBSpec) NeedsAutomationConfigVolume() bool {
+	return !vault.IsVaultSecretBackend()
+}
+
+func (m AppDBSpec) AutomationConfigConfigMapName() string {
+	return fmt.Sprintf("%s-automation-config-version", m.Name())
+}
+
+func (m AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
+	return fmt.Sprintf("%s-monitoring-automation-config-version", m.Name())
 }

@@ -8,7 +8,7 @@
   "initOpsManagerVersion": "1.0.5",
   "initAppDbVersion": "1.0.8",
   "databaseImageVersion": "2.0.2",
-  "readinessProbeVersion": "1.0.4",
+  "readinessProbeVersion": "1.0.7",
   "versionUpgradePostStartHookVersion": "1.0.2",
   "agentVersion": "11.0.5.6963-1",
   "communityOperatorVersion": "0.7.3-0.20211201160053-bbb5ca14130e"

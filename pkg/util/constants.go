@@ -183,15 +183,16 @@ const (
 	DefaultS3MaxConnections = 50
 
 	// Ops Manager related constants
-	OmPropertyPrefix           = "OM_PROP_"
-	MmsJvmParamEnvVar          = "CUSTOM_JAVA_MMS_UI_OPTS"
-	BackupDaemonJvmParamEnvVar = "CUSTOM_JAVA_DAEMON_OPTS"
-	GenKeyPath                 = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion            = "5.0"
-	AppDBAutomationConfigKey   = "cluster-config.json"
-	DefaultAppDbPasswordKey    = "password"
-	AppDbConnectionStringKey   = "connectionString"
-	AppDbProjectIdKey          = "projectId"
+	OmPropertyPrefix                   = "OM_PROP_"
+	MmsJvmParamEnvVar                  = "CUSTOM_JAVA_MMS_UI_OPTS"
+	BackupDaemonJvmParamEnvVar         = "CUSTOM_JAVA_DAEMON_OPTS"
+	GenKeyPath                         = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion                    = "5.0"
+	AppDBAutomationConfigKey           = "cluster-config.json"
+	AppDBMonitoringAutomationConfigKey = "monitoring-cluster-config.json"
+	DefaultAppDbPasswordKey            = "password"
+	AppDbConnectionStringKey           = "connectionString"
+	AppDbProjectIdKey                  = "projectId"
 
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey    = "mms.centralUrl"
