@@ -3,6 +3,7 @@ from tests.opsmanager.conftest import custom_appdb_version
 from typing import Optional
 from pytest import fixture, mark
 import pytest
+import time
 from kubetester.operator import Operator
 from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
 from kubetester import (
@@ -350,9 +351,17 @@ def test_rotate_appdb_certs(
     vault_name: str,
     namespace: str,
 ):
-    ops_manager.load()
-    secret_name = f"appdb-{ops_manager.name}-db-cert"
-    old_version = ops_manager["metadata"]["annotations"][secret_name]
+    omTries = 10
+    while omTries > 0:
+        ops_manager.load()
+        secret_name = f"appdb-{ops_manager.name}-db-cert"
+        if secret_name not in ops_manager["metadata"]["annotations"]:
+            omTries -= 1
+            time.sleep(30)
+            continue
+        old_version = ops_manager["metadata"]["annotations"][secret_name]
+        break
+
     cmd = [
         "vault",
         "kv",
@@ -362,7 +371,12 @@ def test_rotate_appdb_certs(
     ]
 
     run_command_in_vault(vault_namespace, vault_name, cmd, ["version"])
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
-    ops_manager.load()
-    assert old_version != ops_manager["metadata"]["annotations"][secret_name]
+    tries = 30
+    while tries > 0:
+        ops_manager.load()
+        if old_version != ops_manager["metadata"]["annotations"][secret_name]:
+            return
+        tries -= 1
+        time.sleep(30)
+    pytest.fail("Not reached new annotation")
