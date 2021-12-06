@@ -41,6 +41,8 @@ images:
     output:
     - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database
       tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database
+      tag: latest
 
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
@@ -64,6 +66,8 @@ images:
     output:
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database
       tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database
+      tag: latest
 
   - name: database-release-context
     task_type: tag_image

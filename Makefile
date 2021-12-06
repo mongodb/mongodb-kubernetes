@@ -163,7 +163,7 @@ build-multi-cluster-binary:
 
 # builds all app images in parallel
 # note that we cannot build both appdb and database init images in parallel as they change the same docker file
-build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image
+build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database
 	@ $(MAKE) database-init-image
 
 database-init-image:
