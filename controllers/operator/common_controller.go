@@ -53,6 +53,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -81,9 +83,20 @@ type ReconcileCommonController struct {
 func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(mgr.GetClient())
 	var vaultClient *vault.VaultClient
+
 	if vault.IsVaultSecretBackend() {
 		var err error
-		vaultClient, err = vault.GetVaultClient()
+		// creates the in-cluster config, we cannot use the controller-runtime manager client
+		// since the manager hasn't been started yet. Using it will cause error "the cache is not started, can not read objects"
+		config, err := rest.InClusterConfig()
+		if err != nil {
+			panic(err.Error())
+		}
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			panic(err.Error())
+		}
+		vaultClient, err = vault.InitVaultClient(clientset)
 		if err != nil {
 			panic(fmt.Sprintf("Can not initialize vault client: %s", err))
 		}

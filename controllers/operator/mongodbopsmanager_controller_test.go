@@ -216,7 +216,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
 	expectedSecretData := map[string]string{"publicKey": "jane.doe@g.com", "privateKey": "jane.doe@g.com-key"}
 
-	APIKeySecretName, err := testOm.APIKeySecretName(client)
+	APIKeySecretName, err := testOm.APIKeySecretName(client, "")
 	assert.NoError(t, err)
 
 	existingSecretData, _ := secret.ReadStringData(client, kube.ObjectKey(OperatorNamespace, APIKeySecretName))
@@ -231,7 +231,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 
 	reconciler.prepareOpsManager(testOm, zap.S())
 
-	APIKeySecretName, err := testOm.APIKeySecretName(client)
+	APIKeySecretName, err := testOm.APIKeySecretName(client, "")
 	assert.NoError(t, err)
 
 	// let's "update" the user admin secret - this must not affect anything
@@ -261,7 +261,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 
 	reconciler.prepareOpsManager(testOm, zap.S())
 
-	APIKeySecretName, err := testOm.APIKeySecretName(client)
+	APIKeySecretName, err := testOm.APIKeySecretName(client, "")
 	assert.NoError(t, err)
 
 	// for some reasons the admin removed the public Api key secret so the call will be done to OM to create a user -

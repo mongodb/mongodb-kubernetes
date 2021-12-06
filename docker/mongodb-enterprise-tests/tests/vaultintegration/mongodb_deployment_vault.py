@@ -232,6 +232,12 @@ def test_operator_install_with_vault_backend(operator_vault_secret_backend: Oper
 
 
 @mark.e2e_vault_setup
+def test_vault_config_map_exists(namespace: str):
+    # no exception should be raised
+    KubernetesTester.read_configmap(namespace, name="secret-configuration")
+
+
+@mark.e2e_vault_setup
 def test_store_om_credentials_in_vault(
     vault_namespace: str, vault_name: str, namespace: str
 ):

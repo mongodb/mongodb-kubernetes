@@ -8,7 +8,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -66,7 +65,11 @@ func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
 }
 
 func (om MongoDBOpsManager) GetAppDBProjectConfig(client secrets.SecretClient) (mdbv1.ProjectConfig, error) {
-	secretName, err := om.APIKeySecretName(client)
+	var operatorVaultSecretPath string
+	if client.VaultClient != nil {
+		operatorVaultSecretPath = client.VaultClient.OperatorSecretPath()
+	}
+	secretName, err := om.APIKeySecretName(client, operatorVaultSecretPath)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
 	}
@@ -533,12 +536,12 @@ func (m MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
-func (m *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface) (string, error) {
+func (m *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", m.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
-	_, err := client.ReadSecret(oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", vault.OperatorSecretPath, operatorNamespace, oldAPISecretName))
+	_, err := client.ReadSecret(oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
 	if err != nil {
 		if secrets.SecretNotExist(err) {
 			return fmt.Sprintf("%s-%s-admin-key", m.Namespace, m.Name), nil

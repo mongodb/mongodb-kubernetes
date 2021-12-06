@@ -955,7 +955,11 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 }
 
 func (r OpsManagerReconciler) getOpsManagerAPIKeySecretName(opsManager omv1.MongoDBOpsManager) (string, workflow.Status) {
-	APISecretName, err := opsManager.APIKeySecretName(r.SecretClient)
+	var operatorVaultSecretPath string
+	if r.VaultClient != nil {
+		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
+	}
+	APISecretName, err := opsManager.APIKeySecretName(r.SecretClient, operatorVaultSecretPath)
 	if err != nil {
 		return "", workflow.Failed("failed to get ops-manager API key secret name: %s", err).WithRetry(10)
 	}
@@ -1062,8 +1066,13 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
+	var operatorVaultPath string
+	if r.VaultClient != nil {
+		operatorVaultPath = r.VaultClient.OperatorSecretPath()
+	}
+
 	// 1. Read the admin secret
-	userData, err := r.ReadSecret(adminObjectKey, vault.OperatorSecretPath)
+	userData, err := r.ReadSecret(adminObjectKey, operatorVaultPath)
 
 	if secrets.SecretNotExist(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
@@ -1087,7 +1096,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	// This is because of the weird Ops Manager /unauth endpoint logic: it allows to create any number of users though only
 	// the first one will have GLOBAL_ADMIN permission. So we should avoid the situation when the admin changes the
 	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
-	_, err = r.ReadSecret(adminKeySecretName, vault.OperatorSecretPath)
+	_, err = r.ReadSecret(adminKeySecretName, operatorVaultPath)
 
 	if secrets.SecretNotExist(err) {
 		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), opsManager.Spec.Version, user)
@@ -1125,10 +1134,9 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 				// More information in: CLOUDP-90848
 				adminSecretBuilder.SetOwnerReferences(kube.BaseOwnerReference(&opsManager))
 			}
-
 			adminSecret := adminSecretBuilder.Build()
 
-			if err := r.PutSecret(adminSecret, vault.OperatorSecretPath); err != nil {
+			if err := r.PutSecret(adminSecret, operatorVaultPath); err != nil {
 				// TODO see above
 				return workflow.Failed("failed to create a secret for admin public api key. %s. The error : %s",
 					detailedAPIErrorMsg(adminKeySecretName), err).WithRetry(30), nil
@@ -1146,13 +1154,13 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	// 3. Final validation of current state - this could be the retry after failing to create the secret during
 	// previous reconciliation (and the apiKey is empty as "the first user already exists") - the only fix is
 	// to create the secret manually
-	_, err = r.ReadSecret(adminKeySecretName, vault.OperatorSecretPath)
+	_, err = r.ReadSecret(adminKeySecretName, operatorVaultPath)
 	if err != nil {
 		return workflow.Failed("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s",
 			detailedAPIErrorMsg(adminKeySecretName), err).WithRetry(30), nil
 	}
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
-	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient)
+	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient, operatorVaultPath)
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
@@ -1456,7 +1464,12 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 // readS3Credentials reads the access and secret keys from the awsCredentials secret specified
 // in the resource
 func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string) (*backup.S3Credentials, error) {
-	s3SecretData, err := r.ReadSecret(kube.ObjectKey(namespace, s3SecretName), vault.OperatorSecretPath)
+	var operatorSecretPath string
+	if r.VaultClient != nil {
+		operatorSecretPath = r.VaultClient.OperatorSecretPath()
+	}
+
+	s3SecretData, err := r.ReadSecret(kube.ObjectKey(namespace, s3SecretName), operatorSecretPath)
 	if err != nil {
 		return nil, err
 	}

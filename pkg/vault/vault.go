@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,15 +11,22 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/hashicorp/vault/api"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
 	VaultBackend     = "VAULT_BACKEND"
 	K8sSecretBackend = "K8S_SECRET_BACKEND"
 
-	OperatorSecretPath   = "secret/data/mongodbenterprise/operator"
+	DEFAULT_OPERATOR_SECRET_PATH = "secret/data/mongodbenterprise/operator"
+
+	DEFAULT_VAULT_ADDRESS = "vault.vault.svc.cluster.local"
+	DEFAULT_VAULT_PORT    = "8200"
+
 	DatabaseSecretPath   = "secret/data/mongodbenterprise/database"
 	OpsManagerSecretPath = "secret/data/mongodbenterprise/opsmanager"
 	AppDBSecretPath      = "secret/data/mongodbenterprise/appdb"
@@ -27,26 +35,26 @@ const (
 	OpsManagerVaultRoleName = "mongodbenterpriseopsmanager"
 	AppDBVaultRoleName      = "mongodbenterpriseappdb"
 
-	OperatorSecretMetadataPath   = "secret/metadata/mongodbenterprise/operator"
 	OpsManagerSecretMetadataPath = "secret/metadata/mongodbenterprise/opsmanager"
 	DatabaseSecretMetadataPath   = "secret/metadata/mongodbenterprise/database"
 	AppDBSecretMetadataPath      = "secret/metadata/mongodbenterprise/appdb"
+	OperatorSecretMetadataPath   = "secret/metadata/mongodbenterprise/operator"
+
+	VAULT_SERVER_ADDRESS      = "VAULT_SERVER_ADDRESS"
+	OPERATOR_SECRET_BASE_PATH = "OPERATOR_SECRET_BASE_PATH"
 )
 
 type DatabaseSecretsToInject struct {
-	AgentCerts  string
-	AgentApiKey string
-
+	AgentCerts          string
+	AgentApiKey         string
 	InternalClusterAuth string
 	InternalClusterHash string
-
-	MemberClusterAuth string
-	MemberClusterHash string
+	MemberClusterAuth   string
+	MemberClusterHash   string
 }
 
 type AppDBSecretsToInject struct {
-	AgentApiKey string
-
+	AgentApiKey    string
 	TLSSecretName  string
 	TLSClusterHash string
 
@@ -56,9 +64,8 @@ type AppDBSecretsToInject struct {
 }
 
 type OpsManagerSecretsToInject struct {
-	TLSSecretName string
-	TLSHash       string
-
+	TLSSecretName         string
+	TLSHash               string
 	GenKeyPath            string
 	AppDBConnection       string
 	AppDBConnectionVolume string
@@ -69,17 +76,37 @@ func IsVaultSecretBackend() bool {
 }
 
 func VaultAddress() string {
-	// TODO: The vault configurations would be specified in a configmap
-	// read from there.
 	return "http://vault.vault.svc.cluster.local:8200"
 }
 
+type VaultConfiguration struct {
+	OperatorSecretPath   string
+	DatabaseSecretPath   string
+	OpsManagerSecretPath string
+	AppDBSecretPath      string
+	VaultAddress         string
+}
 type VaultClient struct {
-	client *api.Client
+	client      *api.Client
+	VaultConfig VaultConfiguration
 }
 
-func GetVaultClient() (*VaultClient, error) {
-	client, err := api.NewClient(&api.Config{Address: VaultAddress(), HttpClient: &http.Client{
+func readVaultConfig(client *kubernetes.Clientset) VaultConfiguration {
+	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(context.TODO(), "secret-configuration", v1.GetOptions{})
+	if err != nil {
+		panic(fmt.Errorf("error reading vault configmap: %v", err))
+	}
+
+	return VaultConfiguration{
+		OperatorSecretPath: cm.Data[OPERATOR_SECRET_BASE_PATH],
+		VaultAddress:       cm.Data[VAULT_SERVER_ADDRESS],
+	}
+}
+
+func InitVaultClient(client *kubernetes.Clientset) (*VaultClient, error) {
+	vaultConfig := readVaultConfig(client)
+
+	vclient, err := api.NewClient(&api.Config{Address: vaultConfig.VaultAddress, HttpClient: &http.Client{
 		Timeout: 10 * time.Second,
 	}})
 
@@ -87,7 +114,7 @@ func GetVaultClient() (*VaultClient, error) {
 		return nil, err
 	}
 
-	return &VaultClient{client: client}, nil
+	return &VaultClient{client: vclient}, nil
 }
 
 func (v *VaultClient) Login() error {
@@ -180,6 +207,13 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 		secretString[k] = string(v)
 	}
 	return secretString, nil
+}
+
+func (v *VaultClient) OperatorSecretPath() string {
+	if v.VaultConfig.OperatorSecretPath != "" {
+		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.OperatorSecretPath)
+	}
+	return DEFAULT_OPERATOR_SECRET_PATH
 }
 
 func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[string]string {

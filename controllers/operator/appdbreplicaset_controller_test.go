@@ -325,7 +325,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 		util.OmPublicApiKey: "publicApiKey",
 		util.OmPrivateKey:   "privateApiKey",
 	}
-	APIKeySecretName, err := opsManager.APIKeySecretName(client.MockedSecretClient)
+	APIKeySecretName, err := opsManager.APIKeySecretName(client.MockedSecretClient, "")
 	assert.NoError(t, err)
 
 	apiKeySecret := secret.Builder().
@@ -478,7 +478,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		util.OmPrivateKey:   "privateApiKey",
 	}
 
-	APIKeySecretName, err := opsManager.APIKeySecretName(client)
+	APIKeySecretName, err := opsManager.APIKeySecretName(client, "")
 	assert.NoError(t, err)
 
 	apiKeySecret := secret.Builder().

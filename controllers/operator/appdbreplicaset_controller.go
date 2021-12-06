@@ -551,7 +551,12 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 // tryConfigureMonitoringInOpsManager attempts to configure monitoring in Ops Manager. This might not be possible if Ops Manager
 // has not been created yet, if that is the case, an empty PodVars will be returned.
 func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (env.PodEnvVars, error) {
-	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient)
+	var operatorVaultSecretPath string
+	if r.VaultClient != nil {
+		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
+	}
+
+	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient, operatorVaultSecretPath)
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error getting opsManager secret name: %s", err)
 	}
@@ -627,7 +632,11 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(om omv1.MongoDBOpsManager
 		return env.PodEnvVars{}, fmt.Errorf("ConfigMap %s did not have the key %s", om.Spec.AppDB.ProjectIDConfigMapName(), util.AppDbProjectIdKey)
 	}
 
-	APISecretName, err := om.APIKeySecretName(r.SecretClient)
+	var operatorVaultSecretPath string
+	if r.VaultClient != nil {
+		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
+	}
+	APISecretName, err := om.APIKeySecretName(r.SecretClient, operatorVaultSecretPath)
 	if err != nil {
 		return env.PodEnvVars{}, fmt.Errorf("error getting ops-manager API secret name: %s", err)
 	}
