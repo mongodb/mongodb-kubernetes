@@ -179,6 +179,36 @@ def random_k8s_name(prefix=""):
     return prefix + "".join(random.choice(string.ascii_lowercase) for _ in range(10))
 
 
+def get_pod_when_running(
+    namespace: str,
+    label_selector: str,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> client.V1Pod:
+    """Returns a Pod that matches label_selector. It will block until the Pod is in
+    Ready state.
+
+    """
+    while True:
+        time.sleep(3)
+
+        try:
+            pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
+                namespace, label_selector=label_selector
+            )
+            try:
+                pod = pods.items[0]
+            except IndexError:
+                continue
+
+            if pod.status.phase == "Running":
+                return pod
+
+        except client.rest.ApiException as e:
+            # The Pod might not exist in Kubernetes yet so skip any 404
+            if e.status != 404:
+                raise
+
+
 def get_pod_when_ready(
     namespace: str,
     label_selector: str,

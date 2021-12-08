@@ -205,11 +205,16 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
+	var vaultConfig vault.VaultConfiguration
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+	}
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(r.SecretClient, s.Namespace, standaloneCertSecretName, vault.DatabaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
+		WithVaultConfig(vaultConfig),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts)

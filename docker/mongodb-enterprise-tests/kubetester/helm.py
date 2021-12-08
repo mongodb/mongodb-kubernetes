@@ -50,6 +50,7 @@ def helm_install_from_chart(
     version: str = "",
     custom_repo: Tuple[str, str] = ("stable", "https://charts.helm.sh/stable"),
     helm_args: Optional[Dict[str, str]] = None,
+    override_path: Optional[str] = None,
 ):
     """Installs a helm chart from a repo. It can accept a new custom_repo to add before the
     chart is installed. Also `helm_args` accepts a dictionary that will be passed as --set
@@ -68,6 +69,9 @@ def helm_install_from_chart(
         f"--namespace={namespace}",
         chart,
     ]
+
+    if override_path is not None:
+        args.extend(["-f", f"{override_path}"])
 
     if version != "":
         args.append("--version=" + version)

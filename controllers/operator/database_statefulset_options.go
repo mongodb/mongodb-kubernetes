@@ -3,6 +3,7 @@ package operator
 import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 )
 
 // CurrentAgentAuthMechanism will assign the given value as the current authentication mechanism.
@@ -55,5 +56,12 @@ func NewTLSDesignMap(newDesign map[string]bool) func(options *construct.Database
 		for k, v := range newDesign {
 			options.CertSecretTypes.SetCertType(k, v)
 		}
+	}
+}
+
+// WithVaultConfig sets the vault configuration to extract annotations for the statefulset.
+func WithVaultConfig(config vault.VaultConfiguration) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.VaultConfig = config
 	}
 }

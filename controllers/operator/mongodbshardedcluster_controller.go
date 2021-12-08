@@ -937,7 +937,10 @@ func (r shardedClusterScaler) CurrentReplicas() int {
 func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := certs.ConfigSrvConfig(sc, r.configSrvScaler).CertSecretName
 	internalClusterSecretName := certs.ConfigSrvConfig(sc, r.configSrvScaler).InternalClusterSecretName
-
+	var vaultConfig vault.VaultConfiguration
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+	}
 	return construct.ConfigServerOptions(
 		Replicas(r.getConfigSrvCountThisReconciliation()),
 		PodEnvVars(podVars),
@@ -945,6 +948,7 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vault.DatabaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignMap(certTLSTypes),
+		WithVaultConfig(vaultConfig),
 	)
 }
 
@@ -952,7 +956,10 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := certs.MongosConfig(sc, r.mongosScaler).CertSecretName
 	internalClusterSecretName := certs.MongosConfig(sc, r.mongosScaler).InternalClusterSecretName
-
+	var vaultConfig vault.VaultConfiguration
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+	}
 	return construct.MongosOptions(
 		Replicas(r.getMongosCountThisReconciliation()),
 		PodEnvVars(podVars),
@@ -960,6 +967,7 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podV
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vault.DatabaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignMap(certTLSTypes),
+		WithVaultConfig(vaultConfig),
 	)
 
 }
@@ -968,7 +976,10 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podV
 func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := certs.ShardConfig(sc, shardNum, r.mongodsPerShardScaler).CertSecretName
 	internalClusterSecretName := certs.ShardConfig(sc, shardNum, r.mongodsPerShardScaler).InternalClusterSecretName
-
+	var vaultConfig vault.VaultConfiguration
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+	}
 	return construct.ShardOptions(shardNum,
 		Replicas(r.getMongodsPerShardCountThisReconciliation()),
 		PodEnvVars(podVars),
@@ -976,5 +987,6 @@ func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shard
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vault.DatabaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignMap(certTLSTypes),
+		WithVaultConfig(vaultConfig),
 	)
 }

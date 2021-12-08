@@ -29,8 +29,10 @@ operator:
   # Create operator-service account
   createOperatorServiceAccount: true
 
+  vaultSecretBackend:
   # set to true if you want the operator to store secrets in Vault
-  useVaultSecretBackend: false
+    enabled: false
+    tlsSecretRef: ''
 
 ## Database
 database:

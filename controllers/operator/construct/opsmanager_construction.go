@@ -53,6 +53,7 @@ type OpsManagerStatefulSetOptions struct {
 	ServicePort               int
 	OpsManagerCaName          string
 	StatefulSetSpecOverride   *appsv1.StatefulSetSpec
+	VaultConfig               vault.VaultConfiguration
 
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
@@ -61,6 +62,12 @@ type OpsManagerStatefulSetOptions struct {
 func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.AppDBConnectionStringHash = hash
+	}
+}
+
+func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.VaultConfig = config
 	}
 }
 
@@ -224,7 +231,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
 	omVolumeMounts = append(omVolumeMounts, omScriptsVolumeMount)
 
-	vaultSecrets := vault.OpsManagerSecretsToInject{}
+	vaultSecrets := vault.OpsManagerSecretsToInject{Config: opts.VaultConfig}
 	if vault.IsVaultSecretBackend() {
 		vaultSecrets.GenKeyPath = fmt.Sprintf("%s-gen-key", opts.OwnerName)
 	} else {

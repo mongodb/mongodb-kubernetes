@@ -159,6 +159,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
+	var vaultConfig vault.VaultConfiguration
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+	}
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
@@ -166,6 +170,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, vault.DatabaseSecretPath, log)),
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
+		WithVaultConfig(vaultConfig),
 	)
 
 	caFilePath := util.CAFilePathInContainer

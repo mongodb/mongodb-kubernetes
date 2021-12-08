@@ -94,7 +94,18 @@ def operator_vault_secret_backend(
     monitored_appdb_operator_installation_config: Dict[str, str],
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
-    helm_args["operator.useVaultSecretBackend"] = "true"
+    helm_args["operator.vaultSecretBackend.enabled"] = "true"
+    return Operator(namespace=namespace, helm_args=helm_args).install()
+
+
+@fixture(scope="module")
+def operator_vault_secret_backend_tls(
+    namespace: str,
+    monitored_appdb_operator_installation_config: Dict[str, str],
+) -> Operator:
+    helm_args = monitored_appdb_operator_installation_config.copy()
+    helm_args["operator.vaultSecretBackend.enabled"] = "true"
+    helm_args["operator.vaultSecretBackend.tlsSecretRef"] = "vault-tls"
     return Operator(namespace=namespace, helm_args=helm_args).install()
 
 

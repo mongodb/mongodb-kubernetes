@@ -113,7 +113,20 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
 	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, vault.AppDBSecretPath, log)
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, monitoringAgentVersion, certSecretType, certHash)
+
+	appdbOpts := construct.AppDBStatefulSetOptions{}
+	appdbOpts.CertHash = certHash
+	appdbOpts.CertSecretType = certSecretType
+	appdbOpts.MonitoringAgentVersion = monitoringAgentVersion
+
+	var vaultConfig vault.VaultConfiguration
+	if r.VaultClient != nil {
+		vaultConfig = r.VaultClient.VaultConfig
+	}
+
+	appdbOpts.VaultConfig = vaultConfig
+
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts)
 	if err != nil {
 
 		return r.updateStatus(opsManager, workflow.Failed("can't construct AppDB Statefulset: %s", err), log, omStatusOption)

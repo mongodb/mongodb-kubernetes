@@ -17,10 +17,16 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: {{ .Values.operator.name }}
         app.kubernetes.io/instance: {{ .Values.operator.name }}
-{{- if .Values.operator.useVaultSecretBackend }}
+{{- if .Values.operator.vaultSecretBackend }}
+  {{- if .Values.operator.vaultSecretBackend.enabled }}
       annotations:
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "mongodbenterprise"
+        {{- if .Values.operator.vaultSecretBackend.tlsSecretRef }}
+        vault.hashicorp.com/tls-secret: {{ .Values.operator.vaultSecretBackend.tlsSecretRef }}
+        vault.hashicorp.com/ca-cert: /vault/tls/ca.crt
+         {{- end }}
+  {{- end }}
 {{- end }}
     spec:
       serviceAccountName: {{ .Values.operator.name }}
@@ -64,9 +70,11 @@ spec:
         env:
         - name: OPERATOR_ENV
           value: {{ .Values.operator.env }}
-{{- if .Values.operator.useVaultSecretBackend }}
+{{- if .Values.operator.vaultSecretBackend }}
+  {{- if .Values.operator.vaultSecretBackend.enabled }}
         - name: SECRET_BACKEND
           value: VAULT_BACKEND
+  {{- end }}
 {{- end }}
         - name: WATCH_NAMESPACE
 {{- if .Values.operator.watchNamespace }}

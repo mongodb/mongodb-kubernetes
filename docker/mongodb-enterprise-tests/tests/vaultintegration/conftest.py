@@ -1,21 +1,37 @@
 from pytest import fixture
 
 from kubetester.helm import helm_install_from_chart
-from kubetester import get_pod_when_ready
-from . import vault_sts_name, vault_namespace_name
+from kubetester import get_pod_when_ready, get_pod_when_running
+from kubetester.kubetester import KubernetesTester
+from kubetester.certs import create_vault_certs
+import time
+from . import vault_sts_name, vault_namespace_name, run_command_in_vault
+from kubernetes.client.rest import ApiException
 
 
 @fixture(scope="module")
 def vault(namespace: str, version="v0.17.1", name="vault") -> str:
 
+    try:
+        KubernetesTester.create_namespace(name)
+    except ApiException as e:
+        pass
     helm_install_from_chart(
         namespace=name,
         release=name,
         chart=f"hashicorp/vault",
         version=version,
         custom_repo=("hashicorp", "https://helm.releases.hashicorp.com"),
-        helm_args={"server.dev.enabled": "true"},
     )
+
+    # check if vault pod is running
+    # We need to perform the initialization of the vault in order to the pod
+    # to be ready. But we need to wait for it to be running in order to run commands in it.
+    get_pod_when_running(
+        namespace=name,
+        label_selector=f"app.kubernetes.io/instance={name},app.kubernetes.io/name={name}",
+    )
+    perform_vault_initialization(name, name)
 
     # check if vault pod is ready
     get_pod_when_ready(
@@ -30,6 +46,71 @@ def vault(namespace: str, version="v0.17.1", name="vault") -> str:
     )
 
     return name
+
+
+@fixture(scope="module")
+def vault_tls(
+    namespace: str, issuer: str, vault_namespace: str, version="v0.17.1", name="vault"
+) -> str:
+
+    try:
+        KubernetesTester.create_namespace(vault_namespace)
+    except ApiException as e:
+        pass
+    create_vault_certs(namespace, issuer, vault_namespace, name, "vault-tls")
+
+    helm_install_from_chart(
+        namespace=name,
+        release=name,
+        chart=f"hashicorp/vault",
+        version=version,
+        custom_repo=("hashicorp", "https://helm.releases.hashicorp.com"),
+        override_path="/tests/vaultconfig/override.yaml",
+    )
+
+    # check if vault pod is running
+    get_pod_when_running(
+        namespace=name,
+        label_selector=f"app.kubernetes.io/instance={name},app.kubernetes.io/name={name}",
+    )
+    perform_vault_initialization(name, name)
+
+    # check if vault pod is ready
+    get_pod_when_ready(
+        namespace=name,
+        label_selector=f"app.kubernetes.io/instance={name},app.kubernetes.io/name={name}",
+    )
+
+    # check if vault agent injector pod is ready
+    get_pod_when_ready(
+        namespace=name,
+        label_selector=f"app.kubernetes.io/instance={name},app.kubernetes.io/name=vault-agent-injector",
+    )
+
+
+def perform_vault_initialization(namespace: str, name: str):
+    run_command_in_vault(name, name, ["mkdir", "-p", "/vault/data"], [])
+
+    response = run_command_in_vault(
+        name, name, ["vault", "operator", "init"], ["Unseal"]
+    )
+
+    response = response.split("\n")
+    unseal_keys = []
+    for i in range(5):
+        unseal_keys.append(response[i].split(": ")[1])
+
+    for i in range(3):
+        run_command_in_vault(
+            name, name, ["vault", "operator", "unseal", unseal_keys[i]], []
+        )
+
+    token = response[6].split(": ")[1]
+    run_command_in_vault(name, name, ["vault", "login", token])
+
+    run_command_in_vault(
+        name, name, ["vault", "secrets", "enable", "-path=secret/", "kv-v2"]
+    )
 
 
 @fixture(scope="module")

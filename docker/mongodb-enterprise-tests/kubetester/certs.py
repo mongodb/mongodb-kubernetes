@@ -216,6 +216,36 @@ def create_ops_manager_tls_certs(
     )
 
 
+def create_vault_certs(
+    namespace: str, issuer: str, vault_namespace: str, vault_name: str, secret_name: str
+):
+
+    cert = Certificate(namespace=namespace, name=secret_name)
+
+    cert["spec"] = {
+        "commonName": f"{vault_name}",
+        "ipAddresses": [
+            "127.0.0.1",
+        ],
+        "dnsNames": [
+            f"{vault_name}",
+            f"{vault_name}.{vault_namespace}",
+            f"{vault_name}.{vault_namespace}.svc",
+            f"{vault_name}.{vault_namespace}.svc.cluster.local",
+        ],
+        "secretName": secret_name,
+        "issuerRef": {"name": issuer},
+        "duration": "240h",
+        "renewBefore": "120h",
+        "usages": ["server auth", "digital signature", "key encipherment"],
+    }
+
+    cert.create().block_until_ready()
+    data = read_secret(namespace, secret_name)
+    create_secret(vault_namespace, secret_name, data)
+    return secret_name
+
+
 def create_mongodb_tls_certs(
     issuer: str,
     namespace: str,

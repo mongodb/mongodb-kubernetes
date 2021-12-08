@@ -38,6 +38,19 @@ const (
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 )
 
+type AppDBStatefulSetOptions struct {
+	VaultConfig            vault.VaultConfiguration
+	CertHash               string
+	CertSecretType         corev1.SecretType
+	MonitoringAgentVersion string
+}
+
+func WithAppDBVaultConfig(config vault.VaultConfiguration) func(opts *AppDBStatefulSetOptions) {
+	return func(opts *AppDBStatefulSetOptions) {
+		opts.VaultConfig = config
+	}
+}
+
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
 // It returns -1 if it doesn't exist
 func getContainerIndexByName(containers []corev1.Container, name string) int {
@@ -217,17 +230,17 @@ func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType core
 	)
 }
 
-func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, certHash string) podtemplatespec.Modification {
+func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) podtemplatespec.Modification {
 	modification := podtemplatespec.NOOP()
 	if vault.IsVaultSecretBackend() {
-		appDBSecretsToInject := vault.AppDBSecretsToInject{}
+		appDBSecretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
 		if podVars != nil && podVars.ProjectID != "" {
 			appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
 		}
 		if appDB.GetSecurity().IsTLSEnabled() {
 			secretName := appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()) + certs.OperatorGeneratedCertSuffix
 			appDBSecretsToInject.TLSSecretName = secretName
-			appDBSecretsToInject.TLSClusterHash = certHash
+			appDBSecretsToInject.TLSClusterHash = opts.CertHash
 		}
 
 		appDBSecretsToInject.AutomationConfigSecretName = appDB.AutomationConfigSecretName()
@@ -310,14 +323,14 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, monitoringAgentVersion string, certSecretType corev1.SecretType, certHash string) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
 	monitoringModification := podtemplatespec.NOOP()
 	monitorAppDB := env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
 	if monitorAppDB && podVars != nil && podVars.ProjectID != "" {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, monitoringAgentVersion, certSecretType)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -355,10 +368,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 						container.WithVolumeMounts([]corev1.VolumeMount{acVersionMount}),
 					),
 				),
-				vaultModification(*appDb, podVars, certHash),
+				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(*appDb),
 				monitoringModification,
-				tlsVolumes(*appDb, podVars, certSecretType),
+				tlsVolumes(*appDb, podVars, opts.CertSecretType),
 			),
 		),
 		appDbLabels(opsManager),
@@ -391,7 +404,7 @@ func replaceImageTag(image string, newTag string) string {
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitoringAgentVerison string, certSecretType corev1.SecretType) podtemplatespec.Modification {
+func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions) podtemplatespec.Modification {
 
 	var monitoringAcVolume corev1.Volume
 	var monitoringACFunc podtemplatespec.Modification
@@ -400,7 +413,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	monitoringConfigMapVolumeFunc := podtemplatespec.WithVolume(monitoringConfigMapVolume)
 
 	if vault.IsVaultSecretBackend() {
-		secretsToInject := vault.AppDBSecretsToInject{}
+		secretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
 		secretsToInject.AutomationConfigSecretName = appDB.MonitoringAutomationConfigSecretName()
 		secretsToInject.AutomationConfigPath = util.AppDBMonitoringAutomationConfigKey
 		secretsToInject.AgentType = "monitoring-agent"
@@ -460,7 +473,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, certSecretType)
+	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, opts.CertSecretType)
 
 	return podtemplatespec.Apply(
 		monitoringACFunc,
@@ -472,8 +485,8 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, monitori
 			monitoringContainer.Name = monitoringAgentContainerName
 
 			// we ensure that the monitoring agent image is compatible with the version of Ops Manager we're using.
-			if monitoringAgentVerison != "" {
-				monitoringContainer.Image = replaceImageTag(monitoringContainer.Image, monitoringAgentVerison)
+			if opts.MonitoringAgentVersion != "" {
+				monitoringContainer.Image = replaceImageTag(monitoringContainer.Image, opts.MonitoringAgentVersion)
 			}
 
 			// Replace the automation config volume

@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/hashicorp/vault/api"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -42,6 +43,7 @@ const (
 
 	VAULT_SERVER_ADDRESS      = "VAULT_SERVER_ADDRESS"
 	OPERATOR_SECRET_BASE_PATH = "OPERATOR_SECRET_BASE_PATH"
+	TLS_SECRET_REF            = "TLS_SECRET_REF"
 )
 
 type DatabaseSecretsToInject struct {
@@ -51,6 +53,7 @@ type DatabaseSecretsToInject struct {
 	InternalClusterHash string
 	MemberClusterAuth   string
 	MemberClusterHash   string
+	Config              VaultConfiguration
 }
 
 type AppDBSecretsToInject struct {
@@ -61,6 +64,7 @@ type AppDBSecretsToInject struct {
 	AutomationConfigSecretName string
 	AutomationConfigPath       string
 	AgentType                  string
+	Config                     VaultConfiguration
 }
 
 type OpsManagerSecretsToInject struct {
@@ -69,14 +73,11 @@ type OpsManagerSecretsToInject struct {
 	GenKeyPath            string
 	AppDBConnection       string
 	AppDBConnectionVolume string
+	Config                VaultConfiguration
 }
 
 func IsVaultSecretBackend() bool {
 	return os.Getenv("SECRET_BACKEND") == VaultBackend
-}
-
-func VaultAddress() string {
-	return "http://vault.vault.svc.cluster.local:8200"
 }
 
 type VaultConfiguration struct {
@@ -85,7 +86,9 @@ type VaultConfiguration struct {
 	OpsManagerSecretPath string
 	AppDBSecretPath      string
 	VaultAddress         string
+	TLSSecretRef         string
 }
+
 type VaultClient struct {
 	client      *api.Client
 	VaultConfig VaultConfiguration
@@ -97,24 +100,74 @@ func readVaultConfig(client *kubernetes.Clientset) VaultConfiguration {
 		panic(fmt.Errorf("error reading vault configmap: %v", err))
 	}
 
-	return VaultConfiguration{
+	config := VaultConfiguration{
 		OperatorSecretPath: cm.Data[OPERATOR_SECRET_BASE_PATH],
 		VaultAddress:       cm.Data[VAULT_SERVER_ADDRESS],
 	}
+
+	if tlsRef, ok := cm.Data[TLS_SECRET_REF]; ok {
+		config.TLSSecretRef = tlsRef
+	}
+
+	return config
+}
+
+func setTLSConfig(config *api.Config, client *kubernetes.Clientset, tlsSecretRef string) error {
+	if tlsSecretRef == "" {
+		return nil
+	}
+	var secret *corev1.Secret
+	var err error
+	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(context.TODO(), tlsSecretRef, v1.GetOptions{})
+
+	if err != nil {
+		return fmt.Errorf("can't read tls secret %s for vault: %s", tlsSecretRef, err)
+	}
+
+	// Read the secret and write ca.crt to a temporary file
+	caData := secret.Data["ca.crt"]
+	f, err := ioutil.TempFile("/tmp", "VaultCAData")
+	if err != nil {
+		return fmt.Errorf("can't create temporary file for CA data: %s", err)
+	}
+	defer f.Close()
+
+	_, err = f.Write(caData)
+	if err != nil {
+		return fmt.Errorf("can't write caData to file %s: %s", f.Name(), err)
+	}
+	if err = f.Sync(); err != nil {
+		return fmt.Errorf("can't call Sync on file %s: %s", f.Name(), err)
+
+	}
+
+	config.ConfigureTLS(
+		&api.TLSConfig{
+			CACert: f.Name(),
+		},
+	)
+
+	return nil
+
 }
 
 func InitVaultClient(client *kubernetes.Clientset) (*VaultClient, error) {
 	vaultConfig := readVaultConfig(client)
 
-	vclient, err := api.NewClient(&api.Config{Address: vaultConfig.VaultAddress, HttpClient: &http.Client{
-		Timeout: 10 * time.Second,
-	}})
+	config := api.DefaultConfig()
+	config.Address = vaultConfig.VaultAddress
+
+	if err := setTLSConfig(config, client, vaultConfig.TLSSecretRef); err != nil {
+		return nil, err
+	}
+
+	vclient, err := api.NewClient(config)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &VaultClient{client: vclient}, nil
+	return &VaultClient{client: vclient, VaultConfig: vaultConfig}, nil
 }
 
 func (v *VaultClient) Login() error {
@@ -209,6 +262,16 @@ func (v *VaultClient) ReadSecretString(path string) (map[string]string, error) {
 	return secretString, nil
 }
 
+func (v VaultConfiguration) TLSAnnotations() map[string]string {
+	if v.TLSSecretRef == "" {
+		return map[string]string{}
+	}
+	return map[string]string{
+		"vault.hashicorp.com/tls-secret": v.TLSSecretRef,
+		"vault.hashicorp.com/ca-cert":    "/vault/tls/ca.crt",
+	}
+}
+
 func (v *VaultClient) OperatorSecretPath() string {
 	if v.VaultConfig.OperatorSecretPath != "" {
 		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.OperatorSecretPath)
@@ -222,6 +285,8 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 		"vault.hashicorp.com/role":                 OpsManagerVaultRoleName,
 		"vault.hashicorp.com/preserve-secret-case": "true",
 	}
+
+	annotations = merge.StringToStringMap(annotations, s.Config.TLSAnnotations())
 
 	if s.TLSSecretName != "" {
 		omTLSPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.TLSSecretName)
@@ -273,6 +338,9 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 		"vault.hashicorp.com/preserve-secret-case":              "true",
 		"vault.hashicorp.com/agent-inject-template-agentApiKey": agentAPIKeyTemplate,
 	}
+
+	annotations = merge.StringToStringMap(annotations, s.Config.TLSAnnotations())
+
 	if s.AgentCerts != "" {
 		agentCertsPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.AgentCerts)
 		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPath
@@ -331,6 +399,8 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 		"vault.hashicorp.com/role":                 AppDBVaultRoleName,
 		"vault.hashicorp.com/preserve-secret-case": "true",
 	}
+
+	annotations = merge.StringToStringMap(annotations, a.Config.TLSAnnotations())
 
 	if a.AgentApiKey != "" {
 

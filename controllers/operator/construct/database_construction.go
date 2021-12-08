@@ -79,6 +79,7 @@ type DatabaseStatefulSetOptions struct {
 	AgentConfig             mdbv1.AgentConfig
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	Annotations             map[string]string
+	VaultConfig             vault.VaultConfiguration
 
 	CertSecretTypes CertSecretTypesMapping
 }
@@ -305,7 +306,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts)
 
-	secretsToInject := vault.DatabaseSecretsToInject{}
+	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
 	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
 		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
 		if opts.CertSecretTypes.IsCertTLSType(secretName) {

@@ -254,7 +254,7 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 	reconciler := newAppDbReconciler(kubeManager)
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	appDbSts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, "", "", "")
+	appDbSts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, construct.AppDBStatefulSetOptions{})
 	assert.NoError(t, err)
 
 	t.Run("Ensure all hosts are added", func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, "", "", "")
+	appDbSts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, construct.AppDBStatefulSetOptions{})
 	assert.NoError(t, err)
 
 	_ = client.Update(context.TODO(), &appDbSts)
@@ -559,7 +559,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
 	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
 	reconciler := newAppDbReconciler(kubeManager)
-	sts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, "", "", "")
+	sts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, construct.AppDBStatefulSetOptions{})
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}

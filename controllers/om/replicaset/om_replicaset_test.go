@@ -25,9 +25,7 @@ func TestBuildReplicaSetFromStatefulSetAppDb(t *testing.T) {
 		appDbSts, err := construct.AppDbStatefulSet(
 			opsManager,
 			&env.PodEnvVars{ProjectID: "abcd"},
-			"",
-			"",
-			"",
+			construct.AppDBStatefulSetOptions{},
 		)
 		assert.NoError(t, err)
 		omRs := BuildAppDBFromStatefulSet(appDbSts, omv1.AppDBSpec{Version: "4.4.0"})
