@@ -7,6 +7,7 @@ from kubetester.certs import create_vault_certs
 import time
 from . import vault_sts_name, vault_namespace_name, run_command_in_vault
 from kubernetes.client.rest import ApiException
+from kubernetes import client
 
 
 @fixture(scope="module")
@@ -89,6 +90,19 @@ def vault_tls(
 
 
 def perform_vault_initialization(namespace: str, name: str):
+
+    #  If the pod is already ready, this means we don't have to perform anything
+    pods = client.CoreV1Api().list_namespaced_pod(
+        namespace,
+        label_selector=f"app.kubernetes.io/instance={name},app.kubernetes.io/name={name}",
+    )
+
+    pod = pods.items[0]
+    if pod.status.conditions is not None:
+        for condition in pod.status.conditions:
+            if condition.type == "Ready" and condition.status == "True":
+                return
+
     run_command_in_vault(name, name, ["mkdir", "-p", "/vault/data"], [])
 
     response = run_command_in_vault(

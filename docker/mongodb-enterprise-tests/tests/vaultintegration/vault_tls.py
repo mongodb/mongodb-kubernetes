@@ -1,5 +1,5 @@
 from pytest import mark, fixture
-from kubetester import get_statefulset, read_secret, delete_secret
+from kubetester import get_statefulset, read_secret, delete_secret, create_secret
 from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
 from kubetester.operator import Operator
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
@@ -9,6 +9,7 @@ from kubernetes.client import V1ConfigMap
 from kubetester.opsmanager import MongoDBOpsManager
 from typing import Optional
 from tests.opsmanager.conftest import custom_appdb_version
+from kubetester.certs import Certificate
 
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
@@ -240,6 +241,17 @@ def test_put_admin_credentials_to_vault(
 
 
 @mark.e2e_vault_setup_tls
+def test_remove_cert_and_key_from_secret(namespace: str):
+    data = read_secret(namespace, "vault-tls")
+    cert = Certificate(name="vault-tls", namespace=namespace).load()
+    cert.delete()
+    del data["tls.crt"]
+    del data["tls.key"]
+    delete_secret(namespace, "vault-tls")
+    create_secret(namespace, "vault-tls", data)
+
+
+@mark.e2e_vault_setup_tls
 def test_operator_install_with_vault_backend(
     operator_vault_secret_backend_tls: Operator,
 ):
@@ -318,3 +330,10 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
         assert len(pod.spec.containers) == 2
+
+
+@mark.e2e_vault_setup_tls
+def test_no_cert_in_secret(namespace: str):
+    data = read_secret(namespace, "vault-tls")
+    assert "tls.crt" not in data
+    assert "tls.key" not in data

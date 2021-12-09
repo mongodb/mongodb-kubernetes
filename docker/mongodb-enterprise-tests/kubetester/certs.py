@@ -242,6 +242,12 @@ def create_vault_certs(
 
     cert.create().block_until_ready()
     data = read_secret(namespace, secret_name)
+
+    # When re-running locally, we need to delete the secrets, if it exists
+    try:
+        delete_secret(vault_namespace, secret_name)
+    except ApiException:
+        pass
     create_secret(vault_namespace, secret_name, data)
     return secret_name
 
