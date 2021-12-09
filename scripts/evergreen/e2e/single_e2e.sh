@@ -155,7 +155,7 @@ run_tests() {
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
         kubectl --context "${test_pod_cluster}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
-        kubectl --context "${operator_context}" -n "${PROJECT_NAMESPACE}" logs -l app.kubernetes.io/component=controller --tail -1 > "${operator_filename}"
+        kubectl --context "${operator_context}" -n "${PROJECT_NAMESPACE}" logs -l app.kubernetes.io/component=controller -c mongodb-enterprise-operator --tail -1 > "${operator_filename}"
     fi
 
     # Waiting a bit until the pod gets to some end
