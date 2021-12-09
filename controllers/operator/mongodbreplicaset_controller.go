@@ -160,14 +160,17 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
 	var vaultConfig vault.VaultConfiguration
+	var databaseSecretPath string
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
+
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
-		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, vault.DatabaseSecretPath, log)),
-		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, vault.DatabaseSecretPath, log)),
+		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)),
+		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)),
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
 		WithVaultConfig(vaultConfig),
@@ -233,10 +236,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		secrets := rs.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
 		for _, s := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretMetadataPath, rs.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.DatabaseSecretMetadataPath(), rs.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
-		path := fmt.Sprintf("%s/%s/%s", vault.OperatorSecretMetadataPath, rs.Namespace, rs.Spec.Credentials)
+		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OperatorScretMetadataPath(), rs.Namespace, rs.Spec.Credentials)
 		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		for k, val := range vaultMap {
 			annotationsToAdd[k] = val

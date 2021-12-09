@@ -199,11 +199,11 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 		vaultMap := make(map[string]string)
 		for _, s := range opsManager.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", vault.OpsManagerSecretMetadataPath, rs.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), rs.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
 		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", vault.AppDBSecretMetadataPath, rs.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), rs.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
 
@@ -619,7 +619,11 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
 func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
-	_, err := r.ReadSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), vault.OpsManagerSecretPath)
+	var opsManagerSecretPath string
+	if r.VaultClient != nil {
+		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
+	}
+	_, err := r.ReadSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), opsManagerSecretPath)
 
 	if err != nil {
 		if secrets.SecretNotExist(err) {
@@ -632,7 +636,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.Mongo
 				SetField(util.AppDbConnectionStringKey, computedConnectionString).
 				Build()
 
-			return r.PutSecret(connectionStringSecret, vault.OpsManagerSecretPath)
+			return r.PutSecret(connectionStringSecret, opsManagerSecretPath)
 		}
 		log.Warnf("Error getting connection string secret: %s", err)
 		return err
@@ -646,7 +650,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.Mongo
 		SetNamespace(opsManager.Namespace).
 		SetStringData(connectionStringSecretData).Build()
 	log.Debugf("Connection string secret already exists, updating %s", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
-	return r.PutSecret(connectionStringSecret, vault.OpsManagerSecretPath)
+	return r.PutSecret(connectionStringSecret, opsManagerSecretPath)
 }
 
 func hashConnectionString(connectionString string) string {
@@ -867,7 +871,11 @@ func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, lo
 // ensureGenKey
 func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
 	objectKey := kube.ObjectKey(om.Namespace, om.Name+"-gen-key")
-	_, err := r.ReadSecret(objectKey, vault.OpsManagerSecretPath)
+	var opsManagerSecretPath string
+	if r.VaultClient != nil {
+		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
+	}
+	_, err := r.ReadSecret(objectKey, opsManagerSecretPath)
 
 	if secrets.SecretNotExist(err) {
 		// todo if the key is not found but the AppDB is initialized - OM will fail to start as preflight
@@ -887,7 +895,7 @@ func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.S
 			SetByteData(keyMap).
 			Build()
 
-		return r.PutBinarySecret(genKeySecret, vault.OpsManagerSecretPath)
+		return r.PutBinarySecret(genKeySecret, opsManagerSecretPath)
 	}
 	return err
 }

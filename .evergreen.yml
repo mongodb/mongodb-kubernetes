@@ -2192,8 +2192,6 @@ task_groups:
     # e2e_mongodb_non_cloudqa_task_group
     - e2e_standalone_groups
     - e2e_replica_set_groups
-    - e2e_vault_setup
-    - e2e_vault_setup_tls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

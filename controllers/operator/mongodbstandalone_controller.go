@@ -210,8 +210,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		vaultConfig = r.VaultClient.VaultConfig
 	}
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
+
+	var databaseSecretPath string
+	if r.VaultClient != nil {
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	}
 	standaloneOpts := construct.StandaloneOptions(
-		CertificateHash(pem.ReadHashFromSecret(r.SecretClient, s.Namespace, standaloneCertSecretName, vault.DatabaseSecretPath, log)),
+		CertificateHash(pem.ReadHashFromSecret(r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
@@ -250,10 +255,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		secrets := s.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
 		for _, secret := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretMetadataPath, s.Namespace, secret)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.DatabaseSecretMetadataPath(), s.Namespace, secret)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
-		path := fmt.Sprintf("%s/%s/%s", vault.OperatorSecretMetadataPath, s.Namespace, s.Spec.Credentials)
+		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OperatorScretMetadataPath(), s.Namespace, s.Spec.Credentials)
 		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		for k, val := range vaultMap {
 			annotationsToAdd[k] = val

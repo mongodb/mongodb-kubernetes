@@ -54,7 +54,6 @@ type OpsManagerStatefulSetOptions struct {
 	OpsManagerCaName          string
 	StatefulSetSpecOverride   *appsv1.StatefulSetSpec
 	VaultConfig               vault.VaultConfiguration
-
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
 }
@@ -81,9 +80,11 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 	var err error
 	var secretData map[string][]byte
 	var s corev1.Secret
+	var opsManagerSecretPath string
 
 	if vault.IsVaultSecretBackend() {
-		secretData, err = secretGetterCreattor.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", vault.OpsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName))
+		opsManagerSecretPath = secretGetterCreattor.VaultClient.OpsManagerSecretPath()
+		secretData, err = secretGetterCreattor.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName))
 		if err != nil {
 			return err
 		}
@@ -108,7 +109,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 		return err
 	}
 
-	certHash := enterprisepem.ReadHashFromSecret(secretGetterCreattor, opts.Namespace, opts.HTTPSCertSecretName, vault.OpsManagerSecretPath, log)
+	certHash := enterprisepem.ReadHashFromSecret(secretGetterCreattor, opts.Namespace, opts.HTTPSCertSecretName, opsManagerSecretPath, log)
 
 	// The operator concatenates the two fields of the secret into a PEM secret
 	err = certs.CreatePEMSecretClient(secretGetterCreattor, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, certs.OpsManager, log)

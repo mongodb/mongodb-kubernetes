@@ -472,9 +472,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		AutoLdapGroupDN:     mdb.Spec.Security.Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:          caFilepath,
 	}
-
+	var databaseSecretPath string
+	if r.VaultClient != nil {
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	}
 	if mdb.IsLDAPEnabled() {
-		bindUserPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name), vault.DatabaseSecretPath, "password")
+		bindUserPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
 
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
@@ -514,7 +517,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		}
 		if mdb.Spec.Security.ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := mdb.Spec.Security.Authentication.Agents.AutomationPasswordSecretRef
-			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, secretRef.Name), vault.DatabaseSecretPath, secretRef.Key)
+			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, secretRef.Name), databaseSecretPath, secretRef.Key)
 			if err != nil {
 				return workflow.Failed(fmt.Sprintf("error reading automation agent  password: %s", err)), false
 			}
@@ -575,7 +578,11 @@ func (r *ReconcileCommonController) configureAgentSubjects(namespace string, sec
 func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string, secretKeySelector corev1.SecretKeySelector, log *zap.SugaredLogger) (authentication.UserOptions, error) {
 	userOpts := authentication.UserOptions{}
 
-	agentCerts, err := r.ReadSecret(kube.ObjectKey(namespace, secretKeySelector.Name), vault.DatabaseSecretPath)
+	var databaseSecretPath string
+	if r.VaultClient != nil {
+		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+	}
+	agentCerts, err := r.ReadSecret(kube.ObjectKey(namespace, secretKeySelector.Name), databaseSecretPath)
 	if err != nil {
 		return userOpts, err
 	}

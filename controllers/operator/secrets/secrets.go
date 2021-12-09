@@ -133,7 +133,7 @@ func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret,
 	if vault.IsVaultSecretBackend() {
 		s := corev1.Secret{}
 
-		data, err := r.ReadSecret(secretName, vault.AppDBSecretPath)
+		data, err := r.ReadSecret(secretName, r.VaultClient.AppDBSecretPath())
 		if err != nil {
 			return s, err
 		}
@@ -148,7 +148,11 @@ func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret,
 }
 
 func (r SecretClient) CreateSecret(s corev1.Secret) error {
-	return r.PutSecret(s, vault.AppDBSecretPath)
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+	return r.PutSecret(s, appdbSecretPath)
 }
 
 func (r SecretClient) UpdateSecret(s corev1.Secret) error {

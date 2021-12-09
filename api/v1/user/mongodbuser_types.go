@@ -8,7 +8,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -46,8 +45,11 @@ func (user MongoDBUser) GetPassword(secretClient secrets.SecretClient) (string, 
 		Namespace: user.Namespace,
 		Name:      user.Spec.PasswordSecretKeyRef.Name,
 	}
-
-	secretData, err := secretClient.ReadSecret(nsName, vault.DatabaseSecretPath)
+	var databaseSecretPath string
+	if secretClient.VaultClient != nil {
+		databaseSecretPath = secretClient.VaultClient.DatabaseSecretPath()
+	}
+	secretData, err := secretClient.ReadSecret(nsName, databaseSecretPath)
 	if err != nil {
 		return "", fmt.Errorf("could not retrieve user password secret: %s", err)
 	}

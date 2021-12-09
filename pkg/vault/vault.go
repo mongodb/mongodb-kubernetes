@@ -23,27 +23,24 @@ const (
 	VaultBackend     = "VAULT_BACKEND"
 	K8sSecretBackend = "K8S_SECRET_BACKEND"
 
-	DEFAULT_OPERATOR_SECRET_PATH = "secret/data/mongodbenterprise/operator"
+	DEFAULT_OPERATOR_SECRET_PATH    = "mongodbenterprise/operator"
+	DEFAULT_OPS_MANAGER_SECRET_PATH = "mongodbenterprise/opsmanager"
+	DEFAULT_DATABASE_SECRET_PATH    = "mongodbenterprise/database"
+	DEFAULT_APPDB_SECRET_PATH       = "mongodbenterprise/appdb"
 
 	DEFAULT_VAULT_ADDRESS = "vault.vault.svc.cluster.local"
 	DEFAULT_VAULT_PORT    = "8200"
-
-	DatabaseSecretPath   = "secret/data/mongodbenterprise/database"
-	OpsManagerSecretPath = "secret/data/mongodbenterprise/opsmanager"
-	AppDBSecretPath      = "secret/data/mongodbenterprise/appdb"
 
 	DatabaseVaultRoleName   = "mongodbenterprisedatabase"
 	OpsManagerVaultRoleName = "mongodbenterpriseopsmanager"
 	AppDBVaultRoleName      = "mongodbenterpriseappdb"
 
-	OpsManagerSecretMetadataPath = "secret/metadata/mongodbenterprise/opsmanager"
-	DatabaseSecretMetadataPath   = "secret/metadata/mongodbenterprise/database"
-	AppDBSecretMetadataPath      = "secret/metadata/mongodbenterprise/appdb"
-	OperatorSecretMetadataPath   = "secret/metadata/mongodbenterprise/operator"
-
-	VAULT_SERVER_ADDRESS      = "VAULT_SERVER_ADDRESS"
-	OPERATOR_SECRET_BASE_PATH = "OPERATOR_SECRET_BASE_PATH"
-	TLS_SECRET_REF            = "TLS_SECRET_REF"
+	VAULT_SERVER_ADDRESS         = "VAULT_SERVER_ADDRESS"
+	OPERATOR_SECRET_BASE_PATH    = "OPERATOR_SECRET_BASE_PATH"
+	TLS_SECRET_REF               = "TLS_SECRET_REF"
+	OPS_MANAGER_SECRET_BASE_PATH = "OPS_MANAGER_SECRET_BASE_PATH"
+	DATABASE_SECRET_BASE_PATH    = "DATABASE_SECRET_BASE_PATH"
+	APPDB_SECRET_BASE_PATH       = "APPDB_SECRET_BASE_PATH"
 )
 
 type DatabaseSecretsToInject struct {
@@ -101,8 +98,11 @@ func readVaultConfig(client *kubernetes.Clientset) VaultConfiguration {
 	}
 
 	config := VaultConfiguration{
-		OperatorSecretPath: cm.Data[OPERATOR_SECRET_BASE_PATH],
-		VaultAddress:       cm.Data[VAULT_SERVER_ADDRESS],
+		OperatorSecretPath:   cm.Data[OPERATOR_SECRET_BASE_PATH],
+		VaultAddress:         cm.Data[VAULT_SERVER_ADDRESS],
+		OpsManagerSecretPath: cm.Data[OPS_MANAGER_SECRET_BASE_PATH],
+		DatabaseSecretPath:   cm.Data[DATABASE_SECRET_BASE_PATH],
+		AppDBSecretPath:      cm.Data[APPDB_SECRET_BASE_PATH],
 	}
 
 	if tlsRef, ok := cm.Data[TLS_SECRET_REF]; ok {
@@ -276,10 +276,66 @@ func (v *VaultClient) OperatorSecretPath() string {
 	if v.VaultConfig.OperatorSecretPath != "" {
 		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.OperatorSecretPath)
 	}
-	return DEFAULT_OPERATOR_SECRET_PATH
+	return fmt.Sprintf("/secret/data/%s", DEFAULT_OPERATOR_SECRET_PATH)
+}
+
+func (v *VaultClient) OperatorScretMetadataPath() string {
+	if v.VaultConfig.OperatorSecretPath != "" {
+		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.OperatorSecretPath)
+	}
+	return fmt.Sprintf("/secret/metadata/%s", DEFAULT_OPERATOR_SECRET_PATH)
+}
+
+func (v *VaultClient) OpsManagerSecretPath() string {
+	if v.VaultConfig.OperatorSecretPath != "" {
+		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.OpsManagerSecretPath)
+	}
+	return fmt.Sprintf("/secret/data/%s", DEFAULT_OPS_MANAGER_SECRET_PATH)
+}
+
+func (v *VaultClient) OpsManagerSecretMetadataPath() string {
+	if v.VaultConfig.OpsManagerSecretPath != "" {
+		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.OpsManagerSecretPath)
+	}
+	return fmt.Sprintf("/secret/metadata/%s", DEFAULT_OPS_MANAGER_SECRET_PATH)
+}
+
+func (v *VaultClient) DatabaseSecretPath() string {
+	if v.VaultConfig.OperatorSecretPath != "" {
+		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.DatabaseSecretPath)
+	}
+	return fmt.Sprintf("/secret/data/%s", DEFAULT_DATABASE_SECRET_PATH)
+}
+
+func (v *VaultClient) DatabaseSecretMetadataPath() string {
+	if v.VaultConfig.OperatorSecretPath != "" {
+		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.DatabaseSecretPath)
+	}
+	return fmt.Sprintf("/secret/metadata/%s", DEFAULT_DATABASE_SECRET_PATH)
+}
+
+func (v *VaultClient) AppDBSecretPath() string {
+	if v.VaultConfig.AppDBSecretPath != "" {
+		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.AppDBSecretPath)
+	}
+	return fmt.Sprintf("/secret/data/%s", APPDB_SECRET_BASE_PATH)
+}
+
+func (v *VaultClient) AppDBSecretMetadataPath() string {
+	if v.VaultConfig.AppDBSecretPath != "" {
+		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.AppDBSecretPath)
+	}
+	return fmt.Sprintf("/secret/metadata/%s", APPDB_SECRET_BASE_PATH)
 }
 
 func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[string]string {
+	var opsManagerSecretPath string
+	if s.Config.OpsManagerSecretPath != "" {
+		opsManagerSecretPath = fmt.Sprintf("/secret/data/%s", s.Config.OpsManagerSecretPath)
+	} else {
+		opsManagerSecretPath = fmt.Sprintf("/secret/metadata/%s", DEFAULT_OPS_MANAGER_SECRET_PATH)
+	}
+
 	annotations := map[string]string{
 		"vault.hashicorp.com/agent-inject":         "true",
 		"vault.hashicorp.com/role":                 OpsManagerVaultRoleName,
@@ -289,7 +345,7 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 	annotations = merge.StringToStringMap(annotations, s.Config.TLSAnnotations())
 
 	if s.TLSSecretName != "" {
-		omTLSPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.TLSSecretName)
+		omTLSPath := fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, namespace, s.TLSSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-om-tls-cert-pem"] = omTLSPath
 		annotations["vault.hashicorp.com/agent-inject-file-om-tls-cert-pem"] = s.TLSHash
 		annotations["vault.hashicorp.com/secret-volume-path-om-tls-cert-pem"] = util.MmsPemKeyFileDirInContainer
@@ -301,7 +357,7 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 	}
 
 	if s.GenKeyPath != "" {
-		genKeyPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.GenKeyPath)
+		genKeyPath := fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, namespace, s.GenKeyPath)
 		annotations["vault.hashicorp.com/agent-inject-secret-gen-key"] = genKeyPath
 		annotations["vault.hashicorp.com/agent-inject-file-gen-key"] = "gen.key"
 		annotations["vault.hashicorp.com/secret-volume-path-gen-key"] = util.GenKeyPath
@@ -313,7 +369,7 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 	}
 
 	// add appDB connection string
-	appDBConnPath := fmt.Sprintf("%s/%s/%s", OpsManagerSecretPath, namespace, s.AppDBConnection)
+	appDBConnPath := fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, namespace, s.AppDBConnection)
 	annotations["vault.hashicorp.com/agent-inject-secret-appdb-connection-string"] = appDBConnPath
 	annotations["vault.hashicorp.com/agent-inject-file-appdb-connection-string"] = "connectionString"
 	annotations["vault.hashicorp.com/secret-volume-path-appdb-connection-string"] = s.AppDBConnectionVolume
@@ -324,7 +380,14 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 }
 
 func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[string]string {
-	apiKeySecretPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.AgentApiKey)
+	var databaseSecretPath string
+	if s.Config.DatabaseSecretPath != "" {
+		databaseSecretPath = fmt.Sprintf("/secret/data/%s", s.Config.DatabaseSecretPath)
+	} else {
+		databaseSecretPath = fmt.Sprintf("/secret/data/%s", DEFAULT_DATABASE_SECRET_PATH)
+	}
+
+	apiKeySecretPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.AgentApiKey)
 
 	agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
           {{ .Data.data.agentApiKey }}
@@ -342,7 +405,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 	annotations = merge.StringToStringMap(annotations, s.Config.TLSAnnotations())
 
 	if s.AgentCerts != "" {
-		agentCertsPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.AgentCerts)
+		agentCertsPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.AgentCerts)
 		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPath
 		annotations["vault.hashicorp.com/secret-volume-path-mms-automation-agent-pem"] = "/mongodb-automation/agent-certs"
 		annotations["vault.hashicorp.com/agent-inject-template-mms-automation-agent-pem"] = fmt.Sprintf(`{{- with secret "%s" -}}
@@ -352,7 +415,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
           {{- end }}`, agentCertsPath)
 	}
 	if s.InternalClusterAuth != "" {
-		internalClusterPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.InternalClusterAuth)
+		internalClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.InternalClusterAuth)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-internal-cluster"] = internalClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-internal-cluster"] = s.InternalClusterHash
@@ -364,7 +427,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
           {{- end }}`, internalClusterPath)
 	}
 	if s.MemberClusterAuth != "" {
-		memberClusterPath := fmt.Sprintf("%s/%s/%s", DatabaseSecretPath, namespace, s.InternalClusterAuth)
+		memberClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.InternalClusterAuth)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = s.MemberClusterHash
@@ -401,10 +464,15 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	}
 
 	annotations = merge.StringToStringMap(annotations, a.Config.TLSAnnotations())
-
+	var appdbSecretPath string
+	if a.Config.AppDBSecretPath != "" {
+		appdbSecretPath = fmt.Sprintf("/secret/data/%s", a.Config.AppDBSecretPath)
+	} else {
+		appdbSecretPath = fmt.Sprintf("/secret/data/%s", APPDB_SECRET_BASE_PATH)
+	}
 	if a.AgentApiKey != "" {
 
-		apiKeySecretPath := fmt.Sprintf("%s/%s/%s", AppDBSecretPath, namespace, a.AgentApiKey)
+		apiKeySecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AgentApiKey)
 		agentAPIKeyTemplate := fmt.Sprintf(`{{- with secret "%s" -}}
           {{ .Data.data.agentApiKey }}
           {{- end }}`, apiKeySecretPath)
@@ -415,7 +483,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	}
 
 	if a.TLSSecretName != "" {
-		memberClusterPath := fmt.Sprintf("%s/%s/%s", AppDBSecretPath, namespace, a.TLSSecretName)
+		memberClusterPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.TLSSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = a.TLSClusterHash
 		annotations["vault.hashicorp.com/secret-volume-path-tls-certificate"] = util.SecretVolumeMountPath + "/certs"
@@ -430,7 +498,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	if a.AutomationConfigSecretName != "" {
 		// There are two different type of annotations here: for the automation agent
 		// and for the monitoring agent.
-		acSecretPath := fmt.Sprintf("%s/%s/%s", AppDBSecretPath, namespace, a.AutomationConfigSecretName)
+		acSecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AutomationConfigSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-"+a.AgentType] = acSecretPath
 		annotations["vault.hashicorp.com/agent-inject-file-"+a.AgentType] = a.AutomationConfigPath
 		annotations["vault.hashicorp.com/secret-volume-path-"+a.AgentType] = "/var/lib/automation/config"

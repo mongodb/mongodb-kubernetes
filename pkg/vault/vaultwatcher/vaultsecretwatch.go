@@ -31,7 +31,7 @@ func WatchSecretChangeForMDB(log *zap.SugaredLogger, watchChannel chan event.Gen
 				continue
 			}
 			// the credentials secret is mandatory and stored in a different path
-			path := fmt.Sprintf("%s/%s/%s", vault.OperatorSecretMetadataPath, mdb.Namespace, mdb.Spec.Credentials)
+			path := fmt.Sprintf("%s/%s/%s", vaultClient.OperatorScretMetadataPath(), mdb.Namespace, mdb.Spec.Credentials)
 			latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, mdb.Spec.Credentials, mdb.Annotations, log)
 			if latestResourceVersion > currentResourceVersion {
 				watchChannel <- event.GenericEvent{Object: &mdbList.Items[n]}
@@ -39,7 +39,7 @@ func WatchSecretChangeForMDB(log *zap.SugaredLogger, watchChannel chan event.Gen
 			}
 
 			for _, secretName := range mdb.GetSecretsMountedIntoDBPod() {
-				path := fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretMetadataPath, mdb.Namespace, secretName)
+				path := fmt.Sprintf("%s/%s/%s", vaultClient.DatabaseSecretMetadataPath(), mdb.Namespace, secretName)
 				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, mdb.Annotations, log)
 
 				if latestResourceVersion > currentResourceVersion {
@@ -65,7 +65,7 @@ func WatchSecretChangeForOM(log *zap.SugaredLogger, watchChannel chan event.Gene
 		triggeredReconciliation := false
 		for n, om := range omList.Items {
 			for _, secretName := range om.GetSecretsMountedIntoPod() {
-				path := fmt.Sprintf("%s/%s/%s", vault.OpsManagerSecretMetadataPath, om.Namespace, secretName)
+				path := fmt.Sprintf("%s/%s/%s", vaultClient.OpsManagerSecretMetadataPath(), om.Namespace, secretName)
 				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
 
 				if latestResourceVersion > currentResourceVersion {
@@ -78,7 +78,7 @@ func WatchSecretChangeForOM(log *zap.SugaredLogger, watchChannel chan event.Gene
 				break
 			}
 			for _, secretName := range om.Spec.AppDB.GetSecretsMountedIntoPod() {
-				path := fmt.Sprintf("%s/%s/%s", vault.AppDBSecretMetadataPath, om.Namespace, secretName)
+				path := fmt.Sprintf("%s/%s/%s", vaultClient.AppDBSecretMetadataPath(), om.Namespace, secretName)
 				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
 
 				if latestResourceVersion > currentResourceVersion {

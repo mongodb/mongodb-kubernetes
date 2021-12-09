@@ -110,9 +110,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	if !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
-
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
-	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, vault.AppDBSecretPath, log)
+	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
 	appdbOpts := construct.AppDBStatefulSetOptions{}
 	appdbOpts.CertHash = certHash
@@ -251,7 +254,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
-		path := fmt.Sprintf("%s/%s/%s", vault.AppDBSecretPath, om.Namespace, secretName)
+		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretPath(), om.Namespace, secretName)
 		secretData, err = r.VaultClient.ReadSecretBytes(path)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("can't read current certificate secret from vault: %s", err)), corev1.SecretTypeOpaque
@@ -279,7 +282,11 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 			return workflow.Failed(fmt.Sprintf("certificate for appdb is not valid: %s", err)), corev1.SecretTypeOpaque
 		}
 
-		secretHash = enterprisepem.ReadHashFromSecret(r.SecretClient, om.Namespace, secretName, vault.AppDBSecretPath, log)
+		var appdbSecretPath string
+		if r.VaultClient != nil {
+			appdbSecretPath = r.VaultClient.AppDBSecretPath()
+		}
+		secretHash = enterprisepem.ReadHashFromSecret(r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
 		err = certs.CreatePEMSecretClient(r.SecretClient, kube.ObjectKey(om.Namespace, secretName), map[string]string{secretHash: data}, om.GetOwnerReferences(), certs.AppDB, log)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("can't create concatenated PEM certificate: %s", err)), corev1.SecretTypeOpaque
@@ -327,7 +334,11 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 		fcVersion = *rs.FeatureCompatibilityVersion
 	}
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
-	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, vault.AppDBSecretPath, log)
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
 	return automationconfig.NewBuilder().
 		SetTopology(automationconfig.ReplicaSetTopology).
@@ -553,8 +564,11 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbAgentApiKey(opsManager *omv1.Mongo
 	if err != nil {
 		return fmt.Errorf("error reading secret %s: %s", kube.ObjectKey(opsManager.Namespace, agents.ApiKeySecretName(conn.GroupID())), err)
 	}
-
-	if err := agents.EnsureAgentKeySecretExists(r.SecretClient, conn, opsManager.Namespace, agentKeyFromSecret, conn.GroupID(), vault.AppDBSecretPath, log); err != nil {
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+	if err := agents.EnsureAgentKeySecretExists(r.SecretClient, conn, opsManager.Namespace, agentKeyFromSecret, conn.GroupID(), appdbSecretPath, log); err != nil {
 		return fmt.Errorf("error ensuring agent key secret exists: %s", err)
 	}
 

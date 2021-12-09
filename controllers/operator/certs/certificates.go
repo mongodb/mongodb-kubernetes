@@ -68,11 +68,17 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 
 	switch podType {
 	case Database:
-		path = vault.DatabaseSecretPath
+		if secretClient.VaultClient != nil {
+			path = secretClient.VaultClient.DatabaseSecretPath()
+		}
 	case OpsManager:
-		path = vault.OpsManagerSecretPath
+		if secretClient.VaultClient != nil {
+			path = secretClient.VaultClient.OpsManagerSecretPath()
+		}
 	case AppDB:
-		path = vault.AppDBSecretPath
+		if secretClient.VaultClient != nil {
+			path = secretClient.VaultClient.AppDBSecretPath()
+		}
 	default:
 		return fmt.Errorf("unexpected pod type got: %s", podType)
 	}
@@ -114,13 +120,16 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClien
 	var err error
 	var secretData map[string][]byte
 	var s corev1.Secret
+	var databaseSecretPath string
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
-		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, opts.Namespace, secretName))
+		databaseSecretPath = secretsClient.VaultClient.DatabaseSecretPath()
+		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", databaseSecretPath, opts.Namespace, secretName))
 		if err != nil {
 			return err, false
 		}
+
 	} else {
 		s, err = secretsClient.KubeClient.GetSecret(kube.ObjectKey(opts.Namespace, secretName))
 		if err != nil {
@@ -144,7 +153,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClien
 			return err, true
 		}
 
-		secretHash = enterprisepem.ReadHashFromSecret(secretsClient, opts.Namespace, secretName, vault.DatabaseSecretPath, log)
+		secretHash = enterprisepem.ReadHashFromSecret(secretsClient, opts.Namespace, secretName, databaseSecretPath, log)
 		return CreatePEMSecretClient(secretsClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database, log), true
 
 	}
@@ -263,7 +272,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretsClient secrets.
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
-		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", vault.DatabaseSecretPath, secret.Namespace, secret.Name))
+		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretsClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 		if err != nil {
 			return err, false
 		}
