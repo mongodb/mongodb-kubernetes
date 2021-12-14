@@ -42,8 +42,8 @@ daily at the same time, 00:00 UTC, and tagged as such:
 
 To install a specific build we will use `helm` with a command like:
 
-    helm install mongodb-enterprise-operator public/helm_chart \
-         --values public/helm_chart/values.yaml \
+    helm install mongodb-enterprise-operator helm_chart \
+         --values helm_chart/values.yaml \
          --set namespace=default \
          --set build=-b20210205T000000Z
 

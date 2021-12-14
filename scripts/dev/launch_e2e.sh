@@ -82,7 +82,7 @@ if [[ -n "${local:-}" ]]; then
 
     CENTRAL_CLUSTER="${central_cluster:-}" \
     MEMBER_CLUSTERS="${member_clusters:-}" \
-    HELM_CHART_DIR="public/helm_chart" \
+    HELM_CHART_DIR="helm_chart" \
     pytest -m "${test}" docker/mongodb-enterprise-tests --disable-pytest-warnings
 
 else
@@ -95,7 +95,7 @@ else
     fi
     # e2e test application doesn't update CRDs if they exist (as Helm 3 doesn't do this anymore)
     # so we need to make sure the CRDs are upgraded when run locally
-    kubectl --context "${current_context}" replace -f "public/helm_chart/crds" || kubectl apply -f "public/helm_chart/crds"
+    kubectl --context "${current_context}" replace -f "helm_chart/crds" || kubectl apply -f "helm_chart/crds"
 
     TASK_NAME=${test} \
     WAIT_TIMEOUT="4m" \

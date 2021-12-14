@@ -236,7 +236,7 @@ def build_tests_image(build_configuration: BuildConfiguration):
     image_name = "test"
 
     # helm directory needs to be copied over to the tests docker context.
-    helm_src = "public/helm_chart"
+    helm_src = "helm_chart"
     helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
 
     shutil.rmtree(helm_dest, ignore_errors=True)

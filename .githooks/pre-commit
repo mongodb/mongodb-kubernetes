@@ -23,8 +23,8 @@ function update_values_yaml_files() {
     scripts/evergreen/release/update_helm_values_files.py
 
     # commit any changes we made
-    git add public/helm_chart/values.yaml
-    git add public/helm_chart/values-openshift.yaml
+    git add helm_chart/values.yaml
+    git add helm_chart/values-openshift.yaml
 
     # these can change if the version of community operator is different
     git add go.mod

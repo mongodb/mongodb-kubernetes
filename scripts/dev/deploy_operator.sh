@@ -95,7 +95,7 @@ helm_params=(
 # setting an empty watched resource to avoid endpoint overriding - this allows to use debug
 [[ -n "${DEBUG-}" ]] && helm_params+=("--set" "operator.watchedResources=")
 
-chart_path="public/helm_chart"
+chart_path="helm_chart"
 
 echo "Deploying Operator, helm arguments:" "${helm_params[@]}"
 kubectl create  -f "${chart_path}/crds" 2>/dev/null || kubectl replace -f "${chart_path}/crds"

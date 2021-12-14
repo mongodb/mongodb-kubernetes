@@ -44,7 +44,7 @@ Use the following commands to drop/deploy Operator to Minikube:
 ``` bash
 helm del --purge mongodb-enterprise
 helm install --tiller-namespace "tiller" --namespace "mongodb" --name mongodb-enterprise \
-    public/helm_chart -f public/helm_chart/values.yaml \
+    helm_chart -f helm_chart/values.yaml \
     --set operator.version="latest" \
     --set registry.pullPolicy="Never"
 ``` 

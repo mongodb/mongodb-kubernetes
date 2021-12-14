@@ -71,7 +71,7 @@ ensure_ops_manager_k8s() {
         # set the context to the ops manager namespace so the templated file will contain the correct release namespace.
         kubectl config set-context "$(kubectl config current-context)" "--namespace=${ops_manager_namespace}"
         echo "Installing the operator in the OpsManager namespace"
-        helm template -f public/helm_chart/values.yaml \
+        helm template -f helm_chart/values.yaml \
             --set namespace="${ops_manager_namespace}" \
             --set registry.operator="${ecr_registry}/dev/ubuntu" \
             --set operator.version="${version_id}" \
@@ -80,7 +80,7 @@ ensure_ops_manager_k8s() {
             --set registry.initOpsManager="${ecr_registry}/dev/ubuntu" \
             --set initOpsManager.version="${version_id}" \
             --set initAppDb.version="${version_id}" \
-            public/helm_chart > operator.yaml
+            helm_chart > operator.yaml
         PROJECT_NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
 
         # revert after the file is generated

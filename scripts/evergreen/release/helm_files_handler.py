@@ -4,10 +4,10 @@ import ruamel.yaml
 def update_all_helm_values_files(chart_key: str, new_release: str):
     """ Updates all values.yaml files setting chart_key.'version' field to new_release """
     update_single_helm_values_file(
-        "public/helm_chart/values.yaml", key=chart_key, new_release=new_release
+        "helm_chart/values.yaml", key=chart_key, new_release=new_release
     )
     update_single_helm_values_file(
-        "public/helm_chart/values-openshift.yaml",
+        "helm_chart/values-openshift.yaml",
         key=chart_key,
         new_release=new_release,
     )

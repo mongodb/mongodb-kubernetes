@@ -89,7 +89,7 @@ echo "Installing/Upgrading all CRDs"
 # Both replace and apply are required. If there are no CRDs on this cluster
 # (cluster is empty or fresh install), the `kubectl replace` command will fail,
 # so we apply the CRDs. The next run the `kubectl replace` will succeed.
-kubectl replace -f public/helm_chart/crds || kubectl apply -f public/helm_chart/crds
+kubectl replace -f helm_chart/crds || kubectl apply -f helm_chart/crds
 
 if [[ "${kube_environment_name}" = "multi" ]]; then
     kubectl apply --context "${central_cluster}" -f config/crd/bases/mongodb.com_mongodbmulti.yaml
