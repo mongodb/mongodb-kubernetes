@@ -59,10 +59,15 @@ if [[ -n "${local:-}" ]]; then
         mkdir -p "${MULTI_CLUSTER_CONFIG_DIR}"
 
         # escape "." sign from cluster names
+        # shellcheck disable=SC2001,SC2086
         central_cluster_escaped=$(echo $central_cluster | sed 's/\./\\./g')
+        # shellcheck disable=SC2206
         member_cluster_list=($member_clusters)
-        member_cluster_1_escaped=$(echo  ${member_cluster_list[0]} | sed 's/\./\\./g') 
+        # shellcheck disable=SC2001,SC2086
+        member_cluster_1_escaped=$(echo  ${member_cluster_list[0]} | sed 's/\./\\./g')
+        # shellcheck disable=SC2001,SC2086
         member_cluster_2_escaped=$(echo  ${member_cluster_list[1]} | sed 's/\./\\./g')
+        # shellcheck disable=SC2001,SC2086
         member_cluster_3_escaped=$(echo  ${member_cluster_list[2]} | sed 's/\./\\./g')
 
         kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.central_cluster }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"

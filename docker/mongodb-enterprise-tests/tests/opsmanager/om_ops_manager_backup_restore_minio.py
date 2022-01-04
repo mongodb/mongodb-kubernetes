@@ -1,0 +1,451 @@
+import datetime
+import os
+import time
+from typing import Optional, List
+
+from kubetester import MongoDB
+from kubetester.certs import create_ops_manager_tls_certs, create_mongodb_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.mongodb import Phase
+from kubetester.mongotester import with_tls
+from kubetester.omtester import OMTester
+from kubetester.opsmanager import MongoDBOpsManager
+from pymongo.errors import ServerSelectionTimeoutError
+from pytest import fixture, mark
+
+from tests.opsmanager.conftest import ensure_ent_version
+from tests.opsmanager.om_ops_manager_backup import (
+    S3_SECRET_NAME,
+)
+from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
+    FIRST_PROJECT_RS_NAME,
+    SECOND_PROJECT_RS_NAME,
+)
+
+"""
+Please read ops-manager-kubernetes/docker/mongodb-enterprise-tests/tests/docs/MINIO.md for instructions on how
+to run this test. It is not yet automated.
+"""
+
+TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
+PLACEHOLDER = "REPLACE ME"
+OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
+
+
+@fixture(scope="module")
+def appdb_certs(namespace: str, issuer: str) -> str:
+    create_mongodb_tls_certs(
+        issuer, namespace, "om-backup-db", "appdb-om-backup-db-cert"
+    )
+    return "appdb"
+
+
+@fixture(scope="module")
+def ops_manager_certs(namespace: str, issuer: str, tenant_domains: List[str]):
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-backup", additional_domains=tenant_domains
+    )
+
+
+@fixture(scope="module")
+def first_project_certs(namespace: str, issuer: str):
+    create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        FIRST_PROJECT_RS_NAME,
+        f"first-project-{FIRST_PROJECT_RS_NAME}-cert",
+    )
+    return "first-project"
+
+
+@fixture(scope="module")
+def second_project_certs(namespace: str, issuer: str):
+    create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        SECOND_PROJECT_RS_NAME,
+        f"second-project-{SECOND_PROJECT_RS_NAME}-cert",
+    )
+    return "second-project"
+
+
+@fixture(scope="module")
+def tenant_name() -> str:
+    return "tenant-0"
+
+
+@fixture(scope="module")
+def tenant_domains() -> List[str]:
+    return [
+        "tenant-0-pool-0-{0...3}.tenant-0-hl.tenant-0.svc.cluster.local",
+        "minio.tenant-0.svc.cluster.local",
+        "minio.tenant-0",
+        "minio.tenant-0.svc",
+        ".tenant-0-hl.tenant-0.svc.cluster.local",
+        ".tenant-0.svc.cluster.local",
+    ]
+
+
+@fixture(scope="module")
+def s3_bucket_endpoint(tenant_name: str) -> str:
+    return f"minio.{tenant_name}.svc.cluster.local"
+
+
+@fixture(scope="module")
+def oplog_s3_bucket_name() -> str:
+    return "oplog-s3-bucket"
+
+
+@fixture(scope="module")
+def s3_store_bucket_name() -> str:
+    return "s3-store-bucket"
+
+
+@fixture(scope="module")
+def minio_s3_access_key() -> str:
+    return PLACEHOLDER
+
+
+@fixture(scope="module")
+def minio_s3_secret_key() -> str:
+    return PLACEHOLDER
+
+
+@fixture(scope="module")
+def ops_manager(
+    namespace: str,
+    issuer_ca_configmap: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
+    ops_manager_certs: str,
+    appdb_certs: str,
+    s3_bucket_endpoint: str,
+    s3_store_bucket_name: str,
+    minio_s3_access_key: str,
+    minio_s3_secret_key: str,
+    issuer_ca_filepath: str,
+) -> MongoDBOpsManager:
+
+    if minio_s3_secret_key == PLACEHOLDER or minio_s3_access_key == PLACEHOLDER:
+        raise ValueError(
+            "You must manually update the fixtures minio_s3_secret_key and minio_s3_access_key to return real values!"
+        )
+
+    # ensure the requests library will use this CA when communicating with Ops Manager
+    os.environ["REQUESTS_CA_BUNDLE"] = issuer_ca_filepath
+
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
+    )
+
+    # these values come from the tenant creation in minio.
+    KubernetesTester.create_secret(
+        namespace,
+        S3_SECRET_NAME,
+        {
+            "accessKey": minio_s3_access_key,
+            "secretKey": minio_s3_secret_key,
+        },
+    )
+
+    KubernetesTester.create_secret(
+        namespace,
+        OPLOG_SECRET_NAME,
+        {
+            "accessKey": minio_s3_access_key,
+            "secretKey": minio_s3_secret_key,
+        },
+    )
+
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
+    resource.allow_mdb_rc_versions()
+    resource["spec"]["configuration"]["mms.preflight.run"] = "false"
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_store_bucket_name
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_bucket_endpoint
+    resource["spec"]["security"] = {
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+    }
+    resource["spec"]["applicationDatabase"]["security"] = {
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
+    }
+    return resource.create()
+
+
+@fixture(scope="module")
+def mdb_latest(
+    ops_manager: MongoDBOpsManager,
+    namespace,
+    custom_mdb_version: str,
+    issuer_ca_configmap: str,
+    first_project_certs: str,
+):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=FIRST_PROJECT_RS_NAME,
+    ).configure(ops_manager, "mdbLatestProject")
+    # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
+    resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+    resource.configure_backup(mode="enabled")
+    resource.configure_custom_tls(issuer_ca_configmap, first_project_certs)
+    return resource.create()
+
+
+@fixture(scope="module")
+def mdb_prev(
+    ops_manager: MongoDBOpsManager,
+    namespace,
+    custom_mdb_prev_version: str,
+    issuer_ca_configmap: str,
+    second_project_certs: str,
+):
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-for-om.yaml"),
+        namespace=namespace,
+        name=SECOND_PROJECT_RS_NAME,
+    ).configure(ops_manager, "mdbPreviousProject")
+    resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
+    resource.configure_backup(mode="enabled")
+    resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
+    return resource.create()
+
+
+@fixture(scope="module")
+def mdb_prev_test_collection(mdb_prev, ca_path: str):
+    tester = mdb_prev.tester()
+    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+
+    collection = tester.client["testdb"]
+    return collection["testcollection"]
+
+
+@fixture(scope="module")
+def mdb_latest_test_collection(mdb_latest, ca_path: str):
+    tester = mdb_latest.tester()
+    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+
+    collection = tester.client["testdb"]
+    return collection["testcollection"]
+
+
+@fixture(scope="module")
+def mdb_prev_project(ops_manager: MongoDBOpsManager) -> OMTester:
+    return ops_manager.get_om_tester(project_name="mdbPreviousProject")
+
+
+@fixture(scope="module")
+def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
+    return ops_manager.get_om_tester(project_name="mdbLatestProject")
+
+
+@mark.e2e_om_ops_manager_backup_restore_minio
+class TestOpsManagerCreation:
+    def test_create_om(self, ops_manager: MongoDBOpsManager):
+        """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Pending,
+            msg_regexp="Oplog Store configuration is required for backup",
+            timeout=300,
+        )
+
+    def test_s3_oplog_created(
+        self,
+        ops_manager: MongoDBOpsManager,
+        oplog_s3_bucket_name: str,
+        s3_bucket_endpoint: str,
+    ):
+        ops_manager.load()
+
+        ops_manager["spec"]["backup"]["s3OpLogStores"] = [
+            {
+                "name": "s3Store2",
+                "s3SecretRef": {
+                    "name": OPLOG_SECRET_NAME,
+                },
+                "pathStyleAccessEnabled": True,
+                "s3BucketEndpoint": s3_bucket_endpoint,
+                "s3BucketName": oplog_s3_bucket_name,
+            }
+        ]
+
+        ops_manager.update()
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running,
+            timeout=500,
+            ignore_errors=True,
+        )
+
+    def test_add_custom_ca_to_project_configmap(
+        self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
+    ):
+        projects = [
+            ops_manager.get_or_create_mongodb_connection_config_map(
+                FIRST_PROJECT_RS_NAME, "firstProject"
+            ),
+            ops_manager.get_or_create_mongodb_connection_config_map(
+                SECOND_PROJECT_RS_NAME, "secondProject"
+            ),
+        ]
+
+        data = {
+            "sslMMSCAConfigMap": issuer_ca_plus,
+        }
+
+        for project in projects:
+            KubernetesTester.update_configmap(namespace, project, data)
+
+        # Give a few seconds for the operator to catch the changes on
+        # the project ConfigMaps
+        time.sleep(10)
+
+
+@mark.e2e_om_ops_manager_backup_restore_minio
+class TestBackupForMongodb:
+    """This part ensures that backup for the client works correctly and the snapshot is created.
+    Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
+
+    def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        mdb_latest.assert_reaches_phase(Phase.Running)
+        mdb_prev.assert_reaches_phase(Phase.Running)
+
+    def test_add_test_data(self, mdb_prev_test_collection, mdb_latest_test_collection):
+        mdb_prev_test_collection.insert_one(TEST_DATA)
+        mdb_latest_test_collection.insert_one(TEST_DATA)
+
+    def test_mdbs_backed_up(
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+    ):
+        # wait until a first snapshot is ready for both
+        mdb_prev_project.wait_until_backup_snapshots_are_ready(expected_count=1)
+        mdb_latest_project.wait_until_backup_snapshots_are_ready(expected_count=1)
+
+
+@mark.e2e_om_ops_manager_backup_restore_minio
+class TestBackupRestorePIT:
+    """This part checks the work of PIT restore."""
+
+    def test_mdbs_change_data(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
+        """Changes the MDB documents to check that restore rollbacks this change later.
+        Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
+        [snapshot_created <= PIT <= changes_applied]"""
+        now_millis = time_to_millis(datetime.datetime.now())
+        print("\nCurrent time (millis): {}".format(now_millis))
+        time.sleep(30)
+
+        mdb_prev_test_collection.insert_one({"foo": "bar"})
+        mdb_latest_test_collection.insert_one({"foo": "bar"})
+
+    def test_mdbs_pit_restore(
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+    ):
+        now_millis = time_to_millis(datetime.datetime.now())
+        print("\nCurrent time (millis): {}".format(now_millis))
+
+        pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
+        pit_millis = time_to_millis(pit_datetme)
+        print(
+            "Restoring back to the moment 15 seconds ago (millis): {}".format(
+                pit_millis
+            )
+        )
+
+        mdb_prev_project.create_restore_job_pit(pit_millis)
+        mdb_latest_project.create_restore_job_pit(pit_millis)
+
+        # Note, that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
+        # right away
+
+    def test_data_got_restored(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
+        """The data in the db has been restored to the initial state. Note, that this happens eventually - so
+        we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a
+        specific snapshot (see the previous class) where the FINISHED restore job means the data has been restored.
+        For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually"""
+        print("\nWaiting until the db data is restored")
+        retries = 120
+        while retries > 0:
+            try:
+                records = list(mdb_prev_test_collection.find())
+                assert records == [TEST_DATA]
+
+                records = list(mdb_latest_test_collection.find())
+                assert records == [TEST_DATA]
+                return
+            except AssertionError:
+                pass
+            except ServerSelectionTimeoutError:
+                # The mongodb driver complains with `No replica set members
+                # match selector "Primary()",` This could be related with DNS
+                # not being functional, or the database going through a
+                # re-election process. Let's give it another chance to succeed.
+                pass
+            except Exception as e:
+                # We ignore Exception as there is usually a blip in connection (backup restore
+                # results in reelection or whatever)
+                # "Connection reset by peer" or "not master and slaveOk=false"
+                print("Exception happened while waiting for db data restore: ", e)
+                # this is definitely the sign of a problem - no need continuing as each connection times out
+                # after many minutes
+                if "Connection refused" in str(e):
+                    raise e
+            retries -= 1
+            time.sleep(1)
+
+        print(
+            "\nExisting data in previous MDB: {}".format(
+                list(mdb_prev_test_collection.find())
+            )
+        )
+        print(
+            "Existing data in latest MDB: {}".format(
+                list(mdb_latest_test_collection.find())
+            )
+        )
+
+        raise AssertionError("The data hasn't been restored in 2 minutes!")
+
+
+@mark.e2e_om_ops_manager_backup_restore_minio
+class TestBackupRestoreFromSnapshot:
+    """This part tests the restore to the snapshot built once the backup has been enabled."""
+
+    def test_mdbs_change_data(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
+        """Changes the MDB documents to check that restore rollbacks this change later"""
+        mdb_prev_test_collection.delete_many({})
+        mdb_prev_test_collection.insert_one({"foo": "bar"})
+
+        mdb_latest_test_collection.delete_many({})
+        mdb_latest_test_collection.insert_one({"foo": "bar"})
+
+    def test_mdbs_automated_restore(
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+    ):
+        restore_prev_id = mdb_prev_project.create_restore_job_snapshot()
+        mdb_prev_project.wait_until_restore_job_is_ready(restore_prev_id)
+
+        restore_latest_id = mdb_latest_project.create_restore_job_snapshot()
+        mdb_latest_project.wait_until_restore_job_is_ready(restore_latest_id)
+
+    def test_data_got_restored(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
+        """The data in the db has been restored to the initial"""
+        records = list(mdb_prev_test_collection.find())
+        assert records == [TEST_DATA]
+
+        records = list(mdb_latest_test_collection.find())
+        assert records == [TEST_DATA]
+
+
+def time_to_millis(date_time) -> int:
+    """https://stackoverflow.com/a/11111177/614239"""
+    epoch = datetime.datetime.utcfromtimestamp(0)
+    pit_millis = (date_time - epoch).total_seconds() * 1000
+    return pit_millis

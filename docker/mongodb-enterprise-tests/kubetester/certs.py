@@ -194,6 +194,7 @@ def create_ops_manager_tls_certs(
     om_name: str,
     secret_name: Optional[str] = None,
     secret_backend: Optional[str] = None,
+    additional_domains: Optional[List[str]] = None,
 ) -> str:
 
     certs_secret_name = "certs-for-ops-manager"
@@ -202,7 +203,11 @@ def create_ops_manager_tls_certs(
         certs_secret_name = secret_name
 
     domain = f"{om_name}-svc.{namespace}.svc.cluster.local"
-    spec = {"dnsNames": [domain]}
+    hostnames = [domain]
+    if additional_domains:
+        hostnames += additional_domains
+
+    spec = {"dnsNames": hostnames}
 
     return generate_cert(
         namespace=namespace,
