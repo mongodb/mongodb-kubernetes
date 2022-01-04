@@ -11,10 +11,13 @@ from typing import Dict, List, Optional
 import pytest
 import requests
 import semver
+import pymongo
+import tempfile
 
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import build_auth
 from kubetester.mongotester import BackgroundHealthChecker
+from kubetester.om_queryable_backups import OMQueryableBackup
 
 from .kubetester import get_env_var_or_fail
 
@@ -222,18 +225,18 @@ class OMTester(object):
 
         assert response.status_code == requests.status_codes.codes.OK
 
-    def assert_daemon_enabled(self, host_name: str, head_db_path: str):
+    def assert_daemon_enabled(self, host_fqdn: str, head_db_path: str):
         encoded_head_db_path = urllib.parse.quote(head_db_path, safe="")
         response = self.om_request(
             "get",
-            f"/admin/backup/daemon/configs/{host_name}/{encoded_head_db_path}",
+            f"/admin/backup/daemon/configs/{host_fqdn}/{encoded_head_db_path}",
         )
 
         assert response.status_code == requests.status_codes.codes.OK
         daemon_config = response.json()
         assert daemon_config["machine"] == {
             "headRootDirectory": head_db_path,
-            "machine": host_name,
+            "machine": host_fqdn,
         }
         assert daemon_config["assignmentEnabled"]
         assert daemon_config["configured"]
@@ -479,6 +482,28 @@ class OMTester(object):
                 "targetClusterId": cluster_id,
             },
         }
+
+    def query_backup(self, db_name: str, collection_name: str, timeout: int):
+        """Query the first backup snapshot and return all records from specified collection."""
+        qb = OMQueryableBackup(self.context.base_url, self.context.project_id)
+        connParams = qb.connection_params(timeout)
+
+        caPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
+        caPem.write(connParams.ca_pem)
+        caPem.flush()
+
+        clientPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
+        clientPem.write(connParams.client_pem)
+        clientPem.flush()
+
+        dbClient = pymongo.MongoClient(
+            host=connParams.host,
+            tls=True,
+            tlsCAFile=caPem.name,
+            tlsCertificateKeyFile=clientPem.name,
+        )[db_name]
+        collection = dbClient[collection_name]
+        return list(collection.find())
 
 
 class OMBackgroundTester(BackgroundHealthChecker):

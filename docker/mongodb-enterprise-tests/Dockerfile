@@ -25,7 +25,8 @@ RUN apt-get -qq update \
         curl \
         libldap2-dev \
         libsasl2-dev \
-        git
+        git \
+        openssl
 
 ENV HELM_NAME "helm-v3.6.3-linux-amd64.tar.gz"
 # install Helm

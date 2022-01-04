@@ -4,11 +4,13 @@ import (
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
@@ -36,6 +38,17 @@ func BackupDaemonStatefulSet(secretGetUpdateCreator secrets.SecretClient, opsMan
 	if err := opts.updateHTTPSCertSecret(secretGetUpdateCreator, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
+
+	secretName := opsManager.Spec.Backup.QueryableBackupSecretRef.Name
+	opts.QueryableBackupPemSecretName = secretName
+	if secretName != "" {
+		// if the secret is specified, we must have a queryable.pem entry.
+		_, err := secret.ReadKey(secretGetUpdateCreator, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
+		if err != nil {
+			return appsv1.StatefulSet{}, err
+		}
+	}
+
 	backupSts := statefulset.New(backupDaemonStatefulSetFunc(opts))
 	var err error
 	if opts.StatefulSetSpecOverride != nil {

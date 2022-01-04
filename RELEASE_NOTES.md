@@ -1,8 +1,23 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.15.0
+
+## MongoDBOpsManager Resource
+
+* Changes
+  * A new field has been added: `spec.backup.queryableBackupSecretRef`. The secrets referenced by this field contains the certificates used to enable [Queryable Backups](https://docs.opsmanager.mongodb.com/current/tutorial/query-backup/) feature.
+  
+*All the images can be found in:*
+
+https://quay.io/repository/mongodb (ubuntu-based)
+
+https://connect.redhat.com/ (rhel-based)
+
+
+<!-- Past Releases -->
+# MongoDB Enterprise Kubernetes Operator 1.14.0
 
 # MongoDB Enterprise Kubernetes Operator 1.13.1
-
 
 ## MongoDB Resource
 * Changes:
@@ -18,15 +33,8 @@
   which prevented backups from working when Ops Manager was configured in hybrid mode and used a custom CA.
 * Changes
   * Added support for configuring S3 Oplog Stores using the `spec.backup.s3OpLogStores` field.
-  
-*All the images can be found in:*
-
-https://quay.io/repository/mongodb (ubuntu-based)
-
-https://connect.redhat.com/ (rhel-based)
 
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.13.0
 
 ## Kubernetes Operator

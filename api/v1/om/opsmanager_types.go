@@ -224,6 +224,11 @@ type MongoDBOpsManagerBackup struct {
 	S3Configs                []S3Config                     `json:"s3Stores,omitempty"`
 	FileSystemStoreConfigs   []FileSystemStoreConfig        `json:"fileSystemStores,omitempty"`
 	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+
+	// QueryableBackupSecretRef references the secret which contains the pem file which is used
+	// for queryable backup. This will be mounted into the Ops Manager pod.
+	// +optional
+	QueryableBackupSecretRef SecretRef `json:"queryableBackupSecretRef,omitempty"`
 }
 
 type MongoDBOpsManagerStatus struct {
@@ -615,6 +620,11 @@ func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
 func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
 	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
 	return podnames
+}
+
+func (m MongoDBOpsManager) BackupDaemonFQDNs() []string {
+	hostnames, _ := dns.GetDNSNames(m.BackupStatefulSetName(), m.BackupServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
+	return hostnames
 }
 
 func (m MongoDBOpsManager) NamespacedName() types.NamespacedName {

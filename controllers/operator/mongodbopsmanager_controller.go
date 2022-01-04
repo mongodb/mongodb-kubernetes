@@ -763,6 +763,10 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsMan
 
 	// feature controls will always be enabled
 	setConfigProperty(opsManager, util.MmsFeatureControls, "true", log)
+
+	if opsManager.Spec.Backup.QueryableBackupSecretRef.Name != "" {
+		setConfigProperty(opsManager, util.BrsQueryablePem, "/certs/queryable.pem", log)
+	}
 }
 
 // createBackupDaemonStatefulset creates a StatefulSet for backup daemon and waits shortly until it's started
@@ -1201,7 +1205,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 	}
 
 	// 1. Enabling Daemon Config if necessary
-	backupHostNames := opsManager.BackupDaemonHostNames()
+	backupHostNames := opsManager.BackupDaemonFQDNs()
 	for _, hostName := range backupHostNames {
 		_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
 		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {

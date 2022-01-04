@@ -557,6 +557,16 @@ spec:
                       - name
                       type: object
                     type: array
+                  queryableBackupSecretRef:
+                    description: QueryableBackupSecretRef references the secret which
+                      contains the pem file which is used for queryable backup. This
+                      will be mounted into the Ops Manager pod.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
                   s3OpLogStores:
                     description: S3OplogStoreConfigs describes the list of s3 oplog
                       store configs used for backup.

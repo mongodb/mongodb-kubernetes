@@ -21,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -37,23 +38,24 @@ const (
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
 type OpsManagerStatefulSetOptions struct {
-	OwnerReference            []metav1.OwnerReference
-	HTTPSCertSecretName       string
-	CertHash                  string
-	AppDBTlsCAConfigMapName   string
-	AppDBConnectionSecretName string
-	AppDBConnectionStringHash string
-	EnvVars                   []corev1.EnvVar
-	Version                   string
-	Name                      string
-	Replicas                  int
-	ServiceName               string
-	Namespace                 string
-	OwnerName                 string
-	ServicePort               int
-	OpsManagerCaName          string
-	StatefulSetSpecOverride   *appsv1.StatefulSetSpec
-	VaultConfig               vault.VaultConfiguration
+	OwnerReference               []metav1.OwnerReference
+	HTTPSCertSecretName          string
+	CertHash                     string
+	AppDBTlsCAConfigMapName      string
+	AppDBConnectionSecretName    string
+	AppDBConnectionStringHash    string
+	EnvVars                      []corev1.EnvVar
+	Version                      string
+	Name                         string
+	Replicas                     int
+	ServiceName                  string
+	Namespace                    string
+	OwnerName                    string
+	ServicePort                  int
+	OpsManagerCaName             string
+	QueryableBackupPemSecretName string
+	StatefulSetSpecOverride      *appsv1.StatefulSetSpec
+	VaultConfig                  vault.VaultConfiguration
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
 }
@@ -131,6 +133,17 @@ func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager 
 	if err := opts.updateHTTPSCertSecret(secretGetterCreator, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
+
+	secretName := opsManager.Spec.Backup.QueryableBackupSecretRef.Name
+	opts.QueryableBackupPemSecretName = secretName
+	if secretName != "" {
+		// if the secret is specified, we must have a queryable.pem entry.
+		_, err := secret.ReadKey(secretGetterCreator, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
+		if err != nil {
+			return appsv1.StatefulSet{}, err
+		}
+	}
+
 	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
 	var err error
 	if opts.StatefulSetSpecOverride != nil {
@@ -244,6 +257,16 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 		}
 		omVolumeMounts = append(omVolumeMounts, genKeyVolumeMount)
 		omVolumes = append(omVolumes, genKeyVolume)
+	}
+
+	if opts.QueryableBackupPemSecretName != "" {
+		queryablePemVolume := statefulset.CreateVolumeFromSecret("queryable-pem", opts.QueryableBackupPemSecretName)
+		omVolumeMounts = append(omVolumeMounts, corev1.VolumeMount{
+			Name:      queryablePemVolume.Name,
+			ReadOnly:  true,
+			MountPath: "/certs/",
+		})
+		omVolumes = append(omVolumes, queryablePemVolume)
 	}
 
 	omHTTPSVolumeFunc := podtemplatespec.NOOP()

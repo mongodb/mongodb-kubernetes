@@ -168,7 +168,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return [
             client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
             for podname in get_pods(
-                self.name + "-backup-daemon-{}", self.get_backup_members_count()
+                self.backup_daemon_name() + "-{}", self.get_backup_members_count()
             )
         ]
 
@@ -447,10 +447,19 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def backup_daemon_name(self) -> str:
         return self.name + "-backup-daemon"
 
+    def backup_daemon_svc_name(self) -> str:
+        return self.backup_daemon_name() + "-svc"
+
     def backup_daemon_pods_names(self) -> List[str]:
         return [
-            self.name + "-backup-daemon-" + str(item)
+            self.backup_daemon_name() + "-" + str(item)
             for item in range(self.get_backup_members_count())
+        ]
+
+    def backup_daemon_pods_fqdns(self) -> List[str]:
+        return [
+            f"{item}.{self.backup_daemon_svc_name()}.{self.namespace}.svc.cluster.local"
+            for item in self.backup_daemon_pods_names()
         ]
 
     def svc_name(self) -> str:

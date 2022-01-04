@@ -222,8 +222,8 @@ class TestOpsManagerCreation:
     def test_om(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        for pod_name in ops_manager.backup_daemon_pods_names():
-            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
+        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+            om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
         # No oplog stores were created in Ops Manager by this time
         om_tester.assert_oplog_stores([])
         om_tester.assert_s3_stores([])
@@ -300,8 +300,8 @@ class TestBackupDatabasesAdded:
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
 
-        for pod_name in ops_manager.backup_daemon_pods_names():
-            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
+        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+            om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
         # oplog store has authentication enabled
         om_tester.assert_oplog_stores(

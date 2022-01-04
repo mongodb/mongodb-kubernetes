@@ -203,6 +203,7 @@ const (
 	MmsHeaderContainVersion = "mms.serviceVersionApiHeader.enabled"
 	MmsVersionsDirectory    = "automation.versions.directory"
 	MmsPEMKeyFile           = "mms.https.PEMKeyFile"
+	BrsQueryablePem         = "brs.queryable.pem"
 
 	// SecretVolumeMountPath defines where in the Pod will be the secrets
 	// object mounted.

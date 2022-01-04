@@ -333,8 +333,8 @@ class TestBackupDatabasesAdded:
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
 
-        for pod_name in ops_manager.backup_daemon_pods_names():
-            om_tester.assert_daemon_enabled(pod_name, HEAD_PATH)
+        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+            om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
         om_tester.assert_block_stores(
             [new_om_data_store(blockstore_replica_set, "blockStore1")]
