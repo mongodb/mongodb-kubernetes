@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
@@ -1570,7 +1572,12 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 		Name:     config.S3BucketName,
 	}
 
-	return backup.NewS3Config(om, config.Name, uri, bucket, s3Creds), workflow.OK()
+	customCAOpts, err := r.readCustomCAFilePathsAndContents(om)
+	if err != nil {
+		return backup.S3Config{}, workflow.Failed(err.Error())
+	}
+
+	return backup.NewS3Config(om, config.Name, uri, customCAOpts, bucket, s3Creds), workflow.OK()
 }
 
 // buildMongoDbOMS3Config creates a backup.S3Config which is configured to use a referenced
@@ -1606,7 +1613,30 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		Name:     config.S3BucketName,
 	}
 
-	return backup.NewS3Config(opsManager, config.Name, uri, bucket, s3Creds), workflow.OK()
+	customCAOpts, err := r.readCustomCAFilePathsAndContents(opsManager)
+	if err != nil {
+		return backup.S3Config{}, workflow.Failed(err.Error())
+	}
+
+	return backup.NewS3Config(opsManager, config.Name, uri, customCAOpts, bucket, s3Creds), workflow.OK()
+}
+
+// readCustomCAFilePathsAndContents returns the filepath and contents of the custom CA which is used to configure
+// the S3Store.
+func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(opsManager omv1.MongoDBOpsManager) (backup.S3CustomCertificate, error) {
+	if opsManager.Spec.GetOpsManagerCA() != "" {
+		filePath := util.MmsCaFileDirInContainer + "ca-pem"
+		cmContents, err := configmap.ReadKey(r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetOpsManagerCA()))
+		if err != nil {
+			return backup.S3CustomCertificate{}, err
+
+		}
+		return backup.S3CustomCertificate{
+			Filename:   filePath,
+			CertString: cmContents,
+		}, nil
+	}
+	return backup.S3CustomCertificate{}, nil
 }
 
 // buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to

@@ -26,6 +26,7 @@ TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 
+
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
@@ -40,10 +41,10 @@ def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 @fixture(scope="module")
 def ops_manager(
-        namespace: str,
-        s3_bucket: str,
-        custom_version: Optional[str],
-        custom_appdb_version: str,
+    namespace: str,
+    s3_bucket: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     # TODO we need to use 4.2.13 OM in order to check PIT restore - so far the test is run in OM 4.4+ only
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
@@ -55,7 +56,6 @@ def ops_manager(
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     return resource.create()
-
 
 
 @fixture(scope="module")
@@ -116,7 +116,9 @@ class TestOpsManagerCreation:
             timeout=300,
         )
 
-    def test_s3_oplog_created(self, ops_manager: MongoDBOpsManager, oplog_s3_bucket: str):
+    def test_s3_oplog_created(
+        self, ops_manager: MongoDBOpsManager, oplog_s3_bucket: str
+    ):
         ops_manager.load()
 
         ops_manager["spec"]["backup"]["s3OpLogStores"] = [
@@ -153,7 +155,7 @@ class TestBackupForMongodb:
         mdb_latest_test_collection.insert_one(TEST_DATA)
 
     def test_mdbs_backed_up(
-            self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
     ):
         # wait until a first snapshot is ready for both
         mdb_prev_project.wait_until_backup_snapshots_are_ready(expected_count=1)
@@ -165,7 +167,7 @@ class TestBackupRestorePIT:
     """This part checks the work of PIT restore."""
 
     def test_mdbs_change_data(
-            self, mdb_prev_test_collection, mdb_latest_test_collection
+        self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
         """Changes the MDB documents to check that restore rollbacks this change later.
         Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
@@ -178,7 +180,7 @@ class TestBackupRestorePIT:
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
     def test_mdbs_pit_restore(
-            self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
     ):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
@@ -198,7 +200,7 @@ class TestBackupRestorePIT:
         # right away
 
     def test_data_got_restored(
-            self, mdb_prev_test_collection, mdb_latest_test_collection
+        self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
         """The data in the db has been restored to the initial state. Note, that this happens eventually - so
         we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a
@@ -253,7 +255,7 @@ class TestBackupRestoreFromSnapshot:
     """This part tests the restore to the snapshot built once the backup has been enabled."""
 
     def test_mdbs_change_data(
-            self, mdb_prev_test_collection, mdb_latest_test_collection
+        self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
         """Changes the MDB documents to check that restore rollbacks this change later"""
         mdb_prev_test_collection.delete_many({})
@@ -263,7 +265,7 @@ class TestBackupRestoreFromSnapshot:
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
     def test_mdbs_automated_restore(
-            self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
     ):
         restore_prev_id = mdb_prev_project.create_restore_job_snapshot()
         mdb_prev_project.wait_until_restore_job_is_ready(restore_prev_id)
@@ -272,7 +274,7 @@ class TestBackupRestoreFromSnapshot:
         mdb_latest_project.wait_until_restore_job_is_ready(restore_latest_id)
 
     def test_data_got_restored(
-            self, mdb_prev_test_collection, mdb_latest_test_collection
+        self, mdb_prev_test_collection, mdb_latest_test_collection
     ):
         """The data in the db has been restored to the initial"""
         records = list(mdb_prev_test_collection.find())

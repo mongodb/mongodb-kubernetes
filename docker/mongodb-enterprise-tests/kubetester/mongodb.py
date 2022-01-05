@@ -157,7 +157,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             )
 
     def assert_connectivity(self, ca_path: Optional[str] = None):
-        return self.tester(ca_path).assert_connectivity()
+        return self.tester(ca_path=ca_path).assert_connectivity()
 
     def assert_connectivity_from_connection_string(
         self, cnx_string: str, tls: bool, ca_path: Optional[str] = None

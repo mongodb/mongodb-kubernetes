@@ -68,6 +68,17 @@ type S3Config struct {
 
 	// Flag indicating whether this S3 blockstore only accepts connections encrypted using TLS.
 	Ssl bool `json:"ssl"`
+
+	// CustomCertificates is a list of valid Certificate Authority certificates that apply to the associated S3 bucket.
+	CustomCertificates []S3CustomCertificate `json:"customCertificates"`
+}
+
+// S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
+type S3CustomCertificate struct {
+	// Filename  identifies the Certificate Authority PEM file.
+	Filename string `json:"filename"`
+	// CertString contains the contents of the Certificate Authority PEM file that comprise your Certificate Authority chain.
+	CertString string `json:"certString"`
 }
 
 type S3Bucket struct {
@@ -85,7 +96,7 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
+func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, s3CustomCertificate S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
 	authMode := IAM
 	cred := S3Credentials{}
 
@@ -108,6 +119,11 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, bucket S3Buc
 		EncryptedCredentials:   false,
 		PathStyleAccessEnabled: true,
 		AuthMethod:             string(authMode),
+	}
+
+	if s3CustomCertificate.CertString != "" && s3CustomCertificate.Filename != "" {
+		// both filename and path need to be provided.
+		config.CustomCertificates = append(config.CustomCertificates, s3CustomCertificate)
 	}
 
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)

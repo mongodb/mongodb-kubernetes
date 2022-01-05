@@ -34,6 +34,10 @@ const (
 	podAntiAffinityLabelKey = "pod-anti-affinity"
 )
 
+func GetOpsManagerCAFileDir() string {
+	return fmt.Sprintf("%s/certs/%s", MMSHome, "ops-manager-ca")
+}
+
 // OpsManagerStatefulSetOptions contains all of the different values that are variable between
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
@@ -171,6 +175,7 @@ func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerSta
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Version:                 opsManager.Spec.Version,
 		Namespace:               opsManager.Namespace,
+		OpsManagerCaName:        opsManager.Spec.GetOpsManagerCA(),
 	}
 }
 
@@ -201,14 +206,43 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 
 // opsManagerStatefulSetFunc constructs the default Ops Manager StatefulSet modification function
 func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
+
+	postStart := func(lc *corev1.Lifecycle) {}
+	caVolumeFunc := podtemplatespec.NOOP()
+	caVolumeMountFunc := container.NOOP()
+	if opts.OpsManagerCaName != "" {
+		//This volume wil contain the OM CA
+		caCertVolume := statefulset.CreateVolumeFromConfigMap("ops-manager-ca", opts.OpsManagerCaName)
+		caVolumeFunc = podtemplatespec.WithVolume(caCertVolume)
+		caVolumeMountFunc = container.WithVolumeMounts([]corev1.VolumeMount{{
+			MountPath: GetOpsManagerCAFileDir(),
+			Name:      caCertVolume.Name,
+			ReadOnly:  true,
+		}})
+
+		// It will add each X.509 public key certificate into JVM's trust store
+		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
+		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
+		postStartScript := fmt.Sprintf(`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s`, MMSHome, MMSHome, util.MmsCaFileDirInContainer+"ca-pem")
+		postStart = func(lc *corev1.Lifecycle) {
+			if lc.PostStart == nil {
+				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}
+			}
+			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScript}
+		}
+	}
+
 	return statefulset.Apply(
 		backupAndOpsManagerSharedConfiguration(opts),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
+				caVolumeFunc,
 				// 5 minutes for Ops Manager just in case (its internal timeout is 20 seconds anyway)
 				podtemplatespec.WithTerminationGracePeriodSeconds(300),
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
+						caVolumeMountFunc,
+						container.WithLifecycle(postStart),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
 						container.WithReadinessProbe(opsManagerReadinessProbe(getURIScheme(opts.HTTPSCertSecretName))),

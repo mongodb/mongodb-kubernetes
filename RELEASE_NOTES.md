@@ -6,7 +6,9 @@
 
 * Changes
   * A new field has been added: `spec.backup.queryableBackupSecretRef`. The secrets referenced by this field contains the certificates used to enable [Queryable Backups](https://docs.opsmanager.mongodb.com/current/tutorial/query-backup/) feature.
-  
+  * Added support for configuring custom ssl certificates for the S3 Oplog and Snapshot Stores for backup. These can be configured with
+  `spec.security.tls.ca` and `spec.security.tls.secretRef`
+
 *All the images can be found in:*
 
 https://quay.io/repository/mongodb (ubuntu-based)
@@ -17,7 +19,6 @@ https://connect.redhat.com/ (rhel-based)
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.14.0
 
-# MongoDB Enterprise Kubernetes Operator 1.13.1
 
 ## MongoDB Resource
 * Changes:
