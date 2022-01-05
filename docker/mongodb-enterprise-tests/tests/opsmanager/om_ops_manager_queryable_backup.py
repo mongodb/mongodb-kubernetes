@@ -128,9 +128,8 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
         print("Created S3 bucket", bucket_prefix)
 
     yield bucket_prefix
-    print("\nRemoving S3 bucket skipped", bucket_prefix)
-    # todo: add back after testing
-    # aws_s3_client.delete_s3_bucket(bucket_prefix)
+    print("\nRemoving S3 bucket", bucket_prefix)
+    aws_s3_client.delete_s3_bucket(bucket_prefix)
 
 
 @fixture(scope="module")
@@ -159,11 +158,6 @@ def ops_manager(
     resource["spec"]["configuration"][
         "mongodb.release.autoDownload.enterprise"
     ] = "true"
-    # resource["spec"]["configuration"][
-    #     "brs.queryable.pem"
-    # ] = "/mongodb-ops-manager/queryable-bkp-pem/certs.pem"
-    # todo: remove after testing
-    resource["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
 
     if CREATE_RESOURCES:
         yield resource.create()
