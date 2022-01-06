@@ -146,7 +146,7 @@ functions:
     command: subprocess.exec
     type: setup
     params:
-      command: virtualenv --python /opt/python/3.9/bin/python3 ./venv
+      command: /opt/python/3.9/bin/python3 -m venv --upgrade-deps ./venv
 
   python_requirements: &python_requirements
     command: subprocess.exec
