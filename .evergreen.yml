@@ -880,19 +880,6 @@ tasks:
         <<: [ *kubernetes_environment_multi_cluster ]
     - func: prepare_test_env
 
-
-- name: prepare_cluster_vanilla_om
-  exec_timeout_secs: 600
-  priority: 59
-  commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_kubernetes_environment
-      vars:
-        <<: [ *kubernetes_environment_vanilla ]
-        cluster_name: e2e.om.mongokubernetes.com
-    - func: prepare_test_env
-
 - name: prepare_aws
   exec_timeout_secs: 600
   priority: 59
@@ -2784,7 +2771,6 @@ buildvariants:
     - name: build_database_image_ubuntu
     - name: build_database_image_ubi
     - name: prepare_cluster_vanilla
-    - name: prepare_cluster_vanilla_om
     - name: prepare_multi_cluster
     - name: prepare_aws
 
