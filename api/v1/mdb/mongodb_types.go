@@ -72,6 +72,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (in *MongoDB) ForcedIndividualScaling() bool {
+	return false
+}
+
 func (m *MongoDB) GetSpec() DbSpec {
 	return &m.Spec
 }

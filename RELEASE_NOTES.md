@@ -6,8 +6,9 @@
 
 * Changes
   * A new field has been added: `spec.backup.queryableBackupSecretRef`. The secrets referenced by this field contains the certificates used to enable [Queryable Backups](https://docs.opsmanager.mongodb.com/current/tutorial/query-backup/) feature.
-  * Added support for configuring custom ssl certificates for the S3 Oplog and Snapshot Stores for backup. These can be configured with
-  `spec.security.tls.ca` and `spec.security.tls.secretRef`
+  * Added support for configuring custom TLS certificates for the S3 Oplog and Snapshot Stores for backup. These can be configured with
+  `spec.security.tls.ca` and `spec.security.tls.secretRef`.
+  * It is possible to disable AppDB processes via the `spec.applicationDatabase.automationConfig.processes[n].disabled` field, this enables backing up the AppDB.
 
 *All the images can be found in:*
 

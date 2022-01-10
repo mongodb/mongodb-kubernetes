@@ -925,6 +925,10 @@ type shardedClusterScaler struct {
 	CurrentMembers int
 }
 
+func (r shardedClusterScaler) ForcedIndividualScaling() bool {
+	return false
+}
+
 func (r shardedClusterScaler) DesiredReplicas() int {
 	return r.DesiredMembers
 }

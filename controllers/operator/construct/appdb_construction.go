@@ -352,7 +352,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	sts := statefulset.New(
-		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, opsManager),
+		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, &opsManager),
 		customPersistenceConfig(*appDb),
 		statefulset.WithUpdateStrategyType(opsManager.GetAppDBUpdateStrategyType()),
 		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),

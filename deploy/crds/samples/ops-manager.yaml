@@ -23,7 +23,7 @@ spec:
 
   # optional. The Ops Manager configuration. All the values must be of type string
   configuration:
-    mms.fromEmailAddr: "admin@thecompany.com"
+    mms.fromEmailAddr: "admin@example.com"
 
   # the application database backing Ops Manager. Replica Set is the only supported type
   # Application database has the SCRAM-SHA authentication mode always enabled

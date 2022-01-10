@@ -13,6 +13,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	appsv1 "k8s.io/api/apps/v1"
 )
 
@@ -65,6 +66,10 @@ type AppDBSpec struct {
 	Namespace      string `json:"-"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
+
+	// AutomationConfigOverride holds any fields that will be merged on top of the Automation Config
+	// that the operator creates for the AppDB. Currently only the process.disabled field is recognized.
+	AutomationConfigOverride *mdbcv1.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }

@@ -156,6 +156,11 @@ func (b *OpsManagerBuilder) SetAppDBPassword(secretName, key string) *OpsManager
 	return b
 }
 
+func (b *OpsManagerBuilder) SetAppDBAutomationConfigOverride(acOverride mdbc.AutomationConfigOverride) *OpsManagerBuilder {
+	b.om.Spec.AppDB.AutomationConfigOverride = &acOverride
+	return b
+}
+
 func (b *OpsManagerBuilder) SetBackup(backup MongoDBOpsManagerBackup) *OpsManagerBuilder {
 	b.om.Spec.Backup = &backup
 	return b

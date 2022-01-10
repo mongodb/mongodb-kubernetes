@@ -5,6 +5,11 @@ import (
 	"path"
 	"strings"
 
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/result"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
@@ -71,6 +76,51 @@ func newAppDBReplicaSetReconciler(commonController *ReconcileCommonController, o
 	}
 }
 
+// shouldReconcileAppDB returns a boolean indicating whether or not the reconciliation for this set of processes should occur.
+func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
+	currentAc, err := automationconfig.ReadFromSecret(r.client, types.NamespacedName{
+		Namespace: opsManager.GetNamespace(),
+		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
+	})
+
+	if err != nil {
+		return false, fmt.Errorf("error reading AppDB Automation Config: %s", err)
+	}
+
+	// there is no automation config yet, we can safely reconcile.
+	if currentAc.Processes == nil {
+		return true, nil
+	}
+
+	desiredAc, err := r.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, log)
+	if err != nil {
+		return false, fmt.Errorf("error building AppDB Automation Config: %s", err)
+	}
+
+	currentProcessesAreDisabled := false
+	for _, p := range currentAc.Processes {
+		if p.Disabled {
+			currentProcessesAreDisabled = true
+			break
+		}
+	}
+
+	desiredProcessesAreDisabled := false
+	for _, p := range desiredAc.Processes {
+		if p.Disabled {
+			desiredProcessesAreDisabled = true
+			break
+		}
+	}
+
+	// skip the reconciliation as there are disabled processes, and we are not attempting to re-enable them.
+	if currentProcessesAreDisabled && desiredProcessesAreDisabled {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // ReconcileAppDB deploys the "headless" agent, and wait until it reaches the goal state
 func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string) (res reconcile.Result, e error) {
 	rs := opsManager.Spec.AppDB
@@ -79,14 +129,25 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	appDbStatusOption := status.NewOMPartOption(status.AppDb)
 	omStatusOption := status.NewOMPartOption(status.OpsManager)
 
-	result, err := r.updateStatus(opsManager, workflow.Reconciling(), log, appDbStatusOption)
-	if err != nil {
-		return result, err
-	}
-
 	log.Info("AppDB ReplicaSet.Reconcile")
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
+
+	// if any of the processes have been marked as disabled, we don't reconcile the AppDB.
+	// This could be the case if we want to disable a process to perform a manual backup of the AppDB.
+	shouldReconcile, err := r.shouldReconcileAppDB(*opsManager, log)
+	if err != nil {
+		return r.updateStatus(opsManager, workflow.Failed("Error determining AppDB reconciliation state: %s", err), log, appDbStatusOption)
+	}
+	if !shouldReconcile {
+		log.Info("Skipping reconciliation for AppDB because at least one of the processes has been disabled. To reconcile the AppDB all process need to be enabled in automation config")
+		return result.OK()
+	}
+
+	reconcileResult, err := r.updateStatus(opsManager, workflow.Reconciling(), log, appDbStatusOption)
+	if err != nil {
+		return reconcileResult, err
+	}
 
 	podVars, err := r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
@@ -135,7 +196,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Failed("can't construct AppDB Statefulset: %s", err), log, omStatusOption)
 	}
 
-	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, certSecretType, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -166,7 +227,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
 	currentAc, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{
@@ -214,13 +275,13 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
 			log.Info("Deploying Automation Config")
-			return r.deployAutomationConfig(opsManager, appDbSts, certSecretType, log)
+			return r.deployAutomationConfig(opsManager, appDbSts, log)
 		},
 		func() workflow.Status {
 
 			// in the case of an upgrade from the 1 to 3 container architecture, when the stateful set is updated before the agent automation config
 			// the monitoring agent automation config needs to exist for the volumes to mount correctly.
-			if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, certSecretType, log); err != nil {
+			if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, log); err != nil {
 				return workflow.Failed(err.Error())
 			}
 
@@ -311,7 +372,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.Mongo
 	return ac.Version, err
 }
 
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, certSecretType corev1.SecretType, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
 	auth := automationconfig.Auth{}
@@ -340,7 +401,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 	}
 	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
-	return automationconfig.NewBuilder().
+	ac, err := automationconfig.NewBuilder().
 		SetTopology(automationconfig.ReplicaSetTopology).
 		SetMembers(scale.ReplicasThisReconciliation(&opsManager)).
 		SetName(rs.Name()).
@@ -390,6 +451,27 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 			}
 		}).Build()
 
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
+
+	if acType == automation && opsManager.Spec.AppDB.AutomationConfigOverride != nil {
+		acToMerge := overrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
+		ac = merge.AutomationConfigs(ac, acToMerge)
+	}
+
+	return ac, nil
+
+}
+
+// overrideToAutomationConfig converts the override struct to one that can be merged.
+// for now only the disabled field is merged.
+func overrideToAutomationConfig(override mdbcv1.AutomationConfigOverride) automationconfig.AutomationConfig {
+	var processes []automationconfig.Process
+	for _, p := range override.Processes {
+		processes = append(processes, automationconfig.Process{Name: p.Name, Disabled: p.Disabled})
+	}
+	return automationconfig.AutomationConfig{Processes: processes}
 }
 
 // setBaseUrlForAgents will update the baseUrl for all backup and monitoring versions to the provided url.
@@ -696,11 +778,11 @@ func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(cmName string, na
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 
 	rs := opsManager.Spec.AppDB
 
-	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, automation, certSecretType, log)
+	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, automation, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -714,12 +796,12 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 		return status
 	}
 
-	monitoringAc, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, certSecretType, log)
+	monitoringAc, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
 
-	if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, certSecretType, log); err != nil {
+	if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, log); err != nil {
 		return workflow.Failed(err.Error())
 	}
 	if status := r.publishACVersionAsConfigMap(opsManager.Spec.AppDB.MonitoringAutomationConfigConfigMapName(), opsManager.Namespace, monitoringAc.Version); !status.IsOK() {
@@ -730,8 +812,8 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 }
 
 // deployMonitoringAgentAutomationConfig deploys the monitoring agent's automation config.
-func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, certSecretType corev1.SecretType, log *zap.SugaredLogger) error {
-	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, certSecretType, log)
+func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log)
 	if err != nil {
 		return err
 	}

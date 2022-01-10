@@ -86,6 +86,29 @@ spec:
                           type: string
                         type: object
                     type: object
+                  automationConfig:
+                    description: AutomationConfigOverride holds any fields that will
+                      be merged on top of the Automation Config that the operator
+                      creates for the AppDB. Currently only the process.disabled field
+                      is recognized.
+                    properties:
+                      processes:
+                        items:
+                          description: OverrideProcess contains fields that we can
+                            override on the AutomationConfig processes.
+                          properties:
+                            disabled:
+                              type: boolean
+                            name:
+                              type: string
+                          required:
+                          - disabled
+                          - name
+                          type: object
+                        type: array
+                    required:
+                    - processes
+                    type: object
                   cloudManager:
                     properties:
                       configMapRef:

@@ -60,6 +60,10 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
+func (om *MongoDBOpsManager) ForcedIndividualScaling() bool {
+	return false
+}
+
 func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }

@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	appsv1 "k8s.io/api/apps/v1"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 
@@ -441,6 +444,116 @@ func TestGetMonitoringAgentVersion(t *testing.T) {
 	})
 }
 
+func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
+
+	createReconcilerWithAllRequiredSecrets := func(opsManager omv1.MongoDBOpsManager, createAutomationConfig bool) *ReconcileAppDbReplicaSet {
+		kubeManager := mock.NewEmptyManager()
+		err := createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
+		assert.NoError(t, err)
+		reconciler := newAppDbReconciler(kubeManager)
+		reconciler.client = kubeManager.Client
+
+		// create a pre-existing automation config based on the resource provided.
+		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
+		// based on whether or not there are disabled processes.
+		if createAutomationConfig {
+			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, zap.S())
+			assert.NoError(t, err)
+			_, err = reconciler.publishAutomationConfig(opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName())
+			assert.NoError(t, err)
+		}
+		return reconciler
+	}
+
+	t.Run("Reconciliation should happen if we are disabling a process", func(t *testing.T) {
+
+		// In this test, we create an OM + automation config (with no disabled processes),
+		//then update OM to have a disabled processes, and we assert that reconciliation should take place.
+
+		omName := "test-om"
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).Build()
+
+		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
+
+		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
+			Processes: []mdbcv1.OverrideProcess{
+				{
+					// disable the process
+					Name:     fmt.Sprintf("%s-db-0", omName),
+					Disabled: true,
+				},
+			},
+		}).Build()
+
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(opsManager, zap.S())
+		assert.NoError(t, err)
+		assert.True(t, shouldReconcile)
+	})
+
+	t.Run("Reconciliation should not happen if a process is disabled", func(t *testing.T) {
+		// In this test, we create an OM with a disabled process, and assert that a reconciliation
+		//should not take place (since we are not changing a process back from disabled).
+
+		omName := "test-om"
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
+			Processes: []mdbcv1.OverrideProcess{
+				{
+					// disable the process
+					Name:     fmt.Sprintf("%s-db-0", omName),
+					Disabled: true,
+				},
+			},
+		}).Build()
+
+		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
+
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(opsManager, zap.S())
+		assert.NoError(t, err)
+		assert.False(t, shouldReconcile)
+	})
+
+	t.Run("Reconciliation should happen if no automation config is present", func(t *testing.T) {
+		omName := "test-om"
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
+			Processes: []mdbcv1.OverrideProcess{
+				{
+					// disable the process
+					Name:     fmt.Sprintf("%s-db-0", omName),
+					Disabled: true,
+				},
+			},
+		}).Build()
+
+		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, false)
+
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(opsManager, zap.S())
+		assert.NoError(t, err)
+		assert.True(t, shouldReconcile)
+	})
+
+	t.Run("Reconciliation should happen we are re-enabling a process", func(t *testing.T) {
+		omName := "test-om"
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
+			Processes: []mdbcv1.OverrideProcess{
+				{
+					// disable the process
+					Name:     fmt.Sprintf("%s-db-0", omName),
+					Disabled: true,
+				},
+			},
+		}).Build()
+
+		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
+
+		opsManager = DefaultOpsManagerBuilder().SetName(omName).Build()
+
+		shouldReconcile, err := reconciler.shouldReconcileAppDB(opsManager, zap.S())
+		assert.NoError(t, err)
+		assert.True(t, shouldReconcile)
+	})
+
+}
+
 // appDBStatefulSetLabelsAndServiceName returns extra fields that we have to manually set to the AppDB statefulset
 // since we manually create it. Otherwise the tests will fail as we try to update parts of the sts that we are not
 // allowed to change
@@ -563,7 +676,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager 
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
-	return reconciler.buildAppDbAutomationConfig(opsManager, sts, acType, "", zap.S())
+	return reconciler.buildAppDbAutomationConfig(opsManager, sts, acType, zap.S())
 
 }
 
