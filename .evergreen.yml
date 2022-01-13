@@ -1831,6 +1831,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_enable_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 3200
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_update_before_reconciliation
   tags: ["patch-run"]
   exec_timeout_secs: 900

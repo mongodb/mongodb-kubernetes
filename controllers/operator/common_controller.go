@@ -367,8 +367,8 @@ func (r *ReconcileCommonController) scaleStatefulSet(namespace, name string, rep
 // getStatefulSetStatus returns the workflow.Status based on the status of the StatefulSet.
 // If the StatefulSet is not ready the request will be retried in 3 seconds (instead of the default 10 seconds)
 // allowing to reach "ready" status sooner
-func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string) workflow.Status {
-	set, err := r.client.GetStatefulSet(kube.ObjectKey(namespace, name))
+func getStatefulSetStatus(namespace, name string, client kubernetesClient.Client) workflow.Status {
+	set, err := client.GetStatefulSet(kube.ObjectKey(namespace, name))
 	i := 0
 
 	// Sometimes it is possible that the StatefulSet which has just been created
@@ -377,7 +377,7 @@ func (r *ReconcileCommonController) getStatefulSetStatus(namespace, name string)
 		i++
 		zap.S().Debugf("StatefulSet was not found: %s, attempt %d", err, i)
 		time.Sleep(time.Second * 1)
-		set, err = r.client.GetStatefulSet(kube.ObjectKey(namespace, name))
+		set, err = client.GetStatefulSet(kube.ObjectKey(namespace, name))
 	}
 
 	if err != nil {

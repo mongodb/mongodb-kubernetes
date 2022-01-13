@@ -831,7 +831,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager omv1.MongoDBOpsM
 
 	}
 
-	return r.getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name())
+	return getStatefulSetStatus(opsManager.Namespace, opsManager.Spec.AppDB.Name(), r.client)
 }
 
 // allAgentsReachedGoalState checks if all the AppDB Agents have reached the goal state.

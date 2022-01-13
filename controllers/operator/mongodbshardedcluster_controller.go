@@ -398,7 +398,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if err := create.DatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
-	if status := r.getStatefulSetStatus(s.Namespace, s.ConfigRsName()); !status.IsOK() {
+	if status := getStatefulSetStatus(s.Namespace, s.ConfigRsName(), r.client); !status.IsOK() {
 		return status
 	}
 	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
@@ -415,7 +415,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		if err := create.DatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log); err != nil {
 			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", shardsNames[i], err)
 		}
-		if status := r.getStatefulSetStatus(s.Namespace, shardsNames[i]); !status.IsOK() {
+		if status := getStatefulSetStatus(s.Namespace, shardsNames[i], r.client); !status.IsOK() {
 			return status
 		}
 		_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
@@ -430,7 +430,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
 	}
 
-	if status := r.getStatefulSetStatus(s.Namespace, s.MongosRsName()); !status.IsOK() {
+	if status := getStatefulSetStatus(s.Namespace, s.MongosRsName(), r.client); !status.IsOK() {
 		return status
 	}
 	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)

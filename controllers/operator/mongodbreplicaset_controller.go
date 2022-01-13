@@ -208,7 +208,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
 			}
 
-			if status := r.getStatefulSetStatus(rs.Namespace, rs.Name); !status.IsOK() {
+			if status := getStatefulSetStatus(rs.Namespace, rs.Name, r.client); !status.IsOK() {
 				return status
 			}
 			_, _ = r.updateStatus(rs, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)

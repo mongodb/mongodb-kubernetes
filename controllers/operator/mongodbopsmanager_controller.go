@@ -395,7 +395,7 @@ func (r *OpsManagerReconciler) ensureGlobalProgrammaticApiKey(opsManager omv1.Mo
 
 	// If there is no OM running is fine, we don't have anything to update
 	// This can happen in the reconciliation step after deploying AppDB.
-	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.Name); !status.IsOK() {
+	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.Name, r.client); !status.IsOK() {
 		return workflow.OK()
 	}
 
@@ -598,7 +598,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 	}
 
 	// StatefulSet will reach ready state eventually once backup has been configured in Ops Manager.
-	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName()); !status.IsOK() {
+	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName(), r.client); !status.IsOK() {
 		return status
 	}
 
@@ -691,7 +691,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 		return workflow.Failed(err.Error())
 	}
 
-	if status := r.getStatefulSetStatus(opsManager.Namespace, opsManager.Name); !status.IsOK() {
+	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.Name, r.client); !status.IsOK() {
 		return status
 	}
 

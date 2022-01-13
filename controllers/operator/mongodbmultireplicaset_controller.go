@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 
@@ -137,11 +136,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			err = r.reconcileStatefulSets(mrs, log, conn)
-			if err != nil {
-				return workflow.Failed(err.Error())
-			}
-			return workflow.OK()
+			return r.reconcileStatefulSets(mrs, log, conn)
+
 		})
 
 	if !status.IsOK() {
@@ -244,10 +240,10 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 	return false, nil
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection) error {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
-		return fmt.Errorf("failed to read cluster spec list: %s", err)
+		return workflow.Failed(fmt.Sprintf("failed to read cluster spec list: %s", err))
 	}
 
 	for i, item := range clusterSpecList {
@@ -255,13 +251,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(&mrs, item)
 		if err != nil {
-			return err
+			return workflow.Failed(err.Error())
 		}
 
 		// TODO in a separate PR
 		// Ensure TLS for multi-cluster statefulset
 		if status, _ := certs.EnsureSSLCertsForStatefulSet(secretMemberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
-			return errors.New("failed to ensure Statefulset for MDB Multi")
+			return workflow.Failed("failed to ensure Statefulset for MDB Multi")
 		}
 
 		// TODO: add multi cluster label to these secrets.
@@ -272,7 +268,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		)
 
 		if err != nil {
-			return err
+			return workflow.Failed(err.Error())
 		}
 
 		errorStringFormatStr := "failed to create StatefulSet in cluster: %s, err: %s"
@@ -280,28 +276,33 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
 		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn)
 		if err != nil {
-			return fmt.Errorf(errorStringFormatStr, item.ClusterName, err)
+			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}
 
 		deleteSts, err := shouldDeleteStatefulSet(mrs, item)
 		if err != nil {
-			return fmt.Errorf(errorStringFormatStr, item.ClusterName, err)
+			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}
 
 		if deleteSts {
 			if err := memberClient.Delete(context.TODO(), &sts); err != nil && !apiErrors.IsNotFound(err) {
-				return fmt.Errorf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
+				return workflow.Failed(fmt.Sprintf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err))
 			}
 			continue
 		}
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
-			return fmt.Errorf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err)
+			return workflow.Failed(fmt.Sprintf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err))
 		}
+
+		if status := getStatefulSetStatus(sts.Namespace, sts.Name, memberClient); !status.IsOK() {
+			return status
+		}
+
 		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
 	}
-	return nil
+	return workflow.OK()
 }
 
 // shouldDeleteStatefulSet returns a boolean value indicating whether or not the StatefulSet associated with
