@@ -491,7 +491,6 @@ functions:
           NODE_PORT: ${node_port}
           AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
           AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          OPERATOR_VERSION_UPGRADE_FROM: ${from_version}
           MMS_VERSION: ${ops_manager_version}
           WATCH_NAMESPACE: ${watch_namespace}
           STATIC_NAMESPACE: ${static_namespace}

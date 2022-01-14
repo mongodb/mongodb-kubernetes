@@ -79,10 +79,7 @@ def helm_install_from_chart(
     if helm_args is not None:
         args += _create_helm_args(helm_args)
 
-    helm_repo_add = "helm repo add {} {}".format(custom_repo[0], custom_repo[1]).split()
-    logging.info(helm_repo_add)
-    process_run_and_check(helm_repo_add, capture_output=True)
-    logging.info(args)
+    helm_repo_add(custom_repo[0], custom_repo[1])
 
     try:
         # In shared clusters (Kops: e2e) multiple simultaneous cert-manager
@@ -97,6 +94,15 @@ def helm_install_from_chart(
             logging.info(f"Helm chart '{chart}' already installed in cluster.")
         else:
             raise
+
+
+def helm_repo_add(repo_name: str, url: str):
+    """
+    Adds a new repo to Helm.
+    """
+    helm_repo_add = f"helm repo add {repo_name} {url}".split()
+    logging.info(helm_repo_add)
+    process_run_and_check(helm_repo_add, capture_output=True)
 
 
 def process_run_and_check(args, **kwargs):

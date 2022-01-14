@@ -2,26 +2,26 @@ import logging
 import os
 import subprocess
 import tempfile
-from typing import Optional, Dict, List, Callable
-
-from kubernetes import client
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
+from typing import Callable, Dict, List, Optional
 
 import kubernetes
 import requests
+from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
-from kubetester import get_pod_when_ready, create_configmap
+from kubetester import create_configmap, create_secret, get_pod_when_ready
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer
 from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
-from kubetester.kubetester import KubernetesTester, fixture as _fixture
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as _fixture
+from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 from tests.multicluster import prepare_multi_cluster_namespaces
-from kubetester import create_secret
-from kubetester.mongodb_multi import MultiClusterClient
 
 try:
     kubernetes.config.load_kube_config()
@@ -122,11 +122,6 @@ def image_type() -> str:
 @fixture(scope="module")
 def managed_security_context() -> str:
     return os.environ["MANAGED_SECURITY_CONTEXT"]
-
-
-@fixture(scope="module")
-def custom_operator_release_version() -> Optional[str]:
-    return os.environ.get("CUSTOM_OPERATOR_RELEASE_VERSION")
 
 
 @fixture(scope="module")
@@ -455,36 +450,14 @@ def official_operator(
     image_type: str,
     managed_security_context: str,
     operator_installation_config: Dict[str, str],
-    custom_operator_release_version: Optional[str],
 ) -> Operator:
-    """Installs the Operator from the official GitHub repository. The version of the Operator is either passed to the
-    function or the latest version is fetched from the repository.
-    The configuration properties are not overridden - this can be added to the fixture parameters if necessary."""
+    """
+    Installs the Operator from the official Helm Chart.
 
-    temp_dir = tempfile.mkdtemp()
-    if custom_operator_release_version is None:
-        custom_operator_release_version = fetch_latest_released_operator_version()
+    The version installed is always the latest version published as a Helm Chart.
+    """
 
     enable_webhook_check = True
-    logging.info("Updating from version {}".format(custom_operator_release_version))
-
-    if custom_operator_release_version.startswith("1.10"):
-        logging.info(
-            "Will update from version < 1.11 with a broken webhook-service. "
-            "We will not check webhook functionality during this test."
-        )
-        enable_webhook_check = False
-
-    clone_and_checkout(
-        "https://github.com/mongodb/mongodb-enterprise-kubernetes",
-        temp_dir,
-        custom_operator_release_version,
-    )
-    logging.info(
-        "Checked out official Operator version {} to {}".format(
-            custom_operator_release_version, temp_dir
-        )
-    )
     helm_options = []
 
     # When running in Openshift "managedSecurityContext" will be true.
@@ -503,23 +476,32 @@ def official_operator(
     # are used for installing the dev Operator
     helm_args["operator.operator_image_name"] = name
 
+    temp_dir = tempfile.mkdtemp()
+    # Values files are now located in `helm-charts` repo.
+    clone_and_checkout(
+        "https://github.com/mongodb/helm-charts",
+        temp_dir,
+        "main",  # main branch of helm-charts.
+    )
+    chart_dir = os.path.join(temp_dir, "charts", "enterprise-operator")
+
     # When testing the UBI image type we need to assume a few things
 
     # 1. The testing cluster is Openshift
     # 2. The operator name is "enterprise-operator" (instead of "mongodb-enterprise-operator")
     # 3. The "values.yaml" file is "values-openshift.yaml"
-
     if image_type == "ubi":
         helm_options = [
             "--values",
-            os.path.join(temp_dir, "helm_chart", "values-openshift.yaml"),
+            os.path.join(chart_dir, "values-openshift.yaml"),
         ]
         helm_args["operator.operator_image_name"] = "enterprise-operator"
 
+    # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
     return Operator(
         namespace=namespace,
         helm_args=helm_args,
-        helm_chart_path=os.path.join(temp_dir, "helm_chart"),
+        helm_chart_path="mongodb/enterprise-operator",
         helm_options=helm_options,
         name=name,
         enable_webhook_check=enable_webhook_check,

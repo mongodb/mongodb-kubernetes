@@ -9,7 +9,13 @@ from kubernetes import client
 from kubernetes.client import V1Pod, V1beta1CustomResourceDefinition, V1Deployment
 from kubernetes.client.rest import ApiException
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
-from kubetester.helm import helm_install, helm_upgrade, helm_template, helm_uninstall
+from kubetester.helm import (
+    helm_install,
+    helm_upgrade,
+    helm_template,
+    helm_uninstall,
+    helm_repo_add,
+)
 
 import requests
 
@@ -26,6 +32,8 @@ class Operator(object):
 
     * `helm_args` corresponds to the --set values passed to helm installation.
     * `helm_options` refers to the options passed to the helm command.
+
+    The operator is installed from published Helm Charts.
     """
 
     def __init__(
@@ -38,6 +46,10 @@ class Operator(object):
         enable_webhook_check: bool = True,
         api_client: Optional[client.api_client.ApiClient] = None,
     ):
+
+        # The Operator will be installed from the following repo, so adding it first
+        helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
+
         if helm_args is None:
             helm_args = {}
 
