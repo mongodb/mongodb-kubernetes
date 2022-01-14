@@ -156,7 +156,7 @@ def test_no_unnecessary_rolling_upgrades_happen(
     assert old_backup_hash == old_hash
 
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["version"] = "4.4.4-ent"
+    ops_manager["spec"]["applicationDatabase"]["version"] = "4.4.11-ent"
     ops_manager.update()
 
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
