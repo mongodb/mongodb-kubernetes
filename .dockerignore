@@ -3,6 +3,4 @@ pkg/client/**
 samples/*
 public/*
 .git/**
-bundle/**
 bin/**
-

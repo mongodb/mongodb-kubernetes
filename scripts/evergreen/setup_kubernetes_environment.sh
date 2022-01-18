@@ -25,13 +25,17 @@ fi
 if [ "${kube_environment_name}" = "openshift_4" ]; then
     echo "Downloading OC & setting up Openshift 4 cluster"
     OC_PKG=oc-linux.tar.gz
-    curl --fail --retry 3 -s -L https://mirror.openshift.com/pub/openshift-v4/clients/ocp/4.3.1/openshift-client-linux-4.3.1.tar.gz --output $OC_PKG
-    tar xfz $OC_PKG &>/dev/null
+
+    # Source of this file is https://access.redhat.com/downloads/content/290/ver=4.9/rhel---8/4.9.13/x86_64/product-software
+    # But it has been copied to S3 to avoid authentication issues in the future.
+    curl --fail --retry 3 -s -L 'https://operator-kubernetes-build.s3.amazonaws.com/oc-4.9.15.tgz'\
+        --output "${OC_PKG}"
+    tar xfz "${OC_PKG}" &>/dev/null
     mv oc "${bindir}"
 
-    # This uses a kubeconfig yaml file stored in the Evergreen project instead of the old token login
-    # to avoid having to keep the tokens valid forever.
-    echo "${openshift43_cluster_kubeconfig:?}" | base64 --decode >"${context_config}"
+    # https://stackoverflow.com/c/private-cloud-kubernetes/questions/15
+    oc login --token="${openshift_token:?}" --server="${openshift_url:?}"
+    mv "${HOME}"/.kube/config "${context_config}"
 
 elif [ "${kube_environment_name}" = "vanilla" ]; then
     if [ -n "${cluster_name:-}" ]; then

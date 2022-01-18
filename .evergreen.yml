@@ -350,7 +350,8 @@ functions:
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_secret
       - mms_eng_test_aws_region
-      - openshift43_cluster_kubeconfig
+      - openshift_url
+      - openshift_token
       - workdir
       env:
         kubernetes_kind_version: *kubernetes_kind_version
