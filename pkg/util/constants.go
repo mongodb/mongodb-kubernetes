@@ -88,8 +88,8 @@ const (
 	CAFilePathInContainer       = "/mongodb-automation/ca.pem"
 	PEMKeyFilePathInContainer   = "/mongodb-automation/server.pem"
 
-	MmsPemKeyFileDirInContainer = "/opt/mongodb/mms/secrets"
-	MmsCaFileDirInContainer     = "/opt/mongodb/mms/ca/"
+	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
+	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"

@@ -92,7 +92,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 	}
 }
 
-// buildBackupDaemonPodTemplateSpec constructs the Backup Daemon podTemplateSpec modification function.
+// backupDaemonStatefulSetFunc constructs the Backup Daemon podTemplateSpec modification function.
 func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
 	defaultConfig := mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
 	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig)
@@ -106,8 +106,11 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 		//This volume wil contain the OM CA
 		caCertVolume := statefulset.CreateVolumeFromConfigMap("ops-manager-ca", opts.OpsManagerCaName)
 		caVolumeFunc = podtemplatespec.WithVolume(caCertVolume)
+		mountPath := fmt.Sprintf("%s/%s", MMSHome, caCertVolume.Name)
+		// This is different from Ops Manager' implementation. The CA file is mounted
+		// on a different MountPath.
 		caVolumeMountFunc = container.WithVolumeMounts([]corev1.VolumeMount{{
-			MountPath: fmt.Sprintf("%s/%s", MMSHome, caCertVolume.Name),
+			MountPath: mountPath,
 			Name:      caCertVolume.Name,
 			ReadOnly:  true,
 		}})
@@ -115,7 +118,8 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 		// It will add each X.509 public key certificate into JVM's trust store
 		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
 		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
-		postStartScript := fmt.Sprintf(`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s/%s/ca-pem`, MMSHome, MMSHome, MMSHome, caCertVolume.Name)
+
+		postStartScript := postStartScriptCmd(mountPath)
 		postStart = func(lc *corev1.Lifecycle) {
 			if lc.PostStart == nil {
 				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}

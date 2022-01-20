@@ -1894,7 +1894,6 @@ tasks:
       image_name: database
 
 - name: build_om_images
-  patch_only: true
   commands:
   - func: clone
   - func: setup_building_host

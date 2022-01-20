@@ -757,7 +757,7 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsMan
 		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
 	}
 	if opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
-		setConfigProperty(opsManager, util.MmsMongoCA, util.MmsCaFileDirInContainer+"ca-pem", log)
+		setConfigProperty(opsManager, util.MmsMongoCA, util.AppDBMmsCaFileDirInContainer+"ca-pem", log)
 	}
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
@@ -1625,7 +1625,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 // the S3Store.
 func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(opsManager omv1.MongoDBOpsManager) (backup.S3CustomCertificate, error) {
 	if opsManager.Spec.GetOpsManagerCA() != "" {
-		filePath := util.MmsCaFileDirInContainer + "ca-pem"
+		filePath := util.AppDBMmsCaFileDirInContainer + "ca-pem"
 		cmContents, err := configmap.ReadKey(r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetOpsManagerCA()))
 		if err != nil {
 			return backup.S3CustomCertificate{}, err

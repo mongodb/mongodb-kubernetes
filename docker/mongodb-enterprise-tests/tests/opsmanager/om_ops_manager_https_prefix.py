@@ -35,6 +35,10 @@ def ops_manager(
         },
     }
 
+    # No need to mount the additional mongods because they are not used
+    # in this test, and make the test slower.
+    om["spec"]["statefulSet"]["spec"]["template"]["spec"] = {}
+
     return om.create()
 
 
