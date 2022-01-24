@@ -49,7 +49,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 @pytest.mark.e2e_replica_set
 class TestReplicaSetCreation(KubernetesTester):
     def test_mdb_created(self, replica_set: MongoDB):
-        replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_sts_exists(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)

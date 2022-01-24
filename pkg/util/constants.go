@@ -94,9 +94,9 @@ const (
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
 	MonitoringAgentName         = "mms-monitoring-agent"
-	MonitoringAgentPemSecretKey = MonitoringAgentName + "-pem"
+	MonitoringAgentPemSecretKey = AutomationAgentName + "-pem"
 	BackupAgentName             = "mms-backup-agent"
-	BackupAgentPemSecretKey     = BackupAgentName + "-pem"
+	BackupAgentPemSecretKey     = AutomationAgentName + "-pem"
 	AutomationAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
 	MonitoringAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + MonitoringAgentPemSecretKey
 	BackupAgentPemFilePath      = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentPemSecretKey
