@@ -70,7 +70,7 @@ type S3Config struct {
 	Ssl bool `json:"ssl"`
 
 	// CustomCertificates is a list of valid Certificate Authority certificates that apply to the associated S3 bucket.
-	CustomCertificates []S3CustomCertificate `json:"customCertificates"`
+	CustomCertificates []S3CustomCertificate `json:"customCertificates,omitempty"`
 }
 
 // S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
@@ -121,17 +121,23 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, s3CustomCert
 		AuthMethod:             string(authMode),
 	}
 
-	if s3CustomCertificate.CertString != "" && s3CustomCertificate.Filename != "" {
-		// both filename and path need to be provided.
-		config.CustomCertificates = append(config.CustomCertificates, s3CustomCertificate)
-	}
-
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
-	requiresDisableProxyS3, _ := semver.Make("4.4")
-	if err == nil && version.GTE(requiresDisableProxyS3) {
+	if err == nil {
 		// Attributes that are only available in 4.4+ version of Ops Manager.
-		config.DisableProxyS3 = util.BooleanRef(false)
-		config.S3RegionOverride = new(string)
+		if version.GTE(semver.MustParse("4.4.0")) {
+			config.DisableProxyS3 = util.BooleanRef(false)
+			config.S3RegionOverride = new(string)
+		}
+
+		// Attributes that are only available in 5.0+ version of Ops Manager.
+		if version.GTE(semver.MustParse("5.0.0")) {
+			// both filename and path need to be provided.
+			if s3CustomCertificate.CertString != "" && s3CustomCertificate.Filename != "" {
+				// CustomCertificates needs to be a pointer for it to not be
+				// passed as part of the API request.
+				config.CustomCertificates = append(config.CustomCertificates, s3CustomCertificate)
+			}
+		}
 	}
 
 	return config

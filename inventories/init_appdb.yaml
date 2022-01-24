@@ -76,6 +76,8 @@ images:
     output:
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-appdb
       tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-appdb
+      tag: latest
 
   - name: init-appdb-release-context
     task_type: tag_image
