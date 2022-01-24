@@ -387,6 +387,12 @@ spec:
     data by key ranges and distributes the data among two or more database
     instances. Sharding enables horizontal scaling.
 
+    ## Requirements for deploying MongoDB OpsManager
+
+    * In order to deploy resources of type MongoDB OpsManager, you will need to
+    create a secret containing the [credentials](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/plan-om-resource/#om-rsrc-prereqs)
+    for the Global Onwer user
+
     ## Security ##
 
     The operator can enable TLS for all traffic between servers and also between
