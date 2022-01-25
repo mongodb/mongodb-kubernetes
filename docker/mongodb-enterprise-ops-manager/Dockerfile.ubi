@@ -19,6 +19,5 @@ RUN microdnf install --disableplugin=subscription-manager -y \
   rpm-libs \
   net-tools \
   procps-ng \
-  ncurses \
-  hostname
+  ncurses
 {% endblock %}

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"strings"
 )
@@ -26,7 +28,8 @@ const (
 
 func updateConfFile(confFile string) error {
 	confFilePropertyName := mmsJvmParamsVar
-	if _, isBackupDaemon := os.LookupEnv(backupDaemon); isBackupDaemon {
+	var isBackupDaemon bool
+	if _, isBackupDaemon = os.LookupEnv(backupDaemon); isBackupDaemon {
 		confFilePropertyName = backupDaemonJvmParamsVar
 	}
 
@@ -38,11 +41,94 @@ func updateConfFile(confFile string) error {
 		return nil
 	}
 
+	if isBackupDaemon {
+		fqdn, err := getHostnameFQDN()
+		if err == nil {
+			// We need to add hostname to the Backup daemon
+			jvmParams += " -Dmms.system.hostname=" + fqdn
+		}
+	}
+
 	newMmsJvmParams := fmt.Sprintf(propOverwriteFmt, confFilePropertyName, confFilePropertyName, jvmParams)
 	fmt.Printf("Appending %s to %s\n", newMmsJvmParams, confFile)
 
-	err := appendLinesToFile(confFile, getJvmParamDocString()+newMmsJvmParams+lineBreak)
-	return err
+	return appendLinesToFile(confFile, getJvmParamDocString()+newMmsJvmParams+lineBreak)
+}
+
+// getHostnameFQDN returns the FQDN name for this Pod, this is, the Pod's hostname
+// and complete Domain.
+//
+// We use `LookupAddr` on each IP in the host, and calculate which one _is the FQDN_ by
+// a simple heuristic:
+//
+// - the longest string with _dots_ in it should be the FQDN.
+func getHostnameFQDN() (string, error) {
+	ipList, err := getIPv4Addresses()
+	if err != nil {
+		return "", err
+	}
+
+	longestFQDN := ""
+	for _, ip := range ipList {
+		fqdnList, err := net.LookupAddr(ip.String())
+		if err != nil {
+			// Host could not be found, skip this IP.
+			continue
+		}
+
+		for _, fqdn := range fqdnList {
+
+			// Only consider fqdns with '.' on it
+			if !strings.Contains(fqdn, ".") {
+				continue
+			}
+			if len(fqdn) > len(longestFQDN) {
+				longestFQDN = fqdn
+			}
+		}
+	}
+
+	if longestFQDN == "" {
+		return "", errors.New("Could not find FQDN for this host")
+	}
+
+	// Remove the trailing . if in there
+	return strings.TrimRight(longestFQDN, "."), nil
+}
+
+// getIPv4Addresses returns a list of IP addresses in this machine.
+//
+// The IP addresses are obtained by iterating through the network interfaces
+// found in the host.
+func getIPv4Addresses() ([]net.IP, error) {
+	ipList := []net.IP{}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return []net.IP{}, err
+	}
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			return []net.IP{}, err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip.IsLoopback() {
+				continue
+			}
+
+			ipList = append(ipList, ip)
+		}
+	}
+
+	return ipList, nil
 }
 
 func getMmsProperties() (map[string]string, error) {

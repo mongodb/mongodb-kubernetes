@@ -73,7 +73,6 @@ func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, t
 	// this exposes a /health endpoint which returns {"sync_db":"OK","backup_db":"OK","mms_db":"OK"}
 	// https://github.com/10gen/mms/blob/8c4047d67e157672051d37e340305d89ad20964a/server/src/main/com/xgen/svc/brs/grid/Daemon.java#L926
 	backupJvmEnvVar.Value += fmt.Sprintf(" -DDAEMON.DEBUG.PORT=%d", backupDaemonHealthPort)
-	backupJvmEnvVar.Value += " -Dmms.system.hostname=$(hostname -f)"
 	return []corev1.EnvVar{mmsJvmEnvVar, backupJvmEnvVar}, nil
 }
 
