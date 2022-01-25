@@ -30,7 +30,8 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
         load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace
     )
 
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    res["spec"]["security"]["tls"] = {"ca": issuer_ca_configmap}
+    # Setting security.certsSecretPrefix implicitly enables TLS
     res["spec"]["security"]["certsSecretPrefix"] = "prefix"
     return res.create()
 

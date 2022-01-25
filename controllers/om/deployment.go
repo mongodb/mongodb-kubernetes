@@ -98,9 +98,9 @@ func NewDeployment() Deployment {
 	return ans
 }
 
-// TLSConfigurationWillBeDisabled checks that if applying this TLSConfig the Deployment
+// TLSConfigurationWillBeDisabled checks that if applying this security configuration the Deployment
 // TLS configuration will go from Enabled -> Disabled.
-func (d Deployment) TLSConfigurationWillBeDisabled(tlsSpec *mdbv1.TLSConfig) bool {
+func (d Deployment) TLSConfigurationWillBeDisabled(security *mdbv1.Security) bool {
 	tlsIsCurrentlyEnabled := false
 
 	// To detect that TLS is enabled, it is sufficient to check for the
@@ -113,13 +113,13 @@ func (d Deployment) TLSConfigurationWillBeDisabled(tlsSpec *mdbv1.TLSConfig) boo
 		}
 	}
 
-	return tlsIsCurrentlyEnabled && !tlsSpec.IsEnabled()
+	return tlsIsCurrentlyEnabled && !security.IsTLSEnabled()
 }
 
-// ConfigureTLS configures the deployment's TLS settings from the TLS
-// specification provided by the user in the mongodb resource spec.
-func (d Deployment) ConfigureTLS(tlsSpec *mdbv1.TLSConfig, caFilePath string) {
-	if !tlsSpec.IsEnabled() {
+// ConfigureTLS configures the deployment's TLS settings from the security
+// specification provided by the user in the mongodb resource.
+func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
+	if !security.IsTLSEnabled() {
 		delete(d, "tls") // unset TLS config
 		return
 	}

@@ -258,7 +258,7 @@ func (a AppDBSpec) GetResourceType() mdbv1.ResourceType {
 }
 
 func (a AppDBSpec) IsSecurityTLSConfigEnabled() bool {
-	return a.GetSecurity().TLSConfig.IsEnabled()
+	return a.GetSecurity().IsTLSEnabled()
 }
 
 func (a AppDBSpec) GetFeatureCompatibilityVersion() *string {
@@ -369,17 +369,7 @@ func (a AppDBSpec) GetCAConfigMapName() string {
 // GetTlsCertificatesSecretName returns the name of the secret
 // which holds the certificates used to connect to the AppDB
 func (a AppDBSpec) GetTlsCertificatesSecretName() string {
-	tlsConfig := a.GetSecurity().TLSConfig
-	if !tlsConfig.IsEnabled() {
-		return ""
-	}
-
-	// maintain old behaviour if name is specified instead of prefix
-	if tlsConfig.SecretRef.Name != "" {
-		return tlsConfig.SecretRef.Name
-	}
-
-	return fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, a.Name())
+	return a.GetSecurity().MemberCertificateSecretName(a.Name())
 }
 
 func (m AppDBSpec) GetName() string {
@@ -416,9 +406,8 @@ func (m AppDBSpec) GetSecretsMountedIntoPod() []string {
 		secrets = append(secrets, m.PasswordSecretKeyRef.Name)
 	}
 
-	tls := m.GetTlsCertificatesSecretName()
-	if tls != "" {
-		secrets = append(secrets, tls)
+	if m.Security.IsTLSEnabled() {
+		secrets = append(secrets, m.GetTlsCertificatesSecretName())
 	}
 	return secrets
 }

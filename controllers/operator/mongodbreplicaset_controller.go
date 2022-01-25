@@ -374,8 +374,8 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			}
 
 			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastRsConfig.ToMap(), nil)
-			d.AddMonitoringAndBackup(log, rs.Spec.GetTLSConfig().IsEnabled(), caFilePath)
-			d.ConfigureTLS(rs.Spec.GetTLSConfig(), caFilePath)
+			d.AddMonitoringAndBackup(log, rs.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
+			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
 			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode(), internalClusterPath)
 			return nil
 		},
@@ -416,12 +416,12 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 
 	err := conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			if !d.TLSConfigurationWillBeDisabled(rs.Spec.GetTLSConfig()) {
+			if !d.TLSConfigurationWillBeDisabled(rs.Spec.GetSecurity()) {
 				return nil
 			}
 
 			tlsConfigWasDisabled = true
-			d.ConfigureTLS(rs.Spec.GetTLSConfig(), caFilePath)
+			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
 
 			// configure as much agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).

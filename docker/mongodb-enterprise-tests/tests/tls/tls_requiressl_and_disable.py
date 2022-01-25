@@ -18,9 +18,16 @@ MDB_RESOURCE_NAME = "tls-replica-set"
 
 
 @pytest.fixture(scope="module")
-def server_certs(issuer: str, namespace: str):
+def default_server_certs(issuer: str, namespace: str):
     return create_mongodb_tls_certs(
         ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-cert"
+    )
+
+
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE_NAME, f"prefix-{MDB_RESOURCE_NAME}-cert"
     )
 
 
@@ -32,7 +39,11 @@ def tls_replica_set(
         yaml_fixture("test-tls-base-rs-require-ssl.yaml"), MDB_RESOURCE_NAME, namespace
     )
 
-    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    # TLS can be enabled implicitly by specifying security.certsSecretPrefix field
+    resource["spec"]["security"] = {
+        "certsSecretPrefix": "prefix",
+        "tls": {"ca": issuer_ca_configmap},
+    }
     resource.set_version(custom_mdb_version)
 
     yield resource.create()
@@ -122,11 +133,14 @@ def test_replica_set_is_reachable_with_tls_allow_ssl(
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 def test_disabled_ssl(tls_replica_set: MongoDB):
     """
-    Disable ssl
+    Disable ssl explicitly
     """
     tls_replica_set.load()
 
-    tls_replica_set["spec"]["security"] = {"tls": {"enabled": False}}
+    # TLS can be disabled explicitly by setting security.tls.enabled to false and having
+    # no configuration for certificate secret
+    tls_replica_set["spec"]["security"]["certsSecretPrefix"] = None
+    tls_replica_set["spec"]["security"]["tls"] = {"enabled": False}
 
     tls_replica_set.update()
     tls_replica_set.assert_abandons_phase(Phase.Running)
@@ -143,9 +157,9 @@ def test_replica_set_is_reachable_with_tls_disabled(tls_replica_set: MongoDB):
 @pytest.mark.e2e_replica_set_tls_require_and_disable
 @skip_if_local()
 def test_replica_set_is_not_reachable_over_ssl_with_ssl_disabled(
-    tls_replica_set: MongoDB,
+    tls_replica_set: MongoDB, ca_path: str
 ):
-    tester = tls_replica_set.tester(use_ssl=True)
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_no_connection()
 
 
@@ -159,3 +173,87 @@ def test_changes_to_secret_do_not_cause_reconciliation(
 
     delete_secret(namespace, f"{MDB_RESOURCE_NAME}-cert")
     tls_replica_set.assert_abandons_phase(Phase.Running, timeout=60)
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+def test_reenabled_ssl(
+    tls_replica_set: MongoDB, default_server_certs: str, issuer_ca_configmap: str
+):
+    """
+    Enable ssl explicitly
+    """
+    tls_replica_set.load()
+
+    # TLS can be enabled explicitly by setting security.tls.enabled to false and having
+    # no configuration for certificate secret
+    tls_replica_set["spec"]["security"] = {
+        "tls": {"enabled": True},
+        "ca": issuer_ca_configmap,
+    }
+    tls_replica_set["spec"]["additionalMongodConfig"] = {
+        "net": {"ssl": {"mode": "requireSSL"}}
+    }
+
+    tls_replica_set.update()
+    tls_replica_set.assert_abandons_phase(Phase.Running)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+@skip_if_local()
+def test_reenabled_replica_set_is_not_reachable_without_tls(tls_replica_set: MongoDB):
+    tester = tls_replica_set.tester(use_ssl=False)
+    tester.assert_no_connection()
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+@skip_if_local()
+def test_reenabled_replica_set_is_reachable_with_tls(
+    tls_replica_set: MongoDB, ca_path: str
+):
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
+    tester.assert_connectivity()
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+def test_reenabled_configure_allow_ssl(tls_replica_set: MongoDB):
+    tls_replica_set["spec"]["additionalMongodConfig"] = {
+        "net": {"ssl": {"mode": "allowSSL"}}
+    }
+
+    tls_replica_set.update()
+    tls_replica_set.assert_abandons_phase(Phase.Running)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+def test_implicit_disable_ssl(tls_replica_set: MongoDB):
+    """
+    Disable ssl implicitly
+    """
+    tls_replica_set.load()
+
+    # TLS can be implicitly disabled by skipping any setting in the security block
+    tls_replica_set["spec"]["security"] = None
+
+    tls_replica_set.update()
+    tls_replica_set.assert_abandons_phase(Phase.Running)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+@skip_if_local()
+def test_implicit_tls_disabled_replica_set_is_reachable_without_tls(
+    tls_replica_set: MongoDB,
+):
+    tester = tls_replica_set.tester(use_ssl=False)
+    tester.assert_connectivity()
+
+
+@pytest.mark.e2e_replica_set_tls_require_and_disable
+@skip_if_local()
+def test_implicit_tls_disabled_replica_set_is_not_reachable_with_tls(
+    tls_replica_set: MongoDB, ca_path: str
+):
+    tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
+    tester.assert_no_connection()

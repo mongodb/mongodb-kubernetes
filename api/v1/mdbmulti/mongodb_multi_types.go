@@ -403,7 +403,7 @@ func (m *MongoDBMultiSpec) GetResourceType() mdbv1.ResourceType {
 }
 
 func (m *MongoDBMultiSpec) IsSecurityTLSConfigEnabled() bool {
-	return m.GetSecurity().TLSConfig.IsEnabled()
+	return m.GetSecurity().IsTLSEnabled()
 }
 
 func (m *MongoDBMultiSpec) GetFeatureCompatibilityVersion() *string {
@@ -411,7 +411,7 @@ func (m *MongoDBMultiSpec) GetFeatureCompatibilityVersion() *string {
 }
 
 func (m *MongoDBMultiSpec) GetTLSMode() tls.Mode {
-	if m.Security == nil || !m.Security.TLSConfig.IsEnabled() {
+	if m.Security == nil || !m.Security.IsTLSEnabled() {
 		return tls.Disabled
 	}
 

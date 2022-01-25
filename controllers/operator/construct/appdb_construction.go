@@ -169,7 +169,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, c
 	tlsConfig := appDb.GetSecurity().TLSConfig
 	tlsTypeCert := certSecretType == corev1.SecretTypeTLS
 
-	if !tlsConfig.IsEnabled() && !tlsTypeCert {
+	if !appDb.GetSecurity().IsTLSEnabled() && !tlsTypeCert {
 		return volumesToAdd, volumeMounts
 	}
 	optionalSecretFunc := func(v *corev1.Volume) {}

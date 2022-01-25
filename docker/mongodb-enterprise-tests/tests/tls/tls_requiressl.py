@@ -71,7 +71,7 @@ def test_scale_down_replica_set(mdb: MongoDB):
     mdb.load()
     mdb["spec"]["members"] = 3
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=400)
+    mdb.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @pytest.mark.e2e_replica_set_tls_require

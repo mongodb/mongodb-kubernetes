@@ -177,7 +177,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	// cannot have a non-tls deployment in an x509 environment
 	// TODO move to webhook validations
 	security := s.Spec.Security
-	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !s.Spec.GetTLSConfig().Enabled {
+	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !s.Spec.GetSecurity().IsTLSEnabled() {
 		return r.updateStatus(s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
@@ -303,8 +303,8 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 
 			d.MergeStandalone(standaloneOmObject, s.Spec.AdditionalMongodConfig.ToMap(), lastStandaloneConfig.ToMap(), nil)
 			// TODO change last argument in separate PR
-			d.AddMonitoringAndBackup(log, s.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
-			d.ConfigureTLS(s.Spec.GetTLSConfig(), util.CAFilePathInContainer)
+			d.AddMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+			d.ConfigureTLS(s.Spec.GetSecurity(), util.CAFilePathInContainer)
 			return nil
 		},
 		log,

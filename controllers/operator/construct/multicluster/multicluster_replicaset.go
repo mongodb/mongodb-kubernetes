@@ -206,7 +206,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	sts := statefulset.New(stsModifications)
 
 	// Configure STS with TLS
-	if mdbm.Spec.GetSecurity().TLSConfig.IsEnabled() {
+	if mdbm.Spec.GetSecurity().IsTLSEnabled() {
 		tlsConfig := mdbm.Spec.GetSecurity().TLSConfig
 		if tlsConfig != nil {
 			tls.ConfigureStatefulSet(&sts, mdbm.Name, tlsConfig.SecretRef.Prefix, tlsConfig.CA)

@@ -1293,7 +1293,7 @@ tasks:
 
 - name: e2e_replica_set_tls_require
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
+  exec_timeout_secs: 2400
   commands:
   - func: "e2e_test"
 
@@ -1334,7 +1334,7 @@ tasks:
 
 - name: e2e_replica_set_tls_require_and_disable
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
+  exec_timeout_secs: 2400
   commands:
   - func: "e2e_test"
 

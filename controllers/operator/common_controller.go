@@ -827,7 +827,7 @@ func needToPublishStateFirst(getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
 	volumeMounts := databaseContainer.VolumeMounts
 
-	if !mdb.Spec.Security.TLSConfig.IsEnabled() && wasTLSSecretMounted(getter, currentSts, volumeMounts, mdb, log) {
+	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(getter, currentSts, volumeMounts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.enabled", "false"))
 		return true
 	}

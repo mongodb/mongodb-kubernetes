@@ -753,7 +753,7 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsMan
 	// update the central URL
 	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
 
-	if opsManager.Spec.AppDB.GetTlsCertificatesSecretName() != "" {
+	if opsManager.Spec.AppDB.Security.IsTLSEnabled() {
 		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
 	}
 	if opsManager.Spec.AppDB.GetCAConfigMapName() != "" {

@@ -356,21 +356,24 @@ spec:
                           created already.
                         type: string
                       enabled:
-                        description: Enables TLS for this resource. This will make
-                          the operator try to mount a Secret with a defined name (<resource-name>-cert).
-                          This is only used when enabling TLS on a MongoDB resource,
-                          and not on the AppDB, where TLS is configured by setting
-                          `secretRef.Name`.
+                        description: DEPRECATED please enable TLS by setting `security.certsSecretPrefix`
+                          or `security.tls.secretRef.prefix`. Enables TLS for this
+                          resource. This will make the operator try to mount a Secret
+                          with a defined name (<resource-name>-cert). This is only
+                          used when enabling TLS on a MongoDB resource, and not on
+                          the AppDB, where TLS is configured by setting `secretRef.Name`.
                         type: boolean
                       secretRef:
                         description: SecretRef points to a Secret object containing
                           the certificates to use when enabling TLS.
                         properties:
                           name:
-                            description: DEPRECATED please use security.tls.secretRef.prefix
+                            description: DEPRECATED please use security.certsSecretPrefix
                               instead
                             type: string
                           prefix:
+                            description: DEPRECATED please use security.certsSecretPrefix
+                              instead
                             type: string
                         type: object
                     type: object

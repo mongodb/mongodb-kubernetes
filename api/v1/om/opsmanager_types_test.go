@@ -58,3 +58,116 @@ func TestGetPartsFromStatusOptions(t *testing.T) {
 		assert.Equal(t, status.AppDb, res[2])
 	})
 }
+
+func TestTLSCertificateSecretName(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().Build()
+	om.SetName("new-manager")
+	tests := []struct {
+		name     string
+		security MongoDBOpsManagerSecurity
+		expected string
+	}{
+		{
+			name:     "TLS Certificate Secret name empty",
+			security: MongoDBOpsManagerSecurity{},
+			expected: "",
+		},
+		{
+			name: "TLS Certificate Secret name from TLS.SecretRef.Name",
+			security: MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{
+					SecretRef: TLSSecretRef{
+						Name: "ops-manager-cert",
+					},
+				},
+			},
+			expected: "ops-manager-cert",
+		},
+		{
+			name: "TLS Certificate Secret name from Security.CertificatesSecretPrefix",
+			security: MongoDBOpsManagerSecurity{
+				CertificatesSecretsPrefix: "om",
+			},
+			expected: "om-new-manager-cert",
+		},
+		{
+			name: "TLS Certificate Secret name from TLS.SecretRef.Name has priority",
+			security: MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{
+					SecretRef: TLSSecretRef{
+						Name: "ops-manager-cert",
+					},
+				},
+				CertificatesSecretsPrefix: "prefix",
+			},
+			expected: "ops-manager-cert",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om.Spec.Security = &tc.security
+			assert.Equal(t, tc.expected, om.TLSCertificateSecretName())
+		})
+	}
+}
+
+func TestIsTLSEnabled(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().Build()
+	tests := []struct {
+		name     string
+		security *MongoDBOpsManagerSecurity
+		expected bool
+	}{
+		{
+			name:     "TLS is not enabled when security is not specified",
+			security: nil,
+			expected: false,
+		},
+		{
+			name: "TLS is not enabled when TLS.SecretRef.Name is not specified",
+			security: &MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{
+					SecretRef: TLSSecretRef{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "TLS is enabled when TLS.SecretRef.Name is specified",
+			security: &MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{
+					SecretRef: TLSSecretRef{
+						Name: "ops-manager-cert",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "TLS is enabled when CertificatesSecretsPrefix is specified",
+			security: &MongoDBOpsManagerSecurity{
+				CertificatesSecretsPrefix: "prefix",
+			},
+			expected: true,
+		},
+		{
+			name: "TLS is enabled when both sources of cert secret name are specified",
+			security: &MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{
+					SecretRef: TLSSecretRef{
+						Name: "ops-manager-cert",
+					},
+				},
+				CertificatesSecretsPrefix: "prefix",
+			},
+			expected: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om.Spec.Security = tc.security
+			assert.Equal(t, tc.expected, om.IsTLSEnabled())
+		})
+	}
+}

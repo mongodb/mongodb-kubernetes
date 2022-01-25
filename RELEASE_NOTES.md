@@ -2,13 +2,20 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.15.0
 
+
+## MongoDB Resource
+
+* Changes:
+  * The `spec.security.tls.enabled` and `spec.security.tls.secretRef.prefix` fields are now **deprecated** and will be removed in a future release. To enable TLS it is now sufficient to set the `spec.security.certsSecretPrefix` field.
+
 ## MongoDBOpsManager Resource
 
-* Changes
+* Changes:
   * A new field has been added: `spec.backup.queryableBackupSecretRef`. The secrets referenced by this field contains the certificates used to enable [Queryable Backups](https://docs.opsmanager.mongodb.com/current/tutorial/query-backup/) feature.
   * Added support for configuring custom TLS certificates for the S3 Oplog and Snapshot Stores for backup. These can be configured with
   `spec.security.tls.ca` and `spec.security.tls.secretRef`.
   * It is possible to disable AppDB processes via the `spec.applicationDatabase.automationConfig.processes[n].disabled` field, this enables backing up the AppDB.
+  * The `spec.security.tls.enabled`, `spec.security.tls.secretRef.prefix`, `spec.applicationDatabase.security.tls.enabled` and `spec.applicationDatabase.security.tls.prefix` fields are now **deprecated** and will be removed in a future release. To enable TLS it is now sufficient to set the `spec.security.certsSecretPrefix` and/or `spec.applicationDatabase.security.certsSecretPrefix` field.
 
 *All the images can be found in:*
 

@@ -446,27 +446,22 @@ type Security struct {
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
 func (s Security) MemberCertificateSecretName(defaultName string) string {
-	tlsConfig := s.TLSConfig
-	if tlsConfig == nil {
-		return ""
+	// If one of the old fields tlsConfig.secretRef.name or tlsConfig.secretRef.prefix
+	// are specified, they take precedence.
+	if s.TLSConfig != nil {
+		if s.TLSConfig.SecretRef.Name != "" {
+			return s.TLSConfig.SecretRef.Name
+		}
+		if s.TLSConfig.SecretRef.Prefix != "" {
+			return fmt.Sprintf("%s-%s-cert", s.TLSConfig.SecretRef.Prefix, defaultName)
+		}
 	}
-	prefix := ""
-	// If the old field, Name, is specified, it takes the precedence
-	if tlsConfig.SecretRef.Name != "" {
-		return tlsConfig.SecretRef.Name
-	}
-
-	// The prefix is either the top-level spec.certsSecretPrefix or
-	// the specific one in tlsConfig.secretRef.prefix
 	if s.CertificatesSecretsPrefix != "" {
-		prefix = fmt.Sprintf("%s-", s.CertificatesSecretsPrefix)
-	}
-	if tlsConfig.SecretRef.Prefix != "" {
-		prefix = fmt.Sprintf("%s-", tlsConfig.SecretRef.Prefix)
+		return fmt.Sprintf("%s-%s-cert", s.CertificatesSecretsPrefix, defaultName)
 	}
 
-	// If none are specified, we just use tje `defaultname-cert format`
-	return fmt.Sprintf("%s%s-cert", prefix, defaultName)
+	// The default behaviour is to use the `defaultname-cert` format
+	return fmt.Sprintf("%s-cert", defaultName)
 }
 
 func (spec MongoDbSpec) GetSecurity() *Security {
@@ -474,7 +469,15 @@ func (spec MongoDbSpec) GetSecurity() *Security {
 }
 
 func (s *Security) IsTLSEnabled() bool {
-	return s != nil && s.TLSConfig != nil && s.TLSConfig.IsEnabled()
+	if s == nil {
+		return false
+	}
+	if s.TLSConfig != nil {
+		if s.TLSConfig.Enabled || (s.TLSConfig.SecretRef.Prefix != "" || s.TLSConfig.SecretRef.Name != "") {
+			return true
+		}
+	}
+	return s.CertificatesSecretsPrefix != ""
 }
 
 // GetAgentMechanism returns the authentication mechanism that the agents will be using.
@@ -691,6 +694,7 @@ type SecretRef struct {
 }
 
 type TLSConfig struct {
+	// DEPRECATED please enable TLS by setting `security.certsSecretPrefix` or `security.tls.secretRef.prefix`.
 	// Enables TLS for this resource. This will make the operator try to mount a
 	// Secret with a defined name (<resource-name>-cert).
 	// This is only used when enabling TLS on a MongoDB resource, and not on the
@@ -707,13 +711,6 @@ type TLSConfig struct {
 	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
-func (t *TLSConfig) IsEnabled() bool {
-	if t == nil {
-		return false
-	}
-	return t.Enabled || (t.SecretRef.Prefix != "" || t.SecretRef.Name != "")
-}
-
 // IsSelfManaged returns true if the TLS is self-managed (cert provided by the customer), not Operator-managed
 func (t TLSConfig) IsSelfManaged() bool {
 	return t.CA != "" || (t.SecretRef.Prefix != "" || t.SecretRef.Name != "")
@@ -722,12 +719,13 @@ func (t TLSConfig) IsSelfManaged() bool {
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
 // be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {
-	// DEPRECATED please use security.tls.secretRef.prefix instead
+	// DEPRECATED please use security.certsSecretPrefix instead
 	// +optional
 	Name string `json:"name"`
 
 	// TODO: make prefix required once name has been removed.
 
+	// DEPRECATED please use security.certsSecretPrefix instead
 	// +optional
 	Prefix string `json:"prefix"`
 }
@@ -1136,7 +1134,7 @@ func NewMongoDbPodSpec() *MongoDbPodSpec {
 }
 
 func (spec MongoDbSpec) GetTLSMode() tls.Mode {
-	if spec.Security == nil || !spec.Security.TLSConfig.IsEnabled() {
+	if spec.Security == nil || !spec.Security.IsTLSEnabled() {
 		return tls.Disabled
 	}
 	return tls.GetTLSModeFromMongodConfig(spec.AdditionalMongodConfig.Object)
@@ -1169,7 +1167,7 @@ func (m MongoDbSpec) GetResourceType() ResourceType {
 }
 
 func (m MongoDbSpec) IsSecurityTLSConfigEnabled() bool {
-	return m.GetSecurity().TLSConfig.IsEnabled()
+	return m.GetSecurity().IsTLSEnabled()
 }
 
 func (m MongoDbSpec) GetFeatureCompatibilityVersion() *string {

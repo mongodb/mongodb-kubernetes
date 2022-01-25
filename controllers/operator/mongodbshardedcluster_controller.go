@@ -214,7 +214,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	security := sc.Spec.Security
 	// TODO move to webhook validations
-	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !sc.Spec.GetTLSConfig().Enabled {
+	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !sc.Spec.GetSecurity().IsTLSEnabled() {
 		return nil, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
@@ -362,7 +362,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 	tlsConfig := s.Spec.GetTLSConfig()
 
 	certSecretTypes := map[string]bool{}
-	if tlsConfig == nil || !s.Spec.GetTLSConfig().IsEnabled() {
+	if tlsConfig == nil || !s.Spec.GetSecurity().IsTLSEnabled() {
 		return workflow.OK(), certSecretTypes
 	}
 
@@ -765,8 +765,8 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 				return err
 			}
 
-			d.AddMonitoringAndBackup(log, sc.Spec.GetTLSConfig().IsEnabled(), opts.caFilePath)
-			d.ConfigureTLS(sc.Spec.GetTLSConfig(), opts.caFilePath)
+			d.AddMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
+			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
 
 			internalClusterAuthMode := sc.Spec.Security.GetInternalClusterAuthenticationMode()
 

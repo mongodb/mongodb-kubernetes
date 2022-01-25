@@ -39,8 +39,8 @@ func CreateFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 		lastConfig.ToMap(),
 		nil,
 	)
-	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
-	d.ConfigureTLS(rs.Spec.GetTLSConfig(), util.CAFilePathInContainer)
+	d.AddMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	d.ConfigureTLS(rs.Spec.GetSecurity(), util.CAFilePathInContainer)
 	return d
 }
 

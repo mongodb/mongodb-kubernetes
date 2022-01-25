@@ -58,7 +58,7 @@ func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) v1.ValidationResult {
 	if authSpec == nil {
 		return v1.ValidationSuccess()
 	}
-	if authSpec.Enabled && authSpec.IsX509Enabled() && !ms.GetTLSConfig().Enabled {
+	if authSpec.Enabled && authSpec.IsX509Enabled() && !ms.GetSecurity().IsTLSEnabled() {
 		return v1.ValidationError("Cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 	return v1.ValidationSuccess()

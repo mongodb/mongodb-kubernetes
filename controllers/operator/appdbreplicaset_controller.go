@@ -241,7 +241,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
 	_, err = r.client.GetStatefulSet(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
-	if err == nil && opsManager.Spec.AppDB.GetSecurity().TLSConfig.IsEnabled() {
+	if err == nil && opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled() {
 		automationConfigFirst = false
 	}
 
@@ -419,7 +419,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 			}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
-				addMonitoring(automationConfig, log, rs.GetTLSConfig().IsEnabled())
+				addMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
 				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
 				automationConfig.Processes = []automationconfig.Process{}
 			}
@@ -436,7 +436,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
 			})
 			p.SetStoragePath(automationconfig.DefaultMongoDBDataDir)
-			if rs.GetTlsCertificatesSecretName() != "" {
+			if rs.Security.IsTLSEnabled() {
 
 				certFileName := certHash
 				if certFileName == "" {

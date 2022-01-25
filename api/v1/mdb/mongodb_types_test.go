@@ -195,6 +195,72 @@ func TestMongoDB_AddWarningIfNotExists(t *testing.T) {
 	assert.Equal(t, []status.Warning{"my test warning;", "my other test warning"}, resource.Status.Warnings)
 }
 
+func TestMongoDB_IsSecurityTLSConfigEnabled(t *testing.T) {
+	rs := NewReplicaSetBuilder().Build()
+	tests := []struct {
+		name     string
+		security *Security
+		expected bool
+	}{
+		{
+			name:     "TLS is not enabled when Security is nil",
+			security: nil,
+			expected: false,
+		},
+		{
+			name:     "TLS is not enabled when TLSConfig is nil",
+			security: &Security{},
+			expected: false,
+		},
+		{
+			name: "TLS is enabled when TLSConfig.SecretRef.Prefix is specified",
+			security: &Security{
+				TLSConfig: &TLSConfig{
+					SecretRef: TLSSecretRef{
+						Prefix: "old-prefix",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "TLS is enabled when TLSConfig.SecretRef.Name is specified",
+			security: &Security{
+				TLSConfig: &TLSConfig{
+					SecretRef: TLSSecretRef{
+						Name: "mdb-cert",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "TLS is enabled when CertificatesSecretsPrefix is specified",
+			security: &Security{
+				CertificatesSecretsPrefix: "prefix",
+			},
+			expected: true,
+		},
+		{
+			name: "TLS is enabled when TLSConfig fields are specified and CertificatesSecretsPrefix is specified",
+			security: &Security{
+				CertificatesSecretsPrefix: "prefix",
+				TLSConfig: &TLSConfig{
+					CA: "issuer-ca",
+				},
+			},
+			expected: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs.Spec.Security = tc.security
+			assert.Equal(t, tc.expected, rs.GetSecurity().IsTLSEnabled())
+		})
+	}
+	rs.GetSpec().IsSecurityTLSConfigEnabled()
+}
+
 func TestMemberCertificateSecretName(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
 

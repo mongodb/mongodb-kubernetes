@@ -1011,7 +1011,7 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 		Shards:          shards,
 		Finalizing:      false,
 	})
-	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetTLSConfig().IsEnabled(), util.CAFilePathInContainer)
+	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }
 

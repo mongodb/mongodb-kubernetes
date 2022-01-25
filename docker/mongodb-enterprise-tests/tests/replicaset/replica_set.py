@@ -312,7 +312,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     replica_set["spec"]["members"] = 1
     replica_set.update()
 
-    replica_set.assert_reaches_phase(Phase.Running, timeout=500)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
 
@@ -503,7 +503,7 @@ def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
     replica_set["spec"]["members"] = 3
     replica_set.update()
 
-    replica_set.assert_reaches_phase(Phase.Running, timeout=500)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
 

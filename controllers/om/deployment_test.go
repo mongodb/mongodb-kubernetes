@@ -143,28 +143,28 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 
 func TestConfigureSSL_Deployment(t *testing.T) {
 	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true}, util.CAFilePathInContainer)
+	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer)
 	expectedSSLConfig := map[string]interface{}{
 		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
 	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]interface{}))
 
-	d.ConfigureTLS(&mdbv1.TLSConfig{}, util.CAFilePathInContainer)
+	d.ConfigureTLS(&mdbv1.Security{}, util.CAFilePathInContainer)
 	assert.Empty(t, d["tls"])
 }
 
 func TestTLSConfigurationWillBeDisabled(t *testing.T) {
 	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: false}, util.CAFilePathInContainer)
+	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}, util.CAFilePathInContainer)
 
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: false}))
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: true}))
+	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}))
+	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}))
 
 	d = Deployment{}
-	d.ConfigureTLS(&mdbv1.TLSConfig{Enabled: true}, util.CAFilePathInContainer)
+	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer)
 
-	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: true}))
-	assert.True(t, d.TLSConfigurationWillBeDisabled(&mdbv1.TLSConfig{Enabled: false}))
+	assert.False(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}))
+	assert.True(t, d.TLSConfigurationWillBeDisabled(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: false}}))
 }
 
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than

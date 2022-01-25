@@ -399,7 +399,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	} else {
 		// add vault specific annotations
 		secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
-		if mdb.GetSecurity().TLSConfig.IsEnabled() {
+		if mdb.GetSecurity().IsTLSEnabled() {
 
 			secretName := mdb.GetSecurity().MemberCertificateSecretName(opts.Name)
 			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
@@ -481,7 +481,7 @@ func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseSt
 	tlsConfig := security.TLSConfig
 
 	newTlsDesign := databaseOpts.CertSecretTypes.IsTLSTypeOrUndefined(security.MemberCertificateSecretName(databaseOpts.Name))
-	if !newTlsDesign && !tlsConfig.IsEnabled() {
+	if !newTlsDesign && !security.IsTLSEnabled() {
 		return volumes, volumeMounts
 	}
 

@@ -38,7 +38,8 @@ def sharded_cluster(
     res = MongoDB.from_yaml(
         load_fixture("test-tls-base-sc-require-ssl-custom-ca.yaml"), namespace=namespace
     )
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    res["spec"]["security"]["tls"] = {"ca": issuer_ca_configmap}
+    # Setting security.certsSecretPrefix implicitly enables TLS
     res["spec"]["security"]["certsSecretPrefix"] = "prefix"
     return res.create()
 

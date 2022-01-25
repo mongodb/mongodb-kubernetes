@@ -204,7 +204,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mr
 	databaseContainer := container.GetByName(util.DatabaseContainerName, firstStatefulSet.Spec.Template.Spec.Containers)
 	volumeMounts := databaseContainer.VolumeMounts
 	if mrs.Spec.Security != nil {
-		if !mrs.Spec.Security.TLSConfig.IsEnabled() && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
+		if !mrs.Spec.Security.IsTLSEnabled() && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
 			log.Debug("About to set `security.tls.enabled` to false. automationConfig needs to be updated first")
 			return true, nil
 		}
@@ -417,8 +417,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, mrs.Spec.AdditionalMongodConfig.ToMap(), mrs.GetLastAdditionalMongodConfig(), log)
 			// TODO change last argument in separate PR
-			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().TLSConfig.IsEnabled(), util.CAFilePathInContainer)
-			d.ConfigureTLS(mrs.Spec.GetSecurity().TLSConfig, util.CAFilePathInContainer)
+			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+			d.ConfigureTLS(mrs.Spec.GetSecurity(), util.CAFilePathInContainer)
 			return nil
 		},
 		log,

@@ -27,7 +27,7 @@ func NewMongodProcessAppDB(name, hostName string, appdb *omv1.AppDBSpec) Process
 		WithResourceSpec(appdb),
 	)
 
-	if appdb.GetTlsCertificatesSecretName() != "" {
+	if appdb.GetSecurity().IsTLSEnabled() {
 		certFile := fmt.Sprintf("%s/certs/%s-pem", util.SecretVolumeMountPath, name)
 
 		// Process for AppDB use the mounted cert in-place and are not required for the certs to be
