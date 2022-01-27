@@ -87,4 +87,4 @@ def test_enabled_tls_mongodb_multi(
         },
     }
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1100)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1300)

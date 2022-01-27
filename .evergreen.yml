@@ -2245,6 +2245,7 @@ task_groups:
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_member_cluster_watch
+    - e2e_multi_cluster_enable_tls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
