@@ -118,17 +118,18 @@ test_app_ended() {
 run_tests() {
     local task_name=${1}
     local operator_context
-    local test_pod_cluster
+    local test_pod_context
     operator_context="$(kubectl config current-context)"
-    test_pod_cluster="${operator_context}"
+    # test_pod_cluster="e2e.cluster1.mongokubernetes.com"
+    test_pod_context="${operator_context}"
     if [[ "${kube_environment_name}" = "multi" ]]; then
         operator_context="${central_cluster}"
         # shellcheck disable=SC2154,SC2269
-        test_pod_cluster="${test_pod_cluster}"
+        test_pod_context="${test_pod_cluster:-$operator_context}"
     fi
 
     echo "Operator running in cluster ${operator_context}"
-    echo "Test pod running in cluster ${test_pod_cluster}"
+    echo "Test pod running in cluster ${test_pod_context}"
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
@@ -138,15 +139,15 @@ run_tests() {
 
     prepare_operator_config_map "${operator_context}"
 
-    deploy_test_app "${test_pod_cluster}"
+    deploy_test_app "${test_pod_context}"
 
-    wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_cluster}"
+    wait_until_pod_is_running_or_failed_or_succeeded "${test_pod_context}"
 
     title "Running e2e test ${task_name} (tag: ${TEST_IMAGE_TAG})"
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
-        kubectl --context "${test_pod_cluster}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f
+        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f
     else
         output_filename="logs/test_app.log"
         operator_filename="logs/0_operator.log"
@@ -154,15 +155,15 @@ run_tests() {
         # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
-        kubectl --context "${test_pod_cluster}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
+        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
         kubectl --context "${operator_context}" -n "${PROJECT_NAMESPACE}" logs -l app.kubernetes.io/component=controller -c mongodb-enterprise-operator --tail -1 > "${operator_filename}"
     fi
 
     # Waiting a bit until the pod gets to some end
-    while ! test_app_ended "${test_pod_cluster}"; do printf .; sleep 1; done;
+    while ! test_app_ended "${test_pod_context}"; do printf .; sleep 1; done;
     echo
 
-    status="$(kubectl --context "${test_pod_cluster}" get pod "${TEST_APP_PODNAME}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
+    status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]
 }
 
