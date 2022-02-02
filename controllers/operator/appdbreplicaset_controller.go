@@ -533,6 +533,11 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv
 		return fmt.Errorf("error fetching existing hosts: %s", err)
 	}
 
+	hostMap := make(map[string]host.Host)
+	for _, host := range getHostsResult.Results {
+		hostMap[host.Hostname] = host
+	}
+
 	for _, hostname := range hostnames {
 		appDbHost := host.Host{
 			Port:              util.MongoDbDefaultPort,
@@ -541,12 +546,22 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv
 			Hostname:          hostname,
 			AuthMechanismName: "MONGODB_CR",
 		}
-		if host.Contains(getHostsResult.Results, appDbHost) {
-			continue
-		}
-		log.Debugf("Registering AppDB host %s with project %s", hostname, conn.GroupID())
-		if err := conn.AddHost(appDbHost); err != nil {
-			return fmt.Errorf("error adding appdb host %s", err)
+
+		if currentHost, ok := hostMap[hostname]; ok {
+			// Host is already on the list, we need to update it.
+			log.Debugf("Host %s is already registred with group %s", hostname, conn.GroupID())
+			// Need to se the Id first
+			appDbHost.Id = currentHost.Id
+
+			if err := conn.UpdateHost(appDbHost); err != nil {
+				return fmt.Errorf("error updating appdb host %s", err)
+			}
+		} else {
+			// This is a new host.
+			log.Debugf("Registering AppDB host %s with project %s", hostname, conn.GroupID())
+			if err := conn.AddHost(appDbHost); err != nil {
+				return fmt.Errorf("*** error adding appdb host %s", err)
+			}
 		}
 	}
 	return nil

@@ -21,6 +21,10 @@ type Adder interface {
 	AddHost(host Host) error
 }
 
+type Updater interface {
+	UpdateHost(host Host) error
+}
+
 type Remover interface {
 	RemoveHost(hostID string) error
 }

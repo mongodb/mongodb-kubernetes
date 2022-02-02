@@ -67,6 +67,7 @@ type Connection interface {
 
 	host.Adder
 	host.GetRemover
+	host.Updater
 
 	controlledfeature.Getter
 	controlledfeature.Updater
@@ -417,6 +418,12 @@ func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 // AddHost adds the given host to the project
 func (oc *HTTPOmConnection) AddHost(host host.Host) error {
 	_, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/hosts", oc.GroupID()), host)
+	return err
+}
+
+// UpdateHost adds the given host.
+func (oc *HTTPOmConnection) UpdateHost(host host.Host) error {
+	_, err := oc.patch(fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupID(), host.Id), host)
 	return err
 }
 

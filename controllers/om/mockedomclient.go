@@ -248,6 +248,16 @@ func (oc *MockedOmConnection) AddHost(host host.Host) error {
 	return nil
 }
 
+func (oc *MockedOmConnection) UpdateHost(host host.Host) error {
+	// assume the host in question exists
+	for idx := range oc.hostResults.Results {
+		if oc.hostResults.Results[idx].Hostname == host.Hostname {
+			oc.hostResults.Results[idx] = host
+		}
+	}
+	return nil
+}
+
 func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(_ BackingDatabaseType) error {
 	return nil
 }

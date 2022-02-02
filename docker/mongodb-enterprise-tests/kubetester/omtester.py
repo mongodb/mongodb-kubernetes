@@ -391,17 +391,21 @@ class OMTester(object):
 
     def api_read_monitoring_measurements(
         self,
+        host_id: str,
         database_name: Optional[str] = None,
-        host_id: Optional[str] = None,
         project_id: Optional[str] = None,
+        period: str = "P1DT12H",
     ):
-        if host_id is None:
-            raise ValueError("host id was not specified!")
+        """
+        Reads a measurement from the measurements and alerts API:
+
+        https://docs.opsmanager.mongodb.com/v4.4/reference/api/measures/get-host-process-system-measurements/
+        """
         if database_name is None:
             database_name = "admin"
         return self.om_request(
             "get",
-            f"/groups/{project_id}/hosts/{host_id}/databases/{database_name}/measurements?granularity=PT30S&period=P1DT12H",
+            f"/groups/{project_id}/hosts/{host_id}/databases/{database_name}/measurements?granularity=PT30S&period={period}",
         ).json()["measurements"]
 
     def api_read_monitoring_agents(self) -> List:
