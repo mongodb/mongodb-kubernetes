@@ -1003,7 +1003,7 @@ tasks:
 
 - name: e2e_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
+  exec_timeout_secs: 2700
   commands:
     - func: "e2e_test"
 
