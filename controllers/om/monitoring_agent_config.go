@@ -44,7 +44,7 @@ func (m *MonitoringAgentConfig) UnsetAgentPassword() {
 }
 
 func (m *MonitoringAgentConfig) EnableX509Authentication(MonitoringAgentSubject string) {
-	m.MonitoringAgentTemplate.SSLPemKeyFile = util.MonitoringAgentPemFilePath
+	m.MonitoringAgentTemplate.SSLPemKeyFile = util.AutomationAgentPemFilePath
 	m.SetAgentUserName(MonitoringAgentSubject)
 }
 

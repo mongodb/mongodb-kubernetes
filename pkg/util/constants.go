@@ -93,13 +93,7 @@ const (
 
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
-	MonitoringAgentName         = "mms-monitoring-agent"
-	MonitoringAgentPemSecretKey = AutomationAgentName + "-pem"
-	BackupAgentName             = "mms-backup-agent"
-	BackupAgentPemSecretKey     = AutomationAgentName + "-pem"
 	AutomationAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
-	MonitoringAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + MonitoringAgentPemSecretKey
-	BackupAgentPemFilePath      = "/mongodb-automation/" + AgentSecretName + "/" + BackupAgentPemSecretKey
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
 	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"

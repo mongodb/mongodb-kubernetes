@@ -44,7 +44,7 @@ func (bac *BackupAgentConfig) UnsetAgentPassword() {
 }
 
 func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject string) {
-	bac.BackupAgentTemplate.SSLPemKeyFile = util.BackupAgentPemFilePath
+	bac.BackupAgentTemplate.SSLPemKeyFile = util.AutomationAgentPemFilePath
 	bac.SetAgentUserName(backupAgentSubject)
 }
 

@@ -884,27 +884,16 @@ func createAgentCSRs(numAgents int, client kubernetesClient.Client, conditionTyp
 		return
 	}
 	// create the secret the agent certs will exist in
-
 	certAuto, _ := ioutil.ReadFile("testdata/certificates/cert_auto")
-	certMonitoring, _ := ioutil.ReadFile("testdata/certificates/cert_monitoring")
-	certBackup, _ := ioutil.ReadFile("testdata/certificates/cert_backup")
 
 	builder := secret.Builder().
 		SetNamespace(mock.TestNamespace).
 		SetName(util.AgentSecretName).
 		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
 
-	if numAgents == 3 {
-		builder.SetField(util.MonitoringAgentPemSecretKey, string(certMonitoring)).
-			SetField(util.BackupAgentPemSecretKey, string(certBackup))
-	}
 	client.CreateSecret(builder.Build())
 
-	addCsrs(client,
-		createCSR("mms-automation-agent", mock.TestNamespace, conditionType),
-		createCSR("mms-monitoring-agent", mock.TestNamespace, conditionType),
-		createCSR("mms-backup-agent", mock.TestNamespace, conditionType),
-	)
+	addCsrs(client, createCSR("mms-automation-agent", mock.TestNamespace, conditionType))
 }
 
 // approveCSRs approves all CSRs related to the given MongoDB resource, this includes TLS and x509 internal cluster authentication CSRs
