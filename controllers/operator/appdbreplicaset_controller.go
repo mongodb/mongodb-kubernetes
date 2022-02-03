@@ -38,6 +38,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/host"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
@@ -705,6 +706,31 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 	_, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
 	if err != nil {
 		return existingPodVars, fmt.Errorf("error reading/creating project: %s", err)
+	}
+
+	// Configure Authentication Options.
+	opts := authentication.Options{
+		AgentMechanism:     util.SCRAM,
+		Mechanisms:         []string{util.SCRAM},
+		ClientCertificates: util.OptionalClientCertficates,
+		AutoUser:           util.AutomationAgentUserName,
+		CAFilePath:         util.CAFilePathInContainer,
+	}
+	err = authentication.Configure(conn, opts, log)
+	if err != nil {
+		log.Info("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. " +
+			"Application Database is always configured with authentication enabled, but this will not be " +
+			"visible from Ops/Cloud Manager UI.")
+	}
+
+	err = conn.ReadUpdateDeployment(func(d om.Deployment) error {
+		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), util.CAFilePathInContainer)
+		return nil
+	}, log)
+	if err != nil {
+		log.Info("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. " +
+			"Application Database has been configured with TLS enabled, but this will not be " +
+			"visible from Ops/Cloud Manager UI.")
 	}
 
 	if err := r.registerAppDBHostsWithProject(opsManager, conn, opsManagerUserPassword, log); err != nil {

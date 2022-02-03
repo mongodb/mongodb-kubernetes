@@ -183,8 +183,19 @@ def test_no_unnecessary_rolling_upgrades_happen(
 def test_connection_string_secret_was_updated(
     skip_if_om5: None, ops_manager: MongoDBOpsManager
 ):
-    secret = KubernetesTester.read_secret(
-        ops_manager.namespace, ops_manager.get_appdb_connection_url_secret_name()
-    )
-    connection_string = secret["connectionString"]
+    connection_string = ops_manager.read_appdb_connection_url()
+
     assert "new-password" in connection_string
+
+
+@pytest.mark.e2e_om_ops_manager_secure_config
+def test_appdb_project_has_correct_auth_tls(ops_manager: MongoDBOpsManager):
+    automation_config_tester = ops_manager.get_automation_config_tester()
+    auth = automation_config_tester.automation_config["auth"]
+
+    automation_config_tester.assert_agent_user("mms-automation-agent")
+    assert auth["keyfile"] == "/var/lib/mongodb-mms-automation/authentication/keyfile"
+
+    # These should have been set to random values
+    assert auth["autoPwd"] != ""
+    assert auth["key"] != ""
