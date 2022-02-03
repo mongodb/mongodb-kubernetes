@@ -718,9 +718,9 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 	}
 	err = authentication.Configure(conn, opts, log)
 	if err != nil {
-		log.Info("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. " +
-			"Application Database is always configured with authentication enabled, but this will not be " +
-			"visible from Ops/Cloud Manager UI.")
+		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
+			"Application Database is always configured with authentication enabled, but this will not be "+
+			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
 	err = conn.ReadUpdateDeployment(func(d om.Deployment) error {
@@ -728,9 +728,9 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return nil
 	}, log)
 	if err != nil {
-		log.Info("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. " +
-			"Application Database has been configured with TLS enabled, but this will not be " +
-			"visible from Ops/Cloud Manager UI.")
+		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
+			"Application Database has been configured with TLS enabled, but this will not be "+
+			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
 	if err := r.registerAppDBHostsWithProject(opsManager, conn, opsManagerUserPassword, log); err != nil {
