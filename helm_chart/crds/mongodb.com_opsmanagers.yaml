@@ -454,7 +454,8 @@ spec:
                               `secretRef.Name`.
                             type: boolean
                           secretRef:
-                            description: SecretRef points to a Secret object containing
+                            description: DEPRECATED please use security.certsSecretPrefix
+                              instead SecretRef points to a Secret object containing
                               the certificates to use when enabling TLS.
                             properties:
                               name:

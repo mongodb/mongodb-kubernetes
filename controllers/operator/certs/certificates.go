@@ -36,23 +36,6 @@ const (
 	AppDB      = "appdb"
 )
 
-// CreatePEMSecret creates a PEM secret from the original secretName.
-func CreatePEMSecret(secretGetUpdater secret.GetUpdateCreator, secretNamespacedName types.NamespacedName, data map[string]string, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
-	operatorGeneratedSecret := secretNamespacedName
-	operatorGeneratedSecret.Name = fmt.Sprintf("%s%s", secretNamespacedName.Name, OperatorGeneratedCertSuffix)
-
-	secretBuilder := secret.Builder().
-		SetName(operatorGeneratedSecret.Name).
-		SetNamespace(operatorGeneratedSecret.Namespace).
-		SetOwnerReferences(ownerReferences)
-
-	for k, v := range data {
-		secretBuilder = secretBuilder.SetField(k, v)
-	}
-
-	return secret.CreateOrUpdateIfNeeded(secretGetUpdater, secretBuilder.Build())
-}
-
 // CreatePEMSecretClient creates a PEM secret from the original secretName.
 func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, data map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination, log *zap.SugaredLogger) error {
 	operatorGeneratedSecret := secretNamespacedName
@@ -87,18 +70,7 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 
 // VerifyTLSSecretForStatefulSet verifies a secret of type kubernetes.io/tls.
 func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, secretName string, opts Options) (string, error) {
-	// Note that a kubernetes.io/tls secret HAS to have these two keys, by definition
-	// We error check anyway but this should never happen
-	crt, ok := secretData["tls.crt"]
-	if !ok {
-		return "", fmt.Errorf("Secret %s does not contain a tls.crt key", secretName)
-	}
-
-	key, ok := secretData["tls.key"]
-	if !ok {
-		return "", fmt.Errorf("Secret %s does not contain a tls.key key", secretName)
-	}
-
+	crt, key := secretData["tls.crt"], secretData["tls.key"]
 	data := append(crt, key...)
 
 	additionalDomains := []string{}
@@ -160,11 +132,11 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretsClient secrets.SecretClien
 
 	var errs error
 
-	// TODO Multi-cluster will be handled in a separate PR
-	// For multi-cluster mode ....
 	if opts.ClusterMode == multi {
 		// get the pod names and get the service FQDN for each of the service hostnames
-		mdbmName, clusterNum := multicluster.GetRsNamefromMultiStsName(opts.ResourceName), multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)
+		mdbmName, clusterNum := multicluster.GetRsNamefromMultiStsName(opts.ResourceName),
+			multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)
+
 		for podNum := 0; podNum < opts.Replicas; podNum++ {
 			podName, serviceFQDN := dns.GetMultiPodName(mdbmName, clusterNum, podNum), dns.GetMultiServiceFQDN(mdbmName, opts.Namespace, clusterNum, podNum)
 			pem := fmt.Sprintf("%s-pem", podName)

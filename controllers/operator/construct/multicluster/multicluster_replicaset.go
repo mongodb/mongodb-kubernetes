@@ -6,6 +6,7 @@ import (
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
@@ -36,9 +37,10 @@ func statefulSetLabels(mdbmName, mdbmNamespace string) map[string]string {
 	}
 }
 
-func statefulSetAnnotations(mdbmName string) map[string]string {
+func statefulSetAnnotations(mdbmName string, certHash string) map[string]string {
 	return map[string]string{
 		handler.MongoDBMultiResourceAnnotation: mdbmName,
+		certs.CertHashAnnotationkey:            certHash,
 	}
 }
 
@@ -148,7 +150,7 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection) (appsv1.StatefulSet, error) {
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection, certHash string) (appsv1.StatefulSet, error) {
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configureContainerSecurityContext := container.NOOP()
@@ -167,7 +169,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
 		statefulset.WithNamespace(mdbm.Namespace),
 		statefulset.WithLabels(statefulSetLabels(mdbm.Namespace, mdbm.Name)),
-		statefulset.WithAnnotations(statefulSetAnnotations(mdbm.Name)),
+		statefulset.WithAnnotations(statefulSetAnnotations(mdbm.Name, certHash)),
 		statefulset.WithReplicas(memberCount),
 		statefulset.WithSelector(statefulSetSelector(mdbm.Name)),
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
@@ -205,11 +207,12 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 
 	sts := statefulset.New(stsModifications)
 
-	// Configure STS with TLS
+	// Configure STS with TLS, only allow "security.CertificatesSecretsPrefix" in multi-cluster since
+	// remaining are deprecated
 	if mdbm.Spec.GetSecurity().IsTLSEnabled() {
-		tlsConfig := mdbm.Spec.GetSecurity().TLSConfig
-		if tlsConfig != nil {
-			tls.ConfigureStatefulSet(&sts, mdbm.Name, tlsConfig.SecretRef.Prefix, tlsConfig.CA)
+		security := mdbm.Spec.GetSecurity()
+		if security != nil {
+			tls.ConfigureStatefulSet(&sts, mdbm.Name, security.CertificatesSecretsPrefix, security.TLSConfig.CA)
 		}
 	}
 

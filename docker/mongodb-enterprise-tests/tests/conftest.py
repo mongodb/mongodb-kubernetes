@@ -181,7 +181,7 @@ def issuer(cert_manager: str, namespace: str) -> str:
 def multi_cluster_issuer(
     multi_cluster_cert_manager: str,
     namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
+    central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
     """
     This fixture creates an "Issuer" in the testing namespace. This requires cert-manager
@@ -195,29 +195,35 @@ def multi_cluster_issuer(
         "tls.crt": open(_fixture("ca-tls.crt")).read(),
     }
 
-    for client in member_cluster_clients:
-        create_secret(
-            namespace=namespace,
-            name="ca-key-pair",
-            data=issuer_data,
-            api_client=client.api_client,
-        )
+    create_secret(
+        namespace=namespace,
+        name="ca-key-pair",
+        data=issuer_data,
+        api_client=central_cluster_client,
+    )
 
-        issuer = Issuer(name="ca-issuer", namespace=namespace)
-        issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
-        issuer.api = kubernetes.client.CustomObjectsApi(api_client=client.api_client)
+    issuer = Issuer(name="ca-issuer", namespace=namespace)
+    issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
+    issuer.api = kubernetes.client.CustomObjectsApi(api_client=central_cluster_client)
 
-        issuer.create().block_until_ready()
+    issuer.create().block_until_ready()
 
     return "ca-issuer"
 
 
 @fixture(scope="module")
+def issuer_ca_filepath():
+    return _fixture("ca-tls.crt")
+
+
+@fixture(scope="module")
 def multi_cluster_issuer_ca_configmap(
-    namespace: str, member_cluster_clients: List[MultiClusterClient]
+    issuer_ca_filepath: str,
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
 ) -> str:
     """This is the CA file which verifies the certificates signed by it."""
-    ca = open(_fixture("ca-tls.crt")).read()
+    ca = open(issuer_ca_filepath).read()
 
     # The operator expects the CA that validates Ops Manager is contained in
     # an entry with a name of "mms-ca.crt"
@@ -228,11 +234,6 @@ def multi_cluster_issuer_ca_configmap(
     for c in member_cluster_clients:
         create_configmap(namespace, name, data, api_client=c.api_client)
     return name
-
-
-@fixture(scope="module")
-def issuer_ca_filepath():
-    return _fixture("ca-tls.crt")
 
 
 @fixture(scope="module")

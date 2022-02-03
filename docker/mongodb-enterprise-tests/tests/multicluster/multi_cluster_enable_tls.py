@@ -33,12 +33,14 @@ def server_certs(
     multi_cluster_issuer: str,
     mongodb_multi_unmarshalled: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
+    central_cluster_client: kubernetes.client.ApiClient,
 ):
 
     return create_multi_cluster_mongodb_tls_certs(
         multi_cluster_issuer,
         BUNDLE_SECRET_NAME,
         member_cluster_clients,
+        central_cluster_client,
         mongodb_multi_unmarshalled,
     )
 
@@ -80,9 +82,8 @@ def test_enabled_tls_mongodb_multi(
 
     mongodb_multi.load()
     mongodb_multi["spec"]["security"] = {
+        "certsSecretPrefix": CERT_SECRET_PREFIX,
         "tls": {
-            "enabled": True,
-            "secretRef": {"prefix": CERT_SECRET_PREFIX},
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }

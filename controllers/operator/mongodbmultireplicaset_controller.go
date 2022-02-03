@@ -28,6 +28,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/multicluster"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
@@ -254,10 +255,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return workflow.Failed(err.Error())
 		}
 
-		// TODO in a separate PR
-		// Ensure TLS for multi-cluster statefulset
-		if status, _ := certs.EnsureSSLCertsForStatefulSet(secretMemberClient, *mrs.Spec.Security, certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation), log); !status.IsOK() {
-			return workflow.Failed("failed to ensure Statefulset for MDB Multi")
+		// Ensure TLS for multi-cluster statefulset in each cluster
+		mrsConfig := certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation)
+		if status, _ := certs.EnsureSSLCertsForStatefulSet(secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
+			return status
 		}
 
 		// TODO: add multi cluster label to these secrets.
@@ -273,8 +274,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		errorStringFormatStr := "failed to create StatefulSet in cluster: %s, err: %s"
 
+		// get cert hash of tls secret if it exists
+		certHash := enterprisepem.ReadHashFromSecret(r.memberClusterSecretClientsMap[item.ClusterName], mrs.Namespace, mrsConfig.CertSecretName, "", log)
+
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
-		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn)
+		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, certHash)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}
@@ -399,9 +403,32 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	if err != nil {
 		return err
 	}
-
 	log.Debugf("Existing process Ids: %+v", processIds)
-	processes, err := process.CreateMongodProcessesWithLimitMulti(mrs)
+
+	certificateFileName := ""
+
+	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
+	// correct certFilePath, with the new tls design, this path has the certHash in it(so that cert can be rotated
+	//	without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
+	if mrs.Spec.Security.IsTLSEnabled() {
+		items, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			return err
+		}
+
+		firstMemberClient := r.memberClusterClientsMap[items[0].ClusterName]
+		nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(0))
+
+		firstStatefulSet, err := firstMemberClient.GetStatefulSet(nsName)
+		if err != nil {
+			return err
+		}
+		if certificateHash, ok := firstStatefulSet.Annotations["certHash"]; ok {
+			certificateFileName = fmt.Sprintf("%s/%s", util.TLSCertMountPath, certificateHash)
+		}
+	}
+
+	processes, err := process.CreateMongodProcessesWithLimitMulti(mrs, certificateFileName)
 	if err != nil {
 		return err
 	}
@@ -416,9 +443,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, mrs.Spec.AdditionalMongodConfig.ToMap(), mrs.GetLastAdditionalMongodConfig(), log)
-			// TODO change last argument in separate PR
-			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
-			d.ConfigureTLS(mrs.Spec.GetSecurity(), util.CAFilePathInContainer)
+			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().IsTLSEnabled(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
+			d.ConfigureTLS(mrs.Spec.GetSecurity(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
 			return nil
 		},
 		log,

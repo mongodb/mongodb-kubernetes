@@ -364,12 +364,9 @@ func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 		// If these attribute exists, it needs to be removed
 		// PEMKeyFile is older
 		// certificateKeyFile is the current one
-		if _, ok := tlsConfig["certificateKeyFile"]; ok {
-			delete(tlsConfig, "certificateKeyFile")
-		}
-		if _, ok := tlsConfig["PEMKeyFile"]; ok {
-			delete(tlsConfig, "PEMKeyFile")
-		}
+		delete(tlsConfig, "certificateKeyFile")
+		delete(tlsConfig, "PEMKeyFile")
+
 	} else {
 		if _, ok := tlsConfig["certificateKeyFile"]; ok {
 			tlsConfig["certificateKeyFile"] = pemKeyFileLocation

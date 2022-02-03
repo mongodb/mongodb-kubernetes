@@ -37,9 +37,8 @@ def mongodb_multi_unmarshalled(
     resource["spec"]["clusterSpecList"]["clusterSpecs"][1]["members"] = 1
     resource["spec"]["clusterSpecList"]["clusterSpecs"][2]["members"] = 2
     resource["spec"]["security"] = {
+        "certsSecretPrefix": "prefix",
         "tls": {
-            "enabled": True,
-            "secretRef": {"prefix": "prefix"},
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
@@ -52,11 +51,13 @@ def server_certs(
     multi_cluster_issuer: str,
     mongodb_multi_unmarshalled: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
+    central_cluster_client: kubernetes.client.ApiClient,
 ):
     return create_multi_cluster_mongodb_tls_certs(
         multi_cluster_issuer,
         BUNDLE_SECRET_NAME,
         member_cluster_clients,
+        central_cluster_client,
         mongodb_multi_unmarshalled,
     )
 

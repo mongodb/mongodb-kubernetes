@@ -46,12 +46,12 @@ func ConfigureStatefulSet(sts *appsv1.StatefulSet, resourceName, prefix, ca stri
 	secretName := fmt.Sprintf("%s-cert", resourceName)
 	if prefix != "" {
 		// Certificates will be used from the secret with the corresponding prefix.
-		secretName = fmt.Sprintf("%s-%s-cert", prefix, resourceName)
+		secretName = fmt.Sprintf("%s-%s-cert-pem", prefix, resourceName)
 	}
 
 	secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName)
 	sts.Spec.Template.Spec.Containers[0].VolumeMounts = append(sts.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-		MountPath: util.SecretVolumeMountPath + "/certs",
+		MountPath: util.TLSCertMountPath,
 		Name:      secretVolume.Name,
 		ReadOnly:  true,
 	})
@@ -60,7 +60,7 @@ func ConfigureStatefulSet(sts *appsv1.StatefulSet, resourceName, prefix, ca stri
 	if ca != "" {
 		caVolume := statefulset.CreateVolumeFromConfigMap(ConfigMapVolumeCAName, ca)
 		sts.Spec.Template.Spec.Containers[0].VolumeMounts = append(sts.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			MountPath: util.ConfigMapVolumeCAMountPath,
+			MountPath: util.TLSCaMountPath,
 			Name:      caVolume.Name,
 			ReadOnly:  true,
 		})

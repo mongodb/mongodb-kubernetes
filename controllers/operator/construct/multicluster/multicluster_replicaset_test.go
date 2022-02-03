@@ -93,7 +93,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	for _, tt := range tests {
 		mdbm := getMultiClusterMongoDB()
 		mdbm.Spec.ClusterSpecList.ClusterSpecs[0].StatefulSetConfiguration.SpecWrapper.Spec = tt.inp
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}))
+		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}), "")
 		assert.NoError(t, err)
 		assert.Equal(t, *sts.Spec.Replicas, tt.outReplicas)
 		assert.Equal(t, sts.Spec.Selector.MatchLabels, tt.outLabelSelector)

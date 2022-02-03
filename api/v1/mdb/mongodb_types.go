@@ -706,8 +706,9 @@ type TLSConfig struct {
 	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
 	// used to validate the certificates created already.
 	CA string `json:"ca,omitempty"`
-
+	// DEPRECATED please use security.certsSecretPrefix instead
 	// SecretRef points to a Secret object containing the certificates to use when enabling TLS.
+	// +optional
 	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
