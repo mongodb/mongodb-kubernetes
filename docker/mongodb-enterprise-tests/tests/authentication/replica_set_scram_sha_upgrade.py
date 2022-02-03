@@ -67,5 +67,14 @@ class TestReplicaSetDeleted(KubernetesTester):
     """
 
     def test_authentication_was_disabled(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_disabled()
+        def authentication_was_disabled():
+            tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+            try:
+                tester.assert_authentication_disabled()
+                return True
+            except AssertionError:
+                return False
+
+        KubernetesTester.wait_until(
+            authentication_was_disabled, timeout=10, sleep_time=1
+        )
