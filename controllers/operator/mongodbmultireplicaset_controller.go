@@ -183,15 +183,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mr
 		return true, nil
 	}
 
-	items, err := mrs.GetClusterSpecItems()
+	// We want to get an existing statefulset here, so we should fetch it from  "mrs.Spec.ClusterSpecList.ClusterSpecs"
+	// instead of mrs.GetClusterSpecItems(), since the later returns the effective clusterspecs, which might return
+	// clusters which have been removed and do not have a running statefulset.
+	items := mrs.Spec.ClusterSpecList.ClusterSpecs
 	if err != nil {
 		return false, err
 	}
-
 	// it doesn't matter which statefulset we pick, any one of them should have the tls volume if tls is enabled.
 	firstMemberClient := r.memberClusterClientsMap[items[0].ClusterName]
 
-	nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(0))
+	nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(items[0].ClusterName)))
 	firstStatefulSet, err := firstMemberClient.GetStatefulSet(nsName)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -411,13 +413,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	// correct certFilePath, with the new tls design, this path has the certHash in it(so that cert can be rotated
 	//	without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
 	if mrs.Spec.Security.IsTLSEnabled() {
-		items, err := mrs.GetClusterSpecItems()
+		items := mrs.Spec.ClusterSpecList.ClusterSpecs
 		if err != nil {
 			return err
 		}
 
 		firstMemberClient := r.memberClusterClientsMap[items[0].ClusterName]
-		nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(0))
+		nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(items[0].ClusterName)))
 
 		firstStatefulSet, err := firstMemberClient.GetStatefulSet(nsName)
 		if err != nil {
