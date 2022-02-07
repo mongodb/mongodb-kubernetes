@@ -3,6 +3,28 @@
 set -Eeou pipefail
 set -x
 
+
+function generate_standalone_yaml() {
+    # Generates a yaml file to install the operator from the helm sources.
+
+    charttmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'charttmpdir')
+    charttmpdir=${charttmpdir}/chart
+    mkdir -p "${charttmpdir}"
+
+    helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}"
+
+    cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise.yaml
+
+    cat "helm_chart/crds/"* > public/crds.yaml
+
+    rm -rf "${charttmpdir:?}/*"
+
+    helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml
+
+    cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise-openshift.yaml
+}
+
+
 function black_formatting()
 {
     # installing Black
@@ -133,6 +155,9 @@ if [ ${#packages_to_analyze[@]} -ne 0 ]; then
     done
 fi
 
+# We need to generate the values files first
 update_values_yaml_files
+# The values files are used for generating the standalone yaml
+generate_standalone_yaml
 
 exit $exitcode

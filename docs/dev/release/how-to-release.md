@@ -150,35 +150,13 @@ stored in S3 to build the images daily.
 All of the supported files will be downloaded and staged into your repo, before
 moving on, make sure you commit these changes locally.
 
-## 9. Publish public repo
-
-First make sure that the `/public` directory is up to date with the public
-repository. This may involve creating a new PR into the development repository
-with any changes that have yet to be copied over.
-
-Then run
-
-    ./scripts/evergreen/update_public_repo.sh <path_to_public_repo_root>
-
-This will copy the contents of the `public` directory in the
-`10gen/ops-manager-kubernetes` into the root of the
-`mongodb/mongodb-enterprise-kubernetes`, the public repo and will commit changes
-(not push!)
-
-This script will also generate YAML files that can be used to install
-the operator in clusters with no Helm installed. These yaml files will
-be copied into the public repo, they will not exist in the private
-repo, and they should not be checked into the private repo either.
-
-Check the last commit in the public repo and if everything is ok - **push it**.
-
-## 10. Ask the Docs team to publish the Release Notes
+## 9. Ask the Docs team to publish the Release Notes
 Do this in the #docs channel
 
-## 11. Create Release Notes on Github
+## 10. Create Release Notes on Github
 Copy the Release Notes from the DOCSP [into Github](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases/new)
 
-## 12. Release in Github
+## 11. Release in Github
 
 Publish release in our public Github repository
 [https://github.com/mongodb/mongodb-enterprise-kubernetes/releases](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases)
