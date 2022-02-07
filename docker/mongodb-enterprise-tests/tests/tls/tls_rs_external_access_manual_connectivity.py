@@ -29,11 +29,18 @@ WORKER_NODE_HOSTNAME = "ec2-18-222-120-63.us-east-2.compute.amazonaws.com"
 # from the /data/automation-mongod.conf file.
 
 # 5. Test the connection
+# Testing the connection can be done from either the worker node or from your local machine(note accessing traffic from a pod inside the cluster would work irrespective SH is configured correctly or not)
+# 1. Acsessing from worker node
 #   * ssh into any worker node
 #   * Install the mongo shell
 #   * Create files from the two files mentioned above. (server.pem and ca.crt)
-#   * Run "mongo "mongodb://${WORKER_NODE}:30100,${WORKER_NODE}:30101,${WORKER_NODE}:30101/?replicaSet=test-tls-base-rs-external-access" --tls --tlsCertificateKeyFile server.pem --tlsCAFile ca.crt"
-
+#   * Run "mongo "mongodb://${WORKER_NODE}:30100,${WORKER_NODE}:30101,${WORKER_NODE}:30102/?replicaSet=test-tls-base-rs-external-access" --tls --tlsCertificateKeyFile server.pem --tlsCAFile ca.crt"
+# 2. Accessing from local machine
+#   * Install the mongo shell
+#   * Create files from the two files mentioned above. (server.pem and ca.crt)
+#   * Open access to KOPS nodes from your local machine by following these steps(by default KOPS doesn't expose traffic from all ports to the internet)
+#     : https://stackoverflow.com/questions/45543694/kubernetes-cluster-on-aws-with-kops-nodeport-service-unavailable/45561848#45561848
+#   * Run "mongo "mongodb://${WORKER_NODE}:30100,${WORKER_NODE}:30101,${WORKER_NODE}:30102/?replicaSet=test-tls-base-rs-external-access" --tls --tlsCertificateKeyFile server.pem --tlsCAFile ca.crt"
 # When split horizon is not configured, specifying the replicaset name should fail.
 # When split horizon is configured, it will successfully connect to the primary.
 
