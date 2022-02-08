@@ -4,13 +4,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-enterprise-operator
-  namespace: replicaset-timeout
+  namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/operator-roles.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-enterprise-operator-replicaset-timeout-webhook-binding
+  name: mongodb-enterprise-operator-mongodb-webhook-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -18,14 +18,14 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: mongodb-enterprise-operator
-  namespace: replicaset-timeout
+  namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-enterprise-operator
-  namespace: replicaset-timeout
+  namespace: mongodb
 rules:
 - apiGroups:
   - ""
@@ -98,7 +98,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-enterprise-operator
-  namespace: replicaset-timeout
+  namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -106,35 +106,35 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: mongodb-enterprise-operator
-  namespace: replicaset-timeout
+  namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-enterprise-appdb
-  namespace: replicaset-timeout
+  namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-enterprise-database-pods
-  namespace: replicaset-timeout
+  namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/database-roles.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-enterprise-ops-manager
-  namespace: replicaset-timeout
+  namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/database-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-enterprise-appdb
-  namespace: replicaset-timeout
+  namespace: mongodb
 rules:
   - apiGroups:
       - ""
@@ -156,7 +156,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-enterprise-appdb
-  namespace: replicaset-timeout
+  namespace: mongodb
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -164,14 +164,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: mongodb-enterprise-appdb
-    namespace: replicaset-timeout
+    namespace: mongodb
 ---
 # Source: mongodb-enterprise-operator/templates/operator.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mongodb-enterprise-operator
-  namespace: replicaset-timeout
+  namespace: mongodb
 spec:
   replicas: 1
   selector:

@@ -11,7 +11,7 @@ function generate_standalone_yaml() {
     charttmpdir=${charttmpdir}/chart
     mkdir -p "${charttmpdir}"
 
-    helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}"
+    helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}"
 
     cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise.yaml
 
@@ -19,7 +19,7 @@ function generate_standalone_yaml() {
 
     rm -rf "${charttmpdir:?}/*"
 
-    helm template -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml
+    helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml
 
     cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise-openshift.yaml
 }
