@@ -95,12 +95,6 @@ def test_deploy_mongodb_multi_with_tls(
     member_cluster_clients: List[MultiClusterClient],
 ):
 
-    # assert for the present of secret object in each member cluster with the certificates
-    for client in member_cluster_clients:
-        read_secret(
-            namespace=namespace, name=BUNDLE_SECRET_NAME, api_client=client.api_client
-        )
-
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
 
 

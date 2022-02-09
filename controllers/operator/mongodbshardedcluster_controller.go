@@ -369,18 +369,18 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 	var status workflow.Status
 	status = workflow.OK()
 	mongosCert := certs.MongosConfig(*s, r.mongosScaler)
-	tStatus, mongosCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, mongosCert, log)
+	tStatus, mongosCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, mongosCert, log)
 	certSecretTypes[mongosCert.CertSecretName] = mongosCertType
 	status = status.Merge(tStatus)
 
 	configSrvCert := certs.ConfigSrvConfig(*s, r.configSrvScaler)
-	tStatus, configCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, configSrvCert, log)
+	tStatus, configCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, configSrvCert, log)
 	certSecretTypes[configSrvCert.CertSecretName] = configCertType
 	status = status.Merge(tStatus)
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardCert := certs.ShardConfig(*s, i, r.mongodsPerShardScaler)
-		tStatus, shardCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, shardCert, log)
+		tStatus, shardCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, shardCert, log)
 		certSecretTypes[shardCert.CertSecretName] = shardCertType
 		status = status.Merge(tStatus)
 	}

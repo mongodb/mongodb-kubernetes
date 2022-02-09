@@ -265,11 +265,12 @@ func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 
 func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetSecurity(&mdbv1.Security{
-		TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "some-ca", SecretRef: mdbv1.TLSSecretRef{Prefix: "some-prefix"}},
+		TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "some-ca"},
+		CertificatesSecretsPrefix: "some-prefix",
 	}).Build()
 
-	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
-	createMultiClusterReplicaSetTLSData(memberClients, mrs)
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+	createMultiClusterReplicaSetTLSData(client, mrs)
 
 	t.Run("Reconciliation is successful when configuring tls", func(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -790,7 +791,7 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return bytes.Compare(spec1Bytes, spec2Bytes) == 0, nil
+	return bytes.Equal(spec1Bytes, spec2Bytes), nil
 }
 
 func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
@@ -801,7 +802,6 @@ func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMulti,
 	connectionFunc func(ctx *om.OMContext) om.Connection, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	manager := mock.NewManager(m)
 	manager.Client.AddDefaultMdbConfigResources()
-
 	memberClusterMap := getFakeMultiClusterMap()
 	return newMultiClusterReplicaSetReconciler(manager, connectionFunc, memberClusterMap), manager.Client, memberClusterMap
 }

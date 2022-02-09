@@ -364,21 +364,6 @@ def create_multi_cluster_mongodb_tls_certs(
         mongodb_multi=mongodb_multi,
     )
 
-    # read the cert-manager generated secret from the central cluster
-    secret = read_secret(
-        mongodb_multi.namespace, bundle_secret_name, central_cluster_client
-    )
-
-    # copy the Cert from the central cluster to all the member clusters
-    for client in member_cluster_clients:
-        create_secret(
-            namespace=mongodb_multi.namespace,
-            name=bundle_secret_name,
-            data=secret,
-            api_client=client.api_client,
-            type="kubernetes.io/tls",
-        )
-
     return bundle_secret_name
 
 

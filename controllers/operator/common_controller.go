@@ -293,13 +293,13 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (error, bool) {
+func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
 
 	secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.ResourceName)
 
-	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.SecretClient, secretName, opts, log)
+	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.SecretClient, r.SecretClient, secretName, opts, log)
 	if err != nil {
-		return fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err), true
+		return true, fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err)
 	}
 
 	if newTLSDesign {
@@ -308,9 +308,9 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 
 	// Validates that the secret is valid
 	if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
-		return err, false
+		return false, err
 	}
-	return nil, newTLSDesign
+	return newTLSDesign, nil
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
@@ -654,7 +654,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(mdb *mdbv1.M
 	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		for _, certOption := range certsProvider(*mdb) {
-			err, newDesign := r.validateInternalClusterCertsAndCheckTLSType(*mdb, certOption, log)
+			newDesign, err := r.validateInternalClusterCertsAndCheckTLSType(*mdb, certOption, log)
 			if err != nil {
 				errors = append(errors, err)
 			}

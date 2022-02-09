@@ -192,7 +192,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
+	if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -356,7 +356,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 		log,
 	)
 	if err != nil {
-		return fmt.Errorf("Failed to update Ops Manager automation config: %s", err)
+		return fmt.Errorf("failed to update Ops Manager automation config: %s", err)
 	}
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {

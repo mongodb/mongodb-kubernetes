@@ -25,7 +25,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
@@ -832,12 +831,11 @@ func createShardedClusterTLSData(client kubernetesClient.Client, mdb *mdbv1.Mong
 }
 
 // createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMulti ReplicaSet.
-func createMultiClusterReplicaSetTLSData(clients map[string]cluster.Cluster, mdbm *mdbmulti.MongoDBMulti) {
+func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmulti.MongoDBMulti) {
 	// Lets create a secret with Certificates and private keys!
-
 	secretName := fmt.Sprintf("%s-cert", mdbm.Name)
-	if mdbm.Spec.Security.TLSConfig.SecretRef.Prefix != "" {
-		secretName = fmt.Sprintf("%s-%s", mdbm.Spec.Security.TLSConfig.SecretRef.Prefix, secretName)
+	if mdbm.Spec.Security.CertificatesSecretsPrefix != "" {
+		secretName = fmt.Sprintf("%s-%s", mdbm.Spec.Security.CertificatesSecretsPrefix, secretName)
 	}
 
 	secret := &corev1.Secret{
@@ -864,12 +862,9 @@ func createMultiClusterReplicaSetTLSData(clients map[string]cluster.Cluster, mdb
 	}
 
 	secret.Data = certs
-
-	// create the secret in every member cluster.
-	for _, v := range clients {
-		_ = v.GetClient().Create(context.TODO(), secret)
-	}
-
+	// create cert in the central cluster, the operator would create the concatenated
+	// pem cert in the member clusters.
+	client.Create(context.TODO(), secret)
 }
 
 // approveAgentCSRs approves all the agent certs needed for x509 authentication
@@ -971,7 +966,7 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 
 	_ = client.Update(context.TODO(), secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("the secret %s-cert does not contain the expected key %s-%d-pem", rs.Name, rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
@@ -1000,7 +995,7 @@ func TestInvalidPEM_CertificateIsNotComplete(t *testing.T) {
 
 	_ = client.Update(context.TODO(), secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
 	assert.Contains(t, err.Error(), "the certificate is not complete")
 }
 
@@ -1024,7 +1019,7 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 
 	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)

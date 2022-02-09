@@ -149,11 +149,11 @@ func validateAuthenticationRestriction(ar AuthenticationRestriction) v1.Validati
 func isVersionAtLeast(mdbVersion string, expectedVersion string) (bool, error) {
 	currentV, err := semver.Make(mdbVersion)
 	if err != nil {
-		return false, fmt.Errorf("Error parsing mdbVersion %s with semver: %s", mdbVersion, err)
+		return false, fmt.Errorf("error parsing mdbVersion %s with semver: %s", mdbVersion, err)
 	}
 	expectedVersionSemver, err := semver.Make(expectedVersion)
 	if err != nil {
-		return false, fmt.Errorf("Error parsing mdbVersion %s with semver: %s", expectedVersion, err)
+		return false, fmt.Errorf("error parsing mdbVersion %s with semver: %s", expectedVersion, err)
 	}
 	return currentV.GTE(expectedVersionSemver), nil
 }

@@ -32,7 +32,7 @@ func (m *AdditionalMongodConfig) UnmarshalJSON(data []byte) error {
 }
 
 func NewEmptyAdditionalMongodConfig() AdditionalMongodConfig {
-	return AdditionalMongodConfig{Object: make(map[string]interface{}, 0)}
+	return AdditionalMongodConfig{Object: make(map[string]interface{})}
 }
 
 func NewAdditionalMongodConfig(key string, value interface{}) AdditionalMongodConfig {

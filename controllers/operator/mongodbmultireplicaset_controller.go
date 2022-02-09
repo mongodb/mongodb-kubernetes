@@ -259,7 +259,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		// Ensure TLS for multi-cluster statefulset in each cluster
 		mrsConfig := certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation)
-		if status, _ := certs.EnsureSSLCertsForStatefulSet(secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
+		if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
 			return status
 		}
 
@@ -277,7 +277,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		errorStringFormatStr := "failed to create StatefulSet in cluster: %s, err: %s"
 
 		// get cert hash of tls secret if it exists
-		certHash := enterprisepem.ReadHashFromSecret(r.memberClusterSecretClientsMap[item.ClusterName], mrs.Namespace, mrsConfig.CertSecretName, "", log)
+		certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
 
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
 		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, certHash)

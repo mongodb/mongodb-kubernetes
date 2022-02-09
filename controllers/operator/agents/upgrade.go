@@ -137,16 +137,16 @@ func readAllMongoDBs(cl client.Client, watchNamespace []string) ([]mdbv1.MongoDB
 func connectToMongoDB(cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdb mdbv1.MongoDB, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := project.ReadProjectConfig(cmGetter, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading Project Config: %s", err)
+		return nil, fmt.Errorf("error reading Project Config: %s", err)
 	}
 	credsConfig, err := project.ReadCredentials(secretGetter, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials), log)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading Credentials secret: %s", err)
+		return nil, fmt.Errorf("error reading Credentials secret: %s", err)
 	}
 
 	_, conn, err := project.ReadOrCreateProject(projectConfig, credsConfig, factory, log)
 	if err != nil {
-		return nil, fmt.Errorf("Error reading or creating project in Ops Manager: %s", err)
+		return nil, fmt.Errorf("error reading or creating project in Ops Manager: %s", err)
 	}
 	return conn, nil
 }

@@ -138,7 +138,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	status, newTLSDesignMemberCert := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+	status, newTLSDesignMemberCert := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
 	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
