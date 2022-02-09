@@ -1,15 +1,15 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel80-x86_64-100.3.1.tgz",
-    "ubuntu": "mongodb-database-tools-ubuntu1604-x86_64-100.3.1.tgz"
+    "ubi": "mongodb-database-tools-rhel80-x86_64-100.5.1.tgz",
+    "ubuntu": "mongodb-database-tools-ubuntu1604-x86_64-100.5.1.tgz"
   },
   "mongodbOperator": "1.14.0",
-  "initDatabaseVersion": "1.0.6",
+  "initDatabaseVersion": "1.0.7",
   "initOpsManagerVersion": "1.0.6",
-  "initAppDbVersion": "1.0.8",
+  "initAppDbVersion": "1.0.9",
   "databaseImageVersion": "2.0.2",
-  "readinessProbeVersion": "1.0.7",
-  "versionUpgradePostStartHookVersion": "1.0.2",
-  "agentVersion": "11.0.5.6963-1",
+  "readinessProbeVersion": "1.0.8",
+  "versionUpgradePostStartHookVersion": "1.0.4",
+  "agentVersion": "11.0.11.7036-1",
   "communityOperatorVersion": "0.7.3-0.20220114152739-67a5515c6e7e"
 }

@@ -42,7 +42,7 @@ variables:
     # This is the automation agent version used for the AppDB
   - &agent_version 10.29.0.6830-1
     # Agent version used in OM50
-  - &agent_version50 11.0.5.6963-1
+  - &agent_version50 11.0.11.7036-1
 
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
