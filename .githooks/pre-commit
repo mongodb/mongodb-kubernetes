@@ -13,7 +13,7 @@ function generate_standalone_yaml() {
 
     helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}"
 
-    cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise.yaml
+    cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise.yaml
 
     cat "helm_chart/crds/"* > public/crds.yaml
 
@@ -21,7 +21,7 @@ function generate_standalone_yaml() {
 
     helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml
 
-    cat "${charttmpdir}/mongodb-enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise-openshift.yaml
+    cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} > public/mongodb-enterprise-openshift.yaml
 }
 
 
