@@ -124,6 +124,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
 	}
 
+	// register for the cert secrets and configmap to be watched
+	if mrs.Spec.GetSecurity().IsTLSEnabled() {
+		r.RegisterWatchedTLSResources(mrs.ObjectKey(), mrs.Spec.GetSecurity().TLSConfig.CA,
+			[]string{mrs.Spec.GetSecurity().MemberCertificateSecretName(mrs.Name)})
+	}
+
 	needToPublishStateFirst, err := r.needToPublishStateFirstMultiCluster(&mrs, log)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
@@ -646,7 +652,12 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 			return reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
 		},
 	})
+	if err != nil {
+		return err
+	}
 
+	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 from pytest import mark, fixture
 from typing import List
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.certs import create_multi_cluster_mongodb_tls_certs, Certificate
 import kubernetes
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.kubetester import skip_if_local
@@ -8,16 +8,10 @@ from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
-from kubetester.mongodb_user import MongoDBUser
-from kubetester import create_secret
-from kubetester.mongotester import with_scram
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
-USER_NAME = "my-user-1"
-PASSWORD_SECRET_NAME = "mms-user-1-password"
-USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
@@ -64,30 +58,12 @@ def mongodb_multi(
     return resource.create()
 
 
-@fixture(scope="module")
-def mongodb_user(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodb-user.yaml"), "multi-replica-set-scram-user", namespace
-    )
-
-    resource["spec"]["username"] = USER_NAME
-    resource["spec"]["passwordSecretKeyRef"] = {
-        "name": PASSWORD_SECRET_NAME,
-        "key": "password",
-    }
-    resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
-
-
-@mark.e2e_multi_cluster_tls_with_scram
+@mark.e2e_multi_cluster_tls_cert_rotation
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_multi_cluster_tls_with_scram
+@mark.e2e_multi_cluster_tls_cert_rotation
 def test_deploy_mongodb_multi_with_tls(
     mongodb_multi: MongoDBMulti,
     namespace: str,
@@ -97,52 +73,26 @@ def test_deploy_mongodb_multi_with_tls(
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@mark.e2e_multi_cluster_tls_with_scram
-def test_update_mongodb_multi_tls_with_scram(
-    mongodb_multi: MongoDBMulti,
-    namespace: str,
-):
-    mongodb_multi.load()
-    mongodb_multi["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
-    mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
-
-
-@mark.e2e_multi_cluster_tls_with_scram
-def test_create_mongodb_user(
-    central_cluster_client: kubernetes.client.ApiClient,
-    mongodb_user: MongoDBUser,
-    namespace: str,
-):
-    # create user secret first
-    create_secret(
-        namespace=namespace,
-        name=PASSWORD_SECRET_NAME,
-        data={"password": USER_PASSWORD},
-        api_client=central_cluster_client,
-    )
-    mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)
-
-
 @skip_if_local
-@mark.e2e_multi_cluster_tls_with_scram
+@mark.e2e_multi_cluster_tls_cert_rotation
 def test_tls_connectivity(mongodb_multi: MongoDBMulti, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
 
 
-@skip_if_local
-@mark.e2e_multi_cluster_tls_with_scram
-def test_replica_set_connectivity_with_scram_and_tls(
-    mongodb_multi: MongoDBMulti, ca_path: str
+@mark.e2e_multi_cluster_tls_cert_rotation
+def test_rotate_cert_and_assert_mdb_running(
+    mongodb_multi: MongoDBMulti,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
 ):
-    tester = mongodb_multi.tester()
-    tester.assert_connectivity(
-        db="admin",
-        opts=[
-            with_scram(USER_NAME, USER_PASSWORD),
-            with_tls(use_tls=True, ca_path=ca_path),
-        ],
-    )
+    cert = Certificate(name=BUNDLE_SECRET_NAME, namespace=namespace)
+    cert.api = kubernetes.client.CustomObjectsApi(api_client=central_cluster_client)
+    cert.load()
+    cert["spec"]["dnsNames"].append(
+        "foo"
+    )  # Append DNS to cert to rotate the certificate
+    cert.update()
+
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=60)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)

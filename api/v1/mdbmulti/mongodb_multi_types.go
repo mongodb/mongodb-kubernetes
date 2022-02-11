@@ -6,7 +6,9 @@ import (
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
@@ -93,6 +95,10 @@ func (m MongoDBMulti) GetResourceName() string {
 
 func (m MongoDBMulti) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
+func (m MongoDBMulti) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
