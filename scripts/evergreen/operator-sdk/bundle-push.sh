@@ -3,7 +3,7 @@ set -Eeou pipefail
 
 mkdir -p "${workdir:?}/bin"
 operator_sdk_bin="${workdir:?}/bin/operator-sdk"
-version="v1.12.0"
+version="v1.16.0"
 curl -L "https://github.com/operator-framework/operator-sdk/releases/download/${version}/operator-sdk_linux_amd64" -o "${operator_sdk_bin}"
 chmod +x "${operator_sdk_bin}"
 

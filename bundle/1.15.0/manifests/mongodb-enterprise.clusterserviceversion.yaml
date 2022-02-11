@@ -2,7 +2,132 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
   annotations:
-    alm-examples: '[]'
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "my-replica-set"
+          },
+          "spec": {
+            "credentials": "my-credentials",
+            "members": 3,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": true,
+            "type": "ReplicaSet",
+            "version": "4.4.0-ent"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDB",
+          "metadata": {
+            "name": "sample-sharded-cluster"
+          },
+          "spec": {
+            "configServerCount": 3,
+            "credentials": "my-credentials",
+            "mongodsPerShardCount": 3,
+            "mongosCount": 2,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": true,
+            "shardCount": 1,
+            "type": "ShardedCluster",
+            "version": "4.4.0-ent"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBMulti",
+          "metadata": {
+            "name": "multi-replica-set"
+          },
+          "spec": {
+            "clusterSpecList": {
+              "clusterSpecs": [
+                {
+                  "clusterName": "e2e.cluster1.mongokubernetes.com",
+                  "members": 2
+                },
+                {
+                  "clusterName": "e2e.cluster2.mongokubernetes.com",
+                  "members": 1
+                },
+                {
+                  "clusterName": "e2e.cluster3.mongokubernetes.com",
+                  "members": 2
+                }
+              ]
+            },
+            "credentials": "my-credentials",
+            "duplicateServiceObjects": false,
+            "opsManager": {
+              "configMapRef": {
+                "name": "my-project"
+              }
+            },
+            "persistent": false,
+            "type": "ReplicaSet",
+            "version": "4.4.0-ent"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBOpsManager",
+          "metadata": {
+            "name": "ops-manager"
+          },
+          "spec": {
+            "adminCredentials": "ops-manager-admin",
+            "applicationDatabase": {
+              "members": 3,
+              "persistent": true,
+              "podSpec": {
+                "cpu": 1
+              }
+            },
+            "configuration": {
+              "mms.fromEmailAddr": "admin@thecompany.com"
+            },
+            "externalConnectivity": {
+              "type": "LoadBalancer"
+            },
+            "version": "4.4.1"
+          }
+        },
+        {
+          "apiVersion": "mongodb.com/v1",
+          "kind": "MongoDBUser",
+          "metadata": {
+            "name": "my-replica-set-x509-user"
+          },
+          "spec": {
+            "db": "$external",
+            "mongodbResourceRef": {
+              "name": "my-replica-set"
+            },
+            "roles": [
+              {
+                "db": "admin",
+                "name": "dbOwner"
+              }
+            ],
+            "username": "CN=my-replica-set-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
+          },
+          "status": {
+            "phase": "Updated"
+          }
+        }
+      ]
     capabilities: Deep Insights
     categories: Database
     certified: "true"
@@ -10,9 +135,11 @@ metadata:
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
       platforms, Ops Manager and Cloud Manager.
+    operators.operatorframework.io/builder: operator-sdk-v1.16.0
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
     support: support@mongodb.com
-  name: mongodb-enterprise.v0.0.0
+  name: mongodb-enterprise.v1.15.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -409,8 +536,179 @@ spec:
     mediatype: image/png
   install:
     spec:
-      deployments: null
-    strategy: ""
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - admissionregistration.k8s.io
+          resources:
+          - validatingwebhookconfigurations
+          verbs:
+          - create
+          - delete
+          - get
+          - update
+        - apiGroups:
+          - certificates.k8s.io
+          resources:
+          - certificatesigningrequests
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+        serviceAccountName: mongodb-enterprise-operator
+      deployments:
+      - name: mongodb-enterprise-operator
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+              app.kubernetes.io/instance: mongodb-enterprise-operator
+              app.kubernetes.io/name: mongodb-enterprise-operator
+          strategy: {}
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/component: controller
+                app.kubernetes.io/instance: mongodb-enterprise-operator
+                app.kubernetes.io/name: mongodb-enterprise-operator
+            spec:
+              containers:
+              - args:
+                - -watch-resource=mongodb
+                - -watch-resource=opsmanagers
+                - -watch-resource=mongodbusers
+                command:
+                - /usr/local/bin/mongodb-enterprise-operator
+                env:
+                - name: OPERATOR_ENV
+                  value: prod
+                - name: WATCH_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
+                - name: CURRENT_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MANAGED_SECURITY_CONTEXT
+                  value: "true"
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
+                  value: registry.connect.redhat.com/mongodb/enterprise-database
+                - name: INIT_DATABASE_IMAGE_REPOSITORY
+                  value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-database
+                - name: INIT_DATABASE_VERSION
+                  value: 1.0.7
+                - name: DATABASE_VERSION
+                  value: 2.0.2
+                - name: OPS_MANAGER_IMAGE_REPOSITORY
+                  value: registry.connect.redhat.com/mongodb/mongodb-enterprise-ops-manager
+                - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
+                  value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-ops-manager
+                - name: INIT_OPS_MANAGER_VERSION
+                  value: 1.0.6
+                - name: INIT_APPDB_IMAGE_REPOSITORY
+                  value: registry.connect.redhat.com/mongodb/mongodb-enterprise-init-appdb
+                - name: INIT_APPDB_VERSION
+                  value: 1.0.9
+                - name: OPS_MANAGER_IMAGE_PULL_POLICY
+                  value: Always
+                - name: AGENT_IMAGE
+                  value: registry.connect.redhat.com/mongodb/mongodb-agent:11.0.11.7036-1
+                - name: MONGODB_IMAGE
+                  value: mongodb-enterprise-appdb-database
+                - name: MONGODB_REPO_URL
+                  value: quay.io/mongodb
+                image: registry.connect.redhat.com/mongodb/enterprise-operator:1.15.0
+                imagePullPolicy: Always
+                name: mongodb-enterprise-operator
+                resources:
+                  limits:
+                    cpu: 1100m
+                    memory: 1Gi
+                  requests:
+                    cpu: 500m
+                    memory: 200Mi
+              serviceAccountName: mongodb-enterprise-operator
+      permissions:
+      - rules:
+        - apiGroups:
+          - apps
+          resources:
+          - statefulsets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          - secrets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - namespaces
+          verbs:
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - pods
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - services
+          verbs:
+          - create
+          - get
+          - list
+          - update
+          - watch
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - mongodb
+          - mongodb/finalizers
+          - mongodb/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - mongodbusers
+          - mongodbusers/finalizers
+          - mongodbusers/status
+          verbs:
+          - '*'
+        - apiGroups:
+          - mongodb.com
+          resources:
+          - opsmanagers
+          - opsmanagers/finalizers
+          - opsmanagers/status
+          verbs:
+          - '*'
+        serviceAccountName: mongodb-enterprise-operator
+    strategy: deployment
   installModes:
   - supported: true
     type: OwnNamespace
@@ -435,4 +733,4 @@ spec:
   provider:
     name: MongoDB, Inc
   replaces: mongodb-enterprise.v1.13.0
-  version: 0.0.0
+  version: 1.15.0

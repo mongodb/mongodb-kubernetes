@@ -204,7 +204,7 @@ ensure-k8s-and-reset: ensure-k8s
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
-VERSION ?= 0.0.1
+VERSION ?= 1.15.0
 
 # EXPIRES sets a label to expire images (quay specific)
 EXPIRES := --label quay.expires-after=48h
