@@ -831,7 +831,19 @@ func createShardedClusterTLSData(client kubernetesClient.Client, mdb *mdbv1.Mong
 }
 
 // createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMulti ReplicaSet.
-func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmulti.MongoDBMulti) {
+func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmulti.MongoDBMulti, caName string) {
+	// Create CA configmap
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      caName,
+			Namespace: mock.TestNamespace,
+		},
+	}
+	cm.Data = map[string]string{
+		"ca-pem":     "capublickey",
+		"mms-ca.crt": "capublickey",
+	}
+	client.Create(context.TODO(), cm)
 	// Lets create a secret with Certificates and private keys!
 	secretName := fmt.Sprintf("%s-cert", mdbm.Name)
 	if mdbm.Spec.Security.CertificatesSecretsPrefix != "" {

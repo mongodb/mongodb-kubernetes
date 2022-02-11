@@ -262,6 +262,21 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
 			return status
 		}
+		// Copy over the CA config map if it exists on the central cluster
+		caConfigMapName := mrs.Spec.Security.TLSConfig.CA
+		if caConfigMapName != "" {
+			cm, err := r.client.GetConfigMap(kube.ObjectKey(mrs.Namespace, caConfigMapName))
+			if err != nil {
+				return workflow.Failed(fmt.Sprintf("Expected CA ConfigMap not found on central cluster: %s", caConfigMapName))
+			}
+
+			memberCm := configmap.Builder().SetName(caConfigMapName).SetNamespace(mrs.Namespace).SetData(cm.Data).Build()
+			err = configmap.CreateOrUpdate(memberClient, memberCm)
+
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
+				return workflow.Failed(fmt.Sprintf("Failed to sync CA ConfigMap in cluster: %s, err: %s", item.ClusterName, err))
+			}
+		}
 
 		// TODO: add multi cluster label to these secrets.
 		// copy the agent api key to the member cluster.

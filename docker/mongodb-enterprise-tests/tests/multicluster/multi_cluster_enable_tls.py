@@ -15,6 +15,7 @@ from kubetester import create_secret
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
+BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
 USER_NAME = "my-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
@@ -74,12 +75,6 @@ def test_enabled_tls_mongodb_multi(
     multi_cluster_issuer_ca_configmap: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    # assert for the present of secret object in each member cluster with the certificates
-    for client in member_cluster_clients:
-        read_secret(
-            namespace=namespace, name=BUNDLE_SECRET_NAME, api_client=client.api_client
-        )
-
     mongodb_multi.load()
     mongodb_multi["spec"]["security"] = {
         "certsSecretPrefix": CERT_SECRET_PREFIX,
@@ -89,3 +84,11 @@ def test_enabled_tls_mongodb_multi(
     }
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1300)
+
+    # assert the presence of the generated pem certificates in each member cluster
+    for client in member_cluster_clients:
+        read_secret(
+            namespace=namespace,
+            name=BUNDLE_PEM_SECRET_NAME,
+            api_client=client.api_client,
+        )

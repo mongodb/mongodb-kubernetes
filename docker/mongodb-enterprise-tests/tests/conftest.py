@@ -220,7 +220,7 @@ def issuer_ca_filepath():
 def multi_cluster_issuer_ca_configmap(
     issuer_ca_filepath: str,
     namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
+    central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
     """This is the CA file which verifies the certificates signed by it."""
     ca = open(issuer_ca_filepath).read()
@@ -228,11 +228,10 @@ def multi_cluster_issuer_ca_configmap(
     # The operator expects the CA that validates Ops Manager is contained in
     # an entry with a name of "mms-ca.crt"
     data = {"ca-pem": ca, "mms-ca.crt": ca}
-
     name = "issuer-ca"
 
-    for c in member_cluster_clients:
-        create_configmap(namespace, name, data, api_client=c.api_client)
+    create_configmap(namespace, name, data, api_client=central_cluster_client)
+
     return name
 
 

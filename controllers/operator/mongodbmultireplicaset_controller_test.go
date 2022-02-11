@@ -270,7 +270,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	}).Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
-	createMultiClusterReplicaSetTLSData(client, mrs)
+	createMultiClusterReplicaSetTLSData(client, mrs, "some-ca")
 
 	t.Run("Reconciliation is successful when configuring tls", func(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
