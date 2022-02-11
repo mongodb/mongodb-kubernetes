@@ -58,3 +58,6 @@ _.yaml
 multi-cluster-kube-config-creator
 
 .multi_cluster_local_test_files
+
+# we don't ever want to save this file. It is used during `make bundle` to generate the csv.
+config/manager/manager.yaml

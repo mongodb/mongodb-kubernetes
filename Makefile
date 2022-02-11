@@ -329,6 +329,13 @@ endef
 # Generate bundle manifests and metadata, then validate generated files.
 .PHONY: bundle
 bundle: manifests kustomize
+	# we want to create a file that only has the deployment. Note: this will not work if something is added
+	# after the deployment in openshift.yaml
+	rm config/manager/manager.yaml || true
+
+	# when generating the CSV, the expected location of the deployment is under config/manager. This isn't
+	# where the actual file lives so we temporarily copy it there for the CSV generation to succeed.
+	cat public/mongodb-enterprise-openshift.yaml | grep -A 1000 -B 1 Deployment > config/manager/manager.yaml
 	operator-sdk generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)\
