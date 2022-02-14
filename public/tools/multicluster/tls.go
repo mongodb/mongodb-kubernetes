@@ -153,61 +153,56 @@ func createCA(flags flags) (*CA, error) {
 	return &CA{keyPath: caKeyPath, crtPath: caCrtPath}, nil
 }
 
-func createClusterCSRs(memberClusters []MemberCluster, flags flags) error {
-	fmt.Println("\n2. generate cluster CSRs")
-	for _, mc := range memberClusters {
-		clusterCertKey := fmt.Sprintf("%s/%s/cluster-cert-key.key", outputFolder, mc.name)
-		clusterCSR := fmt.Sprintf("%s/%s/cluster-cert-signing.csr", outputFolder, mc.name)
+func createCSR(flags flags) error {
+	fmt.Println("\n2. generate cluster CSR")
+	clusterCertKey := fmt.Sprintf("%s/%s/cluster-cert-key.key", outputFolder, flags.centralCluster)
+	clusterCSR := fmt.Sprintf("%s/%s/cluster-cert-signing.csr", outputFolder, flags.centralCluster)
 
-		if output, err := execCommand("openssl",
-			"genrsa",
-			"-out", clusterCertKey,
-			"2048"); err != nil {
-			return fmt.Errorf("%s, %s", err, output)
-		}
-
-		if output, err := execCommand("openssl",
-			"req", "-new", "-sha256",
-			"-key", clusterCertKey,
-			"-subj", fmt.Sprintf("/C=%s/ST=%s/O=%s", flags.csrCountry, flags.csrState, flags.csrOrganization),
-			"-out", clusterCSR); err != nil {
-			return fmt.Errorf("%s, %s", err, output)
-		}
-		fmt.Printf(" - cluster: %s\n   certKey: %s\n   CSR: %s\n", mc.name, clusterCertKey, clusterCSR)
+	if output, err := execCommand("openssl",
+		"genrsa",
+		"-out", clusterCertKey,
+		"2048"); err != nil {
+		return fmt.Errorf("%s, %s", err, output)
 	}
+
+	if output, err := execCommand("openssl",
+		"req", "-new", "-sha256",
+		"-key", clusterCertKey,
+		"-subj", fmt.Sprintf("/C=%s/ST=%s/O=%s", flags.csrCountry, flags.csrState, flags.csrOrganization),
+		"-out", clusterCSR); err != nil {
+		return fmt.Errorf("%s, %s", err, output)
+	}
+	fmt.Printf(" - cluster: %s\n\tcertKey: %s\n\tCSR: %s\n", flags.centralCluster, clusterCertKey, clusterCSR)
 	return nil
 }
 
-func createClusterServiceCerts(ca CA, flags flags, resourceName string, clusters []MemberCluster) (map[string][]string, error) {
-	fmt.Println("\n3. generate server certificates")
+func createClusterServiceCert(ca CA, flags flags, resourceName string, clusters []MemberCluster) (string, error) {
+	fmt.Println("\n3. generate server certificate")
 
-	clusterServiceCerts := map[string][]string{}
-
+	clusterCSR := fmt.Sprintf("%s/%s/cluster-cert-signing.csr", outputFolder, flags.centralCluster)
+	clusterCert := fmt.Sprintf("%s/%s/%s.crt", outputFolder, flags.centralCluster, flags.centralCluster)
+	podDNSNames := []string{}
 	for clusterIdx, cluster := range clusters {
-		clusterCSR := fmt.Sprintf("%s/%s/cluster-cert-signing.csr", outputFolder, cluster.name)
-		clusterServiceCerts[cluster.name] = []string{}
-
 		for podIdx := 0; podIdx < cluster.members; podIdx++ {
 			podName := fmt.Sprintf("%s-%d-%d", resourceName, clusterIdx, podIdx)
 			podDNS := fmt.Sprintf("%s-svc.%s.svc.cluster.local", podName, cluster.namespace)
-			podCert := fmt.Sprintf("%s/%s/%s.crt", outputFolder, cluster.name, podName)
-
-			cmd := fmt.Sprintf("openssl x509 -req -extfile <(printf \"subjectAltName=DNS:%s\") -days 365 -in %s -CA %s -CAkey %s -CAcreateserial -out %s",
-				podDNS, clusterCSR, ca.crtPath, ca.keyPath, podCert)
-
-			if output, err := execCommand("bash", "-c", cmd); err != nil {
-				return clusterServiceCerts, fmt.Errorf("%s, %s", err, output)
-			}
-
-			fmt.Printf(" - cluster: %s\n   pod: %s\n   cert: %s\n", cluster.name, podName, podCert)
-			clusterServiceCerts[cluster.name] = append(clusterServiceCerts[cluster.name], podCert)
+			podDNSNames = append(podDNSNames, fmt.Sprintf("DNS:%s", podDNS))
 		}
 	}
-	return clusterServiceCerts, nil
+	cmd := fmt.Sprintf("openssl x509 -req -extfile <(printf \"subjectAltName=%s\") -days 365 -in %s -CA %s -CAkey %s -CAcreateserial -out %s",
+		strings.Join(podDNSNames, ","), clusterCSR, ca.crtPath, ca.keyPath, clusterCert,
+	)
+	if output, err := execCommand("bash", "-c", cmd); err != nil {
+		return clusterCert, fmt.Errorf("%s, %s", err, output)
+	}
+	fmt.Printf(" - cluster: %s\n\tcert:%s\n", flags.centralCluster, clusterCert)
+	return clusterCert, nil
+
 }
 
-func createSecret(client kubernetes.Interface, namespace string, name string, data map[string][]byte) error {
+func createTLSSecret(client kubernetes.Interface, namespace string, name string, data map[string][]byte) error {
 	kubeConfigSecret := corev1.Secret{
+		Type: corev1.SecretTypeTLS,
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
@@ -294,7 +289,7 @@ func getKubernetesClientSet(context string) (*KubeClients, error) {
 	return &KubeClients{client: clientset, apiExtClient: *clientsetApiEx, ctrlRuntimeClient: crClient}, nil
 }
 
-func createCAConfigMaps(clusterClients map[string]KubeClients, ca CA, memberClusters []MemberCluster) error {
+func createCAConfigMaps(clusterClient KubeClients, flags flags, ca CA) error {
 	fmt.Println("\n4. create CA config map")
 
 	caCrt, err := os.ReadFile(ca.crtPath)
@@ -302,13 +297,8 @@ func createCAConfigMaps(clusterClients map[string]KubeClients, ca CA, memberClus
 		return err
 	}
 	data := map[string]string{"ca-pem": string(caCrt), "mms-ca.crt": string(caCrt)}
-
-	for _, mc := range memberClusters {
-		client := clusterClients[mc.name].client
-		if err := createConfigMap(client, mc.namespace, caConfigMapName, data); err != nil {
-			return fmt.Errorf("error creating CA config map in cluster %s: %s", mc.name, err)
-		}
-		fmt.Printf(" - cluster: %s, config map: %s\n", mc.name, caConfigMapName)
+	if err := createConfigMap(clusterClient.client, flags.centralClusterNamespace, caConfigMapName, data); err != nil {
+		return fmt.Errorf("error creating CA config map in cluster %s: %s", flags.centralCluster, err)
 	}
 
 	return nil
@@ -318,34 +308,25 @@ func filenameWithoutExtension(filename string) string {
 	return strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
 }
 
-func createClusterCertSecrets(clusterClients map[string]KubeClients, resourceName string, clusterServiceCerts map[string][]string, memberClusters []MemberCluster) error {
-	fmt.Println("\n5. create cluster cert secrets")
-
-	name := fmt.Sprintf("%s-%s-cert", clusterCertsPrefix, resourceName)
+func createClusterCertSecret(clusterClient KubeClients, flags flags, clusterServiceCert string) error {
+	fmt.Println("\n5. create cluster service cert secret")
+	clusterCertKey := fmt.Sprintf("%s/%s/cluster-cert-key.key", outputFolder, flags.centralCluster)
+	name := fmt.Sprintf("%s-%s-cert", clusterCertsPrefix, flags.resourceName)
 	data := map[string][]byte{}
-	for cluster, clusterCerts := range clusterServiceCerts {
-		clusterCertKey, err := os.ReadFile(fmt.Sprintf("%s/%s/cluster-cert-key.key", outputFolder, cluster))
-		if err != nil {
-			return err
-		}
-
-		for _, cert := range clusterCerts {
-			certData, err := os.ReadFile(cert)
-			if err != nil {
-				return err
-			}
-			secretKey := fmt.Sprintf("%s-pem", filenameWithoutExtension(cert))
-			data[secretKey] = []byte(fmt.Sprintf("%s\n%s", string(clusterCertKey), string(certData)))
-		}
+	clusterCertKeyData, err := os.ReadFile(clusterCertKey)
+	if err != nil {
+		return err
 	}
-
-	for _, mc := range memberClusters {
-		client := clusterClients[mc.name].client
-		if err := createSecret(client, mc.namespace, name, data); err != nil {
-			return fmt.Errorf("error creating cluster cert map secret in cluster %s: %s", mc.name, err)
-		}
-		fmt.Printf(" - cluster: %s, secret: %s\n", mc.name, name)
+	clusterCertData, err := os.ReadFile(clusterServiceCert)
+	if err != nil {
+		return err
 	}
+	data[corev1.TLSCertKey] = clusterCertData
+	data[corev1.TLSPrivateKeyKey] = clusterCertKeyData
+	if err := createTLSSecret(clusterClient.client, flags.centralClusterNamespace, name, data); err != nil {
+		return fmt.Errorf("error creating cluster service secret in cluster %s: %s", flags.centralCluster, err)
+	}
+	fmt.Printf(" - cluster: %s, secret: %s\n", flags.centralCluster, name)
 
 	return nil
 }
@@ -394,14 +375,9 @@ func getMongoDBResource(clients KubeClients, flags flags) (map[string]interface{
 func updateResourceTLSConfig(clients KubeClients, cr map[string]interface{}) error {
 	fmt.Println("\n6. update MongoDB resource TLS config")
 	cr["spec"].(map[string]interface{})["security"] = map[string]interface{}{
-		"certsSecretPrefix": "",
+		"certsSecretPrefix": clusterCertsPrefix,
 		"tls": map[string]interface{}{
-			"enabled": true,
-			"ca":      caConfigMapName,
-			"secretRef": map[string]interface{}{
-				"name":   "",
-				"prefix": clusterCertsPrefix,
-			},
+			"ca": caConfigMapName,
 		},
 	}
 	security, _ := yaml.Marshal(cr["spec"].(map[string]interface{})["security"])
@@ -430,40 +406,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	for _, mc := range memberClusters {
-		os.MkdirAll(fmt.Sprintf("%s/%s", outputFolder, mc.name), os.ModePerm)
-
-		clients, err := getKubernetesClientSet(mc.name)
-		if err != nil {
-			fmt.Printf("error creating kubernetes api clients: %s", err)
-			os.Exit(1)
-		}
-		clusterClients[mc.name] = *clients
-	}
-
 	var ca *CA
 	if ca, err = createCA(flags); err != nil {
 		fmt.Printf("error creating self-signed Certificate Authority: %s", err)
 		os.Exit(1)
 	}
 
-	if err := createClusterCSRs(memberClusters, flags); err != nil {
-		fmt.Printf("error creating cluster signings (CSR): %s", err)
+	if err := createCSR(flags); err != nil {
+		fmt.Printf("error creating cluster signing request (CSR): %s", err)
 		os.Exit(1)
 	}
 
-	var clusterServiceCerts map[string][]string
-	if clusterServiceCerts, err = createClusterServiceCerts(*ca, flags, flags.resourceName, memberClusters); err != nil {
-		fmt.Printf("error generating server certificates: %s", err)
+	var clusterServiceCert string
+	if clusterServiceCert, err = createClusterServiceCert(*ca, flags, flags.resourceName, memberClusters); err != nil {
+		fmt.Printf("error generating cluster service certificate: %s", err)
 		os.Exit(1)
 	}
 
-	if err := createCAConfigMaps(clusterClients, *ca, memberClusters); err != nil {
+	if err := createCAConfigMaps(clusterClients[flags.centralCluster], flags, *ca); err != nil {
 		fmt.Printf("error creating CA config map: %s", err)
 		os.Exit(1)
 	}
 
-	if err := createClusterCertSecrets(clusterClients, flags.resourceName, clusterServiceCerts, memberClusters); err != nil {
+	if err := createClusterCertSecret(clusterClients[flags.centralCluster], flags, clusterServiceCert); err != nil {
 		fmt.Printf("error creating cluster cert secrets: %s", err)
 		os.Exit(1)
 	}
