@@ -31,14 +31,6 @@ func NewReplicaSetWithProcesses(
 // determineNextProcessIdStartingPoint returns the number which should be used as a starting
 // point for generating new _ids.
 func determineNextProcessIdStartingPoint(desiredProcesses []Process, existingProcessIds map[string]int) int {
-	var newProcesses []Process
-	for i := 0; i < len(desiredProcesses); i++ {
-		p := desiredProcesses[i]
-		if _, ok := existingProcessIds[p.Name()]; !ok {
-			newProcesses = append(newProcesses, p)
-		}
-	}
-
 	// determine the next id, it has to be higher than any previous value
 	newId := 0
 	for _, id := range existingProcessIds {

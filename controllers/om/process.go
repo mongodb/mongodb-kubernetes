@@ -428,12 +428,9 @@ func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[s
 		// if the mode is specified as disabled, providing "PEMKeyFile" is an invalid config
 		if mode == string(tls.Disabled) {
 			tlsConfig := p.EnsureTLSConfig()
-			if _, ok := tlsConfig["PEMKeyFile"]; ok {
-				delete(tlsConfig, "PEMKeyFile")
-			}
-			if _, ok := tlsConfig["certificateKeyFile"]; ok {
-				delete(tlsConfig, "certificateKeyFile")
-			}
+			delete(tlsConfig, "PEMKeyFile")
+			delete(tlsConfig, "certificateKeyFile")
+
 		}
 	} else {
 		delete(p.EnsureNetConfig(), "tls")
