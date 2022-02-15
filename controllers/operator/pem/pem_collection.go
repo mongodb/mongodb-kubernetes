@@ -104,6 +104,9 @@ func (p *Collection) MergeWith(data map[string][]byte) map[string]string {
 
 func (pf File) ParseCertificate() (*x509.Certificate, error) {
 	block, _ := pem.Decode([]byte(pf.Certificate))
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse certificate PEM, please ensure validity of the file")
+	}
 	return x509.ParseCertificate(block.Bytes)
 }
 
