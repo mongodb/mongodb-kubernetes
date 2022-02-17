@@ -11,12 +11,12 @@ func GetMultiPodName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
 }
 
-func GetServiceName(mdbmName string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-%d-%d-svc", mdbmName, clusterNum, podNum)
+func GetServiceName(mdbName string, clusterNum int) string {
+	return fmt.Sprintf("%s-%d-svc", mdbName, clusterNum)
 }
 
 func GetMultiServiceFQDN(mdbmName, namespace string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", GetServiceName(mdbmName, clusterNum, podNum), namespace)
+	return fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiPodName(mdbmName, clusterNum, podNum), GetServiceName(mdbmName, clusterNum), namespace)
 }
 
 // GetMultiClusterAgentHostnames returns the agent hostnames, which which they should be registered in OM in multi-cluster mode.

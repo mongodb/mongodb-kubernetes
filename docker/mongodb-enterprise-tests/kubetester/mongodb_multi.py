@@ -88,8 +88,7 @@ class MongoDBMulti(MongoDB):
             key=lambda x: x["clusterName"],
         )
         for (i, spec) in enumerate(cluster_specs):
-            for j in range(spec["members"]):
-                service_names.append(f"{self.name}-{i}-{j}-svc")
+            service_names.append(f"{self.name}-{i}-svc")
         return service_names
 
     def tester(

@@ -73,17 +73,6 @@ agentOpts=(
 AGENT_VERSION="$(cat "${MMS_HOME}"/files/agent-version)"
 script_log "Automation Agent version: ${AGENT_VERSION}"
 
-# in multi-cluster mode we need to override the hostname with which, agents
-# registers itself, use service FQDN instead of POD FQDN, this mapping is mounted into
-# the pod using configmap
-if [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
-    hostpath="$(hostname -f)"
-    override_file="/opt/scripts/config/${hostpath}"
-    override="$(cat "$override_file")"
-    agentOpts+=("-overrideLocalHost" "${override}")
-    echo "$override"
-fi
-
 # this is the version of Automation Agent which has fixes for health file bugs
 # TODO we need to compare the Agent version until we support OM 4.0, then this check can be removed
 set +e

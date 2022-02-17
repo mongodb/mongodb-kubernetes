@@ -60,7 +60,7 @@ func podLabel(mdbmName string) map[string]string {
 	}
 }
 
-func mongodbVolumeMount(cmName string) []corev1.VolumeMount {
+func mongodbVolumeMount() []corev1.VolumeMount {
 	return []corev1.VolumeMount{
 		{
 			Name:      "data",
@@ -83,25 +83,17 @@ func mongodbVolumeMount(cmName string) []corev1.VolumeMount {
 			ReadOnly:  true,
 		},
 		{
-			Name:      cmName,
-			MountPath: "/opt/scripts/config",
-		},
-		{
 			Name:      construct.AgentAPIKeyVolumeName,
 			MountPath: construct.AgentAPIKeySecretPath,
 		},
 	}
 }
 
-func mongodbInitVolumeMount(cmName string) []corev1.VolumeMount {
+func mongodbInitVolumeMount() []corev1.VolumeMount {
 	return []corev1.VolumeMount{
 		{
 			Name:      "database-scripts",
 			MountPath: "/opt/scripts",
-		},
-		{
-			Name:      cmName,
-			MountPath: "/opt/scripts/config",
 		},
 	}
 }
@@ -168,6 +160,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	stsModifications := statefulset.Apply(
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
 		statefulset.WithNamespace(mdbm.Namespace),
+		statefulset.WithServiceName(fmt.Sprintf("%s-%d-svc", mdbm.Name, clusterNum)),
 		statefulset.WithLabels(statefulSetLabels(mdbm.Namespace, mdbm.Name)),
 		statefulset.WithAnnotations(statefulSetAnnotations(mdbm.Name, certHash)),
 		statefulset.WithReplicas(memberCount),
@@ -186,19 +179,18 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
+					container.WithVolumeMounts(mongodbVolumeMount()),
 					container.WithEnvs(mongodbEnv(conn)...),
 					configureContainerSecurityContext,
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
-			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(mdbm.GetHostNameOverrideConfigmapName(), mdbm.GetHostNameOverrideConfigmapName())),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, agents.ApiKeySecretName(conn.GroupID()))),
 			podtemplatespec.WithTerminationGracePeriodSeconds(600),
 			podtemplatespec.WithInitContainerByIndex(0,
 				container.WithName(construct.InitDatabaseContainerName),
 				container.WithImage(initContainerImageURL),
 				container.WithImagePullPolicy(corev1.PullAlways),
-				container.WithVolumeMounts(mongodbInitVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
+				container.WithVolumeMounts(mongodbInitVolumeMount()),
 				configureContainerSecurityContext,
 			),
 		)),
