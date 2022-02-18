@@ -293,17 +293,17 @@ def create_mongodb_tls_certs(
     return cert_and_pod_names
 
 
-def multi_cluster_service_fqdns(
+def multi_cluster_pod_fqdns(
     resource_name: str, namespace: str, cluster_index: str, replicas: int
 ) -> Dict[str, str]:
-    service_fqdns = []
+    pod_fqdns = []
 
     for n in range(replicas):
-        service_fqdns.append(
-            f"{resource_name}-{cluster_index}-{n}-svc.{namespace}.svc.cluster.local"
+        pod_fqdns.append(
+            f"{resource_name}-{cluster_index}-{n}.{resource_name}-{cluster_index}-svc.{namespace}.svc.cluster.local"
         )
 
-    return service_fqdns
+    return pod_fqdns
 
 
 def create_multi_cluster_tls_certs(
@@ -314,16 +314,13 @@ def create_multi_cluster_tls_certs(
     mongodb_multi: MongoDBMulti,
     secret_backend: Optional[str] = None,
 ) -> Dict[str, str]:
-    """
-    TODO: Add comment to this function
-    """
 
-    service_fqdns = []
+    pod_fqdns = []
 
     for client in member_clients:
         cluster_spec = mongodb_multi.get_item_spec(client.cluster_name)
-        service_fqdns.extend(
-            multi_cluster_service_fqdns(
+        pod_fqdns.extend(
+            multi_cluster_pod_fqdns(
                 mongodb_multi.name,
                 mongodb_multi.namespace,
                 client.cluster_index,
@@ -341,7 +338,7 @@ def create_multi_cluster_tls_certs(
         secret_backend=secret_backend,
         secret_name=secret_name,
         vault_subpath="database",
-        dns_list=service_fqdns,
+        dns_list=pod_fqdns,
     )
 
     return secret_name

@@ -33,7 +33,7 @@ database:
 
 initDatabase:
   name: mongodb-enterprise-init-database
-  version: 1.0.7
+  version: 1.0.8
 
 ## Ops Manager
 opsManager:

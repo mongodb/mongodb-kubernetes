@@ -381,11 +381,11 @@ class ReplicaSetTester(MongoTester):
 class MultiReplicaSetTester(MongoTester):
     def __init__(
         self,
-        service_names: List[str],
+        service_to_pod_names: Dict[str, List[str]],
         namespace: Optional[str] = None,
     ):
         super().__init__(
-            build_mongodb_multi_connection_uri(namespace, service_names),
+            build_mongodb_multi_connection_uri(namespace, service_to_pod_names),
             use_ssl=False,
             ca_path=None,
         )
@@ -545,9 +545,6 @@ class MongoDBBackgroundTester(BackgroundHealthChecker):
         )
 
 
-# ------------------------- Helper functions ----------------------------
-
-
 def build_mongodb_connection_uri(
     mdb_resource: str,
     namespace: str,
@@ -566,8 +563,10 @@ def build_mongodb_connection_uri(
         )
 
 
-def build_mongodb_multi_connection_uri(namespace: str, service_names: List[str]) -> str:
-    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names))
+def build_mongodb_multi_connection_uri(
+    namespace: str, service_to_pod_names: Dict[str, List[str]]
+) -> str:
+    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_to_pod_names))
 
 
 def build_list_of_hosts(
@@ -579,21 +578,22 @@ def build_list_of_hosts(
     ]
 
 
-def build_list_of_multi_hosts(namespace: str, service_names: List[str]) -> List[str]:
-    return [
-        build_host_service_fqdn(namespace, service_name)
-        for service_name in service_names
-    ]
+def build_list_of_multi_hosts(
+    namespace: str, service_to_pod_names: Dict[str, List[str]]
+) -> List[str]:
+    host_fqdns = []
+
+    for svc in service_to_pod_names:
+        for pod in service_to_pod_names[svc]:
+            host_fqdns.append(build_host_fqdn(pod, namespace, svc))
+
+    return host_fqdns
 
 
 def build_host_fqdn(hostname: str, namespace: str, servicename: str) -> str:
     return "{hostname}.{servicename}.{namespace}.svc.cluster.local:27017".format(
         hostname=hostname, servicename=servicename, namespace=namespace
     )
-
-
-def build_host_service_fqdn(namespace: str, servicename: str) -> str:
-    return f"{servicename}.{namespace}.svc.cluster.local:27017"
 
 
 def build_host_srv(servicename: str, namespace: str) -> str:
