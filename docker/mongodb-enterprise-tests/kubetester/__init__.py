@@ -119,6 +119,16 @@ def create_statefulset(
     client.AppsV1Api().create_namespaced_stateful_set(namespace, body=sts)
 
 
+def read_service(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+) -> client.V1Service:
+    return client.CoreV1Api(api_client=api_client).read_namespaced_service(
+        name, namespace
+    )
+
+
 def read_secret(
     namespace: str,
     name: str,
@@ -139,6 +149,12 @@ def update_secret(namespace: str, name: str, data: Dict[str, str]):
 
 def delete_secret(namespace: str, name: str):
     client.CoreV1Api().delete_namespaced_secret(name, namespace)
+
+
+def delete_secret(
+    namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
+):
+    client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
 
 
 def delete_pod(namespace: str, name: str):

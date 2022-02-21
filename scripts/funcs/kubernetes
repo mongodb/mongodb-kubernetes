@@ -169,7 +169,7 @@ delete_operator() {
 
     title "Removing the Operator deployment ${name}"
     ! kubectl --namespace "${ns}" get deployments | grep -q ${name} \
-        || kubectl delete deployment $name -n "${ns}"
+        || kubectl delete deployment $name -n "${ns}" || true
 }
 
 # wait_for_operator waits for the Operator to start

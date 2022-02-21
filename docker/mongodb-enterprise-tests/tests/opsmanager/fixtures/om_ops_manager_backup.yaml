@@ -4,7 +4,7 @@ metadata:
   name: om-backup
 spec:
   replicas: 1
-  version: 4.2.15
+  version: 5.0.3
   adminCredentials: ops-manager-admin-secret
   backup:
     enabled: true
@@ -30,7 +30,7 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: 4.0.14-ent
+    version: 4.4.11-ent
 
   # Dev: adding this just to avoid wizard when opening OM UI
   # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'

@@ -173,7 +173,12 @@ class MongoDB(CustomObject, MongoDBCommon):
             self.name, self.get_status_phase(), self.get_status_message()
         )
 
-    def configure(self, om: MongoDBOpsManager, project_name: str) -> MongoDB:
+    def configure(
+        self,
+        om: MongoDBOpsManager,
+        project_name: str,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> MongoDB:
         if "project" in self["spec"]:
             del self["spec"]["project"]
 
@@ -182,11 +187,13 @@ class MongoDB(CustomObject, MongoDBCommon):
         self["spec"]["opsManager"]["configMapRef"][
             "name"
         ] = om.get_or_create_mongodb_connection_config_map(
-            self.name, project_name, self.namespace
+            self.name, project_name, self.namespace, api_client=api_client
         )
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
-        self["spec"]["credentials"] = om.api_key_secret(self.namespace)
+        self["spec"]["credentials"] = om.api_key_secret(
+            self.namespace, api_client=api_client
+        )
         return self
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:

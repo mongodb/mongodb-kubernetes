@@ -190,25 +190,49 @@ class KubernetesTester(object):
         )
 
     @classmethod
-    def create_configmap(cls, namespace: str, name: str, data: Dict[str, str]):
+    def create_configmap(
+        cls,
+        namespace: str,
+        name: str,
+        data: Dict[str, str],
+        api_client: Optional[client.ApiClient] = None,
+    ):
         """Create a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
-        configmap = cls.clients("client").V1ConfigMap(
-            metadata=cls.clients("client").V1ObjectMeta(name=name), data=data
+        configmap = cls.clients("client", api_client=api_client).V1ConfigMap(
+            metadata=cls.clients("client", api_client=api_client).V1ObjectMeta(
+                name=name
+            ),
+            data=data,
         )
-        cls.clients("corev1").create_namespaced_config_map(namespace, configmap)
+        cls.clients("corev1", api_client=api_client).create_namespaced_config_map(
+            namespace, configmap
+        )
 
     @classmethod
-    def update_configmap(cls, namespace: str, name: str, data: Dict[str, str]):
+    def update_configmap(
+        cls,
+        namespace: str,
+        name: str,
+        data: Dict[str, str],
+        api_client: Optional[client.ApiClient] = None,
+    ):
         """Updates a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
-        configmap = cls.clients("client").V1ConfigMap(
-            metadata=cls.clients("client").V1ObjectMeta(name=name), data=data
+        configmap = cls.clients("client", api_client=api_client).V1ConfigMap(
+            metadata=cls.clients("client", api_client=api_client).V1ObjectMeta(
+                name=name
+            ),
+            data=data,
         )
         cls.clients("corev1").patch_namespaced_config_map(name, namespace, configmap)
 
     @classmethod
-    def delete_configmap(cls, namespace: str, name: str):
+    def delete_configmap(
+        cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+    ):
         """Delete a ConfigMap in a given namespace with the given name."""
-        cls.clients("corev1").delete_namespaced_config_map(name, namespace)
+        cls.clients("corev1", api_client=api_client).delete_namespaced_config_map(
+            name, namespace
+        )
 
     @classmethod
     def delete_service(cls, namespace: str, name: str):
@@ -269,14 +293,14 @@ class KubernetesTester(object):
         cls.clients("appsv1").delete_namespaced_deployment(name, namespace)
 
     @staticmethod
-    def clients(name):
+    def clients(name, api_client: Optional[client.ApiClient] = None):
         return {
             "client": client,
-            "corev1": client.CoreV1Api(),
-            "appsv1": client.AppsV1Api(),
-            "storagev1": client.StorageV1Api(),
-            "customv1": client.CustomObjectsApi(),
-            "certificates": client.CertificatesV1beta1Api(),
+            "corev1": client.CoreV1Api(api_client=api_client),
+            "appsv1": client.AppsV1Api(api_client=api_client),
+            "storagev1": client.StorageV1Api(api_client=api_client),
+            "customv1": client.CustomObjectsApi(api_client=api_client),
+            "certificates": client.CertificatesV1beta1Api(api_client=api_client),
             "namespace": KubernetesTester.get_namespace(),
         }[name]
 

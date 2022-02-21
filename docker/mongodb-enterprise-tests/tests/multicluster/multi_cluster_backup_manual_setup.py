@@ -1,8 +1,12 @@
-from operator import attrgetter
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict
 
 from kubernetes import client
-from kubetester import create_configmap, get_default_storage_class
+from kubetester import (
+    create_configmap,
+    get_default_storage_class,
+    delete_secret,
+    read_service,
+)
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
@@ -12,8 +16,7 @@ from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 
-from pytest import mark, fixture, skip
-from tests.opsmanager.conftest import ensure_ent_version
+from pytest import mark, fixture
 import kubernetes
 from tests.opsmanager.conftest import custom_appdb_version
 from kubetester.operator import Operator
@@ -25,9 +28,7 @@ BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
 
 
-def create_project_config_map(
-    om: MongoDBOpsManager, mdb_name, project_name, client
-) -> str:
+def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client):
     name = f"{mdb_name}-config"
     data = {"baseUrl": om.om_status().get_url(), "projectName": project_name}
 
@@ -49,46 +50,49 @@ def new_om_data_store(
     }
 
 
-@fixture(scope="module")
-def om_admin_secret(
-    namespace: str, central_cluster_client: kubernetes.client.ApiClient
-):
+def create_om_admin_secret(namespace: str, client: kubernetes.client.ApiClient):
     data = dict(
         Username="test-user",
         Password="@Sihjifutestpass21nnH",
         FirstName="foo",
         LastName="bar",
     )
+    try:
+        delete_secret(
+            namespace=namespace, name="ops-manager-admin-secret", api_client=client
+        )
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            pass
+        else:
+            raise e
+
     create_secret(
         namespace=namespace,
         name="ops-manager-admin-secret",
         data=data,
-        api_client=central_cluster_client,
+        api_client=client,
     )
 
 
 @fixture(scope="module")
 def ops_manager(
-    om_admin_secret,
     namespace: str,
     custom_version: Optional[str],
     custom_appdb_version: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> MongoDBOpsManager:
 
-    # create ops-manager-admin-secret
-    om_admin_secret
+    create_om_admin_secret(namespace, central_cluster_client)
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
     )
 
     resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
     resource["spec"]["backup"]["members"] = 1
+    resource["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
     # remove s3 config
     del resource["spec"]["backup"]["s3Stores"]
-
-    resource.set_version(custom_version)
-    resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -216,12 +220,12 @@ def oplog_user(
     yield resource.create()
 
 
-@mark.e2e_multi_cluster_om_ops_manager_backup
+@mark.e2e_multi_cluster_om_ops_manager_backup_manual_setup
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_multi_cluster_om_ops_manager_backup
+@mark.e2e_multi_cluster_om_ops_manager_backup_manual_setup
 class TestOpsManagerCreation:
     """
     name: Ops Manager successful creation with backup and oplog stores enabled
@@ -281,7 +285,7 @@ class TestOpsManagerCreation:
         assert len(backup_services) >= 4
 
 
-@mark.e2e_multi_cluster_om_ops_manager_backup
+@mark.e2e_multi_cluster_om_ops_manager_backup_manual_setup
 class TestBackupDatabasesAdded:
     """name: Creates mongodb resources for oplog and blockstore and waits until OM resource gets to
     running state"""
@@ -321,42 +325,19 @@ class TestBackupDatabasesAdded:
 
         assert ops_manager.backup_status().get_message() is None
 
-    @skip_if_local
-    def test_om(
-        self,
-        ops_manager: MongoDBOpsManager,
-        oplog_replica_set: MongoDB,
-        blockstore_replica_set: MongoDB,
-        oplog_user: MongoDBUser,
-    ):
-        om_tester = ops_manager.get_om_tester()
-        om_tester.assert_healthiness()
-        # Nothing has changed for daemon
 
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
-            om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
+@mark.e2e_multi_cluster_om_ops_manager_backup_manual_setup
+def test_update_central_url(
+    ops_manager: MongoDBOpsManager,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    ops_manager.load()
+    external_svc_name = ops_manager.external_svc_name()
+    svc = read_service(namespace, external_svc_name, api_client=central_cluster_client)
+    hostname = svc.status.load_balancer.ingress[0].hostname
 
-        om_tester.assert_block_stores(
-            [new_om_data_store(blockstore_replica_set, "blockStore1")]
-        )
-        # oplog store has authentication enabled
-        om_tester.assert_oplog_stores(
-            [
-                new_om_data_store(
-                    oplog_replica_set,
-                    "oplog1",
-                    user_name=oplog_user.get_user_name(),
-                    password=USER_PASSWORD,
-                )
-            ]
-        )
-
-
-def reaches_backup_status(expected_status: str) -> Callable[[MongoDB], bool]:
-    def _fn(mdb: MongoDB):
-        try:
-            return mdb["status"]["backup"]["statusName"] == expected_status
-        except KeyError:
-            return False
-
-    return _fn
+    # update the central url app setting to point at the external address
+    # this allows agents in other clusters to communicate correctly with this OM instance.
+    ops_manager["spec"]["configuration"]["mms.centralUrl"] = f"http://{hostname}:8080"
+    ops_manager.update()

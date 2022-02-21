@@ -6,6 +6,7 @@ import re
 from typing import List, Optional, Dict, Callable
 from base64 import b64decode
 
+import kubernetes.client
 import requests
 from requests.auth import HTTPDigestAuth
 
@@ -18,7 +19,7 @@ from kubetester.kubetester import KubernetesTester, build_list_of_hosts
 from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state, MongoDB, get_pods
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester, OMContext
-from kubetester import read_secret
+from kubetester import read_secret, create_configmap
 
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
@@ -270,11 +271,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if namespace is None:
             namespace = self.namespace
         try:
-            KubernetesTester.create_configmap(
-                namespace,
-                config_map_name,
-                data,
-            )
+            create_configmap(namespace, config_map_name, data, api_client=api_client)
         except ApiException as e:
             if e.status != 409:
                 raise
@@ -285,24 +282,32 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return config_map_name
 
-    def get_om_tester(self, project_name: Optional[str] = None) -> OMTester:
+    def get_om_tester(
+        self,
+        project_name: Optional[str] = None,
+        base_url: Optional[str] = None,
+        api_client: Optional[kubernetes.client.ApiClient] = None,
+    ) -> OMTester:
         """Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes."""
-        api_key_secret = KubernetesTester.read_secret(
+        api_key_secret = read_secret(
             KubernetesTester.get_namespace(),
-            self.api_key_secret(KubernetesTester.get_namespace()),
+            self.api_key_secret(
+                KubernetesTester.get_namespace(), api_client=api_client
+            ),
+            api_client=api_client,
         )
 
         # Check if it's an old stile secret or a new one
         if "publicApiKey" in api_key_secret:
             om_context = OMContext(
-                self.om_status().get_url(),
+                self.om_status().get_url() if not base_url else base_url,
                 api_key_secret["user"],
                 api_key_secret["publicApiKey"],
                 project_name=project_name,
             )
         else:
             om_context = OMContext(
-                self.om_status().get_url(),
+                self.om_status().get_url() if not base_url else base_url,
                 api_key_secret["publicKey"],
                 api_key_secret["privateKey"],
                 project_name=project_name,
@@ -426,12 +431,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return None
         return self["status"]
 
-    def api_key_secret(self, namespace=None) -> str:
+    def api_key_secret(
+        self, namespace: str, api_client: Optional[client.ApiClient] = None
+    ) -> str:
         old_secret_name = self.name + "-admin-key"
 
         # try to read the old secret, if it's is present return it, else return the new secret name
         try:
-            client.CoreV1Api().read_namespaced_secret(old_secret_name, namespace)
+            client.CoreV1Api(api_client=api_client).read_namespaced_secret(
+                old_secret_name, namespace
+            )
         except ApiException as e:
             if e.status == 404:
                 return "{}-{}-admin-key".format(self.namespace, self.name)
