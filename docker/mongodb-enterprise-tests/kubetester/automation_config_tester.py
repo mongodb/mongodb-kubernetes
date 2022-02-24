@@ -19,7 +19,7 @@ class AutomationConfigTester:
         self.automation_config = ac
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
-        """ Returns all processes for the specified replica set"""
+        """Returns all processes for the specified replica set"""
         replica_set = (
             [rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name]
         )[0]
@@ -40,7 +40,16 @@ class AutomationConfigTester:
         ]
 
     def assert_expected_users(self, expected_users: int):
-        assert len(self.automation_config["auth"]["usersWanted"]) == expected_users
+        automation_config_users = 0
+
+        for user in self.automation_config["auth"]["usersWanted"]:
+            if (
+                user["user"] != "mms-backup-agent"
+                and user["user"] != "mms-monitoring-agent"
+            ):
+                automation_config_users += 1
+
+        assert automation_config_users == expected_users
 
     def assert_authoritative_set(self, authoritative_set: bool):
         assert self.automation_config["auth"]["authoritativeSet"] == authoritative_set
@@ -82,7 +91,7 @@ class AutomationConfigTester:
 
     def assert_authentication_disabled(self, remaining_users: int = 0) -> None:
         assert self.automation_config["auth"]["disabled"]
-        assert len(self.automation_config["auth"]["usersWanted"]) == remaining_users
+        self.assert_expected_users(expected_users=remaining_users)
         assert (
             len(self.automation_config["auth"].get("deploymentAuthMechanisms", [])) == 0
         )

@@ -3,7 +3,11 @@ package generate
 import (
 	"crypto/rand"
 	"encoding/base64"
+	mrand "math/rand"
+	"time"
 )
+
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123")
 
 // final key must be between 6 and at most 1024 characters
 func KeyFileContents() (string, error) {
@@ -28,4 +32,17 @@ func generateRandomBytes(size int) ([]byte, error) {
 func generateRandomString(numBytes int) (string, error) {
 	b, err := generateRandomBytes(numBytes)
 	return base64.StdEncoding.EncodeToString(b), err
+}
+
+func randSeq(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[mrand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+func GenerateRandomPassword() string {
+	mrand.Seed(time.Now().UnixNano())
+	return randSeq(10)
 }

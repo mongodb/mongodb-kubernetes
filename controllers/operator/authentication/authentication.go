@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -138,9 +139,14 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}
 
+	// if scram if the specified authentication mechanism rotate passwrd
+	if err := rotateAgentUserPassword(conn, opts, log); err != nil {
+		return fmt.Errorf("error rotating password for agent user: %s", err)
+	}
 	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
 		return fmt.Errorf("error waiting for ready state: %s", err)
 	}
+
 	return nil
 }
 
@@ -431,6 +437,18 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 				AutoPEMKeyFilePath:    util.MergoDelete,
 				ClientCertificateMode: util.OptionalClientCertficates,
 			}
+		}
+		return nil
+	}, log)
+}
+
+func rotateAgentUserPassword(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if conn.OpsManagerVersion().IsCloudManager() {
+			return nil
+		}
+		if getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion) == ScramSha256 {
+			ac.Auth.NewAutoPwd = generate.GenerateRandomPassword()
 		}
 		return nil
 	}, log)

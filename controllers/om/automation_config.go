@@ -136,6 +136,8 @@ type Auth struct {
 	KeyFileWindows string `json:"keyfileWindows,omitempty"`
 	// AutoPwd is a required field when going from `Disabled=false` to `Disabled=true`
 	AutoPwd string `json:"autoPwd,omitempty"`
+	// NewAutoPwd is used for rotating the agent password
+	NewAutoPwd string `json:"newAutoPwd,omitempty"`
 	// LdapGroupDN is required when enabling LDAP authz and agents authentication on $external
 	LdapGroupDN string `json:"autoLdapGroupDN,omitempty"`
 }
