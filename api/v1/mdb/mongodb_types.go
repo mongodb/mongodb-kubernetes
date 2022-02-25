@@ -100,6 +100,10 @@ func (m *MongoDB) GetSecurity() *Security {
 	return m.Spec.GetSecurity()
 }
 
+func (m *MongoDB) GetMinimumMajorVersion() uint64 {
+	return m.Spec.MinimumMajorVersion()
+}
+
 func (m *MongoDB) AddValidationToManager(mgr manager.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }

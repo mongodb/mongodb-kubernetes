@@ -16,6 +16,7 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/blang/semver"
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -91,6 +92,22 @@ func (m MongoDBMulti) GetResourceType() mdbv1.ResourceType {
 
 func (m MongoDBMulti) GetResourceName() string {
 	return m.Name
+}
+
+func (m *MongoDBMulti) GetSecurity() *mdbv1.Security {
+	return m.Spec.Security
+}
+
+func (m *MongoDBMulti) GetMinimumMajorVersion() uint64 {
+	return m.Spec.MinimumMajorVersion()
+}
+
+func (m *MongoDBMulti) IsLDAPEnabled() bool {
+	return false
+}
+
+func (m *MongoDBMulti) GetLDAP(password, caContents string) *ldap.Ldap {
+	return nil
 }
 
 func (m MongoDBMulti) ObjectKey() client.ObjectKey {

@@ -197,7 +197,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	}
 
 	// TODO separate PR
-	if status, _ := r.ensureX509SecretAndCheckTLSType(s, currentAgentAuthMode, getStandaloneCertOptions, log); !status.IsOK() {
+	certConfigurator := certs.StandaloneX509CertConfigurator{MongoDB: s, SecretClient: r.SecretClient}
+	if status, _ := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log); !status.IsOK() {
 		return r.updateStatus(s, status, log)
 	}
 
@@ -270,10 +271,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
-}
-
-func getStandaloneCertOptions(mdb mdbv1.MongoDB) []certs.Options {
-	return []certs.Options{certs.StandaloneConfig(mdb)}
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,

@@ -293,11 +293,14 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(mdb mdbv1.MongoDB, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
 
-	secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.ResourceName)
+	secretName := opts.InternalClusterSecretName
 
-	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(r.SecretClient, r.SecretClient, secretName, opts, log)
+	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(
+		configurator.GetSecretReadClient(),
+		configurator.GetSecretWriteClient(),
+		secretName, opts, log)
 	if err != nil {
 		return true, fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err)
 	}
@@ -434,9 +437,9 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
-func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, mdb *mdbv1.MongoDB, agentCertSecretName string, caFilepath string, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
-	if mdb.Spec.Security == nil || mdb.Spec.Security.Authentication == nil {
+	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
 	}
 
@@ -451,7 +454,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	}
 
 	clientCerts := util.OptionalClientCertficates
-	if mdb.Spec.Security.RequiresClientTLSAuthentication() {
+	if ar.GetSecurity().RequiresClientTLSAuthentication() {
 		clientCerts = util.RequireClientCertificates
 	}
 
@@ -462,69 +465,80 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	}
 
 	authOpts := authentication.Options{
-		MinimumMajorVersion: mdb.Spec.MinimumMajorVersion(),
-		Mechanisms:          mdb.Spec.Security.Authentication.Modes,
+		MinimumMajorVersion: ar.GetMinimumMajorVersion(),
+		Mechanisms:          ar.GetSecurity().Authentication.Modes,
 		ProcessNames:        processNames,
-		AuthoritativeSet:    !mdb.Spec.Security.Authentication.IgnoreUnknownUsers,
-		AgentMechanism:      mdb.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
+		AuthoritativeSet:    !ar.GetSecurity().Authentication.IgnoreUnknownUsers,
+		AgentMechanism:      ar.GetSecurity().GetAgentMechanism(ac.Auth.AutoAuthMechanism),
 		ClientCertificates:  clientCerts,
 		AutoUser:            scramAgentUserName,
-		AutoLdapGroupDN:     mdb.Spec.Security.Authentication.Agents.AutomationLdapGroupDN,
+		AutoLdapGroupDN:     ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:          caFilepath,
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
-	if mdb.IsLDAPEnabled() {
-		bindUserPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, mdb.Spec.Security.Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
+	if ar.IsLDAPEnabled() {
+		bindUserPassword, err := r.ReadSecretKey(kube.ObjectKey(ar.GetNamespace(), ar.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
 
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
 		}
 
 		caContents := ""
-		ca := mdb.Spec.Security.Authentication.Ldap.CAConfigMapRef
+		ca := ar.GetSecurity().Authentication.Ldap.CAConfigMapRef
 		if ca != nil {
-			log.Debugf("Sending CA file to Pods via AutomationConfig: %s/%s/%s", mdb.GetNamespace(), ca.Name, ca.Key)
-			caContents, err = configmap.ReadKey(r.client, ca.Key, types.NamespacedName{Name: ca.Name, Namespace: mdb.GetNamespace()})
+			log.Debugf("Sending CA file to Pods via AutomationConfig: %s/%s/%s", ar.GetNamespace(), ca.Name, ca.Key)
+			caContents, err = configmap.ReadKey(r.client, ca.Key, types.NamespacedName{Name: ca.Name, Namespace: ar.GetNamespace()})
 			if err != nil {
 				return workflow.Failed(fmt.Sprintf("error reading CA configmap: %s", err)), false
 			}
 		}
 
-		authOpts.Ldap = mdb.GetLDAP(bindUserPassword, caContents)
+		authOpts.Ldap = ar.GetLDAP(bindUserPassword, caContents)
 	}
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
-	agentSecretSelector := mdb.Spec.Security.AgentClientCertificateSecretName(mdb.Name)
+	agentSecretSelector := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
 	if agentCertSecretName != "" {
 		agentSecretSelector.Name = agentCertSecretName
 	}
-	wantToEnableAuthentication := mdb.Spec.Security.Authentication.Enabled
-	if wantToEnableAuthentication && canConfigureAuthentication(ac, mdb.Spec.Security.Authentication.GetModes(), log) {
+	wantToEnableAuthentication := ar.GetSecurity().Authentication.Enabled
+	if wantToEnableAuthentication && canConfigureAuthentication(ac, ar.GetSecurity().Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
-		if mdb.Spec.Security.ShouldUseX509(ac.Auth.AutoAuthMechanism) || mdb.Spec.Security.ShouldUseClientCertificates() {
+		if ar.GetSecurity().ShouldUseX509(ac.Auth.AutoAuthMechanism) || ar.GetSecurity().ShouldUseClientCertificates() {
+			agentSecret := &corev1.Secret{}
+			if err := r.client.Get(context.TODO(), kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+				return workflow.Failed(err.Error()), false
+			}
+			// If the agent secret is of type TLS, we can find the certificate under the standard key,
+			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
+			// Key identifying the agent. In single cluster workloads this path is working with the concatenated PEM secret,
+			// while in multi cluster it is working with the TLS secret in the central cluster.
+			if agentSecret.Type == corev1.SecretTypeTLS {
+				agentSecretSelector.Key = corev1.TLSCertKey
+			}
 
-			authOpts, err = r.configureAgentSubjects(mdb.Namespace, agentSecretSelector, authOpts, log)
+			authOpts, err = r.configureAgentSubjects(ar.GetNamespace(), agentSecretSelector, authOpts, log)
 			if err != nil {
 				return workflow.Failed("error configuring agent subjects: %v", err), false
 			}
-			authOpts.AgentsShouldUseClientAuthentication = mdb.Spec.Security.ShouldUseClientCertificates()
+			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
 
 		}
-		if mdb.Spec.Security.ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
-			secretRef := mdb.Spec.Security.Authentication.Agents.AutomationPasswordSecretRef
-			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(mdb.Namespace, secretRef.Name), databaseSecretPath, secretRef.Key)
+		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
+			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
+			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(ar.GetNamespace(), secretRef.Name), databaseSecretPath, secretRef.Key)
 			if err != nil {
 				return workflow.Failed(fmt.Sprintf("error reading automation agent  password: %s", err)), false
 			}
 
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
-			agentName := mdb.Spec.Security.Authentication.Agents.AutomationUserName
+			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
 		}
@@ -540,7 +554,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		return workflow.OK(), true
 	} else {
 		agentSecret := &corev1.Secret{}
-		if err := r.client.Get(context.TODO(), kube.ObjectKey(mdb.Namespace, agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
+		if err := r.client.Get(context.TODO(), kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
 			return workflow.Failed(err.Error()), false
 		}
 
@@ -550,7 +564,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 
 		// Should not fail if the Secret object with agent certs is not found.
 		// It will only exist on x509 client auth enabled deployments.
-		userOpts, err := r.readAgentSubjectsFromSecret(mdb.Namespace, agentSecretSelector, log)
+		userOpts, err := r.readAgentSubjectsFromSecret(ar.GetNamespace(), agentSecretSelector, log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
 			return workflow.Failed(err.Error()), true
@@ -630,31 +644,34 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.C
 	return authentication.Disable(conn, disableOpts, true, log)
 }
 
-// ensureX509SecretAndCheckTLSType checks if the secrets containingthe certificates are present and whether the certificate are of kubernetes.io/tls type.
-func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(mdb *mdbv1.MongoDB, currentAuthMechanism string, certsProvider func(mdbv1.MongoDB) []certs.Options, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
+// ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
+func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator certs.X509CertConfigurator, currentAuthMechanism string, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
 	newTLSDesignMapping := map[string]bool{}
-	authSpec := mdb.Spec.Security.Authentication
-	if authSpec == nil || !mdb.Spec.Security.Authentication.Enabled {
+	authSpec := configurator.GetSecurity().Authentication
+	if authSpec == nil || !configurator.GetSecurity().Authentication.Enabled {
 		return workflow.OK(), newTLSDesignMapping
 	}
-	if mdb.Spec.Security.ShouldUseX509(currentAuthMechanism) {
-		if !mdb.Spec.Security.TLSConfig.Enabled {
+	if configurator.GetSecurity().ShouldUseX509(currentAuthMechanism) {
+		if !configurator.GetSecurity().IsTLSEnabled() {
 			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled"), newTLSDesignMapping
 		}
-		agentSecretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.Name).Name
-		err, tlsFormat := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(r.SecretClient, kube.ObjectKey(mdb.Namespace, agentSecretName), log)
+		agentSecretName := configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name
+		err, tlsFormat := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
+			configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(),
+			kube.ObjectKey(configurator.GetNamespace(), agentSecretName),
+			log)
 		if err != nil {
 			return workflow.Failed(err.Error()), newTLSDesignMapping
 		}
 
-		newTLSDesignMapping[mdb.GetSecurity().AgentClientCertificateSecretName(mdb.Name).Name] = tlsFormat
+		newTLSDesignMapping[configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name] = tlsFormat
 
 	}
 
-	if mdb.Spec.Security.GetInternalClusterAuthenticationMode() == util.X509 {
+	if configurator.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
-		for _, certOption := range certsProvider(*mdb) {
-			newDesign, err := r.validateInternalClusterCertsAndCheckTLSType(*mdb, certOption, log)
+		for _, certOption := range configurator.GetCertOptions() {
+			newDesign, err := r.validateInternalClusterCertsAndCheckTLSType(configurator, certOption, log)
 			if err != nil {
 				errors = append(errors, err)
 			}

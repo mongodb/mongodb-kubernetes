@@ -255,7 +255,14 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return nil, status
 	}
 
-	status, certSecretTypeForAgentAndInternal := r.ensureX509SecretAndCheckTLSType(sc, currentAgentAuthMode, r.getAllCertOptions, log)
+	certConfigurator := certs.ShardedSetX509CertConfigurator{
+		MongoDB:               sc,
+		MongodsPerShardScaler: r.mongodsPerShardScaler,
+		MongosScaler:          r.mongosScaler,
+		ConfigSrvScaler:       r.configSrvScaler,
+		SecretClient:          r.SecretClient,
+	}
+	status, certSecretTypeForAgentAndInternal := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return nil, status
 	}
@@ -854,17 +861,6 @@ func getAllHosts(c *mdbv1.MongoDB, sizeConfig mdbv1.MongodbShardedClusterSizeCon
 		ans = append(ans, hosts...)
 	}
 	return ans
-}
-
-func (r *ReconcileMongoDbShardedCluster) getAllCertOptions(sc mdbv1.MongoDB) []certs.Options {
-	certOptions := make([]certs.Options, 0)
-
-	for i := 0; i < sc.Spec.ShardCount; i++ {
-		certOptions = append(certOptions, certs.ShardConfig(sc, i, r.mongodsPerShardScaler))
-	}
-	certOptions = append(certOptions, certs.MongosConfig(sc, r.mongosScaler))
-	certOptions = append(certOptions, certs.ConfigSrvConfig(sc, r.configSrvScaler))
-	return certOptions
 }
 
 func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {

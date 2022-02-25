@@ -9,11 +9,22 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 )
+
+// AuthResource is an interface that a resources that can have authentication enabled should implement.
+type AuthResource interface {
+	GetName() string
+	GetNamespace() string
+	GetSecurity() *mdbv1.Security
+	IsLDAPEnabled() bool
+	GetLDAP(password, caContents string) *ldap.Ldap
+	GetMinimumMajorVersion() uint64
+}
 
 // Options contains all the required values that are required to configure authentication
 // for a set of processes

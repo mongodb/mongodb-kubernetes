@@ -6,6 +6,7 @@ import (
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
@@ -201,11 +202,19 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 
 	// Configure STS with TLS, only allow "security.CertificatesSecretsPrefix" in multi-cluster since
 	// remaining are deprecated
-	if mdbm.Spec.GetSecurity().IsTLSEnabled() {
-		security := mdbm.Spec.GetSecurity()
-		if security != nil {
-			tls.ConfigureStatefulSet(&sts, mdbm.Name, security.CertificatesSecretsPrefix, security.TLSConfig.CA)
-		}
+	if mdbm.GetSecurity().IsTLSEnabled() {
+		security := mdbm.GetSecurity()
+		tls.ConfigureStatefulSet(&sts, mdbm.Name, security.CertificatesSecretsPrefix, security.TLSConfig.CA)
+	}
+
+	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	if err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	if mdbm.GetSecurity().ShouldUseX509(currentAgentAuthMode) {
+		security := mdbm.GetSecurity()
+		secretName := fmt.Sprintf("%s-%s-%s-pem", security.CertificatesSecretsPrefix, mdbm.Name, util.AgentSecretName)
+		authentication.ConfigureStatefulSetSecret(&sts, secretName)
 	}
 
 	items, err := mdbm.GetClusterSpecItems()

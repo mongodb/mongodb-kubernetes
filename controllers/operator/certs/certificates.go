@@ -235,7 +235,7 @@ func ValidateCertificates(secretGetter secret.Getter, name, namespace string) er
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether or not they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretsClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) (error, bool) {
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) (error, bool) {
 
 	needToCreatePEM := false
 	var secretData map[string][]byte
@@ -244,12 +244,12 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretsClient secrets.
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
-		secretData, err = secretsClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretsClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
+		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 		if err != nil {
 			return err, false
 		}
 	} else {
-		s, err = secretsClient.KubeClient.GetSecret(secret)
+		s, err = secretReadClient.KubeClient.GetSecret(secret)
 		if err != nil {
 			return err, true
 		}
@@ -267,7 +267,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretsClient secrets.
 		dataMap := map[string]string{
 			util.AutomationAgentPemSecretKey: data,
 		}
-		return CreatePEMSecretClient(secretsClient, secret, dataMap, []metav1.OwnerReference{}, Database, log), true
+		return CreatePEMSecretClient(secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database, log), true
 	}
 
 	additionalDomains := []string{} // agents have no additional domains

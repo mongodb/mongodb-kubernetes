@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
@@ -256,11 +257,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return workflow.Failed(err.Error())
 		}
 
-		// Ensure TLS for multi-cluster statefulset in each cluster
-		mrsConfig := certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation)
-		if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
-			return status
-		}
 		// Copy over the CA config map if it exists on the central cluster
 		caConfigMapName := mrs.Spec.Security.TLSConfig.CA
 		if caConfigMapName != "" {
@@ -275,6 +271,27 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return workflow.Failed(fmt.Sprintf("Failed to sync CA ConfigMap in cluster: %s, err: %s", item.ClusterName, err))
 			}
+		}
+
+		// Ensure TLS for multi-cluster statefulset in each cluster
+		mrsConfig := certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation)
+		if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
+			return status
+		}
+
+		currentAgentAuthMode, err := conn.GetAgentAuthMode()
+		if err != nil {
+			return workflow.Failed(fmt.Sprintf("Failed to retrieve current agent auth mode in cluster: %s, err: %s", item.ClusterName, err))
+		}
+		certConfigurator := certs.MongoDBMultiX509CertConfigurator{
+			MongoDBMulti:      &mrs,
+			ClusterNum:        i,
+			Replicas:          replicasThisReconciliation,
+			SecretReadClient:  r.SecretClient,
+			SecretWriteClient: secretMemberClient,
+		}
+		if status, _ := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log); !status.IsOK() {
+			return status
 		}
 
 		// TODO: add multi cluster label to these secrets.
@@ -390,10 +407,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		return err
 	}
 
-	mrs.Annotations[util.LastAchievedSpec] = string(achievedSpecBytes)
-	mrs.Annotations[mdbmultiv1.LastClusterIndexMapping] = string(clusterIndexBytes)
+	annotationsToAdd := make(map[string]string)
 
-	return r.client.Update(context.TODO(), &mrs)
+	annotationsToAdd[util.LastAchievedSpec] = string(achievedSpecBytes)
+	annotationsToAdd[mdbmultiv1.LastClusterIndexMapping] = string(clusterIndexBytes)
+
+	return annotations.SetAnnotations(mrs.DeepCopy(), annotationsToAdd, r.client)
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
@@ -451,16 +470,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 
 	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, processIds)
 
-	status, additionalReconciliationRequired := updateOmMultiSCRAMAuthentication(conn, rs.GetProcessNames(), &mrs, log)
+	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, log)
 	if !status.IsOK() {
-		return fmt.Errorf("failed to enabled SCRAM Authorization for MongoDB Multi Replicaset")
+		return fmt.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			d.MergeReplicaSet(rs, mrs.Spec.AdditionalMongodConfig.ToMap(), mrs.GetLastAdditionalMongodConfig(), log)
-			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().IsTLSEnabled(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
-			d.ConfigureTLS(mrs.Spec.GetSecurity(), fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath))
+			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
+			d.ConfigureTLS(mrs.Spec.GetSecurity(), caFilePath)
 			return nil
 		},
 		log,
@@ -715,54 +736,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesCli
 	r.RemoveDependentWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
 
 	return errs
-}
-
-func updateOmMultiSCRAMAuthentication(conn om.Connection, processName []string, mdbm *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) (workflow.Status, bool) {
-	// check before proceding if authentication is enabled at all
-	if mdbm.Spec.Security == nil || mdbm.Spec.Security.Authentication == nil {
-		return workflow.OK(), false
-	}
-
-	if err := om.WaitForReadyState(conn, processName, log); err != nil {
-		return workflow.Failed(err.Error()), false
-	}
-
-	// read automation config
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return workflow.Failed(err.Error()), false
-	}
-
-	scramAgentUserName := util.AutomationAgentUserName
-	// only use the default name if there is not already a configure user name
-	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
-		scramAgentUserName = ac.Auth.AutoUser
-	}
-
-	authOpts := authentication.Options{
-		MinimumMajorVersion: mdbm.Spec.MinimumMajorVersion(),
-		Mechanisms:          mdbm.Spec.Security.Authentication.Modes,
-		ProcessNames:        processName,
-		AuthoritativeSet:    !mdbm.Spec.Security.Authentication.IgnoreUnknownUsers,
-		AgentMechanism:      mdbm.Spec.Security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
-		AutoUser:            scramAgentUserName,
-	}
-
-	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
-
-	shouldEnableAuthentiation := mdbm.Spec.Security.Authentication.Enabled
-	if shouldEnableAuthentiation && canConfigureAuthentication(ac, mdbm.Spec.Security.Authentication.GetModes(), log) {
-		log.Info("Configuring authentication for MongoDB Multi resource")
-
-		if err := authentication.Configure(conn, authOpts, log); err != nil {
-			return workflow.Failed(err.Error()), false
-		}
-	} else if shouldEnableAuthentiation {
-		log.Debug("Attempting to enable authentication, but OpsManager state will not allow this")
-		return workflow.OK(), true
-	}
-
-	return workflow.OK(), false
 }
 
 // filterClusterSpecItem filters items out of a list based on provided predicate.

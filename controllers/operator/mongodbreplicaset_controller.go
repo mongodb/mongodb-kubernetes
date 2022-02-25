@@ -152,7 +152,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
 	}
 
-	status, newTLSDesignForCerts := r.ensureX509SecretAndCheckTLSType(rs, currentAgentAuthMode, getReplicaSetCertsOption, log)
+	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
+	status, newTLSDesignForCerts := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -252,10 +253,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs))
-}
-
-func getReplicaSetCertsOption(mdb mdbv1.MongoDB) []certs.Options {
-	return []certs.Options{certs.ReplicaSetConfig(mdb)}
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

@@ -6,6 +6,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,6 +18,105 @@ const (
 	single = "single"
 	multi  = "multi"
 )
+
+// X509CertConfigurator provides the methods required for ensuring the existence of X.509 certificates
+// for encrypted communications in MongoDB resource
+type X509CertConfigurator interface {
+	GetName() string
+	GetNamespace() string
+	GetSecurity() *mdbv1.Security
+	GetCertOptions() []Options
+	GetSecretReadClient() secrets.SecretClient
+	GetSecretWriteClient() secrets.SecretClient
+}
+
+type ReplicaSetX509CertConfigurator struct {
+	*mdbv1.MongoDB
+	SecretClient secrets.SecretClient
+}
+
+var _ X509CertConfigurator = ReplicaSetX509CertConfigurator{}
+
+func (rs ReplicaSetX509CertConfigurator) GetCertOptions() []Options {
+	return []Options{ReplicaSetConfig(*rs.MongoDB)}
+}
+
+func (rs ReplicaSetX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
+	return rs.SecretClient
+}
+
+func (rs ReplicaSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
+	return rs.SecretClient
+}
+
+type ShardedSetX509CertConfigurator struct {
+	*mdbv1.MongoDB
+	MongodsPerShardScaler scale.ReplicaSetScaler
+	MongosScaler          scale.ReplicaSetScaler
+	ConfigSrvScaler       scale.ReplicaSetScaler
+	SecretClient          secrets.SecretClient
+}
+
+var _ X509CertConfigurator = ShardedSetX509CertConfigurator{}
+
+func (sc ShardedSetX509CertConfigurator) GetCertOptions() []Options {
+	certOptions := make([]Options, 0)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		certOptions = append(certOptions, ShardConfig(*sc.MongoDB, i, sc.MongodsPerShardScaler))
+	}
+	certOptions = append(certOptions, MongosConfig(*sc.MongoDB, sc.MongosScaler))
+	certOptions = append(certOptions, ConfigSrvConfig(*sc.MongoDB, sc.ConfigSrvScaler))
+	return certOptions
+}
+
+func (sc ShardedSetX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
+	return sc.SecretClient
+}
+
+func (sc ShardedSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
+	return sc.SecretClient
+}
+
+type StandaloneX509CertConfigurator struct {
+	*mdbv1.MongoDB
+	SecretClient secrets.SecretClient
+}
+
+var _ X509CertConfigurator = StandaloneX509CertConfigurator{}
+
+func (s StandaloneX509CertConfigurator) GetCertOptions() []Options {
+	return []Options{StandaloneConfig(*s.MongoDB)}
+}
+
+func (s StandaloneX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
+	return s.SecretClient
+}
+
+func (s StandaloneX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
+	return s.SecretClient
+}
+
+type MongoDBMultiX509CertConfigurator struct {
+	*mdbmulti.MongoDBMulti
+	ClusterNum        int
+	Replicas          int
+	SecretReadClient  secrets.SecretClient
+	SecretWriteClient secrets.SecretClient
+}
+
+var _ X509CertConfigurator = MongoDBMultiX509CertConfigurator{}
+
+func (mdbm MongoDBMultiX509CertConfigurator) GetCertOptions() []Options {
+	return []Options{MultiReplicaSetConfig(*mdbm.MongoDBMulti, mdbm.ClusterNum, mdbm.Replicas)}
+}
+
+func (mdbm MongoDBMultiX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
+	return mdbm.SecretReadClient
+}
+
+func (mdbm MongoDBMultiX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
+	return mdbm.SecretWriteClient
+}
 
 type Options struct {
 	// CertSecretName is the name of the secret which contains the certs.

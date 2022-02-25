@@ -313,8 +313,7 @@ def create_multi_cluster_tls_certs(
     member_clients: List[MultiClusterClient],
     mongodb_multi: MongoDBMulti,
     secret_backend: Optional[str] = None,
-) -> Dict[str, str]:
-
+) -> str:
     pod_fqdns = []
 
     for client in member_clients:
@@ -342,6 +341,37 @@ def create_multi_cluster_tls_certs(
     )
 
     return secret_name
+
+
+def create_multi_cluster_agent_certs(
+    multi_cluster_issuer: str,
+    secret_name: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    mongodb_multi: MongoDBMulti,
+    secret_backend: Optional[str] = None,
+) -> str:
+    agents = ["mms-automation-agent"]
+    subject = copy.deepcopy(SUBJECT)
+    subject["organizationalUnits"] = [mongodb_multi.namespace]
+
+    spec = {
+        "subject": subject,
+        "usages": ["client auth"],
+    }
+    spec["dnsNames"] = agents
+    spec["commonName"] = "mms-automation-agent"
+    return generate_cert(
+        namespace=mongodb_multi.namespace,
+        pod="tmp",
+        dns="",
+        issuer=multi_cluster_issuer,
+        spec=spec,
+        multi_cluster_mode=True,
+        api_client=central_cluster_client,
+        secret_backend=secret_backend,
+        secret_name=secret_name,
+        vault_subpath="database",
+    )
 
 
 def create_multi_cluster_mongodb_tls_certs(
@@ -408,7 +438,11 @@ def create_x509_mongodb_tls_certs(
 
 
 def create_agent_tls_certs(
-    issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None
+    issuer: str,
+    namespace: str,
+    name: str,
+    secret_prefix: Optional[str] = None,
+    secret_backend: Optional[str] = None,
 ) -> str:
     agents = ["mms-automation-agent"]
     subject = copy.deepcopy(SUBJECT)
@@ -420,13 +454,18 @@ def create_agent_tls_certs(
     }
     spec["dnsNames"] = agents
     spec["commonName"] = "mms-automation-agent"
+    secret_name = (
+        "agent-certs"
+        if secret_prefix is None
+        else f"{secret_prefix}-{name}-agent-certs"
+    )
     secret = generate_cert(
         namespace=namespace,
         pod=[],
         dns=[],
         issuer=issuer,
         spec=spec,
-        secret_name="agent-certs",
+        secret_name=secret_name,
         secret_backend=secret_backend,
         vault_subpath="database",
     )
@@ -590,8 +629,43 @@ def create_x509_user_cert(issuer: str, namespace: str, path: str):
         "usages": ["digital signature", "key encipherment", "client auth"],
         "commonName": user_name,
     }
-    secret = generate_cert(namespace, user_name, user_name, issuer, spec, "mongodbuser")
+    secret = generate_cert(
+        namespace=namespace,
+        pod=user_name,
+        dns=user_name,
+        issuer=issuer,
+        spec=spec,
+        secret_name="mongodbuser",
+    )
     cert = KubernetesTester.read_secret(namespace, secret)
+    with open(path, mode="w") as f:
+        f.write(cert["tls.key"])
+        f.write(cert["tls.crt"])
+        f.flush()
+
+
+def create_multi_cluster_x509_user_cert(
+    multi_cluster_issuer: str,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    path: str,
+):
+    user_name = "x509-testing-user"
+    spec = {
+        "usages": ["digital signature", "key encipherment", "client auth"],
+        "commonName": user_name,
+    }
+    secret = generate_cert(
+        namespace=namespace,
+        pod="tmp",
+        dns=user_name,
+        issuer=multi_cluster_issuer,
+        api_client=central_cluster_client,
+        spec=spec,
+        multi_cluster_mode=True,
+        secret_name="mongodbuser",
+    )
+    cert = read_secret(namespace, secret, api_client=central_cluster_client)
     with open(path, mode="w") as f:
         f.write(cert["tls.key"])
         f.write(cert["tls.crt"])

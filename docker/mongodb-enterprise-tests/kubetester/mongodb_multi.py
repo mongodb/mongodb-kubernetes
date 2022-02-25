@@ -102,7 +102,6 @@ class MongoDBMulti(MongoDB):
     ) -> MongoTester:
         if service_to_pod_names is None:
             service_to_pod_names = self.service_to_pod_names()
-        print(service_to_pod_names)
         return MultiReplicaSetTester(
             service_to_pod_names=service_to_pod_names,
             namespace=self.namespace,
