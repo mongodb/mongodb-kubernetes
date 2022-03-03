@@ -508,6 +508,54 @@ def official_operator(
     ).install()
 
 
+@fixture(scope="module")
+def official_operator_v12(
+    namespace: str,
+    image_type: str,
+    managed_security_context: str,
+    operator_installation_config: Dict[str, str],
+) -> Operator:
+    """
+    Installs version 1.12 of the Operator
+    """
+    enable_webhook_check = True
+    helm_options = []
+
+    name = "mongodb-enterprise-operator"
+    helm_args = {
+        "registry.imagePullSecrets": operator_installation_config[
+            "registry.imagePullSecrets"
+        ],
+        "managedSecurityContext": managed_security_context,
+        "operator.operator_image_name": name,
+    }
+
+    temp_dir = tempfile.mkdtemp()
+    # For Operator v1.12 the Helm chart resided in the same "public" repo.
+    clone_and_checkout(
+        "https://github.com/mongodb/mongodb-enterprise-kubernetes",
+        temp_dir,
+        "1.12.0",
+    )
+
+    chart_dir = os.path.join(temp_dir, "helm_chart")
+    if image_type == "ubi":
+        helm_options = [
+            "--values",
+            os.path.join(chart_dir, "values-openshift.yaml"),
+        ]
+        helm_args["operator.operator_image_name"] = "enterprise-operator"
+
+    return Operator(
+        namespace=namespace,
+        helm_args=helm_args,
+        helm_chart_path=chart_dir,
+        helm_options=helm_options,
+        name=name,
+        enable_webhook_check=enable_webhook_check,
+    ).install()
+
+
 def get_headers() -> Dict[str, str]:
     """
     Returns an authentication header that can be used when accessing

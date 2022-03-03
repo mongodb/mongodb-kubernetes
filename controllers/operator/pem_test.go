@@ -139,6 +139,7 @@ func TestReadPemHashFromSecret(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
 		Data:       map[string][]byte{"hello": []byte("world")},
+		Type:       corev1.SecretTypeTLS,
 	}
 
 	assert.Empty(t, pem.ReadHashFromSecret(secrets.SecretClient{
@@ -149,4 +150,19 @@ func TestReadPemHashFromSecret(t *testing.T) {
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
 	}, mock.TestNamespace, name, "", zap.S()), "pem hash should be read from the secret")
+}
+
+func TestReadPemHashFromSecretOpaqueType(t *testing.T) {
+
+	name := "res-name"
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
+		Data:       map[string][]byte{"hello": []byte("world")},
+		Type:       corev1.SecretTypeOpaque,
+	}
+
+	assert.Empty(t, pem.ReadHashFromSecret(secrets.SecretClient{
+		VaultClient: nil,
+		KubeClient:  mockSecretGetter{secret: secret},
+	}, mock.TestNamespace, name, "", zap.S()), "if secret type is not TLS the empty string should be returned")
 }

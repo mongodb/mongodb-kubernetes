@@ -1,5 +1,15 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.15.1
+
+## MongoDBOpsManager Resource
+
+* Bug fixes
+  * Fixes an issue that prevented the Operator to be upgraded when managing a TLS
+    enabled ApplicationDB, when the ApplicationDB TLS certificate is stored in a
+    `Secret` of type Opaque.
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.15.0
 
 
@@ -24,7 +34,6 @@ https://quay.io/repository/mongodb (ubuntu-based)
 https://connect.redhat.com/ (rhel-based)
 
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.14.0
 
 

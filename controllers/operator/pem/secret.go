@@ -9,6 +9,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"go.uber.org/zap"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // CreateOrUpdateSecret will create (if it does not exist) or update (if it does) a secret.
@@ -50,13 +52,28 @@ func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name strin
 			return ""
 		}
 	} else {
-		secretData, err = secret.ReadStringData(secretClient.KubeClient, kube.ObjectKey(namespace, name))
+		s, err := secretClient.KubeClient.GetSecret(kube.ObjectKey(namespace, name))
 		if err != nil {
 			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
 			return ""
 		}
+
+		if s.Type != corev1.SecretTypeTLS {
+			log.Debugf("tls secret %s is not of type corev1.SecretTypeTLS; we will not use hash as key name", name)
+			return ""
+		}
+
+		secretData = dataToStringData(s.Data)
 	}
 	return ReadHashFromData(secretData, log)
+}
+
+func dataToStringData(data map[string][]byte) map[string]string {
+	stringData := make(map[string]string)
+	for k, v := range data {
+		stringData[k] = string(v)
+	}
+	return stringData
 }
 
 func ReadHashFromData(secretData map[string]string, log *zap.SugaredLogger) string {
