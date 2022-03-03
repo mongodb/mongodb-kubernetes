@@ -4,7 +4,7 @@
 # docker build . -f docker/mongodb-enterprise-operator/Dockerfile.builder
 #
 
-FROM golang:1.17.6 as builder
+FROM golang:1.17.7 as builder
 
 ARG release_version
 ARG log_automation_config_diff

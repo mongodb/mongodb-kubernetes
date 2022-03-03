@@ -2,7 +2,7 @@
 # Dockerfile for Init Ops Manager Context.
 #
 
-FROM golang:1.17.6-alpine as builder
+FROM golang:1.17.7-alpine as builder
 WORKDIR /go/src
 ADD . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -a -i -o /data/scripts/mmsconfiguration ./mmsconfiguration
