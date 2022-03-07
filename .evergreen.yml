@@ -2480,6 +2480,7 @@ buildvariants:
   expansions:
     <<: [ *ops_manager_44_current, *kubernetes_environment_vanilla ]
     custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
     image_type: ubuntu
   tasks:
   - name: e2e_mdb_vanilla_ubuntu_om44_task_group
@@ -2501,6 +2502,7 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_openshift_4 ]
     custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
     image_type: ubi
   tasks:
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
