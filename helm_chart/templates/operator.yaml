@@ -7,10 +7,10 @@ metadata:
 spec:
   replicas: 1
   selector:
-      matchLabels:
-        app.kubernetes.io/component: controller
-        app.kubernetes.io/name: {{ .Values.operator.name }}
-        app.kubernetes.io/instance: {{ .Values.operator.name }}
+    matchLabels:
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/name: {{ .Values.operator.name }}
+      app.kubernetes.io/instance: {{ .Values.operator.name }}
   template:
     metadata:
       labels:
@@ -45,15 +45,15 @@ spec:
         imagePullPolicy: {{ .Values.registry.pullPolicy }}
         {{- if .Values.operator.watchedResources }}
         args:
-          {{- range .Values.operator.watchedResources }}
-          - "-watch-resource={{ . }}"
-          {{- end }}
-          {{- if .Values.multiCluster.clusters }}
-          - "-watch-resource=mongodbmulti"
-          - '-cluster-names={{ join "," .Values.multiCluster.clusters }}'
-          {{- end }}
+        {{- range .Values.operator.watchedResources }}
+        - -watch-resource={{ . }}
+        {{- end }}
+        {{- if .Values.multiCluster.clusters }}
+        - -watch-resource=mongodbmulti
+        - -cluster-names={{ join "," .Values.multiCluster.clusters }}
+        {{- end }}
         command:
-          - "/usr/local/bin/mongodb-enterprise-operator"
+        - /usr/local/bin/mongodb-enterprise-operator
         {{- end }}
         {{- if .Values.multiCluster.clusters }}
         volumeMounts:
@@ -118,7 +118,7 @@ spec:
         - name: OPS_MANAGER_IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
         - name: AGENT_IMAGE
-          value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ .Values.agent.version }}"
+          value: {{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ .Values.agent.version }}
         - name: MONGODB_IMAGE
           value: {{ .Values.mongodb.name }}
         - name: MONGODB_REPO_URL
@@ -150,9 +150,9 @@ metadata:
 spec:
   type: NodePort
   ports:
-    - nodePort: {{ .Values.debugPort }}
-      port: 40000
-      protocol: TCP
+  - nodePort: {{ .Values.debugPort }}
+    port: 40000
+    protocol: TCP
   selector:
     app.kubernetes.io/name: {{ .Values.operator.name }}
 {{- end }}
