@@ -55,7 +55,15 @@ class TestAddLDAPUsers(KubernetesTester):
     @staticmethod
     def all_users_ready():
         ac = KubernetesTester.get_automation_config()
-        return len(ac["auth"]["usersWanted"]) == 1
+        automation_config_users = 0
+        for user in ac["auth"]["usersWanted"]:
+            if (
+                user["user"] != "mms-backup-agent"
+                and user["user"] != "mms-monitoring-agent"
+            ):
+                automation_config_users += 1
+
+        return automation_config_users == 1
 
 
 @mark.e2e_sharded_cluster_ldap
