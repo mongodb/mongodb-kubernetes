@@ -22,6 +22,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -103,6 +104,31 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 	}
 }
 
+func TestServiceCreation_WithDuplicates(t *testing.T) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
+
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	clusterSpecs, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+	for _, item := range clusterSpecs {
+		for podNum := 0; podNum < item.Members; podNum++ {
+			svc := getService(mrs, item.ClusterName, podNum)
+
+			// ensure that all clusters have all services
+			for _, otherItem := range clusterSpecs {
+				otherCluster := memberClusterMap[otherItem.ClusterName]
+				err := otherCluster.GetClient().Get(context.TODO(), kube.ObjectKey(svc.Namespace, svc.Name), &corev1.Service{})
+				assert.NoError(t, err)
+			}
+		}
+	}
+}
+
 func TestResourceDeletion(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
@@ -125,9 +151,15 @@ func TestResourceDeletion(t *testing.T) {
 				svcList := corev1.ServiceList{}
 				err := c.GetClient().List(context.TODO(), &svcList)
 				assert.NoError(t, err)
-				assert.Len(t, svcList.Items, 1)
+				assert.Len(t, svcList.Items, item.Members)
 			})
 
+			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
+				configMapList := corev1.ConfigMapList{}
+				err := c.GetClient().List(context.TODO(), &configMapList)
+				assert.NoError(t, err)
+				assert.Len(t, configMapList.Items, 1)
+			})
 			t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
 				secretList := corev1.SecretList{}
 				err := c.GetClient().List(context.TODO(), &secretList)

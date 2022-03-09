@@ -107,7 +107,7 @@ def test_connectivity_fails_from_second_namespace(
     cmd = [
         "mongo",
         "--host",
-        f"{mongodb_multi.name}-0-0.{mongodb_multi.name}-0-svc.{namespace}.svc.cluster.local",
+        f"{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local",
     ]
 
     result = KubernetesTester.run_command_in_pod_container(
@@ -207,7 +207,7 @@ def test_connectivity_succeeds_from_second_namespace(
     cmd = [
         "mongo",
         "--host",
-        f"{mongodb_multi.name}-0-0.{mongodb_multi.name}-0-svc.{namespace}.svc.cluster.local",
+        f"{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local",
     ]
 
     def can_connect_to_deployment() -> bool:
@@ -228,7 +228,7 @@ def test_connectivity_succeeds_from_second_namespace(
             return False
 
         if (
-            f"connecting to: mongodb://{mongodb_multi.name}-0-0.{mongodb_multi.name}-0-svc.{namespace}.svc.cluster.local"
+            f"connecting to: mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local"
             not in result
         ):
             return False

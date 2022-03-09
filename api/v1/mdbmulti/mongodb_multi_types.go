@@ -110,6 +110,10 @@ func (m *MongoDBMulti) GetLDAP(password, caContents string) *ldap.Ldap {
 	return nil
 }
 
+func (m MongoDBMulti) GetHostNameOverrideConfigmapName() string {
+	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
 func (m MongoDBMulti) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }

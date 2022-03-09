@@ -26,7 +26,10 @@ func (o okStatus) ReconcileResult() (reconcile.Result, error) {
 }
 
 func (o okStatus) IsOK() bool {
-	return !o.requeue
+	if o.requeue {
+		return false
+	}
+	return true
 }
 
 func (o okStatus) Merge(other Status) Status {

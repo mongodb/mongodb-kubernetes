@@ -30,7 +30,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_member_cluster_watch
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_multi_cluster_member_cluster_watch

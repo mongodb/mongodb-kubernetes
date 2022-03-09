@@ -146,9 +146,5 @@ def test_ops_manager_has_been_updated_correctly_after_scaling():
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti, ca_path: str):
     # there should only be one member in cluster 2 so there is just a single service.
-    tester = mongodb_multi.tester(
-        service_to_pod_names={
-            f"{mongodb_multi.name}-1-svc": [f"{mongodb_multi.name}-1-0"]
-        }
-    )
+    tester = mongodb_multi.tester(service_names=[f"{mongodb_multi.name}-1-0-svc"])
     tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])

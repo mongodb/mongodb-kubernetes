@@ -61,7 +61,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_scram
 def test_create_mongodb_multi_with_scram(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @pytest.mark.e2e_multi_cluster_scram

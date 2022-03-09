@@ -5,7 +5,6 @@ import kubernetes.client
 from kubernetes import client
 from kubetester import MongoDB
 from kubetester.mongotester import MultiReplicaSetTester, MongoTester
-from collections import defaultdict
 
 
 class MultiClusterClient:
@@ -79,30 +78,32 @@ class MongoDBMulti(MongoDB):
             )
         return configmaps
 
-        return service_names
-
-    def service_to_pod_names(self) -> Dict[str, List[str]]:
-        service_to_pod = defaultdict(list)
+    def service_names(self) -> List[str]:
+        # TODO: this function does not account for previous
+        # clusters being removed, the indices do not line up
+        # and as a result the incorrect service name will be returned.
+        service_names = []
         cluster_specs = sorted(
             self["spec"]["clusterSpecList"]["clusterSpecs"],
             key=lambda x: x["clusterName"],
         )
-
         for (i, spec) in enumerate(cluster_specs):
             for j in range(spec["members"]):
-                service_to_pod[f"{self.name}-{i}-svc"].append(f"{self.name}-{i}-{j}")
-        return service_to_pod
+                service_names.append(f"{self.name}-{i}-{j}-svc")
+        return service_names
 
     def tester(
         self,
         ca_path: Optional[str] = None,
         srv: bool = False,
         use_ssl: Optional[bool] = None,
-        service_to_pod_names: Optional[Dict[str, List[str]]] = None,
+        service_names: Optional[List[str]] = None,
     ) -> MongoTester:
-        if service_to_pod_names is None:
-            service_to_pod_names = self.service_to_pod_names()
+        if service_names is None:
+            service_names = self.service_names()
+
         return MultiReplicaSetTester(
-            service_to_pod_names=service_to_pod_names,
+            service_names=service_names,
             namespace=self.namespace,
+            # TODO: tls, ca_path
         )
