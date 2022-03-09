@@ -413,10 +413,10 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 
 func TestGetMonitoringAgentVersion(t *testing.T) {
 	jsonContents := `
-{
-	"4.2" : "version0",
-	"4.4" : "version1"
-}`
+[
+	{"ops_manager_version": "4.2", "agent_version": "version0"},
+	{"ops_manager_version": "4.4", "agent_version": "version1"}
+]`
 	t.Run("The version returned for the agent 4.2 when OM is 4.2", func(t *testing.T) {
 		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
 		version, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {

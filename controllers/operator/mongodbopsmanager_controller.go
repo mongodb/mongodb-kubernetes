@@ -241,12 +241,13 @@ func getMonitoringAgentVersion(opsManager omv1.MongoDBOpsManager, readFile func(
 		return "", nil
 	}
 
-	m := make(map[string]string)
+	m := omv1.OpsManagerAgentVersionMapping{}
 	if err := json.Unmarshal(fileContainingMappingsBytes, &m); err != nil {
 		return "", fmt.Errorf("failed unmarshalling bytes: %s", err)
 	}
 
-	if agentVersion, ok := m[majorMinor]; !ok {
+	agentVersion := m.FindAgentVersionForOpsManager(majorMinor)
+	if agentVersion == "" {
 		return "", fmt.Errorf("agent version not present in the mapping file %s", opsManagerToVersionMappingJsonFilePath)
 	} else {
 		return agentVersion, nil

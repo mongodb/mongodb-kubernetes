@@ -26,6 +26,10 @@ variables:
   - &ops_manager_50_latest 5.0.8
   - &ops_manager_50_appdb_version 4.4.11-ent
 
+  - &ops_manager_60_latest 5.9.0
+  - &ops_manager_60_download_url https://s3.amazonaws.com/mongodb-mms-build-onprem/73c99a5ff9b7d100055adfe9e0b3dc0836a4c027/mongodb-mms-5.9.0.100.20220306T2335Z-1.x86_64.tar.gz
+  - &ops_manager_60_appdb_version 4.4.11-ent
+
   # Latest MDB release as of today. Update this to latest `rc`s or GA version when
   # it is released.
   # https://opsmanager.mongodb.com/static/version_manifest/5.0.json
@@ -43,6 +47,8 @@ variables:
   - &agent_version 10.29.0.6830-1
     # Agent version used in OM50
   - &agent_version50 11.0.11.7036-1
+
+  - &agent_version60 11.12.0.7388-1
 
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
@@ -174,6 +180,7 @@ functions:
       - skip_tags
       - test_suffix
       - om_version
+      - om_download_url
       - triggered_by_git_tag
       - readiness_probe
       add_to_path:
@@ -2624,6 +2631,43 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group
 
+# Isolated Ops Manager Tests for 6.0 version
+- name: e2e_om60_kind_ubuntu
+  display_name: e2e_om60_kind_ubuntu
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om60_images
+  - name: build_operator_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubuntu
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_60_latest
+    custom_mdb_version: *mdb_50_latest
+    custom_mdb_prev_version: *mdb_44_latest
+    agent_version: *agent_version60
+
+    custom_appdb_version: *ops_manager_60_appdb_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
 - name: e2e_om50_kind_ubi
   display_name: e2e_om50_kind_ubi
   run_on:
@@ -2896,6 +2940,15 @@ buildvariants:
   tasks:
   - name: build_om_images
 
+- name: build_om60_images
+  display_name: build_om60_images
+  run_on:
+  - ubuntu1804-small
+  expansions:
+    om_version: *ops_manager_60_latest
+    om_download_url: *ops_manager_60_download_url
+  tasks:
+  - name: build_om_images
 
 # To publish OM4.4 images:
 #

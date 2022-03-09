@@ -249,6 +249,23 @@ type OpsManagerStatus struct {
 	Warnings      []status.Warning `json:"warnings,omitempty"`
 }
 
+type OpsManagerAgentVersionMapping []struct {
+	OpsManagerVersion string `json:"ops_manager_version"`
+	AgentVersion      string `json:"agent_version"`
+}
+
+// FindAgentVersionForOpsManager finds an agent version that corresponds to a version
+// of Ops Manager passed as parameter.
+func (m OpsManagerAgentVersionMapping) FindAgentVersionForOpsManager(omVersion string) string {
+	for _, v := range m {
+		if v.OpsManagerVersion == omVersion {
+			return v.AgentVersion
+		}
+	}
+
+	return ""
+}
+
 type AppDbStatus struct {
 	mdbv1.MongoDbStatus `json:",inline"`
 }

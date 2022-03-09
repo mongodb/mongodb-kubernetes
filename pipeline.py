@@ -5,22 +5,22 @@ and where to fetch and calculate parameters. It uses Sonar.py
 to produce the final images."""
 
 import argparse
-from datetime import datetime, timedelta
-from distutils.dir_util import copy_tree
 import json
 import logging
-from typing import Dict, List, Union, Tuple, Optional
 import os
 import shutil
 import subprocess
 import sys
 import tarfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from distutils.dir_util import copy_tree
+from typing import Dict, List, Optional, Tuple, Union
 
-import docker
 import requests
 from sonar.sonar import process_image
 
-from dataclasses import dataclass, field
+import docker
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
@@ -510,7 +510,10 @@ def build_om_image(build_configuration: BuildConfiguration):
     if om_version is None:
         raise ValueError("`om_version` should be defined.")
 
-    om_download_url = find_om_url(om_version)
+    om_download_url = os.environ.get("om_download_url", "")
+    if om_download_url == "":
+        om_download_url = find_om_url(om_version)
+
     args = dict(
         om_version=om_version,
         om_download_url=om_download_url,
