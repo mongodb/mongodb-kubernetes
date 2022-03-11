@@ -2286,7 +2286,7 @@ task_groups:
     - e2e_multi_cluster_enable_tls
     - e2e_multi_cluster_upgrade_downgrade
     - e2e_multi_cluster_tls_cert_rotation
-    # - e2e_multi_cluster_backup_restore
+    - e2e_multi_cluster_backup_restore
     - e2e_multi_cluster_tls_with_x509
   teardown_task:
     - func: upload_e2e_logs

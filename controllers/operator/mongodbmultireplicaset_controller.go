@@ -17,6 +17,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/hashicorp/go-multierror"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -543,7 +544,7 @@ func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) co
 		"controller":                         "mongodb-enterprise-operator",
 	}
 
-	return service.Builder().
+	svc := service.Builder().
 		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterIndex(clusterName), podNum)).
 		SetNamespace(mrs.Namespace).
 		SetPort(27017).
@@ -552,6 +553,17 @@ func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) co
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
 		Build()
+
+	svc.Spec.Ports = append(svc.Spec.Ports, corev1.ServicePort{
+		Name:     "backup",
+		Protocol: corev1.ProtocolTCP,
+		Port:     27018,
+		TargetPort: intstr.IntOrString{
+			IntVal: 27018,
+		},
+	})
+
+	return svc
 }
 
 // reconcileServices make sure that we have a service object corresponding to each statefulset pod

@@ -82,6 +82,7 @@ if [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
     override="$(cat "$override_file")"
     agentOpts+=("-overrideLocalHost" "${override}")
     echo "$override"
+    agentOpts+=("-ephemeralPortOffset" "1")
 fi
 
 # this is the version of Automation Agent which has fixes for health file bugs
