@@ -49,6 +49,14 @@ def namespace() -> str:
 
 
 @fixture(scope="module")
+def version_id() -> str:
+    """
+    Returns VERSION_ID if it has been defined, or "latest" otherwise.
+    """
+    return os.environ.get("VERSION_ID", "latest")
+
+
+@fixture(scope="module")
 def operator_installation_config(namespace: str) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""

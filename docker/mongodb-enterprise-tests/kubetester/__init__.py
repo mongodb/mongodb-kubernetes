@@ -200,9 +200,9 @@ def get_pod_when_running(
     label_selector: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> client.V1Pod:
-    """Returns a Pod that matches label_selector. It will block until the Pod is in
-    Ready state.
-
+    """
+    Returns a Pod that matches label_selector. It will block until the Pod is in
+    Running state.
     """
     while True:
         time.sleep(3)
@@ -230,9 +230,9 @@ def get_pod_when_ready(
     label_selector: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> client.V1Pod:
-    """Returns a Pod that matches label_selector. It will block until the Pod is in
+    """
+    Returns a Pod that matches label_selector. It will block until the Pod is in
     Ready state.
-
     """
     while True:
         time.sleep(3)
