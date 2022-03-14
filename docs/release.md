@@ -111,6 +111,10 @@ After the public release PR has been merged, `pct` will create release notes:
 - As a _draft_ release in the public repo
 - A DOCSP will be created with the same release notes
 
+
+**Note**: PCT does not yet update Operator/Ops Manager compatibility docs.
+You must manually create a DOCSP ticket with the correct Operator/OM versions [here](https://docs.mongodb.com/kubernetes-operator/master/tutorial/plan-k8s-op-compatibility/#cloud-short-and-onprem-versions).
+
 What you have to do now is to check that draft release, and _Publish_ it. Also
 alert the DOCS team that the release notes are ready for them.
 
