@@ -139,7 +139,7 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
 
 @fixture(scope="module")
 def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user-backing-db.yaml"),
         namespace=namespace,
@@ -173,14 +173,14 @@ class TestOpsManagerCreation:
     """
 
     def test_setup_gp2_storage_class(self):
-        """ This is necessary for Backup HeadDB """
+        """This is necessary for Backup HeadDB"""
         KubernetesTester.make_default_gp2_storage_class()
 
     def test_update_service_account(self):
         create_service_account_with_irsa()
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        """ creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
+        """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="The MongoDB object .+ doesn't exist",
@@ -205,7 +205,7 @@ class TestOpsManagerCreation:
         )
 
     def test_backup_daemon_services_created(self, namespace):
-        """ Backup creates two additional services for queryable backup """
+        """Backup creates two additional services for queryable backup"""
         services = client.CoreV1Api().list_namespaced_service(namespace).items
 
         # If running locally in 'default' namespace, there might be more
@@ -249,7 +249,7 @@ class TestBackupDatabasesAdded:
         oplog_replica_set: MongoDB,
         s3_replica_set: MongoDB,
     ):
-        """ Creates mongodb databases all at once """
+        """Creates mongodb databases all at once"""
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -264,7 +264,7 @@ class TestBackupDatabasesAdded:
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
-        """ Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
+        """Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
@@ -486,7 +486,7 @@ class TestBackupConfigurationAdditionDeletion:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        """ Removing the s3 store when there are backups running is an error """
+        """Removing the s3 store when there are backups running is an error"""
         ops_manager.reload()
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
