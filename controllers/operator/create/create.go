@@ -210,7 +210,6 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
-		SetPort(port).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetLabels(labels).
 		SetSelector(labels).
@@ -218,11 +217,15 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 
 	serviceType := mongoServiceDefinition.Type
 	if serviceType == corev1.ServiceTypeNodePort || serviceType == corev1.ServiceTypeLoadBalancer {
-		svcBuilder.SetClusterIP("").SetNodePort(mongoServiceDefinition.Port)
-	}
-
-	if serviceType == corev1.ServiceTypeClusterIP {
-		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None").SetPortName("mongodb")
+		// Service will have a NodePort
+		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port), NodePort: mongoServiceDefinition.Port}).SetClusterIP("")
+	} else if serviceType == corev1.ServiceTypeClusterIP {
+		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None")
+		// Service will have a named Port
+		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port), Name: "mongodb"})
+	} else {
+		// Service will have a regular Port (unnamed)
+		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port)})
 	}
 
 	if mongoServiceDefinition.Annotations != nil {

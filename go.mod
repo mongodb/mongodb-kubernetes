@@ -13,7 +13,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/vault/api v1.3.0
 	github.com/imdario/mergo v0.3.12
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.3-0.20220114152739-67a5515c6e7e
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.3-0.20220308162528-b3378471385f
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.32.1
@@ -23,6 +23,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.19.1
+	golang.org/x/crypto v0.0.0-20220214200702-86341886e292
 	k8s.io/api v0.22.4
 	k8s.io/apimachinery v0.22.4
 	k8s.io/client-go v0.22.4
@@ -91,7 +92,6 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
 	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f // indirect
 	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f // indirect
@@ -122,4 +122,4 @@ require (
 
 go 1.17
 
-// replace github.com/mongodb/mongodb-kubernetes-operator => ../../mongodb/mongodb-kubernetes-operator
+// replace github.com/mongodb/mongodb-kubernetes-operator => ../repos/mongodb-kubernetes-operator

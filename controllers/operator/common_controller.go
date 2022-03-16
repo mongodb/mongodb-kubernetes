@@ -15,6 +15,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/passwordhash"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
@@ -682,6 +683,46 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 		}
 	}
 	return workflow.OK(), newTLSDesignMapping
+}
+
+// isPrometheusSupported checks if Prometheus integration can be enabled.
+//
+// Prometheus is only enabled in Cloud Manager and Ops Manager 5.9 (6.0) and above.
+func isPrometheusSupported(conn om.Connection) bool {
+	if conn.OpsManagerVersion().IsCloudManager() {
+		return true
+	}
+
+	omVersion, err := conn.OpsManagerVersion().Semver()
+	return err == nil && omVersion.GTE(semver.MustParse("5.9.0"))
+}
+
+// UpdatePrometheus configures Prometheus on the Deployment for this resource.
+//
+// This has been moved to this function so we can use it from Sharded Clusters and AppDB when I get to work on those resources.
+func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, getter secret.Getter, log *zap.SugaredLogger) error {
+	if mdb.Spec.Prometheus == nil {
+		return nil
+	}
+
+	if !isPrometheusSupported(conn) {
+		log.Info("Prometheus can't be enabled, Prometheus is not supported in this version of Ops Manager")
+		return nil
+	}
+
+	prometheus := mdb.Spec.Prometheus
+
+	secretNamespacedName := types.NamespacedName{Name: prometheus.PasswordSecretRef.Name, Namespace: mdb.Namespace}
+	password, err := secret.ReadKey(getter, prometheus.GetPasswordKey(), secretNamespacedName)
+	if err != nil {
+		log.Infof("Prometheus can't be enabled, %s", err)
+		return err
+	}
+
+	hash, salt := passwordhash.GenerateHashAndSaltForPassword(password)
+	d.ConfigurePrometheus(prometheus, hash, salt)
+
+	return nil
 }
 
 // canConfigureAuthentication determines if based on the existing state of Ops Manager

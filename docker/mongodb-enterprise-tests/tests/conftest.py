@@ -1,11 +1,9 @@
-import logging
 import os
 import subprocess
 import tempfile
 from typing import Callable, Dict, List, Optional
 
 import kubernetes
-import requests
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import create_configmap, create_secret, get_pod_when_ready
@@ -13,13 +11,12 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer
 from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
+from kubetester.http import get_retriable_https_session
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from tests.multicluster import prepare_multi_cluster_namespaces
 
@@ -577,31 +574,12 @@ def get_headers() -> Dict[str, str]:
     return dict()
 
 
-def get_retriable_session() -> requests.Session:
-    """
-    Returns a request Session object with a retry mechanism.
-
-    This is required to overcome a DNS resolution problem that we have
-    experienced in the Evergreen hosts. This can also probably alleviate
-    problems arising from request throttling.
-    """
-
-    s = requests.Session()
-    retries = Retry(
-        total=5,
-        backoff_factor=2,
-    )
-    s.mount("https://", HTTPAdapter(max_retries=retries))
-
-    return s
-
-
 def fetch_latest_released_operator_version() -> str:
     """
     Fetches the currently released operator version from the Github API.
     """
 
-    response = get_retriable_session().get(
+    response = get_retriable_https_session().get(
         "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
         headers=get_headers(),
     )

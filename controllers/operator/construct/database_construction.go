@@ -273,6 +273,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	if stsOptions.StatefulSetSpecOverride != nil {
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
+
 	return dbSts
 }
 

@@ -8,6 +8,9 @@ import (
 	"math"
 	"regexp"
 
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 
@@ -31,6 +34,9 @@ const (
 
 	// BackupAgentDefaultVersion
 	BackupAgentDefaultVersion = "6.6.0.959-1"
+
+	// Default listen address for Prometheus
+	ListenAddress = "0.0.0.0"
 )
 
 func init() {
@@ -199,6 +205,39 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	// In both cases (the new replicaset was added to OM deployment or it was merged with OM one) we need to make sure
 	// there are no more than 7 voting members
 	d.limitVotingMembers(operatorRs.Rs.Name())
+}
+
+// ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
+//
+// If basic auth is enabled, then `hash` and `salt` need to be calculated by called and passed in.
+//
+// TODO:
+// TlsSecretMount Path (which depends on the tlsOperatorSecretFileName() hash we get from certKey)
+func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, salt string) automationconfig.Prometheus {
+	if prom == nil {
+		// No prometheus configuration this time
+		return automationconfig.Prometheus{}
+	}
+
+	promConfig := automationconfig.NewDefaultPrometheus(prom.Username)
+
+	promConfig.TLSPemPath = ""
+	promConfig.Scheme = "http"
+
+	promConfig.PasswordHash = hash
+	promConfig.PasswordSalt = salt
+
+	if prom.Port > 0 {
+		promConfig.ListenAddress = fmt.Sprintf("%s:%d", ListenAddress, prom.Port)
+	}
+
+	if prom.MetricsPath != "" {
+		promConfig.MetricsPath = prom.MetricsPath
+	}
+
+	d["prometheus"] = promConfig
+
+	return promConfig
 }
 
 // DeploymentShardedClusterMergeOptions contains all of the required values to update the ShardedCluster
@@ -960,6 +999,7 @@ func (d Deployment) setMonitoringVersions(monitoring []interface{}) {
 func (d Deployment) setBackupVersions(backup []interface{}) {
 	d["backupVersions"] = backup
 }
+
 func (d Deployment) getTLS() map[string]interface{} {
 	return util.ReadOrCreateMap(d, "tls")
 }

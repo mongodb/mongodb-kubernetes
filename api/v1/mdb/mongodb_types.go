@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
@@ -262,6 +263,10 @@ type MongoDbSpec struct {
 	// +kubebuilder:validation:Required
 	ResourceType ResourceType `json:"type"`
 	Backup       *Backup      `json:"backup,omitempty"`
+
+	// Prometheus configurations.
+	// +optional
+	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
 
 	// sharded clusters
 

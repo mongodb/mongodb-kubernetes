@@ -14,14 +14,13 @@ from kubetester.kubetester import (
     build_host_fqdn,
     ensure_nested_objects,
 )
-from kubetester.omtester import OMTester, OMContext
+from kubetester.omtester import OMContext, OMTester
 
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
     ShardedClusterTester,
     StandaloneTester,
-    MongoTester,
 )
 
 

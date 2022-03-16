@@ -547,11 +547,10 @@ func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) co
 	svc := service.Builder().
 		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterIndex(clusterName), podNum)).
 		SetNamespace(mrs.Namespace).
-		SetPort(27017).
-		SetPortName("mongodb").
 		SetSelector(labelSelectors).
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
+		AddPort(&corev1.ServicePort{Port: 27017, Name: "mongodb"}).
 		Build()
 
 	svc.Spec.Ports = append(svc.Spec.Ports, corev1.ServicePort{

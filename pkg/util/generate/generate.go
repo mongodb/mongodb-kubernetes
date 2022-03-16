@@ -15,11 +15,11 @@ func KeyFileContents() (string, error) {
 }
 
 func RandomFixedLengthStringOfSize(n int) (string, error) {
-	b, err := generateRandomBytes(n)
+	b, err := GenerateRandomBytes(n)
 	return base64.URLEncoding.EncodeToString(b)[:n], err
 }
 
-func generateRandomBytes(size int) ([]byte, error) {
+func GenerateRandomBytes(size int) ([]byte, error) {
 	b := make([]byte, size)
 	_, err := rand.Read(b)
 	if err != nil {
@@ -30,7 +30,7 @@ func generateRandomBytes(size int) ([]byte, error) {
 }
 
 func generateRandomString(numBytes int) (string, error) {
-	b, err := generateRandomBytes(numBytes)
+	b, err := GenerateRandomBytes(numBytes)
 	return base64.StdEncoding.EncodeToString(b), err
 }
 

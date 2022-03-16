@@ -780,6 +780,8 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			d.ConfigureInternalClusterAuthentication(d.GetShardedClusterConfigProcessNames(sc.Name), internalClusterAuthMode, configInternalClusterPath)
 			d.ConfigureInternalClusterAuthentication(d.GetShardedClusterMongosProcessNames(sc.Name), internalClusterAuthMode, mongosInternalClusterPath)
 
+			UpdatePrometheus(&d, conn, sc, r.client, log)
+
 			for i, path := range shardsInternalClusterPath {
 				d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(sc.Name, i), internalClusterAuthMode, path)
 			}

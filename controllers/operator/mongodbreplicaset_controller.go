@@ -374,6 +374,12 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			d.AddMonitoringAndBackup(log, rs.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
 			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
 			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode(), internalClusterPath)
+
+			// At this point we won't bubble-up the error we got from this
+			// function, we don't want to fail the MongoDB resource because
+			// Prometheus can't be enabled.
+			UpdatePrometheus(&d, conn, rs, r.client, log)
+
 			return nil
 		},
 		log,
