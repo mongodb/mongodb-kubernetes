@@ -38,7 +38,7 @@ func (m *MongoDB) ValidateDelete() error {
 }
 
 func replicaSetHorizonsRequireTLS(ms MongoDbSpec) v1.ValidationResult {
-	if len(ms.Connectivity.ReplicaSetHorizons) > 0 && !ms.Security.TLSConfig.Enabled {
+	if len(ms.Connectivity.ReplicaSetHorizons) > 0 && !ms.IsSecurityTLSConfigEnabled() {
 		msg := "TLS must be enabled in order to use replica set horizons"
 		return v1.ValidationError(msg)
 	}
