@@ -1578,6 +1578,9 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 		return backup.S3Config{}, workflow.Failed(err.Error())
 	}
 
+	if !config.CustomCertificate {
+		customCAOpts = backup.S3CustomCertificate{}
+	}
 	return backup.NewS3Config(om, config.Name, uri, customCAOpts, bucket, s3Creds), workflow.OK()
 }
 

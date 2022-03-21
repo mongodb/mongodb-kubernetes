@@ -135,7 +135,7 @@ class TestOpsManagerCreation:
 
 @mark.e2e_om_ops_manager_backup_tls
 class TestBackupForMongodb:
-    """ This part ensures that backup for the client works correctly and the snapshot is created. """
+    """This part ensures that backup for the client works correctly and the snapshot is created."""
 
     @fixture(scope="class")
     def mdb_latest(

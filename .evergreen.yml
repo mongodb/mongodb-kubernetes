@@ -1668,6 +1668,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_backup_s3_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_ops_manager_backup_tls_custom_ca
   tags: ["patch-run"]
   exec_timeout_secs: 1800
@@ -2330,6 +2336,7 @@ task_groups:
     - e2e_om_ops_manager_backup_delete_sts
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_tls
+    - e2e_om_ops_manager_backup_s3_tls
     - e2e_om_ops_manager_backup_tls_custom_ca
     - e2e_om_ops_manager_backup_liveness_probe
     - e2e_om_ops_manager_backup_sharded_cluster

@@ -304,6 +304,9 @@ type S3Config struct {
 	PathStyleAccessEnabled bool                       `json:"pathStyleAccessEnabled"`
 	S3BucketEndpoint       string                     `json:"s3BucketEndpoint"`
 	S3BucketName           string                     `json:"s3BucketName"`
+	// Set this to "true" when you have custom certificates for your S3 buckets
+	// +optional
+	CustomCertificate bool `json:"customCertificate"`
 	// This is only set to "true" when user is running in EKS and is using AWS IRSA to configure
 	// S3 snapshot store. For more details refer this: https://aws.amazon.com/blogs/opensource/introducing-fine-grained-iam-roles-service-accounts/
 	// +optional

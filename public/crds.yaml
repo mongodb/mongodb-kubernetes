@@ -2136,6 +2136,10 @@ spec:
                       store configs used for backup.
                     items:
                       properties:
+                        customCertificate:
+                          description: Set this to "true" when you have custom certificates
+                            for your S3 buckets
+                          type: boolean
                         irsaEnabled:
                           description: 'This is only set to "true" when user is running
                             in EKS and is using AWS IRSA to configure S3 snapshot
@@ -2183,6 +2187,10 @@ spec:
                   s3Stores:
                     items:
                       properties:
+                        customCertificate:
+                          description: Set this to "true" when you have custom certificates
+                            for your S3 buckets
+                          type: boolean
                         irsaEnabled:
                           description: 'This is only set to "true" when user is running
                             in EKS and is using AWS IRSA to configure S3 snapshot

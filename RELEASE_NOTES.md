@@ -1,5 +1,9 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
-<!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.15.2
+## MongoDBOpsManager Resource
+* Bug Fix 
+  * For enabling custom TLS certificates for S3 Oplog and Snapshot stores for backup. In additioning to setting `spec.security.tls.ca` and `spec.security.tls.secretRef`. The field `spec.backup.s3OpLogStores[n].customCertificate` / `spec.backup.s3Stores[n].customCertificate` needs to be set `true`. 
+
 # MongoDB Enterprise Kubernetes Operator 1.15.1
 
 ## MongoDBOpsManager Resource

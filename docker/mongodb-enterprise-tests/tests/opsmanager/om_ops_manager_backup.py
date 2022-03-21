@@ -93,7 +93,7 @@ def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
 
 
 def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
-    """ creates a s3 bucket and a s3 config"""
+    """creates a s3 bucket and a s3 config"""
     bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
     aws_s3_client.create_s3_bucket(bucket_prefix)
     print("Created S3 bucket", bucket_prefix)
@@ -176,7 +176,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 
 @fixture(scope="module")
 def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
     )
@@ -198,7 +198,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
 
 @fixture(scope="module")
 def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user-backing-db.yaml"),
         namespace=namespace,
@@ -232,11 +232,11 @@ class TestOpsManagerCreation:
     """
 
     def test_setup_gp2_storage_class(self):
-        """ This is necessary for Backup HeadDB """
+        """This is necessary for Backup HeadDB"""
         KubernetesTester.make_default_gp2_storage_class()
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        """ creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
+        """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="The MongoDB object .+ doesn't exist",
@@ -261,7 +261,7 @@ class TestOpsManagerCreation:
         )
 
     def test_daemon_pvc(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """ Verifies the PVCs mounted to the pod """
+        """Verifies the PVCs mounted to the pod"""
         pods = ops_manager.read_backup_pods()
         idx = 0
         for pod in pods:
@@ -285,7 +285,7 @@ class TestOpsManagerCreation:
             idx += 1
 
     def test_backup_daemon_services_created(self, namespace):
-        """ Backup creates two additional services for queryable backup """
+        """Backup creates two additional services for queryable backup"""
         services = client.CoreV1Api().list_namespaced_service(namespace).items
 
         # If running locally in 'default' namespace, there might be more
@@ -345,7 +345,7 @@ class TestBackupDatabasesAdded:
         s3_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
-        """ Creates mongodb databases all at once """
+        """Creates mongodb databases all at once"""
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -361,7 +361,7 @@ class TestBackupDatabasesAdded:
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
-        """ Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
+        """Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
@@ -420,7 +420,7 @@ class TestBackupDatabasesAdded:
         )
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
-        """ There have been an update to the OM spec - all observed generations are expected to be updated """
+        """There have been an update to the OM spec - all observed generations are expected to be updated"""
         assert ops_manager.appdb_status().get_observed_generation() == 2
         assert ops_manager.om_status().get_observed_generation() == 2
         assert ops_manager.backup_status().get_observed_generation() == 2
@@ -457,7 +457,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         blockstore_user.assert_reaches_phase(Phase.Updated)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
-        """ Waits until Ops manager is in failed state as blockstore doesn't have reference to the user"""
+        """Waits until Ops manager is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
@@ -714,7 +714,7 @@ class TestBackupConfigurationAdditionDeletion:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        """ Removing the s3 store when there are backups running is an error """
+        """Removing the s3 store when there are backups running is an error"""
         ops_manager.reload()
         ops_manager["spec"]["backup"]["s3Stores"] = []
         ops_manager.update()
