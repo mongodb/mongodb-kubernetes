@@ -1578,10 +1578,7 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 		return backup.S3Config{}, workflow.Failed(err.Error())
 	}
 
-	if !config.CustomCertificate {
-		customCAOpts = backup.S3CustomCertificate{}
-	}
-	return backup.NewS3Config(om, config.Name, uri, customCAOpts, bucket, s3Creds), workflow.OK()
+	return backup.NewS3Config(om, config, uri, customCAOpts, bucket, s3Creds), workflow.OK()
 }
 
 // buildMongoDbOMS3Config creates a backup.S3Config which is configured to use a referenced
@@ -1622,7 +1619,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		return backup.S3Config{}, workflow.Failed(err.Error())
 	}
 
-	return backup.NewS3Config(opsManager, config.Name, uri, customCAOpts, bucket, s3Creds), workflow.OK()
+	return backup.NewS3Config(opsManager, config, uri, customCAOpts, bucket, s3Creds), workflow.OK()
 }
 
 // readCustomCAFilePathsAndContents returns the filepath and contents of the custom CA which is used to configure

@@ -96,7 +96,7 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, s3CustomCertificate S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
+func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri string, s3CustomCertificate S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
 	authMode := IAM
 	cred := S3Credentials{}
 
@@ -112,7 +112,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, s3CustomCert
 		AssignmentEnabled:      true, // default to enabled. This will not be overridden on merge so it can be manually disabled in UI.
 		SseEnabled:             false,
 		DisableProxyS3:         nil,
-		Id:                     id,
+		Id:                     s3Config.Name,
 		Uri:                    uri,
 		MaxConnections:         util.DefaultS3MaxConnections, // can be configured in UI
 		Labels:                 []string{},
@@ -130,7 +130,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, id, uri string, s3CustomCert
 		}
 
 		// Attributes that are only available in 5.0+ version of Ops Manager.
-		if version.GTE(semver.MustParse("5.0.0")) {
+		if s3Config.CustomCertificate && version.GTE(semver.MustParse("5.0.0")) {
 			// both filename and path need to be provided.
 			if s3CustomCertificate.CertString != "" && s3CustomCertificate.Filename != "" {
 				// CustomCertificates needs to be a pointer for it to not be

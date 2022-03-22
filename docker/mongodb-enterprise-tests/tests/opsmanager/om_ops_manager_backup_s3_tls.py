@@ -38,14 +38,6 @@ def s3_bucket_oplog(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def oplog_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, OPLOG_RS_NAME, f"oplog-{OPLOG_RS_NAME}-cert"
-    )
-    return "oplog"
-
-
-@fixture(scope="module")
 def s3_bucket_blockstore(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_BLOCKSTORE_NAME + "-secret", namespace)
     yield from create_s3_bucket(aws_s3_client)
