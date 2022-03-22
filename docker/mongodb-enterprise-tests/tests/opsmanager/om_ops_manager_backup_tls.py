@@ -3,7 +3,7 @@ from typing import Optional
 from pytest import mark, fixture
 
 from kubetester import MongoDB
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.opsmanager.conftest import ensure_ent_version
@@ -46,7 +46,8 @@ def blockstore_certs_secret(namespace: str, issuer: str):
 @fixture(scope="module")
 def ops_manager(
     namespace,
-    issuer_ca_configmap: str,
+    ops_manager_issuer_ca_configmap: str,
+    app_db_issuer_ca_configmap: str,
     appdb_certs_secret: str,
     custom_version: Optional[str],
     custom_appdb_version: str,
@@ -57,34 +58,38 @@ def ops_manager(
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
+    resource["spec"]["security"]["tls"]["ca"] = ops_manager_issuer_ca_configmap
+    resource["spec"]["applicationDatabase"]["security"]["tls"][
+        "ca"
+    ] = app_db_issuer_ca_configmap
 
     return resource.create()
 
 
 @fixture(scope="module")
 def oplog_replica_set(
-    ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str
+    ops_manager, app_db_issuer_ca_configmap: str, oplog_certs_secret: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
+    resource.configure_custom_tls(app_db_issuer_ca_configmap, oplog_certs_secret)
 
     return resource.create()
 
 
 @fixture(scope="module")
 def blockstore_replica_set(
-    ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str
+    ops_manager, app_db_issuer_ca_configmap: str, blockstore_certs_secret: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
-    resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
+    resource.configure_custom_tls(app_db_issuer_ca_configmap, blockstore_certs_secret)
 
     return resource.create()
 

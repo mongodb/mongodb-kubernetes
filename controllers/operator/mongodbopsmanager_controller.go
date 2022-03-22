@@ -1628,9 +1628,9 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 // readCustomCAFilePathsAndContents returns the filepath and contents of the custom CA which is used to configure
 // the S3Store.
 func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(opsManager omv1.MongoDBOpsManager) (backup.S3CustomCertificate, error) {
-	if opsManager.Spec.GetOpsManagerCA() != "" {
+	if opsManager.Spec.GetAppDbCA() != "" {
 		filePath := util.AppDBMmsCaFileDirInContainer + "ca-pem"
-		cmContents, err := configmap.ReadKey(r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetOpsManagerCA()))
+		cmContents, err := configmap.ReadKey(r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetAppDbCA()))
 		if err != nil {
 			return backup.S3CustomCertificate{}, err
 

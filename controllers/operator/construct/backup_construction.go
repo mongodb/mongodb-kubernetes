@@ -102,29 +102,15 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 
 	caVolumeFunc := podtemplatespec.NOOP()
 	caVolumeMountFunc := container.NOOP()
-	if opts.OpsManagerCaName != "" {
-		//This volume wil contain the OM CA
-		caCertVolume := statefulset.CreateVolumeFromConfigMap("ops-manager-ca", opts.OpsManagerCaName)
-		caVolumeFunc = podtemplatespec.WithVolume(caCertVolume)
-		mountPath := fmt.Sprintf("%s/%s", MMSHome, caCertVolume.Name)
-		// This is different from Ops Manager' implementation. The CA file is mounted
-		// on a different MountPath.
-		caVolumeMountFunc = container.WithVolumeMounts([]corev1.VolumeMount{{
-			MountPath: mountPath,
-			Name:      caCertVolume.Name,
-			ReadOnly:  true,
-		}})
-
+	if opts.AppDBTlsCAConfigMapName != "" {
 		// It will add each X.509 public key certificate into JVM's trust store
 		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
 		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
-
-		postStartScript := postStartScriptCmd(mountPath)
 		postStart = func(lc *corev1.Lifecycle) {
 			if lc.PostStart == nil {
 				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}
 			}
-			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScript}
+			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScriptCmd()}
 		}
 	}
 

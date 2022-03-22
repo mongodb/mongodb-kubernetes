@@ -173,6 +173,14 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	}
 	return ""
 }
+
+func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
+	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
+		return ms.AppDB.Security.TLSConfig.CA
+	}
+	return ""
+}
+
 func (m MongoDBOpsManager) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }

@@ -255,6 +255,37 @@ def issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
 
 
 @fixture(scope="module")
+def ops_manager_issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
+    """
+    This is the CA file which verifies the certificates signed by it.
+    This CA is used to community with Ops Manager. This is needed by the database pods
+    which talk to OM.
+    """
+    ca = open(issuer_ca_filepath).read()
+
+    # The operator expects the CA that validates Ops Manager is contained in
+    # an entry with a name of "mms-ca.crt"
+    data = {"mms-ca.crt": ca}
+
+    name = "ops-manager-issuer-ca"
+    KubernetesTester.create_configmap(namespace, name, data)
+    return name
+
+
+@fixture(scope="module")
+def app_db_issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
+    """
+    This is the custom ca used with the AppDB hosts. This can be the same as the one used
+    for OM but does not need to be the same.
+    """
+    ca = open(issuer_ca_filepath).read()
+
+    name = "app-db-issuer-ca"
+    KubernetesTester.create_configmap(namespace, name, {"ca-pem": ca})
+    return name
+
+
+@fixture(scope="module")
 def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
     """Returns the name of a ConfigMap which includes a custom CA and the full
     certificate chain for downloads.mongodb.com, fastdl.mongodb.org,

@@ -210,25 +210,16 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 	postStart := func(lc *corev1.Lifecycle) {}
 	caVolumeFunc := podtemplatespec.NOOP()
 	caVolumeMountFunc := container.NOOP()
-	if opts.OpsManagerCaName != "" {
-		//This volume wil contain the OM CA
-		caCertVolume := statefulset.CreateVolumeFromConfigMap("ops-manager-ca", opts.OpsManagerCaName)
-		caVolumeFunc = podtemplatespec.WithVolume(caCertVolume)
-		caVolumeMountFunc = container.WithVolumeMounts([]corev1.VolumeMount{{
-			MountPath: GetOpsManagerCAFileDir(),
-			Name:      caCertVolume.Name,
-			ReadOnly:  true,
-		}})
+	if opts.AppDBTlsCAConfigMapName != "" {
 		// It will add each X.509 public key certificate into JVM's trust store
 		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
 		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
 
-		postStartScript := postStartScriptCmd(GetOpsManagerCAFileDir())
 		postStart = func(lc *corev1.Lifecycle) {
 			if lc.PostStart == nil {
 				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}
 			}
-			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScript}
+			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScriptCmd()}
 		}
 	}
 
@@ -517,8 +508,8 @@ func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar 
 // postStartScriptCmd returns a command to run as postStart.
 //
 // It adds each certificate into JVM trust store with a random alias.
-func postStartScriptCmd(opsManagerCAFileDir string) string {
+func postStartScriptCmd() string {
 	return fmt.Sprintf(
-		`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s/ca-pem`, MMSHome, MMSHome, opsManagerCAFileDir,
+		`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s/ca-pem`, MMSHome, MMSHome, util.AppDBMmsCaFileDirInContainer,
 	)
 }
