@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -46,7 +47,7 @@ func (user MongoDBUser) GetPassword(secretClient secrets.SecretClient) (string, 
 		Name:      user.Spec.PasswordSecretKeyRef.Name,
 	}
 	var databaseSecretPath string
-	if secretClient.VaultClient != nil {
+	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretClient.VaultClient.DatabaseSecretPath()
 	}
 	secretData, err := secretClient.ReadSecret(nsName, databaseSecretPath)

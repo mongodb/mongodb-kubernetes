@@ -49,21 +49,17 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 
 	var path string
 
-	switch podType {
-	case Database:
-		if secretClient.VaultClient != nil {
+	if vault.IsVaultSecretBackend() {
+		switch podType {
+		case Database:
 			path = secretClient.VaultClient.DatabaseSecretPath()
-		}
-	case OpsManager:
-		if secretClient.VaultClient != nil {
+		case OpsManager:
 			path = secretClient.VaultClient.OpsManagerSecretPath()
-		}
-	case AppDB:
-		if secretClient.VaultClient != nil {
+		case AppDB:
 			path = secretClient.VaultClient.AppDBSecretPath()
+		default:
+			return fmt.Errorf("unexpected pod type got: %s", podType)
 		}
-	default:
-		return fmt.Errorf("unexpected pod type got: %s", podType)
 	}
 	return secretClient.PutSecretIfChanged(secretBuilder.Build(), path)
 }
