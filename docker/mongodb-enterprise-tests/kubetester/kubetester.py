@@ -263,8 +263,15 @@ class KubernetesTester(object):
         )
 
     @classmethod
-    def create_service(cls, namespace: str, body: Dict):
-        cls.clients("corev1").create_namespaced_service(body=body, namespace=namespace)
+    def create_service(
+        cls,
+        namespace: str,
+        body: Dict,
+        api_client: Optional[kubernetes.client.ApiClient] = None,
+    ):
+        cls.clients("corev1", api_client=api_client).create_namespaced_service(
+            body=body, namespace=namespace
+        )
 
     @classmethod
     def create_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):

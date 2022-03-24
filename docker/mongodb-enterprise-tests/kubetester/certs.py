@@ -313,6 +313,7 @@ def create_multi_cluster_tls_certs(
     member_clients: List[MultiClusterClient],
     mongodb_multi: MongoDBMulti,
     secret_backend: Optional[str] = None,
+    additional_domains: Optional[List[str]] = None,
 ) -> str:
     service_fqdns = []
 
@@ -332,6 +333,7 @@ def create_multi_cluster_tls_certs(
         pod="tmp",
         dns="",
         issuer=multi_cluster_issuer,
+        additional_domains=additional_domains,
         multi_cluster_mode=True,
         api_client=central_cluster_client,
         secret_backend=secret_backend,
@@ -380,6 +382,7 @@ def create_multi_cluster_mongodb_tls_certs(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
     mongodb_multi: MongoDBMulti,
+    additional_domains: Optional[List[str]] = None,
 ) -> str:
 
     # create the "source-of-truth" tls cert in central cluster
@@ -389,6 +392,7 @@ def create_multi_cluster_mongodb_tls_certs(
         member_clients=member_cluster_clients,
         secret_name=bundle_secret_name,
         mongodb_multi=mongodb_multi,
+        additional_domains=additional_domains,
     )
 
     return bundle_secret_name
