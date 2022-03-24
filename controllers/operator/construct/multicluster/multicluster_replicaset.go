@@ -54,7 +54,7 @@ func statefulSetSelector(mdbmName string) *metav1.LabelSelector {
 	}
 }
 
-func podLabel(mdbmName string) map[string]string {
+func PodLabel(mdbmName string) map[string]string {
 	return map[string]string{
 		"controller":        "mongodb-enterprise-operator",
 		"pod-anti-affinity": mdbmName,
@@ -174,7 +174,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 		statefulset.WithReplicas(memberCount),
 		statefulset.WithSelector(statefulSetSelector(mdbm.Name)),
 		statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-			podtemplatespec.WithPodLabels(podLabel(mdbm.Name)),
+			podtemplatespec.WithPodLabels(PodLabel(mdbm.Name)),
 			podtemplatespec.WithAffinity(statefulSetName(mdbm.Name, clusterNum), construct.PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTopologyKey("kubernetes.io/hostname", 0),
 			podtemplatespec.WithServiceAccount("mongodb-enterprise-database-pods"),

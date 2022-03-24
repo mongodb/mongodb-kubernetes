@@ -11,6 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
@@ -24,8 +25,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -41,13 +44,27 @@ const (
 
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
-	omConnectionFactory om.ConnectionFactory
+	omConnectionFactory           om.ConnectionFactory
+	memberClusterClientsMap       map[string]kubernetesClient.Client
+	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
-func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *MongoDBUserReconciler {
+	clientsMap := make(map[string]kubernetesClient.Client)
+	secretClientsMap := make(map[string]secrets.SecretClient)
+
+	for k, v := range memberClustersMap {
+		clientsMap[k] = kubernetesClient.NewClient(v.GetClient())
+		secretClientsMap[k] = secrets.SecretClient{
+			VaultClient: nil,
+			KubeClient:  clientsMap[k],
+		}
+	}
 	return &MongoDBUserReconciler{
-		ReconcileCommonController: newReconcileCommonController(mgr),
-		omConnectionFactory:       omFunc,
+		ReconcileCommonController:     newReconcileCommonController(mgr),
+		omConnectionFactory:           omFunc,
+		memberClusterClientsMap:       clientsMap,
+		memberClusterSecretClientsMap: secretClientsMap,
 	}
 }
 
@@ -208,11 +225,17 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDB
 		SetOwnerReferences(user.GetOwnerReferences()).
 		Build()
 
-	return secret.CreateOrUpdate(r.client, connectionStringSecret)
+	for _, c := range r.memberClusterSecretClientsMap {
+		err = secret.CreateOrUpdate(c, connectionStringSecret)
+		if err != nil {
+			return err
+		}
+	}
+	return secret.CreateOrUpdate(r.SecretClient, connectionStringSecret)
 }
 
-func AddMongoDBUserController(mgr manager.Manager) error {
-	reconciler := newMongoDBUserReconciler(mgr, om.NewOpsManagerConnection)
+func AddMongoDBUserController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+	reconciler := newMongoDBUserReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err

@@ -315,7 +315,9 @@ def create_multi_cluster_tls_certs(
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
 ) -> str:
-    service_fqdns = []
+    service_fqdns = [
+        f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"
+    ]
 
     for client in member_clients:
         cluster_spec = mongodb_multi.get_item_spec(client.cluster_name)

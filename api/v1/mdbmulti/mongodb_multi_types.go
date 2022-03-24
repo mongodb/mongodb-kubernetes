@@ -404,7 +404,10 @@ func (m *MongoDBMultiSpec) Replicas() int {
 }
 
 func (m *MongoDBMultiSpec) GetClusterDomain() string {
-	return m.ClusterDomain
+	if m.ClusterDomain != "" {
+		return m.ClusterDomain
+	}
+	return "cluster.local"
 }
 
 func (m *MongoDBMultiSpec) GetMongoDBVersion() string {
@@ -501,6 +504,10 @@ func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
 // Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
 // to complete.
 func (m MongoDBMulti) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	hostnames := make([]string, 0)
+	for _, spec := range m.Spec.GetOrderedClusterSpecList() {
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterIndex(spec.ClusterName), spec.Members)...)
+	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).
 		SetNamespace(m.Namespace).
@@ -513,6 +520,7 @@ func (m MongoDBMulti) BuildConnectionString(username, password string, scheme co
 		SetClusterDomain(m.Spec.GetClusterDomain()).
 		SetIsReplicaSet(true).
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
+		SetMultiClusterHosts(hostnames).
 		SetScheme(scheme)
 
 	return builder.Build()

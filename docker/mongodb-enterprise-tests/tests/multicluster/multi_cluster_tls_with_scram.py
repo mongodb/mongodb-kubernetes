@@ -11,13 +11,15 @@ from kubetester.operator import Operator
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
-from kubetester import create_secret
+from kubetester import create_secret, read_secret
 from kubetester.mongotester import with_scram
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 USER_NAME = "my-user-1"
+USER_RESOURCE = "multi-replica-set-scram-user"
+USER_DATABASE = "admin"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
 
@@ -71,7 +73,7 @@ def mongodb_user(
     central_cluster_client: kubernetes.client.ApiClient, namespace: str
 ) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodb-user.yaml"), "multi-replica-set-scram-user", namespace
+        yaml_fixture("mongodb-user.yaml"), USER_RESOURCE, namespace
     )
 
     resource["spec"]["username"] = USER_NAME
@@ -141,6 +143,54 @@ def test_replica_set_connectivity_with_scram_and_tls(
     mongodb_multi: MongoDBMulti, ca_path: str
 ):
     tester = mongodb_multi.tester()
+    tester.assert_connectivity(
+        db="admin",
+        opts=[
+            with_scram(USER_NAME, USER_PASSWORD),
+            with_tls(use_tls=True, ca_path=ca_path),
+        ],
+    )
+
+
+@skip_if_local
+@mark.e2e_multi_cluster_tls_with_scram
+def test_replica_set_connectivity_from_connection_string_standard(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    ca_path: str,
+):
+    secret_data = read_secret(
+        namespace,
+        f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}",
+        api_client=member_cluster_clients[0].api_client,
+    )
+    tester = mongodb_multi.tester()
+    tester.cnx_string = secret_data["connectionString.standard"]
+    tester.assert_connectivity(
+        db="admin",
+        opts=[
+            with_scram(USER_NAME, USER_PASSWORD),
+            with_tls(use_tls=True, ca_path=ca_path),
+        ],
+    )
+
+
+@skip_if_local
+@mark.e2e_multi_cluster_tls_with_scram
+def test_replica_set_connectivity_from_connection_string_standard_srv(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    ca_path: str,
+):
+    secret_data = read_secret(
+        namespace,
+        f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}",
+        api_client=member_cluster_clients[-1].api_client,
+    )
+    tester = mongodb_multi.tester()
+    tester.cnx_string = secret_data["connectionString.standardSrv"]
     tester.assert_connectivity(
         db="admin",
         opts=[

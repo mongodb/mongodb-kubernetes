@@ -39,9 +39,6 @@ func buildCrdFunctionMap() map[string][]func(manager.Manager) error {
 			operator.AddShardedClusterController,
 			mdb.AddValidationToManager,
 		},
-		strings.ToLower(mdbu.GetPlural()): {
-			operator.AddMongoDBUserController,
-		},
 		strings.ToLower(om.GetPlural()): {
 			operator.AddOpsManagerController,
 			om.AddValidationToManager,
@@ -56,6 +53,9 @@ func buildCrdMultiFunctionMap() map[string][]func(manager.Manager, map[string]cl
 	return map[string][]func(manager.Manager, map[string]cluster.Cluster) error{
 		strings.ToLower(mdbmulti.GetPlural()): {
 			operator.AddMultiReplicaSetController,
+		},
+		strings.ToLower(mdbu.GetPlural()): {
+			operator.AddMongoDBUserController,
 		},
 	}
 }

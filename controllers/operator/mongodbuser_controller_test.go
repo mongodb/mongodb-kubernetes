@@ -391,13 +391,14 @@ func createMongoDBForUserWithAuth(client *mock.MockedClient, user userv1.MongoDB
 func defaultUserReconciler(user *userv1.MongoDBUser) (*MongoDBUserReconciler, *mock.MockedClient) {
 	manager := mock.NewManager(user)
 	manager.Client.AddDefaultMdbConfigResources()
-
-	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
+	memberClusterMap := getFakeMultiClusterMap()
+	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection, memberClusterMap), manager.Client
 }
 
 func userReconcilerWithAuthMode(user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, *mock.MockedClient) {
 	manager := mock.NewManager(user)
 	manager.Client.AddDefaultMdbConfigResources()
+	memberClusterMap := getFakeMultiClusterMap()
 	reconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
 		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(context, func(ac *om.AutomationConfig) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)
@@ -405,7 +406,7 @@ func userReconcilerWithAuthMode(user *userv1.MongoDBUser, authMode string) (*Mon
 			ac.Auth.Disabled = false
 		})
 		return connection
-	})
+	}, memberClusterMap)
 	return reconciler, manager.Client
 }
 

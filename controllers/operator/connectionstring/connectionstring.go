@@ -47,6 +47,8 @@ type builder struct {
 	isReplicaSet        bool
 	isTLSEnabled        bool
 
+	multiClusterHosts []string
+
 	scheme           Scheme
 	connectionParams map[string]string
 }
@@ -106,6 +108,11 @@ func (b *builder) SetIsTLSEnabled(isTLSEnabled bool) *builder {
 	return b
 }
 
+func (b *builder) SetMultiClusterHosts(multiClusterHosts []string) *builder {
+	b.multiClusterHosts = multiClusterHosts
+	return b
+}
+
 func (b *builder) SetScheme(scheme Scheme) *builder {
 	b.scheme = scheme
 	return b
@@ -136,10 +143,14 @@ func (b builder) Build() string {
 		uri += fmt.Sprintf("%s.%s.svc.%s", b.service, b.namespace, b.clusterDomain)
 	} else {
 		uri = fmt.Sprintf("mongodb://%s", userAuth)
-
-		hostnames, _ := dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas)
-		for i, h := range hostnames {
-			hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
+		var hostnames []string
+		if len(b.multiClusterHosts) > 0 {
+			hostnames = b.multiClusterHosts
+		} else {
+			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas)
+			for i, h := range hostnames {
+				hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
+			}
 		}
 		uri += strings.Join(hostnames, ",")
 	}

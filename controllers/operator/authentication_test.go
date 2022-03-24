@@ -220,6 +220,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
+	memberClusterMap := getFakeMultiClusterMap()
 	err := manager.Client.Create(context.TODO(), x509User)
 	assert.NoError(t, err)
 
@@ -231,7 +232,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	userReconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
 		return om.CurrMockedConnection // use the same connection
-	})
+	}, memberClusterMap)
 
 	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(x509User))
 	expected := reconcile.Result{}
@@ -249,6 +250,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	manager := mock.NewManager(rs)
 	manager.Client.AddDefaultMdbConfigResources()
+	memberClusterMap := getFakeMultiClusterMap()
 	err := manager.Client.Create(context.TODO(), scramUser)
 	assert.NoError(t, err)
 
@@ -268,7 +270,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	userReconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
 		return om.CurrMockedConnection // use the same connection
-	})
+	}, memberClusterMap)
 
 	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(scramUser))
 	expected := reconcile.Result{}

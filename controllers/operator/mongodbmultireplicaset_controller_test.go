@@ -151,7 +151,7 @@ func TestResourceDeletion(t *testing.T) {
 				svcList := corev1.ServiceList{}
 				err := c.GetClient().List(context.TODO(), &svcList)
 				assert.NoError(t, err)
-				assert.Len(t, svcList.Items, item.Members)
+				assert.Len(t, svcList.Items, item.Members+1)
 			})
 
 			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {

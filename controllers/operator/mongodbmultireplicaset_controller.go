@@ -532,6 +532,24 @@ func getExistingProcessIds(conn om.Connection, mrs mdbmultiv1.MongoDBMulti) (map
 	return processIds, nil
 }
 
+func getSRVService(mrs *mdbmultiv1.MongoDBMulti) corev1.Service {
+	svcLabels := map[string]string{
+		"controller":   "mongodb-enterprise-operator",
+		"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
+	}
+	svc := service.Builder().
+		SetName(fmt.Sprintf("%s-svc", mrs.Name)).
+		SetNamespace(mrs.Namespace).
+		SetSelector(multicluster.PodLabel(mrs.Name)).
+		SetLabels(svcLabels).
+		SetPublishNotReadyAddresses(true).
+		AddPort(&corev1.ServicePort{Port: 27017, Name: "mongodb"}).
+		AddPort(&corev1.ServicePort{Port: 27018, Name: "backup", TargetPort: intstr.IntOrString{IntVal: 27018}}).
+		Build()
+
+	return svc
+}
+
 func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) corev1.Service {
 	svcLabels := map[string]string{
 		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterIndex(clusterName), podNum),
@@ -551,16 +569,8 @@ func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) co
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
 		AddPort(&corev1.ServicePort{Port: 27017, Name: "mongodb"}).
+		AddPort(&corev1.ServicePort{Port: 27018, Name: "backup", TargetPort: intstr.IntOrString{IntVal: 27018}}).
 		Build()
-
-	svc.Spec.Ports = append(svc.Spec.Ports, corev1.ServicePort{
-		Name:     "backup",
-		Protocol: corev1.ProtocolTCP,
-		Port:     27018,
-		TargetPort: intstr.IntOrString{
-			IntVal: 27018,
-		},
-	})
 
 	return svc
 }
@@ -601,6 +611,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 	// create non-duplicate service objects
 	for _, e := range clusterSpecList {
 		client := r.memberClusterClientsMap[e.ClusterName]
+
+		svc := getSRVService(mrs)
+		err := service.CreateOrUpdateService(client, svc)
+		if err != nil && !apiErrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create service: %s in cluster: %s, err :%v", svc.Name, e.ClusterName, err)
+		}
+		log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
+
 		for podNum := 0; podNum < e.Members; podNum++ {
 			svc := getService(mrs, e.ClusterName, podNum)
 			err := service.CreateOrUpdateService(client, svc)
