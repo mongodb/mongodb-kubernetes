@@ -101,6 +101,10 @@ func (m *MongoDB) GetSecurity() *Security {
 	return m.Spec.GetSecurity()
 }
 
+func (m *MongoDB) GetPrometheus() *mdbcv1.Prometheus {
+	return m.Spec.Prometheus
+}
+
 func (m *MongoDB) GetMinimumMajorVersion() uint64 {
 	return m.Spec.MinimumMajorVersion()
 }

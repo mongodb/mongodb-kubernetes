@@ -104,6 +104,9 @@ func (r SecretClient) PutBinarySecret(s corev1.Secret, basePath string) error {
 	return secret.CreateOrUpdate(r.KubeClient, s)
 }
 
+// PutSecretIfChanged updates a Secret only if it has changed.
+//
+// `basePath` is only used when Secrets backend is `Vault`.
 func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secret, err := r.ReadSecret(secretNamespacedName(s), basePath)
@@ -113,8 +116,8 @@ func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error
 		if err != nil || !reflect.DeepEqual(secret, s.StringData) {
 			return r.PutSecret(s, basePath)
 		}
-
 	}
+
 	return secret.CreateOrUpdateIfNeeded(r.KubeClient, s)
 }
 

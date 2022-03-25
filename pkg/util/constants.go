@@ -203,6 +203,8 @@ const (
 	// object mounted.
 	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets"
 
+	SecretVolumeMountPathPrometheus = SecretVolumeMountPath + "/prometheus"
+
 	TLSCertMountPath = "/mongodb-automation/tls"
 	TLSCaMountPath   = "/mongodb-automation/tls/ca"
 
@@ -217,6 +219,9 @@ const (
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
+
+	// PrometheusSecretVolumeName
+	PrometheusSecretVolumeName = "prometheus-certs"
 
 	// ConfigMapVolumeCAMountPath defines where CA root certs will be
 	// mounted in the pod

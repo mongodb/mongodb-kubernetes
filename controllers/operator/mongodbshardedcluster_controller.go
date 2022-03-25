@@ -100,7 +100,17 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request re
 	log.Infow("ShardedCluster.Status", "status", sc.Status)
 	log.Infow("ShardedClusterScaling", "mongosScaler", r.mongosScaler, "configSrvScaler", r.configSrvScaler, "mongodsPerShardScaler", r.mongodsPerShardScaler, "desiredShards", sc.Spec.ShardCount, "currentShards", sc.Status.ShardCount)
 
-	conn, status := r.doShardedClusterProcessing(sc, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, sc, log)
+	if err != nil {
+		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+	}
+
+	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
+	if err != nil {
+		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+	}
+
+	status := r.doShardedClusterProcessing(sc, conn, projectConfig, log)
 	if !status.IsOK() || status.Phase() == mdbstatus.PhaseUnsupported {
 		return r.updateStatus(sc, status, log)
 	}
@@ -172,22 +182,12 @@ func (r *ReconcileMongoDbShardedCluster) getMongodsPerShardCountThisReconciliati
 }
 
 // implements all the logic to do the sharded cluster thing
-func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, log *zap.SugaredLogger) (om.Connection, workflow.Status) {
+func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, sc, log)
-	if err != nil {
-		return nil, workflow.Failed(err.Error())
-	}
-
-	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
-	if err != nil {
-		return nil, workflow.Failed(err.Error())
-	}
-
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return nil, status
+		return status
 	}
 
 	r.RemoveDependentWatchedResources(sc.ObjectKey())
@@ -209,33 +209,38 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
 	if !reconcileResult.IsOK() {
-		return nil, reconcileResult
+		return reconcileResult
 	}
 
 	security := sc.Spec.Security
 	// TODO move to webhook validations
 	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !sc.Spec.GetSecurity().IsTLSEnabled() {
-		return nil, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
+		return workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return nil, workflow.Failed(err.Error())
+		return workflow.Failed(err.Error())
 	}
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.ConnectionSpec)
 
 	status, certSecretTypesForSTS := r.ensureSSLCertificates(sc, log)
 	if !status.IsOK() {
-		return nil, status
+		return status
+	}
+
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, sc, log)
+	if err != nil {
+		return workflow.Failed("Could not generate certificates for Prometheus: %s", err)
 	}
 
 	if err = r.prepareScaleDownShardedCluster(conn, sc, podEnvVars, currentAgentAuthMode, certSecretTypesForSTS, log); err != nil {
-		return nil, workflow.Failed("failed to perform scale down preliminary actions: %s", err)
+		return workflow.Failed("failed to perform scale down preliminary actions: %s", err)
 	}
 
 	if status := validateMongoDBResource(sc, conn); !status.IsOK() {
-		return nil, status
+		return status
 	}
 
 	// Ensures that all sharded cluster certificates are either of Opaque type (old design)
@@ -243,7 +248,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	// and save the value for future use
 	allCertsType, err := getCertTypeForAllShardedClusterCertificates(certSecretTypesForSTS)
 	if err != nil {
-		return nil, workflow.Failed(err.Error())
+		return workflow.Failed(err.Error())
 	}
 
 	caFilePath := util.CAFilePathInContainer
@@ -252,7 +257,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 
 	if status := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
-		return nil, status
+		return status
 	}
 
 	certConfigurator := certs.ShardedSetX509CertConfigurator{
@@ -264,11 +269,11 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 	status, certSecretTypeForAgentAndInternal := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
 	if !status.IsOK() {
-		return nil, status
+		return status
 	}
 
 	if status := ensureRoles(sc.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
-		return nil, status
+		return status
 	}
 
 	certTLSMapping := merge.StringToBoolMap(certSecretTypesForSTS, certSecretTypeForAgentAndInternal)
@@ -290,6 +295,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 				caFilePath:           caFilePath,
 				agentCertSecretName:  agentCertSecretName,
 				certTLSType:          certTLSMapping,
+				prometheusCertHash:   prometheusCertHash,
 			}
 
 			return r.updateOmDeploymentShardedCluster(conn, sc, opts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
@@ -299,9 +305,9 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		})
 
 	if !status.IsOK() {
-		return nil, status
+		return status
 	}
-	return conn, reconcileResult
+	return reconcileResult
 }
 
 // getCertTypeForAllShardedClusterCertificates checks whether all certificates secret are of the same type and returns it.
@@ -616,6 +622,7 @@ type deploymentOptions struct {
 	certTLSType          map[string]bool
 	finalizing           bool
 	processNames         []string
+	prometheusCertHash   string
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -780,7 +787,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			d.ConfigureInternalClusterAuthentication(d.GetShardedClusterConfigProcessNames(sc.Name), internalClusterAuthMode, configInternalClusterPath)
 			d.ConfigureInternalClusterAuthentication(d.GetShardedClusterMongosProcessNames(sc.Name), internalClusterAuthMode, mongosInternalClusterPath)
 
-			UpdatePrometheus(&d, conn, sc, r.client, log)
+			UpdatePrometheus(&d, conn, sc, r.client, opts.prometheusCertHash, log)
 
 			for i, path := range shardsInternalClusterPath {
 				d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(sc.Name, i), internalClusterAuthMode, path)

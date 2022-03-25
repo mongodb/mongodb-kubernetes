@@ -14,7 +14,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -120,7 +122,10 @@ func GetpodEnvOptions() func(options *DatabaseStatefulSetOptions) {
 type databaseStatefulSetSource interface {
 	GetName() string
 	GetNamespace() string
+
 	GetSecurity() *mdbv1.Security
+
+	GetPrometheus() *mdbcv1.Prometheus
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -473,6 +478,41 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 	)
 }
 
+// getTLSPrometheusVolumeAndVolumeMount mounts Prometheus TLS Volumes from Secrets.
+//
+// These volumes will only be mounted when TLS has been enabled. They will
+// contain the concatenated (PEM-format) certificates; which have been created
+// by the Operator prior to this.
+//
+// The Prometheus TLS Secret name is configured in:
+//
+// `spec.prometheus.tlsSecretRef.Name`
+//
+// The Secret will be mounted in:
+// `/var/lib/mongodb-automation/secrets/prometheus`.
+//
+func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
+	if prom == nil {
+		return []corev1.Volume{}, []corev1.VolumeMount{}
+	}
+
+	volumes := []corev1.Volume{}
+	volumeMounts := []corev1.VolumeMount{}
+
+	secretFunc := func(v *corev1.Volume) {}
+	// Name of the Secret (PEM-format) with the concatenation of the certificate and key.
+	secretName := prom.TLSSecretRef.Name + "-pem"
+
+	secretVolume := statefulset.CreateVolumeFromSecret(util.PrometheusSecretVolumeName, secretName, secretFunc)
+	volumeMounts = append(volumeMounts, corev1.VolumeMount{
+		MountPath: util.SecretVolumeMountPathPrometheus,
+		Name:      secretVolume.Name,
+	})
+	volumes = append(volumes, secretVolume)
+
+	return volumes, volumeMounts
+}
+
 // getTLSVolumeAndVolumeMount returns the list of volume and volumeMounts that need to be created for TLS
 func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}
@@ -521,6 +561,7 @@ func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseSt
 		})
 		volumes = append(volumes, secretVolume)
 	}
+
 	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
 		MountPath: configmapMountPath,
@@ -544,6 +585,11 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		})
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
+
+	prometheusVolumes, prometheusVolumeMounts := getTLSPrometheusVolumeAndVolumeMount(mdb.GetPrometheus())
+
+	volumesToAdd = append(volumesToAdd, prometheusVolumes...)
+	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	return volumesToAdd, volumeMounts
 }

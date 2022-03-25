@@ -213,7 +213,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 //
 // TODO:
 // TlsSecretMount Path (which depends on the tlsOperatorSecretFileName() hash we get from certKey)
-func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, salt string) automationconfig.Prometheus {
+func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, salt string, certName string) automationconfig.Prometheus {
 	if prom == nil {
 		// No prometheus configuration this time
 		return automationconfig.Prometheus{}
@@ -221,8 +221,13 @@ func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, sa
 
 	promConfig := automationconfig.NewDefaultPrometheus(prom.Username)
 
-	promConfig.TLSPemPath = ""
-	promConfig.Scheme = "http"
+	if prom.TLSSecretRef.Name != "" {
+		promConfig.TLSPemPath = util.SecretVolumeMountPathPrometheus + "/" + certName
+		promConfig.Scheme = "https"
+	} else {
+		promConfig.TLSPemPath = ""
+		promConfig.Scheme = "http"
+	}
 
 	promConfig.PasswordHash = hash
 	promConfig.PasswordSalt = salt

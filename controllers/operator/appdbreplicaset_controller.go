@@ -338,8 +338,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 	}
 
 	if needToCreatePEM {
-		data, err := certs.VerifyTLSSecretForStatefulSet(secretData, s.Name, certs.AppDBReplicaSetConfig(om))
-		var secretHash string
+		data, err := certs.VerifyTLSSecretForStatefulSet(secretData, certs.AppDBReplicaSetConfig(om))
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("certificate for appdb is not valid: %s", err)), corev1.SecretTypeOpaque
 		}
@@ -348,12 +347,12 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 		if r.VaultClient != nil {
 			appdbSecretPath = r.VaultClient.AppDBSecretPath()
 		}
-		secretHash = enterprisepem.ReadHashFromSecret(r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
+
+		secretHash := enterprisepem.ReadHashFromSecret(r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
 		err = certs.CreatePEMSecretClient(r.SecretClient, kube.ObjectKey(om.Namespace, secretName), map[string]string{secretHash: data}, om.GetOwnerReferences(), certs.AppDB, log)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("can't create concatenated PEM certificate: %s", err)), corev1.SecretTypeOpaque
 		}
-
 	}
 
 	return workflow.OK(), s.Type

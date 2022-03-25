@@ -110,7 +110,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 		secretData = s.Data
 	}
 
-	data, err := certs.VerifyTLSSecretForStatefulSet(secretData, s.Name, certs.Options{})
+	data, err := certs.VerifyTLSSecretForStatefulSet(secretData, certs.Options{})
 	if err != nil {
 		return err
 	}

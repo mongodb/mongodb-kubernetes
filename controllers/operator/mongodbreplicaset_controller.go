@@ -143,6 +143,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, rs, log)
+	if err != nil {
+		log.Infof("Could not generate certificates for Prometheus: %s", err)
+		return r.updateStatus(rs, workflow.Pending(err.Error()), log)
+	}
+
 	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -202,7 +208,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	status = workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *rs, rsConfig, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
@@ -315,7 +321,7 @@ func AddReplicaSetController(mgr manager.Manager) error {
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
-	set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string) workflow.Status {
+	set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string, prometheusCertHash string) workflow.Status {
 
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
@@ -378,7 +384,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			// At this point we won't bubble-up the error we got from this
 			// function, we don't want to fail the MongoDB resource because
 			// Prometheus can't be enabled.
-			UpdatePrometheus(&d, conn, rs, r.client, log)
+			UpdatePrometheus(&d, conn, rs, r.client, prometheusCertHash, log)
 
 			return nil
 		},

@@ -17,6 +17,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	corev1 "k8s.io/api/core/v1"
 
@@ -31,6 +32,7 @@ const (
 	OperatorGeneratedCertSuffix = "-pem"
 	CertHashAnnotationkey       = "certHash"
 
+	Unused     = "unused"
 	Database   = "database"
 	OpsManager = "opsmanager"
 	AppDB      = "appdb"
@@ -48,8 +50,7 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 		SetOwnerReferences(ownerReferences)
 
 	var path string
-
-	if vault.IsVaultSecretBackend() {
+	if vault.IsVaultSecretBackend() && podType != Unused {
 		switch podType {
 		case Database:
 			path = secretClient.VaultClient.DatabaseSecretPath()
@@ -61,11 +62,14 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 			return fmt.Errorf("unexpected pod type got: %s", podType)
 		}
 	}
+
 	return secretClient.PutSecretIfChanged(secretBuilder.Build(), path)
 }
 
-// VerifyTLSSecretForStatefulSet verifies a secret of type kubernetes.io/tls.
-func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, secretName string, opts Options) (string, error) {
+// VerifyTLSSecretForStatefulSet verifies a `Secret`'s `StringData` is a valid
+// certificate, considering the amount of members for a resource named on
+// `opts`.
+func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (string, error) {
 	crt, key := secretData["tls.crt"], secretData["tls.key"]
 	data := append(crt, key...)
 
@@ -115,13 +119,12 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 	}
 
 	if needToCreatePEM {
-		data, err := VerifyTLSSecretForStatefulSet(secretData, s.Name, opts)
-		var secretHash string
+		data, err := VerifyTLSSecretForStatefulSet(secretData, opts)
 		if err != nil {
 			return err, true
 		}
 
-		secretHash = enterprisepem.ReadHashFromSecret(secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
+		secretHash := enterprisepem.ReadHashFromSecret(secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
 		return CreatePEMSecretClient(secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database, log), true
 
 	}
@@ -256,7 +259,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secr
 		}
 	}
 	if needToCreatePEM {
-		data, err := VerifyTLSSecretForStatefulSet(secretData, secret.Name, Options{Replicas: 0})
+		data, err := VerifyTLSSecretForStatefulSet(secretData, Options{Replicas: 0})
 		if err != nil {
 			return err, false
 		}
@@ -286,6 +289,54 @@ func EnsureSSLCertsForStatefulSet(secretReadClient, secretWriteClient secrets.Se
 	}
 	return ValidateSelfManagedSSLCertsForStatefulSet(secretReadClient, secretWriteClient, secretName, opts, log)
 
+}
+
+// EnsureTLSCertsForPrometheus creates a new Secret with a Certificate in
+// PEM-format. Returns the hash for the certificate in order to be used in
+// AutomationConfig.
+//
+// For Prometheus we *only accept* certificates of type `corev1.SecretTypeTLS`
+// so they always need to be concatenated into PEM-format.
+func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, mdb *mdbv1.MongoDB, log *zap.SugaredLogger) (string, error) {
+	prom := mdb.Spec.Prometheus
+	if prom == nil || prom.TLSSecretRef.Name == "" {
+		return "", nil
+	}
+
+	s, err := secretClient.KubeClient.GetSecret(kube.ObjectKey(mdb.Namespace, prom.TLSSecretRef.Name))
+	if err != nil {
+		return "", fmt.Errorf("could not read Prometheus TLS certificate: %s", err)
+	}
+
+	if s.Type != corev1.SecretTypeTLS {
+		return "", fmt.Errorf("secret containing the Prometheus TLS certificate needs to be of type kubernetes.io/tls")
+	}
+
+	// We only need VerifyTLSSecretForStatefulSet to return the concatenated
+	// tls.key and tls.crt as Strings, but to not divert from the existing code,
+	// I'm still calling it, but that can be definitely improved.
+	//
+	// Make VerifyTLSSecretForStatefulSet receive `s.Data` but only return if it
+	// has been verified to be valid or not (boolean return).
+	//
+	// Use another function to concatenate tls.key and tls.crt into a `string`,
+	// or make `CreatePEMSecretClient` able to receive a byte[] instead on its
+	// `data` parameter.
+	data, err := VerifyTLSSecretForStatefulSet(s.Data, Options{Replicas: 0})
+	if err != nil {
+		return "", err
+	}
+
+	// ReadHashFromSecret will read the Secret once again from Kubernetes API,
+	// we can improve this function by providing the Secret Data contents,
+	// instead of `secretClient`.
+	secretHash := enterprisepem.ReadHashFromSecret(secretClient, mdb.Namespace, prom.TLSSecretRef.Name, Unused, log)
+	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(mdb.Namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, Unused, log)
+	if err != nil {
+		return "", fmt.Errorf("error creating hashed Secret: %s", err)
+	}
+
+	return secretHash, nil
 }
 
 // ValidateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using

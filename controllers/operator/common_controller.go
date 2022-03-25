@@ -700,7 +700,7 @@ func isPrometheusSupported(conn om.Connection) bool {
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
 //
 // This has been moved to this function so we can use it from Sharded Clusters and AppDB when I get to work on those resources.
-func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, getter secret.Getter, log *zap.SugaredLogger) error {
+func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, getter secret.Getter, certName string, log *zap.SugaredLogger) error {
 	if mdb.Spec.Prometheus == nil {
 		return nil
 	}
@@ -720,7 +720,7 @@ func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, 
 	}
 
 	hash, salt := passwordhash.GenerateHashAndSaltForPassword(password)
-	d.ConfigurePrometheus(prometheus, hash, salt)
+	d.ConfigurePrometheus(prometheus, hash, salt, certName)
 
 	return nil
 }
