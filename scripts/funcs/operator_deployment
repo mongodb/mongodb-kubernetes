@@ -37,10 +37,10 @@ prepare_operator_config_map() {
       "--from-literal" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
       "--from-literal" "database.name=${database_name:=mongodb-enterprise-database}"
       "--from-literal" "operator.version=${operator_version}"
-      "--from-literal" "initOpsManager.version=${version_id}"
-      "--from-literal" "initAppDb.version=${version_id}"
-      "--from-literal" "initDatabase.version=${version_id}"
-      "--from-literal" "database.version=${version_id}"
+      "--from-literal" "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-latest}"
+      "--from-literal" "initAppDb.version=${INIT_APPDB_VERSION:-latest}"
+      "--from-literal" "initDatabase.version=${INIT_DATABASE_VERSION:-latest}"
+      "--from-literal" "database.version=${DATABASE_VERSION:-latest}"
       "--from-literal" "agent.version=${agent_version}"
     )
 
