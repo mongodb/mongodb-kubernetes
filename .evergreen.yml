@@ -2930,7 +2930,8 @@ buildvariants:
   expansions:
     <<: [ *kubernetes_environment_kind ]
   tasks:
-  - name: operator-sdk-run-bundle
+  # TODO: Fix and re-enable as part of CLOUDP-112507
+  # - name: operator-sdk-run-bundle
   - name: operator-sdk-scorecard-test
 
 ### Build variants for manual patch only
