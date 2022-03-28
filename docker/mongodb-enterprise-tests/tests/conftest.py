@@ -610,7 +610,7 @@ def fetch_latest_released_operator_version() -> str:
     Fetches the currently released operator version from the Github API.
     """
 
-    response = get_retriable_https_session().get(
+    response = get_retriable_https_session(tls_verify=True).get(
         "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
         headers=get_headers(),
     )

@@ -1,9 +1,8 @@
 import time
-from typing import Tuple
 
 from kubetester import MongoDB, create_secret, random_k8s_name
 from kubetester.certs import create_mongodb_tls_certs
-from kubetester.http import get_retriable_https_session
+from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase, generic_replicaset
 from kubetester.opsmanager import MongoDBOpsManager
@@ -113,7 +112,7 @@ def test_prometheus_endpoint_works_on_every_pod(replica_set: MongoDB, namespace:
 
     for idx in range(members):
         member_url = f"https://{name}-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(member_url, auth)
+        assert https_endpoint_is_reachable(member_url, auth, tls_verify=False)
 
 
 @mark.e2e_om_ops_manager_prometheus
@@ -137,7 +136,7 @@ def test_prometheus_endpoint_works_on_every_pod_with_changed_username(
 
     for idx in range(members):
         member_url = f"https://{name}-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(member_url, auth)
+        assert https_endpoint_is_reachable(member_url, auth, tls_verify=False)
 
 
 @mark.e2e_om_ops_manager_prometheus
@@ -159,23 +158,16 @@ def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
     mongos_count = sharded_cluster["spec"]["mongosCount"]
     for idx in range(mongos_count):
         url = f"https://{name}-mongos-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(url, auth)
+        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
 
     shard_count = sharded_cluster["spec"]["shardCount"]
     mongodbs_per_shard_count = sharded_cluster["spec"]["mongodsPerShardCount"]
     for shard in range(shard_count):
         for mongodb in range(mongodbs_per_shard_count):
             url = f"https://{name}-{shard}-{mongodb}.{name}-sh.{namespace}.svc.cluster.local:9216/metrics"
-            assert https_endpoint_is_reachable(url, auth)
+            assert https_endpoint_is_reachable(url, auth, tls_verify=False)
 
     config_server_count = sharded_cluster["spec"]["configServerCount"]
     for idx in range(config_server_count):
         url = f"https://{name}-config-{idx}.{name}-cs.{namespace}.svc.cluster.local:9216/metrics"
-        assert https_endpoint_is_reachable(url, auth)
-
-
-def https_endpoint_is_reachable(url: str, auth: Tuple[str]) -> bool:
-    """
-    Checks that `url` is reachable, using `auth` basic credentials.
-    """
-    return get_retriable_https_session().get(url, auth=auth).status_code == 200
+        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
