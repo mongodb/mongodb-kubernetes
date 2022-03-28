@@ -1330,7 +1330,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 		if !status.IsOK() {
 			return status
 		}
-		log.Debugw("Creating S3 Oplog Store in Ops Manager", "config", omConfig)
+		log.Infow("Creating S3 Oplog Store in Ops Manager", "config", omConfig)
 		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -1350,7 +1350,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Debugw("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate)
+		log.Infow("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate)
 		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -1359,7 +1359,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 	// Removing non-existing configs
 	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerS3OpLogConfigs, opsManager.Spec.Backup.S3OplogStoreConfigs)
 	for _, v := range configsToRemove {
-		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
+		log.Infof("Removing Oplog Store %s from Ops Manager", v.Identifier())
 		if err = s3OplogAdmin.DeleteS3OplogStoreConfig(v.Identifier().(string)); err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -1450,7 +1450,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 			return status
 		}
 
-		log.Debugw("Creating S3Config in Ops Manager", "config", omConfig)
+		log.Infow("Creating S3Config in Ops Manager", "config", omConfig)
 		if err := omAdmin.CreateS3Config(omConfig); err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -1470,7 +1470,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
-		log.Debugw("Updating S3Config in Ops Manager", "config", configToUpdate)
+		log.Infow("Updating S3Config in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateS3Config(configToUpdate); err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -1478,7 +1478,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 
 	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerS3Configs, operatorS3Configs)
 	for _, config := range configsToRemove {
-		log.Debugf("Removing S3Config %s from Ops Manager", config.Identifier())
+		log.Infof("Removing S3Config %s from Ops Manager", config.Identifier())
 		if err := omAdmin.DeleteS3Config(config.Identifier().(string)); err != nil {
 			return workflow.Failed(err.Error())
 		}
