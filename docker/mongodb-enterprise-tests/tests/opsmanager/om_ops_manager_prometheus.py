@@ -1,5 +1,6 @@
 import time
 
+from kubernetes import client
 from kubetester import MongoDB, create_secret, random_k8s_name
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
@@ -18,6 +19,9 @@ def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str
         resource_name,
         secret_name,
     )
+
+
+CONFIGURED_PROMETHEUS_PORT = 9999
 
 
 @fixture(scope="module")
@@ -58,6 +62,7 @@ def sharded_cluster(
         "tlsSecretKeyRef": {
             "name": prom_cert_secret,
         },
+        "port": CONFIGURED_PROMETHEUS_PORT,
     }
     del resource["spec"]["cloudManager"]
     resource.configure(ops_manager, namespace)
@@ -155,19 +160,62 @@ def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
     auth = ("prom-user", "cluster-prom-password")
     name = sharded_cluster.name
 
+    port = sharded_cluster["spec"]["prometheus"]["port"]
     mongos_count = sharded_cluster["spec"]["mongosCount"]
     for idx in range(mongos_count):
-        url = f"https://{name}-mongos-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
+        url = f"https://{name}-mongos-{idx}.{name}-svc.{namespace}.svc.cluster.local:{port}/metrics"
         assert https_endpoint_is_reachable(url, auth, tls_verify=False)
 
     shard_count = sharded_cluster["spec"]["shardCount"]
     mongodbs_per_shard_count = sharded_cluster["spec"]["mongodsPerShardCount"]
     for shard in range(shard_count):
         for mongodb in range(mongodbs_per_shard_count):
-            url = f"https://{name}-{shard}-{mongodb}.{name}-sh.{namespace}.svc.cluster.local:9216/metrics"
+            url = f"https://{name}-{shard}-{mongodb}.{name}-sh.{namespace}.svc.cluster.local:{port}/metrics"
             assert https_endpoint_is_reachable(url, auth, tls_verify=False)
 
     config_server_count = sharded_cluster["spec"]["configServerCount"]
     for idx in range(config_server_count):
-        url = f"https://{name}-config-{idx}.{name}-cs.{namespace}.svc.cluster.local:9216/metrics"
+        url = f"https://{name}-config-{idx}.{name}-cs.{namespace}.svc.cluster.local:{port}/metrics"
         assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+
+
+@mark.e2e_om_ops_manager_prometheus
+def test_sharded_cluster_service_has_been_updated_with_prometheus_port(
+    replica_set: MongoDB, sharded_cluster: MongoDB
+):
+    # Check that the service that belong to the Replica Set has the
+    # the default Prometheus port.
+    assert_mongodb_prometheus_port_exist(
+        replica_set.name + "-svc",
+        replica_set.namespace,
+        port=9216,
+    )
+
+    # Checks that the Services that belong to the Sharded cluster have
+    # the configured Prometheus port.
+    assert_mongodb_prometheus_port_exist(
+        sharded_cluster.name + "-svc",
+        sharded_cluster.namespace,
+        port=CONFIGURED_PROMETHEUS_PORT,
+    )
+    assert_mongodb_prometheus_port_exist(
+        sharded_cluster.name + "-cs",
+        sharded_cluster.namespace,
+        port=CONFIGURED_PROMETHEUS_PORT,
+    )
+    assert_mongodb_prometheus_port_exist(
+        sharded_cluster.name + "-sh",
+        sharded_cluster.namespace,
+        port=CONFIGURED_PROMETHEUS_PORT,
+    )
+
+
+def assert_mongodb_prometheus_port_exist(service_name: str, namespace: str, port: int):
+    services = client.CoreV1Api().read_namespaced_service(
+        name=service_name, namespace=namespace
+    )
+    assert len(services.spec.ports) == 2
+    ports = ((p.name, p.port) for p in services.spec.ports)
+
+    assert ("mongodb", 27017) in ports
+    assert ("prometheus", port) in ports

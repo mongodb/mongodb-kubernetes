@@ -40,6 +40,12 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+
+	// Adds Prometheus Port if Prometheus has been enabled.
+	prom := mdb.GetPrometheus()
+	if prom != nil {
+		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
+	}
 	err = service.CreateOrUpdateService(client, internalService)
 	if err != nil {
 		return err
