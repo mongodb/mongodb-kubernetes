@@ -303,13 +303,28 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, mdb *mdbv1.M
 		return "", nil
 	}
 
-	s, err := secretClient.KubeClient.GetSecret(kube.ObjectKey(mdb.Namespace, prom.TLSSecretRef.Name))
-	if err != nil {
-		return "", fmt.Errorf("could not read Prometheus TLS certificate: %s", err)
-	}
+	secretName := prom.TLSSecretRef.Name
+	var secretData map[string][]byte
+	var err error
 
-	if s.Type != corev1.SecretTypeTLS {
-		return "", fmt.Errorf("secret containing the Prometheus TLS certificate needs to be of type kubernetes.io/tls")
+	var databaseSecretPath string
+	if vault.IsVaultSecretBackend() {
+		databaseSecretPath = secretClient.VaultClient.DatabaseSecretPath()
+		secretData, err = secretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", databaseSecretPath, mdb.GetNamespace(), secretName))
+		if err != nil {
+			return "", err
+		}
+	} else {
+		s, err := secretClient.KubeClient.GetSecret(kube.ObjectKey(mdb.Namespace, prom.TLSSecretRef.Name))
+		if err != nil {
+			return "", fmt.Errorf("could not read Prometheus TLS certificate: %s", err)
+		}
+
+		if s.Type != corev1.SecretTypeTLS {
+			return "", fmt.Errorf("secret containing the Prometheus TLS certificate needs to be of type kubernetes.io/tls")
+		}
+
+		secretData = s.Data
 	}
 
 	// We only need VerifyTLSSecretForStatefulSet to return the concatenated
@@ -322,7 +337,7 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, mdb *mdbv1.M
 	// Use another function to concatenate tls.key and tls.crt into a `string`,
 	// or make `CreatePEMSecretClient` able to receive a byte[] instead on its
 	// `data` parameter.
-	data, err := VerifyTLSSecretForStatefulSet(s.Data, Options{Replicas: 0})
+	data, err := VerifyTLSSecretForStatefulSet(secretData, Options{Replicas: 0})
 	if err != nil {
 		return "", err
 	}
@@ -330,8 +345,8 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, mdb *mdbv1.M
 	// ReadHashFromSecret will read the Secret once again from Kubernetes API,
 	// we can improve this function by providing the Secret Data contents,
 	// instead of `secretClient`.
-	secretHash := enterprisepem.ReadHashFromSecret(secretClient, mdb.Namespace, prom.TLSSecretRef.Name, Unused, log)
-	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(mdb.Namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, Unused, log)
+	secretHash := enterprisepem.ReadHashFromSecret(secretClient, mdb.Namespace, prom.TLSSecretRef.Name, databaseSecretPath, log)
+	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(mdb.Namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, Database, log)
 	if err != nil {
 		return "", fmt.Errorf("error creating hashed Secret: %s", err)
 	}

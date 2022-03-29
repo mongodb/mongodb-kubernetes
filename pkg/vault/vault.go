@@ -44,13 +44,15 @@ const (
 )
 
 type DatabaseSecretsToInject struct {
-	AgentCerts          string
-	AgentApiKey         string
-	InternalClusterAuth string
-	InternalClusterHash string
-	MemberClusterAuth   string
-	MemberClusterHash   string
-	Config              VaultConfiguration
+	AgentCerts            string
+	AgentApiKey           string
+	InternalClusterAuth   string
+	InternalClusterHash   string
+	MemberClusterAuth     string
+	MemberClusterHash     string
+	Config                VaultConfiguration
+	Prometheus            string
+	PrometheusTLSCertHash string
 }
 
 type AppDBSecretsToInject struct {
@@ -438,6 +440,20 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
           {{- end }}
           {{- end }}`, memberClusterPath)
 	}
+
+	if s.Prometheus != "" {
+		promPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.Prometheus)
+
+		annotations["vault.hashicorp.com/agent-inject-secret-prom-https-cert"] = promPath
+		annotations["vault.hashicorp.com/agent-inject-file-prom-https-cert"] = s.PrometheusTLSCertHash
+		annotations["vault.hashicorp.com/secret-volume-path-prom-https-cert"] = util.SecretVolumeMountPathPrometheus
+		annotations["vault.hashicorp.com/agent-inject-template-prom-https-cert"] = fmt.Sprintf(`{{- with secret "%s" -}}
+		  {{ range $k, $v := .Data.data }}
+		  {{- $v }}
+		  {{- end }}
+		  {{- end }}`, promPath)
+	}
+
 	return annotations
 }
 

@@ -1,22 +1,30 @@
-from pytest import mark, fixture
+import uuid
+
 import pytest
-from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
-from kubetester import (
-    get_pod_when_ready,
-    get_statefulset,
-    read_secret,
-    create_secret,
-    delete_secret,
-    create_configmap,
-)
-from kubetester.operator import Operator
-from kubetester.certs import create_x509_mongodb_tls_certs, create_x509_agent_tls_certs
-from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
-from kubetester.mongodb import MongoDB, Phase, get_pods
-from kubetester.mongodb_user import MongoDBUser
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-import uuid
+from kubetester import (
+    MongoDB,
+    create_configmap,
+    delete_secret,
+    get_statefulset,
+    random_k8s_name,
+    read_secret,
+)
+from kubetester.certs import (
+    create_mongodb_tls_certs,
+    create_x509_agent_tls_certs,
+    create_x509_mongodb_tls_certs,
+)
+from kubetester.http import https_endpoint_is_reachable
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase, get_pods
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.operator import Operator
+from pytest import fixture, mark
+
+from . import run_command_in_vault, store_secret_in_vault
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 MDB_RESOURCE = "my-replica-set"
@@ -24,6 +32,19 @@ DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
 USER_NAME = "my-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+
+
+def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
+    secret_name = random_k8s_name(resource_name + "-") + "-prometheus-cert"
+
+    return create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        resource_name,
+        secret_name,
+        secret_backend="Vault",
+        vault_subpath="database",
+    )
 
 
 @fixture(scope="module")
@@ -34,6 +55,9 @@ def replica_set(
     agent_certs: str,
     clusterfile_certs: str,
     issuer_ca_configmap: str,
+    issuer: str,
+    vault_namespace: str,
+    vault_name: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace
@@ -46,6 +70,23 @@ def replica_set(
             "modes": ["X509", "SCRAM"],
             "agents": {"mode": "X509"},
             "internalCluster": "X509",
+        },
+    }
+
+    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
+    store_secret_in_vault(
+        vault_namespace,
+        vault_name,
+        {"password": "prom-password"},
+        f"secret/mongodbenterprise/operator/{namespace}/prom-password",
+    )
+    resource["spec"]["prometheus"] = {
+        "username": "prom-user",
+        "passwordSecretRef": {
+            "name": "prom-password",
+        },
+        "tlsSecretKeyRef": {
+            "name": prom_cert_secret,
         },
     }
     resource.create()
@@ -103,11 +144,37 @@ def sharded_cluster_configmap(namespace: str) -> str:
 
 
 @fixture(scope="module")
-def sharded_cluster(namespace: str, sharded_cluster_configmap: str) -> MongoDB:
+def sharded_cluster(
+    namespace: str,
+    sharded_cluster_configmap: str,
+    issuer: str,
+    vault_namespace: str,
+    vault_name: str,
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster.yaml"), namespace=namespace
     )
     resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
+
+    # Password stored in Prometheus
+    store_secret_in_vault(
+        vault_namespace,
+        vault_name,
+        {"password": "prom-password"},
+        f"secret/mongodbenterprise/operator/{namespace}/prom-password-cluster",
+    )
+
+    # A prometheus certificate stored in Vault
+    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
+    resource["spec"]["prometheus"] = {
+        "username": "prom-user",
+        "passwordSecretRef": {
+            "name": "prom-password-cluster",
+        },
+        "tlsSecretKeyRef": {
+            "name": prom_cert_secret,
+        },
+    }
 
     return resource.create()
 
@@ -351,8 +418,45 @@ def test_api_key_in_pod(replica_set: MongoDB):
 
 
 @mark.e2e_vault_setup
+def test_prometheus_endpoint_on_replica_set(replica_set: MongoDB, namespace: str):
+    members = replica_set["spec"]["members"]
+    name = replica_set.name
+
+    auth = ("prom-user", "prom-password")
+
+    for idx in range(members):
+        member_url = f"https://{name}-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
+        assert https_endpoint_is_reachable(member_url, auth, tls_verify=False)
+
+
+@mark.e2e_vault_setup
 def test_sharded_mdb_created(sharded_cluster: MongoDB):
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+
+
+@mark.e2e_vault_setup
+def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
+    sharded_cluster: MongoDB, namespace: str
+):
+    auth = ("prom-user", "prom-password")
+    name = sharded_cluster.name
+
+    mongos_count = sharded_cluster["spec"]["mongosCount"]
+    for idx in range(mongos_count):
+        url = f"https://{name}-mongos-{idx}.{name}-svc.{namespace}.svc.cluster.local:9216/metrics"
+        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+
+    shard_count = sharded_cluster["spec"]["shardCount"]
+    mongodbs_per_shard_count = sharded_cluster["spec"]["mongodsPerShardCount"]
+    for shard in range(shard_count):
+        for mongodb in range(mongodbs_per_shard_count):
+            url = f"https://{name}-{shard}-{mongodb}.{name}-sh.{namespace}.svc.cluster.local:9216/metrics"
+            assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+
+    config_server_count = sharded_cluster["spec"]["configServerCount"]
+    for idx in range(config_server_count):
+        url = f"https://{name}-config-{idx}.{name}-cs.{namespace}.svc.cluster.local:9216/metrics"
+        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
 
 
 @mark.e2e_vault_setup

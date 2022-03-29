@@ -16,7 +16,6 @@ def get_retriable_session(proto: str, tls_verify: bool) -> requests.Session:
 
     s = requests.Session()
 
-    # do not verify certs at this point.
     s.verify = tls_verify
     retries = Retry(
         total=5,

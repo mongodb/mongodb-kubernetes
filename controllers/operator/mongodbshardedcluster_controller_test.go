@@ -343,7 +343,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	allConfigs := reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, zap.S())
+	allConfigs := reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, "", zap.S())
 
 	assert.False(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 
@@ -354,7 +354,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	allConfigs = reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, zap.S())
+	allConfigs = reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, "", zap.S())
 	assert.True(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 }
 

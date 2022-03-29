@@ -41,6 +41,12 @@ func InternalClusterHash(hash string) func(options *construct.DatabaseStatefulSe
 	}
 }
 
+func PrometheusTLSCertHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.PrometheusTLSCertHash = hash
+	}
+}
+
 // NewTLSDesignKey sets, for a specific key, whether or not the corresponding certificate
 // uses the new tls design (tls.crt and tls.key instead of concatenated PEM file )
 func NewTLSDesignKey(key string, newDesign bool) func(options *construct.DatabaseStatefulSetOptions) {

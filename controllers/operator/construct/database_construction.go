@@ -74,6 +74,7 @@ type DatabaseStatefulSetOptions struct {
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
 	CertificateHash         string
+	PrometheusTLSCertHash   string
 	InternalClusterHash     string
 	ServicePort             int32
 	Persistent              *bool
@@ -352,6 +353,16 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		}
 	}
 
+	// Enable prometheus injection
+	prom := mdb.GetPrometheus()
+	if prom != nil && prom.TLSSecretRef.Name != "" {
+		// Only need to inject Prometheus TLS cert on Vault. Already done for Secret backend.
+		if vault.IsVaultSecretBackend() {
+			secretsToInject.Prometheus = fmt.Sprintf("%s%s", prom.TLSSecretRef.Name, certs.OperatorGeneratedCertSuffix)
+			secretsToInject.PrometheusTLSCertHash = opts.PrometheusTLSCertHash
+		}
+	}
+
 	var mounts []corev1.VolumeMount
 	var pvcFuncs map[string]persistentvolumeclaim.Modification
 	if opts.Persistent == nil || *opts.Persistent {
@@ -484,6 +495,8 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 // contain the concatenated (PEM-format) certificates; which have been created
 // by the Operator prior to this.
 //
+// Important: This function will not return Secret mounts in case of Vault backend!
+//
 // The Prometheus TLS Secret name is configured in:
 //
 // `spec.prometheus.tlsSecretRef.Name`
@@ -492,16 +505,16 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 // `/var/lib/mongodb-automation/secrets/prometheus`.
 //
 func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
-	if prom == nil {
-		return []corev1.Volume{}, []corev1.VolumeMount{}
-	}
-
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}
 
-	secretFunc := func(v *corev1.Volume) {}
+	if prom == nil || vault.IsVaultSecretBackend() {
+		return volumes, volumeMounts
+	}
+
+	secretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
 	// Name of the Secret (PEM-format) with the concatenation of the certificate and key.
-	secretName := prom.TLSSecretRef.Name + "-pem"
+	secretName := prom.TLSSecretRef.Name + certs.OperatorGeneratedCertSuffix
 
 	secretVolume := statefulset.CreateVolumeFromSecret(util.PrometheusSecretVolumeName, secretName, secretFunc)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{

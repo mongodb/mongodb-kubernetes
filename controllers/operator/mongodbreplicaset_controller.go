@@ -178,6 +178,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)),
+		PrometheusTLSCertHash(prometheusCertHash),
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
 		WithVaultConfig(vaultConfig),
@@ -384,7 +385,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			// At this point we won't bubble-up the error we got from this
 			// function, we don't want to fail the MongoDB resource because
 			// Prometheus can't be enabled.
-			UpdatePrometheus(&d, conn, rs, r.client, prometheusCertHash, log)
+			UpdatePrometheus(&d, conn, rs, r.SecretClient, prometheusCertHash, log)
 
 			return nil
 		},

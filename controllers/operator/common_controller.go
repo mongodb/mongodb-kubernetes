@@ -700,7 +700,7 @@ func isPrometheusSupported(conn om.Connection) bool {
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
 //
 // This has been moved to this function so we can use it from Sharded Clusters and AppDB when I get to work on those resources.
-func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, getter secret.Getter, certName string, log *zap.SugaredLogger) error {
+func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, sClient secrets.SecretClient, certName string, log *zap.SugaredLogger) error {
 	if mdb.Spec.Prometheus == nil {
 		return nil
 	}
@@ -710,13 +710,34 @@ func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, 
 		return nil
 	}
 
+	var err error
+	var password string
 	prometheus := mdb.Spec.Prometheus
 
-	secretNamespacedName := types.NamespacedName{Name: prometheus.PasswordSecretRef.Name, Namespace: mdb.Namespace}
-	password, err := secret.ReadKey(getter, prometheus.GetPasswordKey(), secretNamespacedName)
-	if err != nil {
-		log.Infof("Prometheus can't be enabled, %s", err)
-		return err
+	secretName := prometheus.PasswordSecretRef.Name
+	if vault.IsVaultSecretBackend() {
+		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
+		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, mdb.GetNamespace(), secretName)
+		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
+		if err != nil {
+			log.Infof("Prometheus can't be enabled, %s", err)
+			return err
+		}
+
+		var ok bool
+		password, ok = keyedPassword[prometheus.GetPasswordKey()]
+		if !ok {
+			errMsg := fmt.Sprintf("Prometheus password %s not in Secret %s", prometheus.GetPasswordKey(), passwordString)
+			log.Info(errMsg)
+			return fmt.Errorf(errMsg)
+		}
+	} else {
+		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: mdb.Namespace}
+		password, err = secret.ReadKey(sClient, prometheus.GetPasswordKey(), secretNamespacedName)
+		if err != nil {
+			log.Infof("Prometheus can't be enabled, %s", err)
+			return err
+		}
 	}
 
 	hash, salt := passwordhash.GenerateHashAndSaltForPassword(password)
