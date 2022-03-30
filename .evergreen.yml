@@ -74,11 +74,11 @@ variables:
     managed_security_context: "false"
 
   - &go_bin
-    "/opt/golang/go1.16/bin"
+    "/opt/golang/go1.17/bin"
 
   - &go_options
     GO111MODULE: "on"
-    GOROOT: "/opt/golang/go1.16"
+    GOROOT: "/opt/golang/go1.17"
 
 parameters:
 - key: registry
