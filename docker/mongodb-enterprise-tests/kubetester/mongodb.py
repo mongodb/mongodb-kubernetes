@@ -81,6 +81,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             # "Get https://cloud-qa.mongodb.com/api/public/v1.0/groups/5f186b406c835e37e6160aef/automationConfig:
             # read tcp 10.244.0.6:33672->75.2.105.99:443: read: connection reset by peer"
             "read: connection reset by peer",
+            # Ops Manager must be recovering from an Upgrade and it is
+            # currently DOWN.
+            "connect: connection refused",
         )
         return self.wait_for(
             lambda s: in_desired_state(

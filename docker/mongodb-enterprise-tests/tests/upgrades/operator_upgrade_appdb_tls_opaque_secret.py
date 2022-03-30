@@ -173,4 +173,4 @@ def test_om_ok(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_operator_upgrade_appdb_tls_opaque_secret
 def test_check_replicaset_after_upgrade(replicaset: MongoDB):
-    replicaset.assert_reaches_phase(Phase.Running)
+    replicaset.assert_reaches_phase(Phase.Running, ignore_errors=True)
