@@ -1,4 +1,17 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
+
+# MongoDB Enterprise Kubernetes Operator 1.15.3
+
+## MongoDB Resource
+
+* `spec.security.tls.secretRef.name` has been removed. It was deprecated in operator version `v1.10.0`. Please use the field
+   `spec.security.certsSecretPrefix` to specify the secret name containing the certificate for Database. Make sure to create the secret containing the certificates accordingly. 
+
+
+## MongoDBOpsManager Resource
+* `spec.applicationDatabase.security.tls.secretRef.name` has been removed. It was deprecated in operator version `v1.10.0`. Please use the field
+   `spec.applicationDatabase.security.certsSecretPrefix` to specify the secret name containing the certificate for AppDB. Make sure to create the secret containing the certificates accordingly. 
+
 # MongoDB Enterprise Kubernetes Operator 1.15.2
 ## MongoDBOpsManager Resource
 * Bug Fix 

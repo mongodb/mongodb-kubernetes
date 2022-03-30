@@ -27,11 +27,12 @@ Steps forward:
 
 
 EOL_FOR_V1_12 = datetime(year=2022, month=4, day=20)
+CERT_PREFIX = "prefix"
 
 
 def certs_for_rs(issuer: str, namespace: str, resource_name: str) -> str:
     secret_name = random_k8s_name("rs-") + "-cert"
-    concatenated_secret = secret_name + "-secret"
+    concatenated_secret = "{}-{}-cert".format(CERT_PREFIX, resource_name)
 
     tls_secret_name = create_mongodb_tls_certs(
         issuer,
@@ -72,9 +73,10 @@ def ops_manager(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
     )
 
-    resource["spec"]["applicationDatabase"]["security"]["tls"]["secretRef"][
-        "name"
-    ] = appdb_certs_secret
+    resource["spec"]["applicationDatabase"]["security"]["tls"] = {
+        "ca": issuer_ca_configmap,
+        "secretRef": {"prefix": CERT_PREFIX},
+    }
     return resource.create()
 
 
@@ -93,10 +95,11 @@ def replicaset(
             "ca": issuer_ca_configmap,
             "enabled": True,
             "secretRef": {
-                "name": replicaset_certs_secret,
+                "prefix": CERT_PREFIX,
             },
         },
     }
+
     return rs.create()
 
 

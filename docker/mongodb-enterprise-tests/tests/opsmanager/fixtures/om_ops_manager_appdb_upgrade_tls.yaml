@@ -17,8 +17,6 @@ spec:
     security:
       tls:
         ca: issuer-ca
-        secretRef:
-          name: certs-for-appdb
 
   # adding this just to avoid wizard when opening OM UI
   configuration:

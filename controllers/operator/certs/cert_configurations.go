@@ -255,14 +255,13 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 func GetCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
 	tlsConfig := ms.TLSConfig
 	if tlsConfig != nil {
-		// use old behaviour if name is specified
-		if tlsConfig.SecretRef.Name != "" {
-			return tlsConfig.SecretRef.Name
-		}
-
 		if tlsConfig.SecretRef.Prefix != "" {
 			return fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, defaultName)
 		}
 	}
+	if ms.CertificatesSecretsPrefix != "" {
+		return fmt.Sprintf("%s-%s-cert", ms.CertificatesSecretsPrefix, defaultName)
+	}
+
 	return defaultName + "-cert"
 }

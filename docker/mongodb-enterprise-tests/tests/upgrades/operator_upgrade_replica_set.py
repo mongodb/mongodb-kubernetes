@@ -9,12 +9,13 @@ from pytest import fixture
 
 RS_NAME = "my-replica-set"
 USER_PASSWORD = "/qwerty@!#:"
+CERT_PREFIX = "prefix"
 
 
 @fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
     return create_mongodb_tls_certs(
-        issuer, namespace, RS_NAME, "certs-my-replica-set-cert"
+        issuer, namespace, RS_NAME, "{}-{}-cert".format(CERT_PREFIX, RS_NAME)
     )
 
 
@@ -38,7 +39,8 @@ def replica_set(
 
     # TLS
     resource.configure_custom_tls(
-        issuer_ca_configmap, rs_certs_secret, secret_ref_key="name"
+        issuer_ca_configmap,
+        CERT_PREFIX,
     )
 
     # SCRAM-SHA
@@ -52,7 +54,7 @@ def replica_set(
 
 @fixture(scope="module")
 def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user.yaml"),
         namespace=replica_set.namespace,

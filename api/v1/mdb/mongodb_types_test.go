@@ -224,17 +224,6 @@ func TestMongoDB_IsSecurityTLSConfigEnabled(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "TLS is enabled when TLSConfig.SecretRef.Name is specified",
-			security: &Security{
-				TLSConfig: &TLSConfig{
-					SecretRef: TLSSecretRef{
-						Name: "mdb-cert",
-					},
-				},
-			},
-			expected: true,
-		},
-		{
 			name: "TLS is enabled when CertificatesSecretsPrefix is specified",
 			security: &Security{
 				CertificatesSecretsPrefix: "prefix",
@@ -274,10 +263,6 @@ func TestMemberCertificateSecretName(t *testing.T) {
 	// If the nested prefix is specified, we use it
 	rs.Spec.Security.TLSConfig.SecretRef.Prefix = "nested-prefix"
 	assert.Equal(t, fmt.Sprintf("nested-prefix-%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
-
-	// If name is specified, it takes the precedence over anything (deprecated)
-	rs.Spec.Security.TLSConfig.SecretRef.Name = "custom-name"
-	assert.Equal(t, "custom-name", rs.GetSecurity().MemberCertificateSecretName(rs.Name))
 }
 
 func TestAgentClientCertificateSecretName(t *testing.T) {

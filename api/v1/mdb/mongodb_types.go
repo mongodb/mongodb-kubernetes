@@ -462,9 +462,6 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 	// If one of the old fields tlsConfig.secretRef.name or tlsConfig.secretRef.prefix
 	// are specified, they take precedence.
 	if s.TLSConfig != nil {
-		if s.TLSConfig.SecretRef.Name != "" {
-			return s.TLSConfig.SecretRef.Name
-		}
 		if s.TLSConfig.SecretRef.Prefix != "" {
 			return fmt.Sprintf("%s-%s-cert", s.TLSConfig.SecretRef.Prefix, defaultName)
 		}
@@ -486,7 +483,7 @@ func (s *Security) IsTLSEnabled() bool {
 		return false
 	}
 	if s.TLSConfig != nil {
-		if s.TLSConfig.Enabled || (s.TLSConfig.SecretRef.Prefix != "" || s.TLSConfig.SecretRef.Name != "") {
+		if s.TLSConfig.Enabled || s.TLSConfig.SecretRef.Prefix != "" {
 			return true
 		}
 	}
@@ -727,20 +724,15 @@ type TLSConfig struct {
 
 // IsSelfManaged returns true if the TLS is self-managed (cert provided by the customer), not Operator-managed
 func (t TLSConfig) IsSelfManaged() bool {
-	return t.CA != "" || (t.SecretRef.Prefix != "" || t.SecretRef.Name != "")
+	return t.CA != "" || t.SecretRef.Prefix != ""
 }
 
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
 // be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {
-	// DEPRECATED please use security.certsSecretPrefix instead
-	// +optional
-	Name string `json:"name"`
-
 	// TODO: make prefix required once name has been removed.
 
 	// DEPRECATED please use security.certsSecretPrefix instead
-	// +optional
 	Prefix string `json:"prefix"`
 }
 

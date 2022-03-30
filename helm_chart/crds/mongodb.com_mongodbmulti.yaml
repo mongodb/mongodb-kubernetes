@@ -368,14 +368,12 @@ spec:
                           instead SecretRef points to a Secret object containing the
                           certificates to use when enabling TLS.
                         properties:
-                          name:
-                            description: DEPRECATED please use security.certsSecretPrefix
-                              instead
-                            type: string
                           prefix:
                             description: DEPRECATED please use security.certsSecretPrefix
                               instead
                             type: string
+                        required:
+                        - prefix
                         type: object
                     type: object
                 type: object

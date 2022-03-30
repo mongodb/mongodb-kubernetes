@@ -84,7 +84,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 		Enabled: true,
 		CA:      "custom-ca-appdb",
 		SecretRef: mdbv1.TLSSecretRef{
-			Name: "om-appdb-tls-secret",
+			Prefix: "prefix",
 		},
 	}).SetTLSConfig(omv1.MongoDBOpsManagerTLS{
 		SecretRef: omv1.TLSSecretRef{
@@ -95,7 +95,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 	addOMTLSResources(client, "om-tls-secret")
-	addAppDBTLSResources(client, testOm.Spec.AppDB, "om-appdb-tls-secret")
+	addAppDBTLSResources(client, testOm.Spec.AppDB, testOm.Spec.AppDB.GetTlsCertificatesSecretName())
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
 	appDBCAKey := watch.Object{
@@ -145,7 +145,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NotContains(t, reconciler.WatchedResources, omCAKey)
 
 	testOm.Spec.AppDB.Security.TLSConfig.Enabled = false
-	testOm.Spec.AppDB.Security.TLSConfig.SecretRef.Name = ""
+	testOm.Spec.AppDB.Security.TLSConfig.SecretRef.Prefix = ""
 
 	err = client.Update(context.TODO(), &testOm)
 	assert.NoError(t, err)
@@ -156,7 +156,6 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 
 	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
 	assert.NotContains(t, reconciler.WatchedResources, appdbTLSSecretKey)
-
 }
 
 func TestOpsManagerPrefixForTLSSecret(t *testing.T) {

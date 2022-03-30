@@ -8,10 +8,24 @@ from kubetester.opsmanager import MongoDBOpsManager
 from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
 
 
+CERT_PREFIX = "prefix"
+
+
+def appdb_name(namespace: str) -> str:
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
+    )
+    return "{}-db".format(resource["metadata"]["name"])
+
+
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
+    print(appdb_name)
     return create_mongodb_tls_certs(
-        issuer, namespace, "om-appdb-upgrade-tls-db", "certs-for-appdb"
+        issuer,
+        namespace,
+        "om-appdb-upgrade-tls-db",
+        "{}-{}-cert".format(CERT_PREFIX, appdb_name(namespace)),
     )
 
 
@@ -24,6 +38,10 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
     )
+    resource["spec"]["applicationDatabase"]["security"][
+        "certsSecretPrefix"
+    ] = CERT_PREFIX
+
     return resource.create()
 
 
