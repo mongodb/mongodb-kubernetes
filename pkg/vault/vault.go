@@ -64,6 +64,9 @@ type AppDBSecretsToInject struct {
 	AutomationConfigPath       string
 	AgentType                  string
 	Config                     VaultConfiguration
+
+	PrometheusTLSCertHash string
+	PrometheusTLSPath     string
 }
 
 type OpsManagerSecretsToInject struct {
@@ -524,5 +527,18 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
           {{- end }}
           {{- end }}`, acSecretPath)
 	}
+
+	if a.PrometheusTLSCertHash != "" && a.PrometheusTLSPath != "" {
+		promPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.PrometheusTLSPath)
+		annotations["vault.hashicorp.com/agent-inject-secret-prom-https-cert"] = promPath
+		annotations["vault.hashicorp.com/agent-inject-file-prom-https-cert"] = a.PrometheusTLSCertHash
+		annotations["vault.hashicorp.com/secret-volume-path-prom-https-cert"] = util.SecretVolumeMountPathPrometheus
+		annotations["vault.hashicorp.com/agent-inject-template-prom-https-cert"] = fmt.Sprintf(`{{- with secret "%s" -}}
+		  {{ range $k, $v := .Data.data }}
+		  {{- $v }}
+		  {{- end }}
+		  {{- end }}`, promPath)
+	}
+
 	return annotations
 }

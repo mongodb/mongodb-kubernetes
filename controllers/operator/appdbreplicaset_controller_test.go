@@ -457,7 +457,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
 		// based on whether or not there are disabled processes.
 		if createAutomationConfig {
-			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, zap.S())
+			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, UnusedPrometheusConfiguration, zap.S())
 			assert.NoError(t, err)
 			_, err = reconciler.publishAutomationConfig(opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName())
 			assert.NoError(t, err)
@@ -676,7 +676,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager 
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
-	return reconciler.buildAppDbAutomationConfig(opsManager, sts, acType, zap.S())
+	return reconciler.buildAppDbAutomationConfig(opsManager, sts, acType, UnusedPrometheusConfiguration, zap.S())
 
 }
 

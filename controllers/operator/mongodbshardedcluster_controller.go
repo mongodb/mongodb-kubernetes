@@ -230,7 +230,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return status
 	}
 
-	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, sc, log)
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, sc.GetNamespace(), sc.GetPrometheus(), log)
 	if err != nil {
 		return workflow.Failed("Could not generate certificates for Prometheus: %s", err)
 	}

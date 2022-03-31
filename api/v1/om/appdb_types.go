@@ -58,6 +58,9 @@ type AppDBSpec struct {
 	// for the mongodb-ops-manager SCRAM-SHA user
 	PasswordSecretKeyRef *userv1.SecretKeyRef `json:"passwordSecretKeyRef,omitempty"`
 
+	// Enables Prometheus integration on the AppDB.
+	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
+
 	// transient fields. These fields are cleaned before serialization, see 'MarshalJSON()'
 	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
 	// 'DeepCopy'

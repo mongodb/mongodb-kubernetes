@@ -43,6 +43,8 @@ type AppDBStatefulSetOptions struct {
 	CertHash               string
 	CertSecretType         corev1.SecretType
 	MonitoringAgentVersion string
+
+	PrometheusTLSCertHash string
 }
 
 func WithAppDBVaultConfig(config vault.VaultConfiguration) func(opts *AppDBStatefulSetOptions) {
@@ -203,6 +205,10 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, c
 	})
 	volumesToAdd = append(volumesToAdd, caVolume)
 
+	prometheusVolumes, prometheusVolumeMounts := getTLSPrometheusVolumeAndVolumeMount(appDb.Prometheus)
+	volumesToAdd = append(volumesToAdd, prometheusVolumes...)
+	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
+
 	return volumesToAdd, volumeMounts
 }
 
@@ -246,10 +252,17 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		appDBSecretsToInject.AutomationConfigSecretName = appDB.AutomationConfigSecretName()
 		appDBSecretsToInject.AutomationConfigPath = util.AppDBAutomationConfigKey
 		appDBSecretsToInject.AgentType = "automation-agent"
+
+		if appDB.Prometheus != nil && appDB.Prometheus.TLSSecretRef.Name != "" && opts.PrometheusTLSCertHash != "" {
+			appDBSecretsToInject.PrometheusTLSCertHash = opts.PrometheusTLSCertHash
+			appDBSecretsToInject.PrometheusTLSPath = fmt.Sprintf("%s%s", appDB.Prometheus.TLSSecretRef.Name, certs.OperatorGeneratedCertSuffix)
+		}
+
 		modification = podtemplatespec.Apply(
 			modification,
 			podtemplatespec.WithAnnotations(appDBSecretsToInject.AppDBAnnotations(appDB.Namespace)),
 		)
+
 	} else {
 		if podVars != nil && podVars.ProjectID != "" {
 			// AGENT-API-KEY volume

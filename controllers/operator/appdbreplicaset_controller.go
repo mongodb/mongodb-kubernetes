@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes-operator/controllers"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/result"
@@ -60,6 +61,11 @@ const (
 
 	monitoring agentType = "MONITORING"
 	automation agentType = "AUTOMATION"
+
+	// Used to note that for this particular case it is not necessary to pass
+	// the hash of the Prometheus certificate. This is to avoid having to
+	// calculate and pass the Prometheus Cert Hash when it is not needed.
+	UnusedPrometheusConfiguration string = ""
 )
 
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
@@ -93,7 +99,7 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(opsManager omv1.MongoDBO
 		return true, nil
 	}
 
-	desiredAc, err := r.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, log)
+	desiredAc, err := r.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, UnusedPrometheusConfiguration, log)
 	if err != nil {
 		return false, fmt.Errorf("error building AppDB Automation Config: %s", err)
 	}
@@ -188,16 +194,21 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
 	}
-
 	appdbOpts.VaultConfig = vaultConfig
+
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, opsManager.GetNamespace(), opsManager.Spec.AppDB.Prometheus, log)
+	if err != nil {
+		// Do not fail on errors generating certs for Prometheus
+		log.Errorf("can't create a PEM-Format Secret for Prometheus certificates: %s", err)
+	}
+	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
 	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts)
 	if err != nil {
-
 		return r.updateStatus(opsManager, workflow.Failed("can't construct AppDB Statefulset: %s", err), log, omStatusOption)
 	}
 
-	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, prometheusCertHash, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -228,14 +239,13 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, prometheusCertHash string, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
 	currentAc, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
 	})
-
 	if err != nil {
 		return workflow.Failed("can't read existing automation config from secret")
 	}
@@ -276,7 +286,7 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
 			log.Info("Deploying Automation Config")
-			return r.deployAutomationConfig(opsManager, appDbSts, log)
+			return r.deployAutomationConfig(opsManager, appDbSts, prometheusCertHash, log)
 		},
 		func() workflow.Status {
 
@@ -372,7 +382,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.Mongo
 	return ac.Version, err
 }
 
-func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
+func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, prometheusCertHash string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
 	auth := automationconfig.Auth{}
@@ -400,6 +410,16 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 		appdbSecretPath = r.VaultClient.AppDBSecretPath()
 	}
 	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
+
+	prometheusModification := automationconfig.NOOP()
+	if acType == automation {
+		// There are 2 agents running in the AppDB Pods, we will configure Prometheus
+		// only on the Automation Agent.
+		prometheusModification, err = buildPrometheusModification(r.SecretClient, opsManager, prometheusCertHash)
+		if err != nil {
+			log.Errorf("Could not enable Prometheus: %s", err)
+		}
+	}
 
 	ac, err := automationconfig.NewBuilder().
 		SetTopology(automationconfig.ReplicaSetTopology).
@@ -449,7 +469,9 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 
 			}
-		}).Build()
+		}).
+		AddModifications(prometheusModification).
+		Build()
 
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
@@ -462,6 +484,67 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 
 	return ac, nil
 
+}
+
+// buildPrometheusModification returns a `Modification` function that will add a
+// `prometheus` entry to the Automation Config if Prometheus has been enabled on
+// the Application Database (`spec.applicationDatabase.Prometheus`).
+func buildPrometheusModification(sClient secrets.SecretClient, om omv1.MongoDBOpsManager, prometheusCertHash string) (automationconfig.Modification, error) {
+	if om.Spec.AppDB.Prometheus == nil {
+		return automationconfig.NOOP(), nil
+	}
+
+	prom := om.Spec.AppDB.Prometheus
+
+	var err error
+	var password string
+	prometheus := om.Spec.AppDB.Prometheus
+
+	secretName := prometheus.PasswordSecretRef.Name
+	if vault.IsVaultSecretBackend() {
+		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
+		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, om.GetNamespace(), secretName)
+		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
+		if err != nil {
+			return automationconfig.NOOP(), err
+		}
+
+		var ok bool
+		password, ok = keyedPassword[prometheus.GetPasswordKey()]
+		if !ok {
+			errMsg := fmt.Sprintf("Prometheus password %s not in Secret %s", prometheus.GetPasswordKey(), passwordString)
+			return automationconfig.NOOP(), fmt.Errorf(errMsg)
+		}
+	} else {
+		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: om.Namespace}
+		password, err = secret.ReadKey(sClient, prometheus.GetPasswordKey(), secretNamespacedName)
+		if err != nil {
+			return automationconfig.NOOP(), err
+		}
+	}
+
+	return func(config *automationconfig.AutomationConfig) {
+		promConfig := automationconfig.NewDefaultPrometheus(prom.Username)
+
+		if prometheusCertHash != "" {
+			promConfig.TLSPemPath = util.SecretVolumeMountPathPrometheus + "/" + prometheusCertHash
+			promConfig.Scheme = "https"
+		} else {
+			promConfig.Scheme = "http"
+		}
+
+		promConfig.Password = password
+
+		if prom.Port > 0 {
+			promConfig.ListenAddress = fmt.Sprintf("%s:%d", mdbcv1_controllers.ListenAddress, prom.Port)
+		}
+
+		if prom.MetricsPath != "" {
+			promConfig.MetricsPath = prom.MetricsPath
+		}
+
+		config.Prometheus = &promConfig
+	}, nil
 }
 
 // overrideToAutomationConfig converts the override struct to one that can be merged.
@@ -818,11 +901,11 @@ func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(cmName string, na
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, prometheusCertHash string, log *zap.SugaredLogger) workflow.Status {
 
 	rs := opsManager.Spec.AppDB
 
-	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, automation, log)
+	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, automation, prometheusCertHash, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -836,7 +919,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 		return status
 	}
 
-	monitoringAc, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log)
+	monitoringAc, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, UnusedPrometheusConfiguration, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -853,7 +936,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(opsManager omv1.MongoD
 
 // deployMonitoringAgentAutomationConfig deploys the monitoring agent's automation config.
 func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, log *zap.SugaredLogger) error {
-	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, log)
+	config, err := r.buildAppDbAutomationConfig(opsManager, appDbSts, monitoring, UnusedPrometheusConfiguration, log)
 	if err != nil {
 		return err
 	}

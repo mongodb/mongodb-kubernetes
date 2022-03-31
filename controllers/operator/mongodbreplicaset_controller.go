@@ -143,7 +143,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, rs, log)
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), log)
 	if err != nil {
 		log.Infof("Could not generate certificates for Prometheus: %s", err)
 		return r.updateStatus(rs, workflow.Pending(err.Error()), log)

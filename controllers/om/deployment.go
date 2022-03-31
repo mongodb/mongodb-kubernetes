@@ -209,10 +209,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
 //
-// If basic auth is enabled, then `hash` and `salt` need to be calculated by called and passed in.
-//
-// TODO:
-// TlsSecretMount Path (which depends on the tlsOperatorSecretFileName() hash we get from certKey)
+// If basic auth is enabled, then `hash` and `salt` need to be calculated by caller and passed in.
 func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, salt string, certName string) automationconfig.Prometheus {
 	if prom == nil {
 		// No prometheus configuration this time

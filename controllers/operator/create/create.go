@@ -69,13 +69,19 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOp
 		log,
 		&sts,
 	)
-
 	if err != nil {
 		return err
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+
+	// Adds Prometheus Port if Prometheus has been enabled.
+	prom := opsManager.Spec.AppDB.Prometheus
+	if prom != nil {
+		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
+	}
+
 	return service.CreateOrUpdateService(client, internalService)
 }
 

@@ -28,6 +28,7 @@ CONFIGURED_PROMETHEUS_PORT = 9999
 def ops_manager(
     namespace: str,
     custom_appdb_version: str,
+    issuer: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
@@ -38,6 +39,17 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
     resource["spec"]["replicas"] = 1
+
+    create_secret(namespace, "appdb-prom-secret", {"password": "prom-password"})
+
+    prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name + "-db")
+    resource["spec"]["applicationDatabase"]["prometheus"] = {
+        "username": "prom-user",
+        "passwordSecretRef": {"name": "appdb-prom-secret"},
+        "tlsSecretKeyRef": {
+            "name": prom_cert_secret,
+        },
+    }
 
     return resource.create()
 
@@ -208,6 +220,18 @@ def test_sharded_cluster_service_has_been_updated_with_prometheus_port(
         sharded_cluster.namespace,
         port=CONFIGURED_PROMETHEUS_PORT,
     )
+
+
+@mark.e2e_om_ops_manager_prometheus
+def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB):
+    auth = ("prom-user", "prom-password")
+    name = ops_manager.name + "-db"
+
+    for idx in range(ops_manager["spec"]["applicationDatabase"]["members"]):
+        url = f"https://{name}-{idx}.{name}-svc.{ops_manager.namespace}.svc.cluster.local:9216/metrics"
+        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+
+    assert_mongodb_prometheus_port_exist(name + "-svc", ops_manager.namespace, 9216)
 
 
 def assert_mongodb_prometheus_port_exist(service_name: str, namespace: str, port: int):
