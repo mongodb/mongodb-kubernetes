@@ -129,6 +129,14 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 
 }
 
+func getEmptyDeploymentOptions() deploymentOptions {
+	return deploymentOptions{
+		podEnvVars:         &env.PodEnvVars{},
+		certTLSType:        map[string]bool{},
+		prometheusCertHash: "",
+	}
+}
+
 // TestPrepareScaleDownShardedCluster tests the scale down operation for config servers and mongods per shard. It checks
 // that all members that will be removed are marked as unvoted
 func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
@@ -153,7 +161,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 
 	r.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", map[string]bool{}, zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
 	// expected change of state: rs members are marked unvoted
@@ -196,7 +204,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 
 	r.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, &env.PodEnvVars{}, "", map[string]bool{}, zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
 	expectedDeployment := createDeploymentFromShardedCluster(scBeforeScale)
@@ -233,7 +241,7 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	oldDeployment := createDeploymentFromShardedCluster(sc)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, sc, &env.PodEnvVars{}, "", map[string]bool{}, zap.S()))
+	assert.NoError(t, r.prepareScaleDownShardedCluster(mockedOmConnection, sc, getEmptyDeploymentOptions(), zap.S()))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
 	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
@@ -343,7 +351,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	allConfigs := reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, "", zap.S())
+	allConfigs := reconciler.getAllConfigs(*sc, getEmptyDeploymentOptions(), zap.S())
 
 	assert.False(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 
@@ -354,7 +362,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	allConfigs = reconciler.getAllConfigs(*sc, &env.PodEnvVars{}, "", map[string]bool{}, "", zap.S())
+	allConfigs = reconciler.getAllConfigs(*sc, getEmptyDeploymentOptions(), zap.S())
 	assert.True(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
 }
 

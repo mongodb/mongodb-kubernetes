@@ -235,7 +235,12 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return workflow.Failed("Could not generate certificates for Prometheus: %s", err)
 	}
 
-	if err = r.prepareScaleDownShardedCluster(conn, sc, podEnvVars, currentAgentAuthMode, certSecretTypesForSTS, log); err != nil {
+	opts := deploymentOptions{
+		podEnvVars:           podEnvVars,
+		currentAgentAuthMode: currentAgentAuthMode,
+		certTLSType:          certSecretTypesForSTS,
+	}
+	if err = r.prepareScaleDownShardedCluster(conn, sc, opts, log); err != nil {
 		return workflow.Failed("failed to perform scale down preliminary actions: %s", err)
 	}
 
@@ -277,9 +282,17 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 
 	certTLSMapping := merge.StringToBoolMap(certSecretTypesForSTS, certSecretTypeForAgentAndInternal)
-	allConfigs := r.getAllConfigs(*sc, podEnvVars, currentAgentAuthMode, certTLSMapping, prometheusCertHash, log)
-
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name).Name
+
+	opts = deploymentOptions{
+		podEnvVars:           podEnvVars,
+		currentAgentAuthMode: currentAgentAuthMode,
+		caFilePath:           caFilePath,
+		agentCertSecretName:  agentCertSecretName,
+		certTLSType:          certTLSMapping,
+		prometheusCertHash:   prometheusCertHash,
+	}
+	allConfigs := r.getAllConfigs(*sc, opts, log)
 
 	shardConfig := allConfigs[0](*sc)
 	if shardConfig.CertSecretTypes.IsCertTLSType(agentCertSecretName) {
@@ -288,20 +301,10 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	status = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishState(*sc, r.client, allConfigs, log),
 		func() workflow.Status {
-
-			opts := deploymentOptions{
-				podEnvVars:           podEnvVars,
-				currentAgentAuthMode: currentAgentAuthMode,
-				caFilePath:           caFilePath,
-				agentCertSecretName:  agentCertSecretName,
-				certTLSType:          certTLSMapping,
-				prometheusCertHash:   prometheusCertHash,
-			}
-
 			return r.updateOmDeploymentShardedCluster(conn, sc, opts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return r.createKubernetesResources(sc, podEnvVars, certTLSMapping, currentAgentAuthMode, prometheusCertHash, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
+			return r.createKubernetesResources(sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
 		})
 
 	if !status.IsOK() {
@@ -344,13 +347,13 @@ func anyStatefulSetNeedsToPublishState(sc mdbv1.MongoDB, getter ConfigMapStatefu
 
 // getAllConfigs returns a list of all the configuration functions associated with the Sharded Cluster.
 // This includes the Mongos, the Config Server and all Shards
-func (r ReconcileMongoDbShardedCluster) getAllConfigs(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certSecretType map[string]bool, prometheusCertHash string, log *zap.SugaredLogger) []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r ReconcileMongoDbShardedCluster) getAllConfigs(sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	allConfigs := make([]func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, 0)
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		allConfigs = append(allConfigs, r.getShardOptions(sc, i, podVars, currentAgentAuthMechanism, certSecretType, prometheusCertHash, log))
+		allConfigs = append(allConfigs, r.getShardOptions(sc, i, opts, log))
 	}
-	allConfigs = append(allConfigs, r.getConfigServerOptions(sc, podVars, currentAgentAuthMechanism, certSecretType, prometheusCertHash, log))
-	allConfigs = append(allConfigs, r.getMongosOptions(sc, podVars, currentAgentAuthMechanism, certSecretType, prometheusCertHash, log))
+	allConfigs = append(allConfigs, r.getConfigServerOptions(sc, opts, log))
+	allConfigs = append(allConfigs, r.getMongosOptions(sc, opts, log))
 	return allConfigs
 }
 
@@ -405,8 +408,8 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 // This function returns errorStatus if any errors occured or pendingStatus if the statefulsets are not
 // ready yet
 // Note, that it doesn't remove any existing shards - this will be done later
-func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, podVars *env.PodEnvVars, certTLSType map[string]bool, currentAgentAuthMechanism string, prometheusCertHash string, log *zap.SugaredLogger) workflow.Status {
-	configSrvOpts := r.getConfigServerOptions(*s, podVars, currentAgentAuthMechanism, certTLSType, prometheusCertHash, log)
+func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
+	configSrvOpts := r.getConfigServerOptions(*s, opts, log)
 	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts)
 	if err := create.DatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
@@ -422,7 +425,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardsNames[i] = s.ShardRsName(i)
-		shardOpts := r.getShardOptions(*s, i, podVars, currentAgentAuthMechanism, certTLSType, prometheusCertHash, log)
+		shardOpts := r.getShardOptions(*s, i, opts, log)
 		shardSts := construct.DatabaseStatefulSet(*s, shardOpts)
 
 		if err := create.DatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log); err != nil {
@@ -436,7 +439,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
 
-	mongosOpts := r.getMongosOptions(*s, podVars, currentAgentAuthMechanism, certTLSType, prometheusCertHash, log)
+	mongosOpts := r.getMongosOptions(*s, opts, log)
 	mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts)
 
 	if err := create.DatabaseInKubernetes(r.client, *s, mongosSts, mongosOpts, log); err != nil {
@@ -577,13 +580,13 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient om.Connection, sc *mdbv1.MongoDB, podEnvVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSType map[string]bool, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) error {
 	membersToScaleDown := make(map[string][]string)
 	clusterName := sc.Spec.GetClusterDomain()
 
 	// Scaledown amount of replicas in ConfigServer
 	if r.isConfigServerScaleDown() {
-		sts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, podEnvVars, currentAgentAuthMechanism, certTLSType, "", log))
+		sts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log))
 		_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.ConfigServerCount)
 		membersToScaleDown[sc.ConfigRsName()] = podNames[r.getConfigSrvCountThisReconciliation():sc.Status.ConfigServerCount]
 	}
@@ -591,7 +594,7 @@ func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient
 	// Scaledown size of each shard
 	if r.isShardsSizeScaleDown() {
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			sts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, podEnvVars, currentAgentAuthMechanism, certTLSType, "", log))
+			sts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log))
 			_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.MongodsPerShardCount)
 			membersToScaleDown[sc.ShardRsName(i)] = podNames[r.getMongodsPerShardCountThisReconciliation():sc.Status.MongodsPerShardCount]
 		}
@@ -634,7 +637,7 @@ type deploymentOptions struct {
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
 func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(sc, conn, opts.podEnvVars, opts.certTLSType, opts.currentAgentAuthMode, log)
+	err := r.waitForAgentsToRegister(sc, conn, opts, log)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -706,13 +709,13 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 
 	// mongos
-	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, opts.podEnvVars, opts.currentAgentAuthMode, opts.certTLSType, "", log))
+	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, *opts, log))
 	mongosInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 	mongosMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	mongosProcesses := createMongosProcesses(sts, sc, mongosMemberCertPath)
 
 	// config server
-	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts.podEnvVars, opts.currentAgentAuthMode, opts.certTLSType, "", log))
+	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, *opts, log))
 	configInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 	configMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sc, configMemberCertPath), sc)
@@ -721,7 +724,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
 	shardsInternalClusterPath := make([]string, len(shards))
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts.podEnvVars, opts.currentAgentAuthMode, opts.certTLSType, "", log))
+		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, *opts, log))
 		shardsInternalClusterPath[i] = statefulset.GetFilePathFromAnnotationOrDefault(shardSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 		shardMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(shardSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sc, shardMemberCertPath), sc)
@@ -825,21 +828,21 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 	return allProcesses
 }
 
-func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, podEnvVars *env.PodEnvVars, certTLSType map[string]bool, currentAgentAuthMode string,
+func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, opts deploymentOptions,
 	log *zap.SugaredLogger) error {
 
-	mongosStatefulSet := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, podEnvVars, currentAgentAuthMode, certTLSType, "", log))
+	mongosStatefulSet := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, opts, log))
 	if err := agents.WaitForRsAgentsToRegister(mongosStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
 		return err
 	}
 
-	configSrvStatefulSet := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, podEnvVars, currentAgentAuthMode, certTLSType, "", log))
+	configSrvStatefulSet := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log))
 	if err := agents.WaitForRsAgentsToRegister(configSrvStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
 		return err
 	}
 
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		shardStatefulSet := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, podEnvVars, currentAgentAuthMode, certTLSType, "", log))
+		shardStatefulSet := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log))
 		if err := agents.WaitForRsAgentsToRegister(shardStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
 			return err
 		}
@@ -944,7 +947,7 @@ func (r shardedClusterScaler) CurrentReplicas() int {
 }
 
 // getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.
-func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, prometheusCertHash string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName())
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName())
 
@@ -957,18 +960,18 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 
 	return construct.ConfigServerOptions(
 		Replicas(r.getConfigSrvCountThisReconciliation()),
-		PodEnvVars(podVars),
-		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
+		PodEnvVars(opts.podEnvVars),
+		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
-		PrometheusTLSCertHash(prometheusCertHash),
-		NewTLSDesignMap(certTLSTypes),
+		PrometheusTLSCertHash(opts.prometheusCertHash),
+		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
 	)
 }
 
 // getMongosOptions returns the Options needed to build the StatefulSet for the mongos.
-func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, prometheusCertHash string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName())
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName())
 
@@ -978,18 +981,18 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, podV
 	}
 	return construct.MongosOptions(
 		Replicas(r.getMongosCountThisReconciliation()),
-		PodEnvVars(podVars),
-		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
+		PodEnvVars(opts.podEnvVars),
+		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
-		PrometheusTLSCertHash(prometheusCertHash),
-		NewTLSDesignMap(certTLSTypes),
+		PrometheusTLSCertHash(opts.prometheusCertHash),
+		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
 	)
 }
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
-func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, podVars *env.PodEnvVars, currentAgentAuthMechanism string, certTLSTypes map[string]bool, prometheusCertHash string, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, opts deploymentOptions, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(shardNum))
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(shardNum))
 
@@ -1001,12 +1004,12 @@ func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shard
 	}
 	return construct.ShardOptions(shardNum,
 		Replicas(r.getMongodsPerShardCountThisReconciliation()),
-		PodEnvVars(podVars),
-		CurrentAgentAuthMechanism(currentAgentAuthMechanism),
+		PodEnvVars(opts.podEnvVars),
+		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
-		PrometheusTLSCertHash(prometheusCertHash),
-		NewTLSDesignMap(certTLSTypes),
+		PrometheusTLSCertHash(opts.prometheusCertHash),
+		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
 	)
 }
