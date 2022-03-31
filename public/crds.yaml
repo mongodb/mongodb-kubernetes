@@ -641,9 +641,8 @@ spec:
                           certificates to use when enabling TLS.
                         properties:
                           prefix:
-                            description: 'TODO: make prefix required once name has
-                              been removed. DEPRECATED please use security.certsSecretPrefix
-                              instead'
+                            description: DEPRECATED please use security.certsSecretPrefix
+                              instead
                             type: string
                         required:
                         - prefix
@@ -1212,9 +1211,8 @@ spec:
                           certificates to use when enabling TLS.
                         properties:
                           prefix:
-                            description: 'TODO: make prefix required once name has
-                              been removed. DEPRECATED please use security.certsSecretPrefix
-                              instead'
+                            description: DEPRECATED please use security.certsSecretPrefix
+                              instead
                             type: string
                         required:
                         - prefix
@@ -1993,9 +1991,8 @@ spec:
                               the certificates to use when enabling TLS.
                             properties:
                               prefix:
-                                description: 'TODO: make prefix required once name
-                                  has been removed. DEPRECATED please use security.certsSecretPrefix
-                                  instead'
+                                description: DEPRECATED please use security.certsSecretPrefix
+                                  instead
                                 type: string
                             required:
                             - prefix
