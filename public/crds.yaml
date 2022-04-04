@@ -1411,6 +1411,8 @@ spec:
             type: object
           spec:
             properties:
+              connectionStringSecretName:
+                type: string
               db:
                 type: string
               mongodbResourceRef:

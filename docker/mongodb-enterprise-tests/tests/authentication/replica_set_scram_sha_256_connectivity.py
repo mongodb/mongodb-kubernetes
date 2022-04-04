@@ -9,6 +9,7 @@ from pytest import fixture, mark
 MDB_RESOURCE = "my-replica-set"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
+CONNECTION_STRING_SECRET_NAME = "my-replica-set-connection-string"
 USER_PASSWORD = "my-password"
 USER_DATABASE = "admin"
 
@@ -49,6 +50,11 @@ def scram_user(namespace: str) -> MongoDBUser:
 def standard_secret(replica_set: MongoDB):
     secret_name = "{}-{}-{}".format(replica_set.name, USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
+
+
+@fixture(scope="module")
+def connection_string_secret(replica_set: MongoDB):
+    return read_secret(replica_set.namespace, CONNECTION_STRING_SECRET_NAME)
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -158,6 +164,38 @@ def test_credentials_can_connect_to_db_with_srv(
     print("Connecting with {}".format(standard_secret["connectionString.standardSrv"]))
     replica_set.assert_connectivity_from_connection_string(
         standard_secret["connectionString.standardSrv"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_update_user_with_connection_string_secret(scram_user: MongoDBUser):
+    scram_user.load()
+    scram_user["spec"]["connectionStringSecretName"] = CONNECTION_STRING_SECRET_NAME
+    scram_user.update()
+
+    scram_user.assert_reaches_phase(Phase.Updated)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_credentials_can_connect_to_db_with_connection_string_secret(
+    replica_set: MongoDB, connection_string_secret: Dict[str, str]
+):
+    print(
+        "Connecting with {}".format(
+            connection_string_secret["connectionString.standard"]
+        )
+    )
+    replica_set.assert_connectivity_from_connection_string(
+        connection_string_secret["connectionString.standard"], tls=False
+    )
+
+    print(
+        "Connecting with {}".format(
+            connection_string_secret["connectionString.standardSrv"]
+        )
+    )
+    replica_set.assert_connectivity_from_connection_string(
+        connection_string_secret["connectionString.standardSrv"], tls=False
     )
 
 

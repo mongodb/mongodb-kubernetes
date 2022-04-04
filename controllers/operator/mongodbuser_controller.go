@@ -28,6 +28,8 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -212,11 +214,20 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDB
 		return err
 	}
 
+	secretName := user.GetConnectionStringSecretName()
+	existingSecret, err := r.client.GetSecret(types.NamespacedName{Name: secretName, Namespace: user.Namespace})
+	if err != nil && !apiErrors.IsNotFound(err) {
+		return err
+	}
+	if err == nil && !secret.HasOwnerReferences(existingSecret, user.GetOwnerReferences()) {
+		return fmt.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+	}
+
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
 	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{})
 
 	connectionStringSecret := secret.Builder().
-		SetName(user.GetConnectionStringSecretName()).
+		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).

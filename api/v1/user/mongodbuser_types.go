@@ -2,6 +2,7 @@ package user
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -10,6 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -84,6 +86,8 @@ type MongoDBUserSpec struct {
 	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
 	// +optional
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
+	// +optional
+	ConnectionStringSecretName string `json:"connectionStringSecretName"`
 }
 
 type MongoDBUserStatus struct {
@@ -133,6 +137,9 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 }
 
 func (u MongoDBUser) GetConnectionStringSecretName() string {
+	if u.Spec.ConnectionStringSecretName != "" {
+		return u.Spec.ConnectionStringSecretName
+	}
 	var resourceRef string
 	if u.Spec.MongoDBResourceRef.Name != "" {
 		resourceRef = u.Spec.MongoDBResourceRef.Name + "-"
@@ -143,7 +150,34 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 		database = strings.TrimPrefix(database, "$")
 	}
 
-	return fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database)
+	return normalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
+}
+
+// normalizeName returns a string that conforms to RFC-1123.
+// This logic is duplicated in the community operator in https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/api/v1/mongodbcommunity_types.go.
+// The logic should be reused if/when we unify the user types or observe that the logic needs to be changed for business logic reasons, to avoid modifying it
+// in separate places in the future.
+func normalizeName(name string) string {
+	errors := validation.IsDNS1123Subdomain(name)
+	if len(errors) == 0 {
+		return name
+	}
+
+	// convert name to lowercase and replace invalid characters with '-'
+	name = strings.ToLower(name)
+	re := regexp.MustCompile("[^a-z0-9-]+")
+	name = re.ReplaceAllString(name, "-")
+
+	// Remove duplicate `-` resulting from contiguous non-allowed chars.
+	re = regexp.MustCompile(`\-+`)
+	name = re.ReplaceAllString(name, "-")
+
+	name = strings.Trim(name, "-")
+
+	if len(name) > validation.DNS1123SubdomainMaxLength {
+		name = name[0:validation.DNS1123SubdomainMaxLength]
+	}
+	return name
 }
 
 func (m *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {
