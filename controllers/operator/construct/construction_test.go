@@ -244,21 +244,21 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 
 	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetpodEnvOptions()))
 	assert.Nil(t, sts.Spec.Template.Spec.SecurityContext)
-	// TODO: assert the container security context
 }
 
 func TestPodSpec_Requirements(t *testing.T) {
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().
 		SetCpuRequests("0.1").
 		SetMemoryRequest("512M").
-		SetCpu("0.3").
-		SetMemory("1012M").
+		SetCpuLimit("0.3").
+		SetMemoryLimit("1012M").
 		Build()
 
 	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build(), ReplicaSetOptions(GetpodEnvOptions()))
 
 	podSpecTemplate := sts.Spec.Template
 	container := podSpecTemplate.Spec.Containers[0]
+
 	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: ParseQuantityOrZero("0.3"), corev1.ResourceMemory: ParseQuantityOrZero("1012M")}
 	expectedRequests := corev1.ResourceList{corev1.ResourceCPU: ParseQuantityOrZero("0.1"), corev1.ResourceMemory: ParseQuantityOrZero("512M")}
 	assert.Equal(t, expectedLimits, container.Resources.Limits)

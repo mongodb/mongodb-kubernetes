@@ -54,8 +54,6 @@ spec:
     members: 3
     version: 4.2.2-ent
     podSpec:
-      cpu: '0.25'
-      memory: 350M
       persistence:
         single:
           storage: 1G
@@ -74,4 +72,9 @@ spec:
                   cpu: "1"
                 requests:
                   cpu: 500m
+            - name: mongodb-agent
+              resources:
+                limits:
+                  cpu: '0.25'
+                  memory: 350M
 

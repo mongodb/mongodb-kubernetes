@@ -108,7 +108,22 @@ class TestOpsManagerAppDbUpdateMemory:
 
     def test_appdb_updated(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["applicationDatabase"]["podSpec"] = {"memory": "350M"}
+        ops_manager["spec"]["applicationDatabase"]["podSpec"] = {
+            "podTemplate": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "mongodb-agent",
+                            "resources": {
+                                "requests": {
+                                    "memory": "350M",
+                                },
+                            },
+                        }
+                    ]
+                }
+            }
+        }
         ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
         # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly

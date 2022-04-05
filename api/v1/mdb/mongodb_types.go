@@ -1020,14 +1020,7 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 }
 
 type MongoDbPodSpec struct {
-	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
-	Cpu string `json:"cpu,omitempty"`
-	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
-	CpuRequests string `json:"cpuRequests,omitempty"`
-	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
-	Memory string `json:"memory,omitempty"`
-	// DEPRECATED. Please set this value using `spec.podTemplate` instead.
-	MemoryRequests string `json:"memoryRequests,omitempty"`
+	ContainerResourceRequirements `json:"-"`
 	// +kubebuilder:pruning:PreserveUnknownFields
 	PodAffinityWrapper PodAffinityWrapper `json:"podAffinity,omitempty"`
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -1040,6 +1033,13 @@ type MongoDbPodSpec struct {
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
 
 	Persistence *Persistence `json:"persistence,omitempty"`
+}
+
+type ContainerResourceRequirements struct {
+	CpuLimit       string
+	CpuRequests    string
+	MemoryLimit    string
+	MemoryRequests string
 }
 
 // This is a struct providing the opportunity to customize the pod created under the hood.
@@ -1072,22 +1072,23 @@ type PersistenceConfig struct {
 }
 
 func (p PodSpecWrapper) GetCpuOrDefault() string {
-	if p.Cpu == "" && p.CpuRequests == "" {
-		return p.Default.Cpu
+	if p.CpuLimit == "" && p.CpuRequests == "" {
+		return p.Default.CpuLimit
 	}
-	return p.Cpu
+	return p.CpuLimit
+
 }
 
 func (p PodSpecWrapper) GetMemoryOrDefault() string {
 	// We don't set default if either Memory requests or Memory limits are specified by the User
-	if p.Memory == "" && p.MemoryRequests == "" {
-		return p.Default.Memory
+	if p.ContainerResourceRequirements.MemoryLimit == "" && p.ContainerResourceRequirements.MemoryRequests == "" {
+		return p.Default.ContainerResourceRequirements.MemoryLimit
 	}
-	return p.Memory
+	return p.ContainerResourceRequirements.MemoryLimit
 }
 
 func (p PodSpecWrapper) GetCpuRequestsOrDefault() string {
-	if p.CpuRequests == "" && p.Cpu == "" {
+	if p.CpuRequests == "" && p.CpuLimit == "" {
 		return p.Default.CpuRequests
 	}
 	return p.CpuRequests
@@ -1097,7 +1098,7 @@ func (p PodSpecWrapper) GetMemoryRequestsOrDefault() string {
 	// We don't set default if either Memory requests or Memory limits are specified by the User
 	// otherwise it's possible to get failed Statefulset (e.g. the user specified limits of 200M but we default
 	//requests to 500M though requests must be less than limits)
-	if p.MemoryRequests == "" && p.Memory == "" {
+	if p.MemoryRequests == "" && p.MemoryLimit == "" {
 		return p.Default.MemoryRequests
 	}
 	return p.MemoryRequests
@@ -1111,12 +1112,12 @@ func (p PodSpecWrapper) GetTopologyKeyOrDefault() string {
 }
 
 func (p PodSpecWrapper) SetCpu(cpu string) PodSpecWrapper {
-	p.Cpu = cpu
+	p.CpuLimit = cpu
 	return p
 }
 
 func (p PodSpecWrapper) SetMemory(memory string) PodSpecWrapper {
-	p.Memory = memory
+	p.MemoryLimit = memory
 	return p
 }
 

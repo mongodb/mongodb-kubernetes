@@ -18,10 +18,12 @@ type PersistenceConfigBuilder struct {
 // NewPodSpecWrapperBuilder returns the builder with some default values, used in tests mostly
 func NewPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 	spec := MongoDbPodSpec{
-		Cpu:            "1.0",
-		CpuRequests:    "0.5",
-		Memory:         "500M",
-		MemoryRequests: "400M",
+		ContainerResourceRequirements: ContainerResourceRequirements{
+			CpuLimit:       "1.0",
+			CpuRequests:    "0.5",
+			MemoryLimit:    "500M",
+			MemoryRequests: "400M",
+		},
 	}
 	return &PodSpecWrapperBuilder{PodSpecWrapper{
 		MongoDbPodSpec: spec,
@@ -47,16 +49,16 @@ func NewEmptyPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 	}}
 }
 
-func (p *PodSpecWrapperBuilder) SetCpu(cpu string) *PodSpecWrapperBuilder {
-	p.spec.Cpu = cpu
+func (p *PodSpecWrapperBuilder) SetCpuLimit(cpu string) *PodSpecWrapperBuilder {
+	p.spec.CpuLimit = cpu
 	return p
 }
 func (p *PodSpecWrapperBuilder) SetCpuRequests(cpu string) *PodSpecWrapperBuilder {
 	p.spec.CpuRequests = cpu
 	return p
 }
-func (p *PodSpecWrapperBuilder) SetMemory(memory string) *PodSpecWrapperBuilder {
-	p.spec.Memory = memory
+func (p *PodSpecWrapperBuilder) SetMemoryLimit(memory string) *PodSpecWrapperBuilder {
+	p.spec.MemoryLimit = memory
 	return p
 }
 func (p *PodSpecWrapperBuilder) SetMemoryRequest(memory string) *PodSpecWrapperBuilder {

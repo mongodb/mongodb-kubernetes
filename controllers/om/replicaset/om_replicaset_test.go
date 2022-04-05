@@ -9,7 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	zap "go.uber.org/zap"
 )
 
 func init() {

@@ -47,8 +47,8 @@ func TestStorageRequirements(t *testing.T) {
 
 func TestBuildLimitsRequirements(t *testing.T) {
 	// values are provided - the defaults are ignored
-	podSpec := mdbv1.NewEmptyPodSpecWrapperBuilder().SetCpu("0.1").SetMemory("512M").
-		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpu("0.5").SetMemory("1G")).
+	podSpec := mdbv1.NewEmptyPodSpecWrapperBuilder().SetCpuLimit("0.1").SetMemoryLimit("512M").
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpuLimit("0.5").SetMemoryLimit("1G")).
 		Build()
 
 	req := buildLimitsRequirements(podSpec)
@@ -61,7 +61,7 @@ func TestBuildLimitsRequirements(t *testing.T) {
 
 	// values are not provided - the defaults are used
 	podSpec = mdbv1.NewEmptyPodSpecWrapperBuilder().
-		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpu("0.8").SetMemory("10G")).
+		SetDefault(mdbv1.NewPodSpecWrapperBuilder().SetCpuLimit("0.8").SetMemoryLimit("10G")).
 		Build()
 
 	req = buildLimitsRequirements(podSpec)

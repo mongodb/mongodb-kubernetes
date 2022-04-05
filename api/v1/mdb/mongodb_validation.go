@@ -133,22 +133,6 @@ func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(ms MongoDbSpec) v1
 	return v1.ValidationSuccess()
 }
 
-func usesShortcutResource(ms MongoDbSpec) v1.ValidationResult {
-	if ms.ResourceType == Standalone || ms.ResourceType == ReplicaSet {
-		if UsesDeprecatedResourceFields(*ms.PodSpec) {
-			return v1.ValidationWarning(UseOfDeprecatedShortcutFieldsWarning)
-		}
-		return v1.ValidationSuccess()
-	}
-
-	if UsesDeprecatedResourceFields(*ms.ConfigSrvPodSpec) ||
-		UsesDeprecatedResourceFields(*ms.MongosPodSpec) ||
-		UsesDeprecatedResourceFields(*ms.ShardPodSpec) {
-		return v1.ValidationWarning(UseOfDeprecatedShortcutFieldsWarning)
-	}
-	return v1.ValidationSuccess()
-}
-
 func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if newObj.ResourceType != oldObj.ResourceType {
 		return v1.ValidationError("'resourceType' cannot be changed once created")
@@ -173,11 +157,6 @@ func specWithExactlyOneSchema(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func UsesDeprecatedResourceFields(podSpec MongoDbPodSpec) bool {
-	return podSpec.Cpu != "" || podSpec.CpuRequests != "" ||
-		podSpec.Memory != "" || podSpec.MemoryRequests != ""
-}
-
 func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	validators := []func(ms MongoDbSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -190,7 +169,6 @@ func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		rolesAttributeisCorrectlyConfigured,
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
-		usesShortcutResource,
 		specWithExactlyOneSchema,
 	}
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{

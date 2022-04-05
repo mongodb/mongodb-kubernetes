@@ -27,7 +27,7 @@ func TestCreateProcessesWiredTigerCache(t *testing.T) {
 		assert.Nil(t, p.WiredTigerCache())
 	}
 
-	rs.Spec.PodSpec = &mdbv1.NewPodSpecWrapperBuilder().SetMemory("3G").Build().MongoDbPodSpec
+	rs.Spec.PodSpec = &mdbv1.NewPodSpecWrapperBuilder().SetMemoryLimit("3G").Build().MongoDbPodSpec
 
 	set = construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions(construct.GetpodEnvOptions()))
 	processes = CreateMongodProcesses(set, util.DatabaseContainerName, &rs.Spec)

@@ -36,10 +36,22 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     # Setting podSpec shortcut values here to test they are still
     # added as resources when needed.
     resource["spec"]["podSpec"] = {
-        "cpu": "0.5",
-        "cpuRequests": "0.2",
-        "memory": "700M",
-        "memoryRequests": "300M",
+        "podTemplate": {
+            "spec": {
+                "containers": [
+                    {
+                        "name": "mongodb-enterprise-database",
+                        "resources": {
+                            "limits": {
+                                "cpu": "0.5",
+                                "memory": "700M",
+                            },
+                            "requests": {"cpu": "0.2", "memory": "300M"},
+                        },
+                    }
+                ]
+            }
+        }
     }
     resource.create()
 
@@ -312,7 +324,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     replica_set["spec"]["members"] = 1
     replica_set.update()
 
-    replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1200)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
 

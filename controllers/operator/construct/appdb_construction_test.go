@@ -10,6 +10,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func init() {
@@ -36,4 +37,41 @@ func TestAppDBAgentFlags(t *testing.T) {
 func TestReplaceImageTag(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"))
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:some-tag", replaceImageTag("quay.io/mongodb/mongodb-enterprise-database:45678", "some-tag"))
+}
+
+func TestResourceRequirements(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+
+	agentResourceRequirements := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    ParseQuantityOrZero("200"),
+			corev1.ResourceMemory: ParseQuantityOrZero("500M"),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    ParseQuantityOrZero("100"),
+			corev1.ResourceMemory: ParseQuantityOrZero("200M"),
+		},
+	}
+
+	om.Spec.AppDB.PodSpec.PodTemplateWrapper = mdbv1.PodTemplateSpecWrapper{
+		PodTemplate: &corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:      "mongodb-agent",
+						Resources: agentResourceRequirements,
+					},
+				},
+			},
+		},
+	}
+
+	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{})
+	assert.NoError(t, err)
+
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		if c.Name == "mongodb-agent" {
+			assert.Equal(t, agentResourceRequirements, c.Resources)
+		}
+	}
 }

@@ -96,11 +96,11 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
-	mongoPodSpec := appdbPodSpec
+	mongoPodSpec := *appdbPodSpec
 	mongoPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 	mongoPodTemplateFunc := podtemplatespec.WithContainer(
 		construct.MongodbName,
-		container.WithResourceRequirements(buildRequirementsFromPodSpec(*mongoPodSpec)),
+		container.WithResourceRequirements(buildRequirementsFromPodSpec(mongoPodSpec)),
 	)
 	automationPodTemplateFunc := podtemplatespec.WithContainer(
 		construct.AgentName,

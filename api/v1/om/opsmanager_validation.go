@@ -7,7 +7,6 @@ import (
 	"github.com/blang/semver"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -137,14 +136,6 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.Val
 			)
 		}
 	}
-	return v1.ValidationSuccess()
-}
-
-func usesShortcutResource(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if mdbv1.UsesDeprecatedResourceFields(*os.AppDB.PodSpec) {
-		return v1.ValidationWarning(mdbv1.UseOfDeprecatedShortcutFieldsWarning)
-	}
-
 	return v1.ValidationSuccess()
 }
 

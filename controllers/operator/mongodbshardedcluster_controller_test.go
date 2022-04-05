@@ -40,7 +40,6 @@ import (
 	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -695,61 +694,6 @@ func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing
 		shardSvc, err := client.GetService(kube.ObjectKey(sc.Namespace, sc.ShardServiceName()))
 		assert.NoError(t, err)
 		assert.Equal(t, int32(30002), shardSvc.Spec.Ports[0].Port)
-	})
-}
-
-func TestShardedClusterSettingDeprecatedFieldsAddsWarning(t *testing.T) {
-	sc := mdbv1.NewClusterBuilder().
-		SetNamespace(mock.TestNamespace).
-		SetConnectionSpec(testConnectionSpec()).
-		Build()
-	reconciler, client := defaultClusterReconciler(sc)
-
-	t.Run("Adding shortcut resources adds warnings", func(t *testing.T) {
-		err := client.Get(context.TODO(), types.NamespacedName{Name: sc.Name, Namespace: sc.Namespace}, sc)
-		assert.NoError(t, err)
-
-		sc.Spec.ConfigSrvPodSpec.Cpu = "1"
-
-		err = client.Update(context.TODO(), sc)
-		assert.NoError(t, err)
-
-		checkReconcileSuccessful(t, reconciler, sc, client)
-
-		assert.NotEmpty(t, sc.Status.Warnings)
-		assert.Subset(t, sc.Status.Warnings, []status.Warning{mdbv1.UseOfDeprecatedShortcutFieldsWarning})
-	})
-
-	t.Run("No shortcut resources won't get warnings", func(t *testing.T) {
-		err := client.Get(context.TODO(), types.NamespacedName{Name: sc.Name, Namespace: sc.Namespace}, sc)
-		assert.NoError(t, err)
-
-		sc.Spec.ConfigSrvPodSpec.Cpu = ""
-
-		err = client.Update(context.TODO(), sc)
-		assert.NoError(t, err)
-
-		checkReconcileSuccessful(t, reconciler, sc, client)
-
-		assert.Empty(t, sc.Status.Warnings)
-	})
-
-	t.Run("Multiple shortcut resources adds only 1 warning", func(t *testing.T) {
-		err := client.Get(context.TODO(), types.NamespacedName{Name: sc.Name, Namespace: sc.Namespace}, sc)
-		assert.NoError(t, err)
-
-		sc.Spec.ConfigSrvPodSpec.Cpu = "1"
-		sc.Spec.MongosPodSpec.Memory = "1"
-		sc.Spec.ShardPodSpec.MemoryRequests = "2"
-
-		err = client.Update(context.TODO(), sc)
-		assert.NoError(t, err)
-
-		checkReconcileSuccessful(t, reconciler, sc, client)
-
-		assert.NotEmpty(t, sc.Status.Warnings)
-		assert.Subset(t, sc.Status.Warnings, []status.Warning{mdbv1.UseOfDeprecatedShortcutFieldsWarning})
-		assert.Len(t, sc.Status.Warnings, 1)
 	})
 }
 

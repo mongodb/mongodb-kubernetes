@@ -15,8 +15,6 @@ SHARD_TOPOLOGY_KEY = "shard"
 MONGOS_TOPOLOGY_KEY = "mongos"
 CONFIG_TOPOLOGY_KEY = "config"
 
-DEPRECATION_SHORTCUT_RESOURCES_WARNING = "The use of the spec.podSpec to set cpu, cpuLimits, memory or memoryLimits has been DEPRECATED"
-
 
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
@@ -30,9 +28,6 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
 @mark.e2e_sharded_cluster_custom_podspec
 def test_replica_set_reaches_running_phase(sharded_cluster):
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
-    assert sharded_cluster["status"]["warnings"][0].startswith(
-        DEPRECATION_SHORTCUT_RESOURCES_WARNING
-    )
 
 
 @mark.e2e_sharded_cluster_custom_podspec
