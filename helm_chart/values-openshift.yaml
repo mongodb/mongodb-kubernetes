@@ -49,7 +49,7 @@ initAppDb:
 
 agent:
   name: mongodb-agent
-  version: 11.0.11.7036-1
+  version: 11.12.0.7388-1
 
 mongodb:
   name: mongodb-enterprise-appdb-database

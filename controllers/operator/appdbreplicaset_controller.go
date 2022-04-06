@@ -196,7 +196,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	}
 	appdbOpts.VaultConfig = vaultConfig
 
-	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, opsManager.GetNamespace(), opsManager.Spec.AppDB.Prometheus, log)
+	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, opsManager.GetNamespace(), opsManager.Spec.AppDB.Prometheus, certs.AppDB, log)
 	if err != nil {
 		// Do not fail on errors generating certs for Prometheus
 		log.Errorf("can't create a PEM-Format Secret for Prometheus certificates: %s", err)

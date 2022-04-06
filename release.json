@@ -10,6 +10,6 @@
   "databaseImageVersion": "2.0.2",
   "readinessProbeVersion": "1.0.8",
   "versionUpgradePostStartHookVersion": "1.0.4",
-  "agentVersion": "11.0.11.7036-1",
+  "agentVersion": "11.12.0.7388-1",
   "communityOperatorVersion": "0.7.4-0.20220321140822-365ef6c22456"
 }

@@ -11,7 +11,9 @@ from kubetester import (
     delete_secret,
     create_configmap,
     read_secret,
+    random_k8s_name,
 )
+from kubetester.http import https_endpoint_is_reachable
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester import get_default_storage_class
 from kubetester.mongodb import Phase, MongoDB
@@ -31,6 +33,19 @@ OPLOG_RS_NAME = "my-mongodb-oplog"
 AWS_REGION = "us-east-1"
 
 DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
+
+
+def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
+    secret_name = random_k8s_name(resource_name + "-") + "-prometheus-cert"
+
+    return create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        resource_name,
+        secret_name,
+        secret_backend="Vault",
+        vault_subpath="appdb",
+    )
 
 
 def new_om_s3_store(
@@ -81,7 +96,7 @@ def create_aws_secret(
 
 
 def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
-    """ creates a s3 bucket and a s3 config"""
+    """creates a s3 bucket and a s3 config"""
     bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
     aws_s3_client.create_s3_bucket(bucket_prefix)
     print("Created S3 bucket", bucket_prefix)
@@ -98,10 +113,14 @@ def ops_manager(
     custom_appdb_version: str,
     s3_bucket: str,
     issuer_ca_configmap: str,
+    issuer: str,
+    vault_namespace: str,
+    vault_name: str,
 ) -> MongoDBOpsManager:
     om = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
+
     om["spec"]["backup"] = {
         "enabled": True,
         "s3Stores": [
@@ -127,6 +146,22 @@ def ops_manager(
     }
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
+
+    prom_cert_secret = certs_for_prometheus(issuer, namespace, om.name + "-db")
+    store_secret_in_vault(
+        vault_namespace,
+        vault_name,
+        {"password": "prom-password"},
+        f"secret/mongodbenterprise/operator/{namespace}/prom-password",
+    )
+
+    om["spec"]["applicationDatabase"]["prometheus"] = {
+        "username": "prom-user",
+        "passwordSecretRef": {"name": "prom-password"},
+        "tlsSecretKeyRef": {
+            "name": prom_cert_secret,
+        },
+    }
 
     return om.create()
 
@@ -387,11 +422,21 @@ def test_om_created(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_vault_setup_om_backup
+def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB):
+    auth = ("prom-user", "prom-password")
+    name = ops_manager.name + "-db"
+
+    for idx in range(ops_manager["spec"]["applicationDatabase"]["members"]):
+        url = f"https://{name}-{idx}.{name}-svc.{ops_manager.namespace}.svc.cluster.local:9216/metrics"
+        assert https_endpoint_is_reachable(url, auth, tls_verify=False)
+
+
+@mark.e2e_vault_setup_om_backup
 def test_backup_mdbs_created(
     oplog_replica_set: MongoDB,
     s3_replica_set: MongoDB,
 ):
-    """ Creates mongodb databases all at once """
+    """Creates mongodb databases all at once"""
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.assert_reaches_phase(Phase.Running)
 

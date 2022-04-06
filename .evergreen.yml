@@ -2575,7 +2575,7 @@ buildvariants:
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
-    agent_version: *agent_version50
+    agent_version: *agent_version60
 
     # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
@@ -2614,8 +2614,7 @@ buildvariants:
     custom_om_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
-    agent_version: *agent_version50
-
+    agent_version: *agent_version60
 
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
@@ -2652,7 +2651,7 @@ buildvariants:
     custom_om_version: *ops_manager_50_latest
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
-    agent_version: *agent_version50
+    agent_version: *agent_version60
 
     custom_appdb_version: *ops_manager_50_appdb_version
 
@@ -2726,7 +2725,7 @@ buildvariants:
     custom_om_version: *ops_manager_50_latest
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
-    agent_version: *agent_version50
+    agent_version: *agent_version60
 
     custom_appdb_version: *ops_manager_50_appdb_version
 

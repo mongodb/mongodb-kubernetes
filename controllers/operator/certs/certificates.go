@@ -298,7 +298,7 @@ func EnsureSSLCertsForStatefulSet(secretReadClient, secretWriteClient secrets.Se
 //
 // For Prometheus we *only accept* certificates of type `corev1.SecretTypeTLS`
 // so they always need to be concatenated into PEM-format.
-func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace string, prom *mdbcv1.Prometheus, log *zap.SugaredLogger) (string, error) {
+func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace string, prom *mdbcv1.Prometheus, podType certDestination, log *zap.SugaredLogger) (string, error) {
 	if prom == nil || prom.TLSSecretRef.Name == "" {
 		return "", nil
 	}
@@ -306,10 +306,17 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace st
 	var secretData map[string][]byte
 	var err error
 
-	var databaseSecretPath string
+	var secretPath string
 	if vault.IsVaultSecretBackend() {
-		databaseSecretPath = secretClient.VaultClient.DatabaseSecretPath()
-		secretData, err = secretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, prom.TLSSecretRef.Name))
+		// TODO: This is calculated twice, can this be done better?
+		// This "calculation" is used in ReadHashFromSecret but calculated again in `CreatePEMSecretClient`
+		if podType == Database {
+			secretPath = secretClient.VaultClient.DatabaseSecretPath()
+		} else if podType == AppDB {
+			secretPath = secretClient.VaultClient.AppDBSecretPath()
+		}
+
+		secretData, err = secretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretPath, namespace, prom.TLSSecretRef.Name))
 		if err != nil {
 			return "", err
 		}
@@ -344,8 +351,8 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace st
 	// ReadHashFromSecret will read the Secret once again from Kubernetes API,
 	// we can improve this function by providing the Secret Data contents,
 	// instead of `secretClient`.
-	secretHash := enterprisepem.ReadHashFromSecret(secretClient, namespace, prom.TLSSecretRef.Name, databaseSecretPath, log)
-	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, Database, log)
+	secretHash := enterprisepem.ReadHashFromSecret(secretClient, namespace, prom.TLSSecretRef.Name, secretPath, log)
+	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, podType, log)
 	if err != nil {
 		return "", fmt.Errorf("error creating hashed Secret: %s", err)
 	}
