@@ -3,6 +3,7 @@ package certs
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/hashicorp/go-multierror"
@@ -72,6 +73,14 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 // `opts`.
 func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (string, error) {
 	crt, key := secretData["tls.crt"], secretData["tls.key"]
+
+	// add a line break to the end of certificate when performing concatenation
+	crtString := string(crt)
+	if !strings.HasSuffix(crtString, "\n") {
+		crtString = crtString + "\n"
+	}
+	crt = []byte(crtString)
+
 	data := append(crt, key...)
 
 	additionalDomains := []string{}
