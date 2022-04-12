@@ -19,21 +19,36 @@ class TestShardedClusterCreation(KubernetesTester):
       timeout: 360
     """
 
+    custom_labels = {"label1": "val1", "label2": "val2"}
+
+    def check_sts_labels(self, sts):
+        sts_labels = sts.metadata.labels
+        for k in self.custom_labels:
+            assert k in sts_labels and sts_labels[k] == self.custom_labels[k]
+
+    def check_pvc_labels(self, pvc):
+        pvc_labels = pvc.metadata.labels
+        for k in self.custom_labels:
+            assert k in pvc_labels and pvc_labels[k] == self.custom_labels[k]
+
     def test_sharded_cluster_sts(self):
         sts0 = self.appsv1.read_namespaced_stateful_set("sh001-pv-0", self.namespace)
         assert sts0
+        self.check_sts_labels(sts0)
 
     def test_config_sts(self):
         config = self.appsv1.read_namespaced_stateful_set(
             "sh001-pv-config", self.namespace
         )
         assert config
+        self.check_sts_labels(config)
 
     def test_mongos_sts(self):
         mongos = self.appsv1.read_namespaced_stateful_set(
             "sh001-pv-mongos", self.namespace
         )
         assert mongos
+        self.check_sts_labels(mongos)
 
     def test_mongod_sharded_cluster_service(self):
         svc0 = self.corev1.read_namespaced_service("sh001-pv-sh", self.namespace)
@@ -60,6 +75,7 @@ class TestShardedClusterCreation(KubernetesTester):
             )
             assert pvc.status.phase == "Bound"
             assert pvc.spec.resources.requests["storage"] == "1G"
+            self.check_pvc_labels(pvc)
 
         pvc_config = ["data-sh001-pv-config-{}".format(x) for x in range(3)]
         for pvc_name in pvc_config:
@@ -68,6 +84,7 @@ class TestShardedClusterCreation(KubernetesTester):
             )
             assert pvc.status.phase == "Bound"
             assert pvc.spec.resources.requests["storage"] == "1G"
+            self.check_pvc_labels(pvc)
 
     def test_mongos_are_reachable(self):
         ShardedClusterTester("sh001-pv", 2)

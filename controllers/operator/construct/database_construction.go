@@ -83,8 +83,8 @@ type DatabaseStatefulSetOptions struct {
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	Annotations             map[string]string
 	VaultConfig             vault.VaultConfiguration
-
-	CertSecretTypes CertSecretTypesMapping
+	Labels                  map[string]string
+	CertSecretTypes         CertSecretTypesMapping
 }
 
 type CertSecretTypesMapping struct {
@@ -176,6 +176,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			OwnerReference:          kube.BaseOwnerReference(&mdb),
 			AgentConfig:             mdb.Spec.Agent,
 			StatefulSetSpecOverride: stsSpec,
+			Labels:                  mdb.Labels,
 		}
 		for _, opt := range additionalOpts {
 			opt(&opts)
@@ -202,6 +203,7 @@ func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStateful
 			AgentConfig:             mdb.Spec.ShardSpec.GetAgentConfig(),
 			Persistent:              mdb.Spec.Persistent,
 			StatefulSetSpecOverride: stsSpec,
+			Labels:                  mdb.Labels,
 		}
 
 		for _, opt := range additionalOpts {
@@ -231,6 +233,7 @@ func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOpti
 			OwnerReference:          kube.BaseOwnerReference(&mdb),
 			AgentConfig:             mdb.Spec.ConfigSrvSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
+			Labels:                  mdb.Labels,
 		}
 
 		for _, opt := range additionalOpts {
@@ -258,6 +261,7 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 			OwnerReference:          kube.BaseOwnerReference(&mdb),
 			AgentConfig:             mdb.Spec.MongosSpec.GetAgentConfig(),
 			StatefulSetSpecOverride: stsSpec,
+			Labels:                  mdb.Labels,
 		}
 
 		for _, opt := range additionalOpts {
@@ -274,6 +278,10 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 
 	if len(stsOptions.Annotations) > 0 {
 		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
+	}
+
+	if len(stsOptions.Labels) > 0 {
+		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.Labels)
 	}
 
 	if stsOptions.StatefulSetSpecOverride != nil {
@@ -449,7 +457,7 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 		defaultConfig := *podSpec.Default.Persistence.MultipleConfig
 
 		// Multiple claims, multiple mounts. No subpaths are used and everything is mounted to the root of directory
-		claims, mounts = createClaimsAndMountsMultiModeFunc(opts.PodSpec.Persistence, defaultConfig)
+		claims, mounts = createClaimsAndMountsMultiModeFunc(opts.PodSpec.Persistence, defaultConfig, opts.Labels)
 	}
 	return claims, mounts
 }

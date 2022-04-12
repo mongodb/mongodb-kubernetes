@@ -182,6 +182,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
 		NewTLSDesignMap(newTLSDesignForCerts),
 		WithVaultConfig(vaultConfig),
+		WithLabels(rs.Labels),
 	)
 
 	caFilePath := util.CAFilePathInContainer

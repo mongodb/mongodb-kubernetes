@@ -47,6 +47,13 @@ func PrometheusTLSCertHash(hash string) func(options *construct.DatabaseStateful
 	}
 }
 
+// WithLabels will assing the provided labels during the statefulset construction
+func WithLabels(labels map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.Labels = labels
+	}
+}
+
 // NewTLSDesignKey sets, for a specific key, whether or not the corresponding certificate
 // uses the new tls design (tls.crt and tls.key instead of concatenated PEM file )
 func NewTLSDesignKey(key string, newDesign bool) func(options *construct.DatabaseStatefulSetOptions) {

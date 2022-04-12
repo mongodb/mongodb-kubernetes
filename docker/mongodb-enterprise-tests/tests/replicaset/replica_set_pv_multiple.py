@@ -35,6 +35,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
     """
 
     RESOURCE_NAME = "rs001-pv-multiple"
+    custom_labels = {"label1": "val1", "label2": "val2"}
 
     def test_sts_creation(self):
         sts = self.appsv1.read_namespaced_stateful_set(
@@ -45,6 +46,9 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
         assert sts.kind == "StatefulSet"
         assert sts.status.current_replicas == 2
         assert sts.status.ready_replicas == 2
+        sts_labels = sts.metadata.labels
+        for k in self.custom_labels:
+            assert k in sts_labels and sts_labels[k] == self.custom_labels[k]
 
     def test_pvc_are_created_and_bound(self):
         """3 mount points must be mounted to 3 pvc."""
@@ -70,6 +74,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             "data-{}-{}".format(self.RESOURCE_NAME, idx),
             "2Gi",
             "gp2",
+            self.custom_labels,
         )
 
         # Note that PVC gets the default storage class for cluster even if it wasn't requested initially
@@ -80,6 +85,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             f"journal-{self.RESOURCE_NAME}-{idx}",
             "1Gi",
             default_sc,
+            self.custom_labels,
         )
         KubernetesTester.check_single_pvc(
             self.namespace,
@@ -88,6 +94,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             f"logs-{self.RESOURCE_NAME}-{idx}",
             "1G",
             default_sc,
+            self.custom_labels,
         )
 
 

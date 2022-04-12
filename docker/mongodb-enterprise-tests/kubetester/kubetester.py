@@ -1412,6 +1412,7 @@ class KubernetesTester(object):
         expected_claim_name,
         expected_size,
         storage_class=None,
+        labels: Optional[Dict[str, str]] = None,
     ):
         assert volume.name == expected_name
         assert volume.persistent_volume_claim.claim_name == expected_claim_name
@@ -1423,6 +1424,10 @@ class KubernetesTester(object):
         assert pvc.spec.resources.requests["storage"] == expected_size
 
         assert getattr(pvc.spec, "storage_class_name") == storage_class
+        if labels is not None:
+            pvc_labels = pvc.metadata.labels
+            for k in labels:
+                assert k in pvc_labels and pvc_labels[k] == labels[k]
 
     @staticmethod
     def get_mongo_server_sans(host: str) -> List[str]:

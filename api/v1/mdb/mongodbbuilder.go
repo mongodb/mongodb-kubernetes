@@ -97,6 +97,16 @@ func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) SetLabels(labels map[string]string) *MongoDBBuilder {
+	b.mdb.Labels = labels
+	return b
+}
+
+func (b *MongoDBBuilder) SetAnnotations(annotations map[string]string) *MongoDBBuilder {
+	b.mdb.Annotations = annotations
+	return b
+}
+
 func (b *MongoDBBuilder) EnableAuth(modes []string) *MongoDBBuilder {
 	if b.mdb.Spec.Security.Authentication == nil {
 		b.mdb.Spec.Security.Authentication = &Authentication{}

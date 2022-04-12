@@ -3,6 +3,9 @@ apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
   name: sh001-pv
+  labels:
+    label1: val1
+    label2: val2
 spec:
   shardCount: 1
   mongodsPerShardCount: 3

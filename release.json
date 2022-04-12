@@ -11,5 +11,5 @@
   "readinessProbeVersion": "1.0.8",
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "11.12.0.7388-1",
-  "communityOperatorVersion": "0.7.4-0.20220321140822-365ef6c22456"
+  "communityOperatorVersion": "0.7.4-0.20220412113529-13b007650718"
 }

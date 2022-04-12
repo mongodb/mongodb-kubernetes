@@ -137,3 +137,15 @@ func TestAgentFlags(t *testing.T) {
 	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
 
 }
+
+func TestLabelsAndAnotations(t *testing.T) {
+	labels := map[string]string{"l1": "val1", "l2": "val2"}
+	annotations := map[string]string{"a1": "val1", "a2": "val2"}
+
+	mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(annotations).SetLabels(labels).Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetpodEnvOptions()))
+
+	// add the default label to the map
+	labels["app"] = "test-mdb-svc"
+	assert.Equal(t, labels, sts.Labels)
+}

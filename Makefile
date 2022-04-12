@@ -29,7 +29,6 @@ usage:
 	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
 	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
 	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
-	@ echo "  om:                         install Test Ops Manager into Kubernetes if it's not installed yet. Initializes the connection"
 	@ echo "                              parameters in ~/operator-dev/om"
 	@ echo "  reset:                      cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
 	@ echo "                              to perform a \"light\" cleanup - delete only Mongodb resources"

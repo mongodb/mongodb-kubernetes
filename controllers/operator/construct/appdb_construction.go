@@ -287,7 +287,7 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 			config = appDb.PodSpec.Persistence.SingleConfig
 		}
 		// Single persistence, needs to modify the only pvc we have
-		pvcModification := pvcFunc(appDb.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig)
+		pvcModification := pvcFunc(appDb.DataVolumeName(), config, *defaultPodSpecPersistence.SingleConfig, nil)
 
 		// We already have, by default, the data volume mount,
 		// here we also create the logs and journal one, as subpath from the same volume
@@ -311,11 +311,11 @@ func customPersistenceConfig(appDb om.AppDBSpec) statefulset.Modification {
 	} else {
 		// Here need to modify data and logs volumes,
 		// and create the journal one (which doesn't exist in Community, where this original STS is built)
-		dataModification := pvcFunc(appDb.DataVolumeName(), appDb.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data)
-		logsModification := pvcFunc(appDb.LogsVolumeName(), appDb.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs)
+		dataModification := pvcFunc(appDb.DataVolumeName(), appDb.PodSpec.Persistence.MultipleConfig.Data, *defaultPodSpecPersistence.MultipleConfig.Data, nil)
+		logsModification := pvcFunc(appDb.LogsVolumeName(), appDb.PodSpec.Persistence.MultipleConfig.Logs, *defaultPodSpecPersistence.MultipleConfig.Logs, nil)
 
 		journalVolumeMounts := statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal)
-		journalVolumeClaim := pvcFunc(util.PvcNameJournal, appDb.PodSpec.Persistence.MultipleConfig.Journal, *defaultPodSpecPersistence.MultipleConfig.Journal)
+		journalVolumeClaim := pvcFunc(util.PvcNameJournal, appDb.PodSpec.Persistence.MultipleConfig.Journal, *defaultPodSpecPersistence.MultipleConfig.Journal, nil)
 
 		return statefulset.Apply(
 			statefulset.WithVolumeClaim(util.PvcMountPathLogs, journalVolumeClaim),

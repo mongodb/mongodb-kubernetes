@@ -3,6 +3,9 @@ apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
   name: rs001-pv-multiple
+  labels:
+    label1: val1
+    label2: val2
 spec:
   members: 2
   version: 4.4.0
