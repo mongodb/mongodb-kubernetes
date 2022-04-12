@@ -288,6 +288,45 @@ func databaseStatefulSet(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefu
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }
 
+// buildVaultDatabaseSecretsToInject fully constructs the DatabaseSecretsToInject required to
+// convert to annotations to configure vault.
+func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts DatabaseStatefulSetOptions) vault.DatabaseSecretsToInject {
+	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
+	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
+		if opts.CertSecretTypes.IsCertTLSType(secretName) {
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+		}
+		secretsToInject.AgentCerts = secretName
+	}
+
+	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)
+		if opts.CertSecretTypes.IsCertTLSType(secretName) {
+			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+		}
+		secretsToInject.InternalClusterAuth = secretName
+		secretsToInject.InternalClusterHash = opts.InternalClusterHash
+	}
+
+	// Enable prometheus injection
+	prom := mdb.GetPrometheus()
+	if prom != nil && prom.TLSSecretRef.Name != "" {
+		// Only need to inject Prometheus TLS cert on Vault. Already done for Secret backend.
+		secretsToInject.Prometheus = fmt.Sprintf("%s%s", prom.TLSSecretRef.Name, certs.OperatorGeneratedCertSuffix)
+		secretsToInject.PrometheusTLSCertHash = opts.PrometheusTLSCertHash
+	}
+
+	// add vault specific annotations
+	secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
+	if mdb.GetSecurity().IsTLSEnabled() {
+		secretName := mdb.GetSecurity().MemberCertificateSecretName(opts.Name)
+		secretsToInject.MemberClusterAuth = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+		secretsToInject.MemberClusterHash = opts.CertificateHash
+	}
+	return secretsToInject
+}
+
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions) statefulset.Modification {
 	podLabels := map[string]string{
@@ -311,57 +350,8 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		configureImagePullSecrets = podtemplatespec.WithImagePullSecrets(name)
 	}
 
-	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts)
-
-	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
-	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
-		if opts.CertSecretTypes.IsCertTLSType(secretName) {
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-		}
-		if vault.IsVaultSecretBackend() {
-			secretsToInject.AgentCerts = secretName
-		} else {
-			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, secretName)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: agentCertMountPath,
-				Name:      agentSecretVolume.Name,
-				ReadOnly:  true,
-			})
-			volumes = append(volumes, agentSecretVolume)
-		}
-
-	}
-
-	// add volume for x509 cert used in internal cluster authentication
-	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
-		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)
-		if opts.CertSecretTypes.IsCertTLSType(secretName) {
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-		}
-		if vault.IsVaultSecretBackend() {
-			secretsToInject.InternalClusterAuth = secretName
-			secretsToInject.InternalClusterHash = opts.InternalClusterHash
-		} else {
-			internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, secretName)
-			volumeMounts = append(volumeMounts, corev1.VolumeMount{
-				MountPath: util.InternalClusterAuthMountPath,
-				Name:      internalClusterAuthVolume.Name,
-				ReadOnly:  true,
-			})
-			volumes = append(volumes, internalClusterAuthVolume)
-		}
-	}
-
-	// Enable prometheus injection
-	prom := mdb.GetPrometheus()
-	if prom != nil && prom.TLSSecretRef.Name != "" {
-		// Only need to inject Prometheus TLS cert on Vault. Already done for Secret backend.
-		if vault.IsVaultSecretBackend() {
-			secretsToInject.Prometheus = fmt.Sprintf("%s%s", prom.TLSSecretRef.Name, certs.OperatorGeneratedCertSuffix)
-			secretsToInject.PrometheusTLSCertHash = opts.PrometheusTLSCertHash
-		}
-	}
+	secretsToInject := buildVaultDatabaseSecretsToInject(mdb, opts)
+	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts, secretsToInject.AgentCerts, secretsToInject.InternalClusterAuth)
 
 	var mounts []corev1.VolumeMount
 	var pvcFuncs map[string]persistentvolumeclaim.Modification
@@ -409,22 +399,10 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		)
 	}
 
-	if !vault.IsVaultSecretBackend() {
-		// AGENT-API-KEY volume
-		volumes = append(volumes, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID)))
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
-	} else {
-		// add vault specific annotations
-		secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
-		if mdb.GetSecurity().IsTLSEnabled() {
-
-			secretName := mdb.GetSecurity().MemberCertificateSecretName(opts.Name)
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-			secretsToInject.MemberClusterAuth = secretName
-			secretsToInject.MemberClusterHash = opts.CertificateHash
-		}
+	if vault.IsVaultSecretBackend() {
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
 	}
+
 	return statefulset.Apply(
 		statefulset.WithLabels(ssLabels),
 		statefulset.WithName(opts.Name),
@@ -586,7 +564,8 @@ func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseSt
 
 }
 
-func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+// getVolumesAndVolumeMounts returns all volumes and mounts required for the StatefulSet.
+func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions, agentCertsSecretName, internalClusterAuthSecretName string) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumesToAdd, volumeMounts := getTLSVolumeAndVolumeMount(*mdb.GetSecurity(), databaseOpts)
 
 	if databaseOpts.PodVars != nil && databaseOpts.PodVars.SSLMMSCAConfigMap != "" {
@@ -603,6 +582,32 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 
 	volumesToAdd = append(volumesToAdd, prometheusVolumes...)
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
+
+	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: agentCertMountPath,
+			Name:      agentSecretVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, agentSecretVolume)
+	}
+
+	// add volume for x509 cert used in internal cluster authentication
+	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, internalClusterAuthSecretName)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: util.InternalClusterAuthMountPath,
+			Name:      internalClusterAuthVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
+	}
+
+	if !vault.IsVaultSecretBackend() {
+		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)))
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
+	}
 
 	return volumesToAdd, volumeMounts
 }
