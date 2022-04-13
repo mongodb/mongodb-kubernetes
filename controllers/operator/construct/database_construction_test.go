@@ -97,7 +97,10 @@ func TestDatabaseEnvVars(t *testing.T) {
 
 	envVars = defaultPodVars()
 	envVars.SSLMMSCAConfigMap = "custom-ca"
-	opts = DatabaseStatefulSetOptions{PodVars: envVars}
+	v := &caVolumeSource{}
+	extraEnvs := v.GetEnvs()
+
+	opts = DatabaseStatefulSetOptions{PodVars: envVars, ExtraEnvs: extraEnvs}
 	trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
 	podEnv = databaseEnvVars(opts)
 	assert.Len(t, podEnv, 5)
@@ -109,7 +112,7 @@ func TestDatabaseEnvVars(t *testing.T) {
 	envVars = defaultPodVars()
 	envVars.SSLRequireValidMMSServerCertificates = true
 	envVars.SSLMMSCAConfigMap = "custom-ca"
-	opts = DatabaseStatefulSetOptions{PodVars: envVars}
+	opts = DatabaseStatefulSetOptions{PodVars: envVars, ExtraEnvs: extraEnvs}
 	podEnv = databaseEnvVars(opts)
 	assert.Len(t, podEnv, 6)
 	assert.Equal(t, podEnv[5], corev1.EnvVar{

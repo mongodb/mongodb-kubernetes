@@ -2,13 +2,11 @@ package construct
 
 import (
 	"fmt"
-	"path"
 	"sort"
 	"strconv"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
@@ -83,6 +81,7 @@ type DatabaseStatefulSetOptions struct {
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	Annotations             map[string]string
 	VaultConfig             vault.VaultConfiguration
+	ExtraEnvs               []corev1.EnvVar
 	Labels                  map[string]string
 	CertSecretTypes         CertSecretTypesMapping
 }
@@ -292,6 +291,17 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 }
 
 func databaseStatefulSet(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
+	allSources := getAllMongoDBVolumeSources(mdb, *stsOpts)
+
+	var extraEnvs []corev1.EnvVar
+	for _, source := range allSources {
+		if source.ShouldBeAdded() {
+			extraEnvs = append(extraEnvs, source.GetEnvs()...)
+		}
+	}
+
+	stsOpts.ExtraEnvs = extraEnvs
+
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts)
 	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
 }
@@ -360,6 +370,14 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	secretsToInject := buildVaultDatabaseSecretsToInject(mdb, opts)
 	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts, secretsToInject.AgentCerts, secretsToInject.InternalClusterAuth)
+
+	allSources := getAllMongoDBVolumeSources(mdb, opts)
+	for _, source := range allSources {
+		if source.ShouldBeAdded() {
+			volumes = append(volumes, source.GetVolumes()...)
+			volumeMounts = append(volumeMounts, source.GetVolumeMounts()...)
+		}
+	}
 
 	var mounts []corev1.VolumeMount
 	var pvcFuncs map[string]persistentvolumeclaim.Modification
@@ -512,79 +530,26 @@ func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Vol
 	return volumes, volumeMounts
 }
 
-// getTLSVolumeAndVolumeMount returns the list of volume and volumeMounts that need to be created for TLS
-func getTLSVolumeAndVolumeMount(security mdbv1.Security, databaseOpts DatabaseStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
-	volumes := []corev1.Volume{}
-	volumeMounts := []corev1.VolumeMount{}
-
-	// We default each value to the the "old-design"
-	tlsConfig := security.TLSConfig
-
-	newTlsDesign := databaseOpts.CertSecretTypes.IsTLSTypeOrUndefined(security.MemberCertificateSecretName(databaseOpts.Name))
-	if !newTlsDesign && !security.IsTLSEnabled() {
-		return volumes, volumeMounts
+// getAllMongoDBVolumeSources returns a slice of  MongoDBVolumeSource. These are used to determine which volumes
+// and volume mounts should be added to the StatefulSet.
+func getAllMongoDBVolumeSources(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) []MongoDBVolumeSource {
+	caVolume := &caVolumeSource{opts: databaseOpts}
+	tlsVolume := &tlsVolumeSource{
+		security:     mdb.GetSecurity(),
+		databaseOpts: databaseOpts,
 	}
 
-	secretName := security.MemberCertificateSecretName(databaseOpts.Name)
+	var allVolumeSources []MongoDBVolumeSource
+	allVolumeSources = append(allVolumeSources, caVolume)
+	allVolumeSources = append(allVolumeSources, tlsVolume)
 
-	optionalSecretFunc := func(v *corev1.Volume) {}
-	optionalConfigMapFunc := func(v *corev1.Volume) {}
-
-	secretMountPath := util.SecretVolumeMountPath + "/certs"
-	configmapMountPath := util.ConfigMapVolumeCAMountPath
-
-	volumeSecretName := secretName
-
-	caName := fmt.Sprintf("%s-ca", databaseOpts.Name)
-	if tlsConfig.CA != "" {
-		caName = tlsConfig.CA
-	}
-
-	// Then we overwrite them if the sts has to be constructed with the new design
-	if newTlsDesign {
-		// This two functions modify the volumes to be optional (the absence of the referenced
-		// secret/configMap do not prevent the pods from starting)
-		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
-		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
-
-		secretMountPath = util.TLSCertMountPath
-		configmapMountPath = util.TLSCaMountPath
-		volumeSecretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-	}
-
-	if !vault.IsVaultSecretBackend() {
-		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: secretMountPath,
-			Name:      secretVolume.Name,
-		})
-		volumes = append(volumes, secretVolume)
-	}
-
-	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		MountPath: configmapMountPath,
-		Name:      caVolume.Name,
-		ReadOnly:  true,
-	})
-	volumes = append(volumes, caVolume)
-	return volumes, volumeMounts
-
+	return allVolumeSources
 }
 
 // getVolumesAndVolumeMounts returns all volumes and mounts required for the StatefulSet.
 func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions, agentCertsSecretName, internalClusterAuthSecretName string) ([]corev1.Volume, []corev1.VolumeMount) {
-	volumesToAdd, volumeMounts := getTLSVolumeAndVolumeMount(*mdb.GetSecurity(), databaseOpts)
-
-	if databaseOpts.PodVars != nil && databaseOpts.PodVars.SSLMMSCAConfigMap != "" {
-		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, databaseOpts.PodVars.SSLMMSCAConfigMap)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: caCertMountPath,
-			Name:      caCertVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, caCertVolume)
-	}
+	var volumesToAdd []corev1.Volume
+	var volumeMounts []corev1.VolumeMount
 
 	prometheusVolumes, prometheusVolumeMounts := getTLSPrometheusVolumeAndVolumeMount(mdb.GetPrometheus())
 
@@ -803,15 +768,9 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
-	if opts.PodVars.SSLMMSCAConfigMap != "" {
-		// A custom CA has been provided, point the trusted CA to the location of custom CAs
-		trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
-		vars = append(vars,
-			corev1.EnvVar{
-				Name:  util.EnvVarSSLTrustedMMSServerCertificate,
-				Value: trustedCACertLocation,
-			},
-		)
+	// append any additional env vars specified.
+	for _, envVar := range opts.ExtraEnvs {
+		vars = append(vars, envVar)
 	}
 
 	return vars
