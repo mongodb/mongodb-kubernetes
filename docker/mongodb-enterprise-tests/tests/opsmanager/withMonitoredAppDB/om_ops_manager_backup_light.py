@@ -79,7 +79,7 @@ def service_exists(service_name: str, namespace: str) -> bool:
 @mark.e2e_om_ops_manager_backup_light
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        """ creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required. """
+        """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -209,3 +209,47 @@ def test_backup_statefulset_remains_after_disabling_backup(
 
     # the backup statefulset should still exist even after we disable backup
     ops_manager.read_backup_statefulset()
+
+
+def check_sts_labels(sts, labels: Dict[str, str]):
+    sts_labels = sts.metadata.labels
+
+    for k in labels:
+        assert k in sts_labels and sts_labels[k] == labels[k]
+
+
+@mark.e2e_om_ops_manager_backup_light
+def test_labels_on_om_and_backup_daemon_and_appdb_sts(
+    ops_manager: MongoDBOpsManager, namespace: str
+):
+    labels = {"label1": "val1", "label2": "val2"}
+
+    check_sts_labels(ops_manager.read_statefulset(), labels)
+    check_sts_labels(ops_manager.read_backup_statefulset(), labels)
+    check_sts_labels(ops_manager.read_appdb_statefulset(), labels)
+
+
+def check_pvc_labels(pvc_name: str, labels: Dict[str, str], namespace: str):
+    pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(
+        pvc_name, namespace
+    )
+    pvc_labels = pvc.metadata.labels
+
+    for k in labels:
+        assert k in pvc_labels and pvc_labels[k] == labels[k]
+
+
+@mark.e2e_om_ops_manager_backup_light
+def test_labels_on_backup_daemon_and_appdb_pvc(
+    ops_manager: MongoDBOpsManager, namespace: str
+):
+    labels = {"label1": "val1", "label2": "val2"}
+
+    appdb_pvc_name = "data-{}-0".format(
+        ops_manager.read_appdb_statefulset().metadata.name
+    )
+    check_pvc_labels(appdb_pvc_name, labels, namespace)
+    backupdaemon_pvc_name = "head-{}-0".format(
+        ops_manager.read_backup_statefulset().metadata.name
+    )
+    check_pvc_labels(backupdaemon_pvc_name, labels, namespace)

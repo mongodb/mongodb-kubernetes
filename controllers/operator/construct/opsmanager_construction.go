@@ -60,6 +60,7 @@ type OpsManagerStatefulSetOptions struct {
 	QueryableBackupPemSecretName string
 	StatefulSetSpecOverride      *appsv1.StatefulSetSpec
 	VaultConfig                  vault.VaultConfiguration
+	Labels                       map[string]string
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
 }
@@ -176,6 +177,7 @@ func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerSta
 		Version:                 opsManager.Spec.Version,
 		Namespace:               opsManager.Namespace,
 		OpsManagerCaName:        opsManager.Spec.GetOpsManagerCA(),
+		Labels:                  opsManager.Labels,
 	}
 }
 
@@ -345,8 +347,15 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	}
 
 	labels := defaultPodLabels(opts.ServiceName, opts.Name)
+
+	// get the labels from the opts and append it to final labels
+	stsLabels := defaultPodLabels(opts.ServiceName, opts.Name)
+	for k, v := range opts.Labels {
+		stsLabels[k] = v
+	}
+
 	return statefulset.Apply(
-		statefulset.WithLabels(labels),
+		statefulset.WithLabels(stsLabels),
 		statefulset.WithMatchLabels(labels),
 		statefulset.WithName(opts.Name),
 		statefulset.WithNamespace(opts.Namespace),
@@ -360,7 +369,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				podtemplateAnnotation,
 				podtemplatespec.WithVolumes(omVolumes),
 				configurePodSpecSecurityContext,
-				podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
+				podtemplatespec.WithPodLabels(labels),
 				pullSecretsConfigurationFunc,
 				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 				podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),

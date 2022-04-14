@@ -95,7 +95,7 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 // backupDaemonStatefulSetFunc constructs the Backup Daemon podTemplateSpec modification function.
 func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
 	defaultConfig := mdbv1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
-	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig, nil)
+	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig, opts.Labels)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 
 	postStart := func(lc *corev1.Lifecycle) {}
