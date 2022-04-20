@@ -15,7 +15,7 @@ USER_PASSWORD = "my-password"
 
 @fixture(scope="module")
 def scram_user(namespace) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user.yaml"), namespace=namespace
     )
@@ -52,7 +52,7 @@ def test_replica_set_created(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first
 def test_user_pending(scram_user: MongoDBUser):
-    """ pending phase as auth has not yet been enabled """
+    """pending phase as auth has not yet been enabled"""
     scram_user.assert_reaches_phase(Phase.Pending, timeout=50)
 
 

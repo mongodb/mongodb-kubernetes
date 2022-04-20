@@ -8,6 +8,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"github.com/blang/semver"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -151,6 +152,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	}
 
 	// if scram if the specified authentication mechanism rotate passwrd
+	// remove this code("rotateAgentUserPassword" logic) when we remove support for OM version 4.4, and ask users to move to OM version 5.0.7+
 	if err := rotateAgentUserPassword(conn, opts, log); err != nil {
 		return fmt.Errorf("error rotating password for agent user: %s", err)
 	}
@@ -453,11 +455,42 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 	}, log)
 }
 
+func AreBackupAndMonitoringAgentPresent(users []*om.MongoDBUser) bool {
+	count := 0
+	for _, user := range users {
+		if user.Username == "mms-backup-agent" {
+			count += 1
+		}
+		if user.Username == "mms-monitoring-agent" {
+			count += 1
+		}
+	}
+	return count == 2
+}
+
 func rotateAgentUserPassword(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if conn.OpsManagerVersion().IsCloudManager() {
 			return nil
 		}
+
+		omVersion, err := conn.OpsManagerVersion().Semver()
+		if err != nil {
+			log.Debugw("Failed to fetch OpsManager version: %s", err)
+			return nil
+		}
+		// This bug has been fixed in OpsManager version 5.0.7 and there is no need to rotate agent password:
+		// https://www.mongodb.com/docs/ops-manager/current/release-notes/application/#onprem-server-5-0-7
+		if omVersion.GTE(semver.MustParse("5.0.7")) {
+			return nil
+		}
+		// check if nonitoring and backup agent users are already present
+		if AreBackupAndMonitoringAgentPresent(ac.Auth.Users) {
+			log.Debug("Skipping rotating agent password since monitoring and backup agent is present.")
+			return nil
+		}
+
+		log.Debug("Configuring agent password rotation.")
 		if getMechanismName(opts.AgentMechanism, ac, opts.MinimumMajorVersion) == ScramSha256 {
 			ac.Auth.NewAutoPwd = generate.GenerateRandomPassword()
 		}
