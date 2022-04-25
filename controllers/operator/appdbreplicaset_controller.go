@@ -190,6 +190,14 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	appdbOpts.CertSecretType = certSecretType
 	appdbOpts.MonitoringAgentVersion = monitoringAgentVersion
 
+	oldTLSMemberSecret, err := r.getOldMemberCertSecret(opsManager)
+	if err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, omStatusOption)
+	}
+	if certSecretType == corev1.SecretTypeTLS {
+		appdbOpts.OldMemberCertSecret = oldTLSMemberSecret
+	}
+
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
@@ -208,7 +216,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Failed("can't construct AppDB Statefulset: %s", err), log, omStatusOption)
 	}
 
-	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, prometheusCertHash, log); !workflowStatus.IsOK() {
+	if workflowStatus := r.reconcileAppDB(*opsManager, appDbSts, appdbOpts, log); !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
 
@@ -239,9 +247,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 
 // reconcileAppDB performs the reconciliation for the AppDB: update the AutomationConfig Secret if necessary and
 // update the StatefulSet. It does it in the necessary order depending on the changes to the spec
-func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, prometheusCertHash string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, appDbOpts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
+	if appDbOpts.OldMemberCertSecret != "" {
+		automationConfigFirst = false
+	}
 	currentAc, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
@@ -286,13 +297,17 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 	return workflow.RunInGivenOrder(automationConfigFirst,
 		func() workflow.Status {
 			log.Info("Deploying Automation Config")
-			return r.deployAutomationConfig(opsManager, appDbSts, prometheusCertHash, log)
+			return r.deployAutomationConfig(opsManager, appDbSts, appDbOpts.PrometheusTLSCertHash, log)
 		},
 		func() workflow.Status {
 
 			// in the case of an upgrade from the 1 to 3 container architecture, when the stateful set is updated before the agent automation config
 			// the monitoring agent automation config needs to exist for the volumes to mount correctly.
 			if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, log); err != nil {
+				return workflow.Failed(err.Error())
+			}
+			oldTLSAnnotations := oldTLSCertsAnnotations(appDbOpts.OldMemberCertSecret)
+			if err := annotations.SetAnnotations(opsManager.DeepCopy(), oldTLSAnnotations, r.client); err != nil {
 				return workflow.Failed(err.Error())
 			}
 
@@ -590,7 +605,7 @@ func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger
 					"useSslForAllConnections":      "true",
 					"sslTrustedServerCertificates": appdbCAFilePath,
 				}
-				pemKeyFile := p.Args26.Get("net.ssl.PEMKeyFile")
+				pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile")
 				if pemKeyFile != nil {
 					additionalParams["sslClientCertificate"] = pemKeyFile.String()
 				}
@@ -1000,4 +1015,22 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 		return err
 	}
 	return nil
+}
+
+func (r *ReconcileAppDbReplicaSet) getOldMemberCertSecret(manager *omv1.MongoDBOpsManager) (string, error) {
+	lastSpec, err := manager.GetLastSpec()
+	if err != nil || lastSpec == nil {
+		return "", err
+	}
+	oldSts, err := r.client.GetStatefulSet(manager.AppDBStatefulSetObjectKey())
+	if err != nil {
+		return "", err
+	}
+	resourceMemberCertSecret := lastSpec.AppDB.GetSecurity().MemberCertificateSecretName(manager.Spec.AppDB.Name())
+	if annotatedMemberCertSecret, ok := manager.Annotations[util.OldMemberCerts]; ok {
+		return annotatedMemberCertSecret, nil
+	} else if isSecretMounted(resourceMemberCertSecret, oldSts) {
+		return resourceMemberCertSecret, nil
+	}
+	return "", nil
 }

@@ -102,12 +102,32 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	}
 
 	if !vault.IsVaultSecretBackend() {
+		if c.databaseOpts.OldMemberCertSecret != "" {
+			oldSecretMountPath := util.SecretVolumeMountPath + "/certs"
+			secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName+"-old", databaseOpts.OldMemberCertSecret, optionalSecretFunc)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: oldSecretMountPath,
+				Name:      secretVolume.Name,
+			})
+			volumes = append(volumes, secretVolume)
+		}
 		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: secretMountPath,
 			Name:      secretVolume.Name,
 		})
 		volumes = append(volumes, secretVolume)
+	}
+
+	if c.databaseOpts.OldMemberCertSecret != "" {
+		oldConfigmapMountPath := util.ConfigMapVolumeCAMountPath
+		caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName+"-old", caName, optionalConfigMapFunc)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: oldConfigmapMountPath,
+			Name:      caVolume.Name,
+			ReadOnly:  true,
+		})
+		volumes = append(volumes, caVolume)
 	}
 
 	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)

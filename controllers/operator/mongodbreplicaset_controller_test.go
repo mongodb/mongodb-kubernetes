@@ -125,7 +125,7 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	for _, v := range processes {
 		assert.NotNil(t, v.TLSConfig())
 		assert.Len(t, v.TLSConfig(), 2)
-		assert.Equal(t, util.PEMKeyFilePathInContainer, v.TLSConfig()["PEMKeyFile"])
+		assert.Equal(t, util.PEMKeyFilePathInContainer, v.TLSConfig()["certificateKeyFile"])
 		assert.Equal(t, "requireTLS", v.TLSConfig()["mode"])
 	}
 

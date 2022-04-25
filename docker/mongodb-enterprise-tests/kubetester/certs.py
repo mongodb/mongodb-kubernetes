@@ -475,6 +475,7 @@ def create_agent_tls_certs(
         secret_backend=secret_backend,
         vault_subpath="database",
     )
+    return secret
 
 
 def create_sharded_cluster_certs(

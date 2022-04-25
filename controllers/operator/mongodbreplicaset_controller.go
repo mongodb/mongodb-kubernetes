@@ -39,6 +39,7 @@ import (
 	util_int "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
+
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -172,6 +173,13 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		vaultConfig = r.VaultClient.VaultConfig
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
+	var oldTLSMemberSecret string
+	if newTLSDesignMemberCert {
+		oldTLSMemberSecret, err = r.getOldMemberCertSecret(rs, rs.Name)
+		if err != nil {
+			return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+		}
+	}
 
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
@@ -183,6 +191,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		NewTLSDesignMap(newTLSDesignForCerts),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
+		WithOldMemberCertSecret(oldTLSMemberSecret),
 	)
 
 	caFilePath := util.CAFilePathInContainer
@@ -215,6 +224,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		func() workflow.Status {
 			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
+			}
+			if err := annotations.SetAnnotations(rs.DeepCopy(), oldTLSCertsAnnotations(rsStsOption.OldMemberCertSecret), r.client); err != nil {
+				return workflow.Failed("Failed to set old TLS secrets annotations: %s", err.Error())
 			}
 
 			if status := getStatefulSetStatus(rs.Namespace, rs.Name, r.client); !status.IsOK() {
@@ -386,6 +398,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 			// At this point we won't bubble-up the error we got from this
 			// function, we don't want to fail the MongoDB resource because
 			// Prometheus can't be enabled.
+
 			UpdatePrometheus(&d, conn, rs, r.SecretClient, prometheusCertHash, log)
 
 			return nil

@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	construct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
@@ -45,6 +46,9 @@ type AppDBStatefulSetOptions struct {
 	MonitoringAgentVersion string
 
 	PrometheusTLSCertHash string
+
+	// This is only used for the automated migration from the old to the new TLS structure
+	OldMemberCertSecret string
 }
 
 func WithAppDBVaultConfig(config vault.VaultConfiguration) func(opts *AppDBStatefulSetOptions) {
@@ -154,7 +158,7 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 
 // getTLSVolumesAndVolumeMounts returns the slices of volumes and volumemounts
 // that the AppDB STS needs for TLS resources.
-func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType corev1.SecretType) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
@@ -170,7 +174,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, c
 	}
 
 	tlsConfig := appDb.GetSecurity().TLSConfig
-	tlsTypeCert := certSecretType == corev1.SecretTypeTLS
+	tlsTypeCert := opts.CertSecretType == corev1.SecretTypeTLS
 
 	if !appDb.GetSecurity().IsTLSEnabled() && !tlsTypeCert {
 		return volumesToAdd, volumeMounts
@@ -185,7 +189,12 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, c
 		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
 	}
 	if !vault.IsVaultSecretBackend() {
-		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
+		var secretVolume corev1.Volume
+		if opts.OldMemberCertSecret != "" {
+			secretVolume = enterprisests.CreateProjectedVolumeFromSecrets(util.SecretVolumeName, secretName, opts.OldMemberCertSecret)
+		} else {
+			secretVolume = statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
+		}
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.SecretVolumeMountPath + "/certs",
 			Name:      secretVolume.Name,
@@ -215,9 +224,9 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, c
 
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
 // and volumemounts for TLS.
-func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, certSecretType corev1.SecretType) podtemplatespec.Modification {
+func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) podtemplatespec.Modification {
 
-	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, certSecretType)
+	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, opts)
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumesToAdd {
 			podtemplatespec.WithVolume(v)(spec)
@@ -385,7 +394,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(*appDb),
 				monitoringModification,
-				tlsVolumes(*appDb, podVars, opts.CertSecretType),
+				tlsVolumes(*appDb, podVars, opts),
 			),
 		),
 		appDbLabels(opsManager),
@@ -487,7 +496,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, opts.CertSecretType)
+	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, opts)
 
 	return podtemplatespec.Apply(
 		monitoringACFunc,

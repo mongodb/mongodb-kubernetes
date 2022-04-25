@@ -357,7 +357,6 @@ func WithAdditionalMongodConfig(additionalConfig mdbv1.AdditionalMongodConfig) P
 func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 	// Initializing SSL configuration if it's necessary
 	tlsConfig := p.EnsureTLSConfig()
-
 	tlsConfig["mode"] = string(mode)
 
 	if mode == tls.Disabled {
@@ -366,9 +365,21 @@ func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 		// certificateKeyFile is the current one
 		delete(tlsConfig, "certificateKeyFile")
 		delete(tlsConfig, "PEMKeyFile")
-
 	} else {
-		if _, ok := tlsConfig["certificateKeyFile"]; ok {
+		// PEMKeyFile is the legacy option found under net.ssl, deprecated since version 4.2
+		// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.ssl.PEMKeyFile
+		_, oldKeyInConfig := tlsConfig["PEMKeyFile"]
+		// certificateKeyFile is the current option under net.tls
+		// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.tls.certificateKeyFile
+		_, newKeyInConfig := tlsConfig["certificateKeyFile"]
+
+		// If both options are present in the TLS config we only want to keep the recent option. The problem
+		// can be encountered when migrating the operator from an older version which pushed an automation config
+		// containing the old key and the new operator is attempting to configure the new key.
+		if oldKeyInConfig == newKeyInConfig {
+			tlsConfig["certificateKeyFile"] = pemKeyFileLocation
+			delete(tlsConfig, "PEMKeyFile")
+		} else if newKeyInConfig {
 			tlsConfig["certificateKeyFile"] = pemKeyFileLocation
 		} else {
 			tlsConfig["PEMKeyFile"] = pemKeyFileLocation
@@ -422,15 +433,24 @@ func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[s
 
 	// Merge SSL configuration (update if it's specified - delete otherwise)
 	if mode, ok := operatorProcess.TLSConfig()["mode"]; ok {
+		tlsConfig := p.EnsureTLSConfig()
 		for key, value := range operatorProcess.TLSConfig() {
-			p.EnsureTLSConfig()[key] = value
+			tlsConfig[key] = value
+		}
+		// PEMKeyFile is the legacy option found under net.ssl, deprecated since version 4.2
+		// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.ssl.PEMKeyFile
+		_, oldKeyInConfig := tlsConfig["PEMKeyFile"]
+		// certificateKeyFile is the current option under net.tls
+		// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.tls.certificateKeyFile
+		_, newKeyInConfig := tlsConfig["certificateKeyFile"]
+		// If both options are present in the TLS config we only want to keep the recent option.
+		if oldKeyInConfig && newKeyInConfig {
+			delete(tlsConfig, "PEMKeyFile")
 		}
 		// if the mode is specified as disabled, providing "PEMKeyFile" is an invalid config
 		if mode == string(tls.Disabled) {
-			tlsConfig := p.EnsureTLSConfig()
 			delete(tlsConfig, "PEMKeyFile")
 			delete(tlsConfig, "certificateKeyFile")
-
 		}
 	} else {
 		delete(p.EnsureNetConfig(), "tls")

@@ -78,3 +78,9 @@ func WithVaultConfig(config vault.VaultConfiguration) func(options *construct.Da
 		options.VaultConfig = config
 	}
 }
+
+func WithOldMemberCertSecret(oldMemberCertSecret string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.OldMemberCertSecret = oldMemberCertSecret
+	}
+}

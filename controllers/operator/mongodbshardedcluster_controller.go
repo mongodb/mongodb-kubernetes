@@ -951,6 +951,15 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName())
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName())
 
+	var oldMemberCertSecret string
+	var err error
+	if opts.certTLSType[certSecretName] {
+		oldMemberCertSecret, err = r.getOldMemberCertSecret(&sc, sc.ConfigRsName())
+		if err != nil {
+			log.Warnf("Encountered error parsing legacy certificates: %s", err.Error())
+		}
+	}
+
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -967,6 +976,7 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
+		WithOldMemberCertSecret(oldMemberCertSecret),
 	)
 }
 
@@ -974,6 +984,15 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName())
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName())
+
+	var oldMemberCertSecret string
+	var err error
+	if opts.certTLSType[certSecretName] {
+		oldMemberCertSecret, err = r.getOldMemberCertSecret(&sc, sc.MongosRsName())
+		if err != nil {
+			log.Warnf("Encountered error parsing legacy certificates: %s", err.Error())
+		}
+	}
 
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
@@ -988,6 +1007,7 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, opts
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
+		WithOldMemberCertSecret(oldMemberCertSecret),
 	)
 }
 
@@ -995,6 +1015,15 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, opts
 func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shardNum int, opts deploymentOptions, log *zap.SugaredLogger) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(shardNum))
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(shardNum))
+
+	var oldMemberCertSecret string
+	var err error
+	if opts.certTLSType[certSecretName] {
+		oldMemberCertSecret, err = r.getOldMemberCertSecret(&sc, sc.ShardRsName(shardNum))
+		if err != nil {
+			log.Warnf("Encountered error parsing legacy certificates: %s", err.Error())
+		}
+	}
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
@@ -1011,5 +1040,6 @@ func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shard
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
+		WithOldMemberCertSecret(oldMemberCertSecret),
 	)
 }
