@@ -1,0 +1,324 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "authenticationRestrictions": [],
+        "db": "testDb0",
+        "user": "testUser0",
+        "pwd": "somePassword0",
+        "roles": [
+          {
+            "db": "admin",
+            "role": "backup"
+          },
+          {
+            "db": "admin",
+            "role": "monitor"
+          },
+          {
+            "db": "admin",
+            "role": "automation"
+          }
+        ],
+        "mechanisms": [],
+        "scramSha256Creds": {
+          "iterationCount": 15000,
+          "salt": "I570PanWIx1eNUTo7j4ROl2/zIqMsVd6CcIE+A==",
+          "serverKey": "M4/jskiMM0DpvG/qgMELWlfReqV2ZmwdU8+vJZ/4prc=",
+          "storedKey": "m1dXf5hHJk7EOAAyJBxfsZvFx1HwtTdda6pFPm0BlOE="
+        }
+      },
+      {
+        "authenticationRestrictions": [],
+        "db": "testDb1",
+        "user": "testUser1",
+        "pwd": "somePassword1",
+        "unknownFieldOne": "one",
+        "unknownFieldTwo": "two",
+        "roles": [
+          {
+            "db": "admin",
+            "role": "backup"
+          },
+          {
+            "db": "admin",
+            "role": "monitor"
+          },
+          {
+            "db": "admin",
+            "role": "automation"
+          }
+        ],
+        "mechanisms": [],
+        "scramSha256Creds": {
+          "iterationCount": 15000,
+          "salt": "I570PanWIx1eNUTo7j4ROl2/zIqMsVd6CcIE+A==",
+          "serverKey": "M4/jskiMM0DpvG/qgMELWlfReqV2ZmwdU8+vJZ/4prc=",
+          "storedKey": "m1dXf5hHJk7EOAAyJBxfsZvFx1HwtTdda6pFPm0BlOE="
+        }
+      },
+      {
+        "authenticationRestrictions": [],
+        "db": "testDb2",
+        "user": "testUser2",
+        "pwd": "somePassword2",
+        "roles": [
+          {
+            "db": "admin",
+            "role": "backup"
+          },
+          {
+            "db": "admin",
+            "role": "monitor"
+          },
+          {
+            "db": "admin",
+            "role": "automation"
+          }
+        ],
+        "mechanisms": [],
+        "scramSha256Creds": {
+          "iterationCount": 15000,
+          "salt": "I570PanWIx1eNUTo7j4ROl2/zIqMsVd6CcIE+A==",
+          "serverKey": "M4/jskiMM0DpvG/qgMELWlfReqV2ZmwdU8+vJZ/4prc=",
+          "storedKey": "m1dXf5hHJk7EOAAyJBxfsZvFx1HwtTdda6pFPm0BlOE="
+        }
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": true,
+    "authoritativeSet": false,
+    "autoAuthMechanisms": [],
+    "autoUser": "mms-automation",
+    "autoAuthRestrictions": []
+  },
+  "mongoDbVersions": [
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "platform": "linux",
+          "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "ubuntu",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "15.04",
+          "minOsVersion": "14.04",
+          "platform": "linux",
+          "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1404-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "amazon",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "",
+          "minOsVersion": "2013.03",
+          "platform": "linux",
+          "url": "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-amazon-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "platform": "osx",
+          "url": "https://fastdl.mongodb.org/osx/mongodb-osx-x86_64-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "platform": "windows",
+          "url": "https://fastdl.mongodb.org/win32/mongodb-win32-x86_64-3.2.0.zip"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "platform": "windows",
+          "url": "https://fastdl.mongodb.org/win32/mongodb-win32-x86_64-2008plus-3.2.0.zip",
+          "win2008plus": true
+        }
+      ],
+      "name": "3.2.0"
+    },
+    {
+      "builds": [
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "amazon",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "",
+          "minOsVersion": "2013.03",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-amzn64-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "rhel",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "6.0",
+          "minOsVersion": "5.7",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel57-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "rhel",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "7.0",
+          "minOsVersion": "6.2",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel62-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "rhel",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "8.0",
+          "minOsVersion": "7.0",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-rhel70-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "suse",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "12",
+          "minOsVersion": "11",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-suse11-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "suse",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "13",
+          "minOsVersion": "12",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-suse12-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "ubuntu",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "13.04",
+          "minOsVersion": "12.04",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1204-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "ubuntu",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "15.04",
+          "minOsVersion": "14.04",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-ubuntu1404-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "flavor": "debian",
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "maxOsVersion": "8.0",
+          "minOsVersion": "7.1",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "linux",
+          "url": "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-debian71-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "osx",
+          "url": "https://downloads.mongodb.com/osx/mongodb-osx-x86_64-enterprise-3.2.0.tgz"
+        },
+        {
+          "architecture": "amd64",
+          "bits": 64,
+          "gitVersion": "45d947729a0315accb6d4f15a6b06be6d9c19fe7",
+          "modules": [
+            "enterprise"
+          ],
+          "platform": "windows",
+          "url": "https://downloads.mongodb.com/win32/mongodb-win32-x86_64-enterprise-windows-64-3.2.0.zip",
+          "win2008plus": true,
+          "winVCRedistDll": "msvcr120.dll",
+          "winVCRedistOptions": [
+            "/quiet",
+            "/norestart"
+          ],
+          "winVCRedistUrl": "http://download.microsoft.com/download/2/E/6/2E61CFA4-993B-4DD4-91DA-3737CD5CD6E3/vcredist_x64.exe",
+          "winVCRedistVersion": "12.0.21005.1"
+        }
+      ],
+      "name": "3.2.0-ent"
+    }
+  ],
+  "ldap": {},
+  "processes": [],
+  "replicaSets": [],
+  "roles": [],
+  "monitoringVersions": [],
+  "backupVersions": [],
+  "mongosqlds": [],
+  "balancer": {},
+  "indexConfigs": [],
+  "kerberos": {
+    "serviceName": "mongodb"
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation",
+    "downloadBaseWindows": "%SystemDrive%\\MMSAutomation\\versions"
+  },
+  "tls": {
+    "CAFilePath": null,
+    "CAFilePathWindows": null,
+    "clientCertificateMode": "OPTIONAL"
+  },
+  "version": null,
+  "sharding": []
+}

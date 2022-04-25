@@ -1,0 +1,39 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: m30-equivalent-replica-set
+spec:
+  members: 3
+  version: 4.4.0-ent
+  type: ReplicaSet
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+          - name: mongodb-enterprise-database
+            resources:
+              limits:
+                cpu: "2"
+                memory: 8G
+              requests:
+                cpu: "2"
+                memory: 8G
+
+      persistence:
+        single:
+          storage: 40G
+          storageClass: fast-ssd
+
+  security:
+    tls:
+      enabled: true
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]

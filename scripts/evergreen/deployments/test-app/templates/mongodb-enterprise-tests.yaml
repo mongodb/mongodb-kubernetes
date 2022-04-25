@@ -1,0 +1,128 @@
+# grant all permissions in all namespaces to the tests
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator-tests-service-account
+  namespace: {{ .Values.namespace }}
+{{- if .Values.imagePullSecrets}}
+imagePullSecrets:
+  - name: {{ .Values.imagePullSecrets }}
+{{- end }}
+
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: operator-tests-role-binding-{{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: operator-tests-service-account
+  namespace: {{ .Values.namespace }}
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mongodb-enterprise-operator-tests
+  namespace: {{ .Values.namespace }}
+  labels:
+    role: operator-tests
+spec:
+  serviceAccountName: operator-tests-service-account
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  {{ if .Values.multiCluster.memberClusters }}
+  volumes:
+    - name: kube-config-volume
+      secret:
+        defaultMode: 420
+        secretName: test-pod-kubeconfig
+    - name: multi-cluster-config
+      secret:
+        defaultMode: 420
+        secretName: test-pod-multi-cluster-config
+  {{ end }}
+  containers:
+  - name: mongodb-enterprise-operator-tests
+    env:
+    - name: TASK_ID
+      value: {{ .Values.taskId }}
+    - name: OM_HOST
+      value: {{ .Values.baseUrl }}
+    - name: OM_API_KEY
+      value: {{ .Values.apiKey }}
+    - name: OM_USER
+      value: {{ .Values.apiUser }}
+    - name: OM_ORGID
+      value: {{ .Values.orgId }}
+    - name: PROJECT_NAMESPACE
+      value: {{ .Values.namespace }}
+    # We can pass additional options to pytest. For instance -s
+    - name: PYTEST_ADDOPTS
+      value: {{ .Values.pytest.addopts }}
+    - name: SKIP_EXECUTION
+      value: {{ .Values.skipExecution}}
+    - name: AWS_ACCESS_KEY_ID
+      value: {{ .Values.aws.accessKey}}
+    - name: AWS_SECRET_ACCESS_KEY
+      value: {{ .Values.aws.secretAccessKey}}
+    - name: MANAGED_SECURITY_CONTEXT
+      value: '{{ .Values.managedSecurityContext }}'
+    - name: PYTHONUNBUFFERED
+      value: 'true'
+    - name: PYTHONWARNINGS
+      value: 'ignore:yaml.YAMLLoadWarning,ignore:urllib3.InsecureRequestWarning'
+    - name: POD_NAME
+      value: 'mongodb-enterprise-operator-testing-pod'
+    - name: VERSION_ID
+      value: {{ .Values.tag }}
+    {{- if .Values.multiCluster.memberClusters }}
+    - name: KUBECONFIG
+      value: /etc/config/kubeconfig
+    - name: MEMBER_CLUSTERS
+      value: {{ .Values.multiCluster.memberClusters }}
+    - name: CENTRAL_CLUSTER
+      value: {{ .Values.multiCluster.centralCluster }}
+    {{- end }}
+    {{ if .Values.customOmVersion }}
+    - name: CUSTOM_OM_VERSION
+      value: {{ .Values.customOmVersion }}
+    {{ end }}
+    {{ if .Values.customOmMdbVersion }}
+    - name: CUSTOM_MDB_VERSION
+      value: {{ .Values.customOmMdbVersion }}
+    {{ end }}
+    {{ if .Values.customOmMdbPrevVersion }}
+    - name: CUSTOM_MDB_PREV_VERSION
+      value: {{ .Values.customOmMdbPrevVersion }}
+    {{ end }}
+    {{ if .Values.customAppDbVersion }}
+    - name: CUSTOM_APPDB_VERSION
+      value: {{ .Values.customAppDbVersion }}
+    {{ end }}
+    {{ if .Values.imageType }}
+    - name: IMAGE_TYPE
+      value: {{ .Values.imageType }}
+    {{ end }}
+    {{ if .Values.githubToken }}
+    - name: GITHUB_TOKEN_READ
+      value: {{ .Values.githubToken }}
+    {{ end }}
+    image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
+    # Options to pytest command should go in the pytest.ini file.
+    command: ["pytest"]
+    args: ["-vv", "-m", "{{ .Values.taskName }}"]
+    imagePullPolicy: Always
+    {{ if .Values.multiCluster.memberClusters }}
+    volumeMounts:
+      - mountPath: /etc/config
+        name: kube-config-volume
+      - mountPath: /etc/multicluster
+        name: multi-cluster-config
+    {{ end }}

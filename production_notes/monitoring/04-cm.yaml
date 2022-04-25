@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:    
+  name: prometheus-configmap
+  namespace: monitoring
+data:
+  prometheus.yaml: |
+    global:
+      scrape_interval: 10s
+      scrape_timeout: 10s
+      evaluation_interval: 10s
+    scrape_configs:
+    - job_name: 'kubernetes-cadvisor'
+      scheme: https
+      metrics_path: /metrics/cadvisor
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        # If your node certificates are self-signed or use a different CA to the
+        # master CA, then disable certificate verification below. Note that
+        # certificate verification is an integral part of a secure infrastructure
+        # so this should only be disabled in a controlled environment. You can
+        # disable certificate verification by uncommenting the line below.
+        #
+        # insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+      kubernetes_sd_configs:
+      - role: node
+      # https://github.com/prometheus/prometheus/issues/2613
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - source_labels: [__address__]
+        action: replace
+        target_label: __address__
+        regex: ([^:;]+):(\d+)
+        replacement: ${1}:10255
+      - source_labels: [__scheme__]
+        action: replace
+        target_label: __scheme__
+        regex: https
+        replacement: http
+    - job_name: 'kubernetes-pods'
+      scheme: http
+      kubernetes_sd_configs:
+      - role: pod
+
+      relabel_configs:
+      # only scrape metrics from pods which have the annotation "loadtest.io/should_be_scraped=true"
+      - source_labels: [__meta_kubernetes_pod_annotation_loadtest_io_should_be_scraped]
+        action: keep
+        regex: true
+      # specify the target port at which prometheus should scrape for pod metrics
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_loadtest_io_scrape_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+

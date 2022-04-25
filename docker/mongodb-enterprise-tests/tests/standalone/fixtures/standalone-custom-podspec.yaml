@@ -1,0 +1,31 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-standalone-custom-podspec
+spec:
+  type: Standalone
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: false
+  podSpec:
+    podTemplate:
+      metadata:
+        labels:
+          label1: "value1"
+      spec:
+        containers:
+          - name: standalone-sidecar
+            image: busybox
+            command: ["sleep"]
+            args: [ "infinity" ]
+        terminationGracePeriodSeconds: 10
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - podAffinityTerm:
+                  topologyKey: "mykey"
+                weight: 50

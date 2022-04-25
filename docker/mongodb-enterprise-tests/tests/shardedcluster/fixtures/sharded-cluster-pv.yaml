@@ -1,0 +1,30 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh001-pv
+  labels:
+    label1: val1
+    label2: val2
+spec:
+  shardCount: 1
+  mongodsPerShardCount: 3
+  mongosCount: 2
+  configServerCount: 3
+  version: 4.4.0
+  type: ShardedCluster
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  persistent: true
+  shardPodSpec:
+    persistence:
+      single:
+        storage: 1G
+
+  configSrvPodSpec:
+    persistence:
+      single:
+        storage: 1G

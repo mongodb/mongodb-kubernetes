@@ -1,0 +1,23 @@
+{% extends "Dockerfile.template" %}
+
+{% set base_image = "registry.access.redhat.com/ubi8/ubi-minimal" %}
+
+{% block packages %}
+RUN microdnf install --disableplugin=subscription-manager -y \
+  cyrus-sasl \
+  cyrus-sasl-gssapi \
+  cyrus-sasl-plain \
+  krb5-libs \
+  libcurl \
+  libpcap \
+  lm_sensors-libs \
+  net-snmp \
+  net-snmp-agent-libs \
+  openldap \
+  openssl \
+  tar \
+  rpm-libs \
+  net-tools \
+  procps-ng \
+  ncurses
+{% endblock %}

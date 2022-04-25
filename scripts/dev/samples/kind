@@ -1,0 +1,12 @@
+# This is a configuration file for working with Operator locally using Kind
+# The docker builds (based on Ubuntu image) are pushed to the local registry
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+# IMPORTANT: this file is just an example, you need to change the values proper way
+
+export IMAGE_TYPE=ubuntu
+export CLUSTER_TYPE=kind
+export CLUSTER_NAME=kind-kind
+export BASE_REPO_URL=localhost:5000
+export RED_HAT_TOKEN=

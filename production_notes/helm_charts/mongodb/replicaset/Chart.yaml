@@ -1,0 +1,4 @@
+apiVersion: v2
+name: mongodb-enterprise-database
+description: MDB charts
+version: 0.0.1

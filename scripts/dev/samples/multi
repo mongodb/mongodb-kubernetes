@@ -1,0 +1,15 @@
+# This is a configuration file for working with Operator in multi cluster mode.
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+export CLUSTER_TYPE=
+export REPO_URL=
+export INIT_OPS_MANAGER_REGISTRY=
+export INIT_APPDB_REGISTRY=
+export NAMESPACE=
+export OPERATOR_VERSION=
+export RED_HAT_TOKEN=
+export kube_environment_name=multi
+export member_clusters="e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
+export central_cluster=e2e.operator.mongokubernetes.com
+export test_pod_cluster=e2e.cluster1.mongokubernetes.com

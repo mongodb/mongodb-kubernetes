@@ -1,0 +1,23 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-rs-invalid-agent-auth-not-in-modes
+spec:
+  members: 3
+  version: 4.0.12
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+
+  security:
+    authentication:
+      agents:
+        mode: X509
+      enabled: true
+      modes: ["SCRAM"]

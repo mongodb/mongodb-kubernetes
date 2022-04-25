@@ -1,0 +1,14 @@
+# This is a configuration file for working with Operator locally that uses official images from quay.io
+# Usually this is the easiest way to start working with the Operator as doesn't require building images
+# Note, that the "build and push" stage for images is ignored for this configuration
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+export CLUSTER_TYPE=kind
+export CLUSTER_NAME=kind
+export REPO_URL=quay.io/mongodb
+export INIT_OPS_MANAGER_REGISTRY=quay.io/mongodb
+export INIT_APPDB_REGISTRY=quay.io/mongodb
+export NAMESPACE=public
+export OPERATOR_VERSION=1.5.2
+export RED_HAT_TOKEN=

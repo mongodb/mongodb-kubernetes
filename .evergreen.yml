@@ -1,0 +1,3024 @@
+ignore:
+  - "*.md"
+  - "docs/**"
+  - "public/support/*"
+  - "public/samples/*"
+  - "**/ubi/Dockerfile"
+  - "**/ubuntu/Dockerfile"
+stepback: true
+
+# Ops Manager image building & pushing takes a long time
+exec_timeout_secs: 4500
+variables:
+  - &ops_manager_44_current
+    ops_manager_version: "4.4.15"
+    ops_manager_namespace: "operator-testing-44-current"
+    node_port: 30044
+  - &cloud_manager_qa
+    ops_manager_version: "cloud_qa"
+  - &usaf
+    usaf_operator_version: "1.7.1"
+    usaf_database_version: "1.5.3"
+
+    # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
+  - &ops_manager_44_latest 4.4.21
+
+  - &ops_manager_50_latest 5.0.9
+  - &ops_manager_50_appdb_version 4.4.11-ent
+
+  - &ops_manager_60_latest 5.9.0
+  - &ops_manager_60_download_url https://s3.amazonaws.com/mongodb-mms-build-onprem/73c99a5ff9b7d100055adfe9e0b3dc0836a4c027/mongodb-mms-5.9.0.100.20220306T2335Z-1.x86_64.tar.gz
+  - &ops_manager_60_appdb_version 4.4.11-ent
+
+  # Latest MDB release as of today. Update this to latest `rc`s or GA version when
+  # it is released.
+  # https://opsmanager.mongodb.com/static/version_manifest/5.0.json
+  - &mdb_50_latest 5.0.0
+
+  - &mdb_44_latest 4.4.0
+  - &mdb_42_latest 4.2.8
+  - &mdb_40_latest 4.0.20
+
+  # Latest available version of Kubernetes
+  # https://kubernetes.io/releases/
+  - &kubernetes_kind_version 1.22.0
+
+    # This is the automation agent version used for the AppDB
+  - &agent_version 10.29.0.6830-1
+    # Agent version used in OM50
+  - &agent_version50 11.0.11.7036-1
+
+  - &agent_version60 11.12.0.7388-1
+
+    # Openshift v4 Testing Environment
+  - &kubernetes_environment_openshift_4
+    kube_environment_name: openshift_4
+    ecr_registry_needs_auth: ecr-registry
+    managed_security_context: "true"
+    always_remove_testing_namespace: "true"
+
+    # Kops Vanilla Kubernetes
+  - &kubernetes_environment_vanilla
+    kube_environment_name: vanilla
+
+    # Multi Cluster Environment
+  - &kubernetes_environment_multi_cluster
+    kube_environment_name: multi
+    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
+    central_cluster: e2e.operator.mongokubernetes.com
+    test_pod_cluster: e2e.cluster1.mongokubernetes.com
+
+  - &kubernetes_environment_kind
+    kube_environment_name: kind
+    # we can use kind to test ubi images, however we must disable managed security context
+    managed_security_context: "false"
+
+  - &go_bin
+    "/opt/golang/go1.17/bin"
+
+  - &go_options
+    GO111MODULE: "on"
+    GOROOT: "/opt/golang/go1.17"
+
+parameters:
+- key: registry
+  value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
+  description: Development ECR registry
+
+- key: appdb_registry
+  value: quay.io/mongodb
+  description: registry where appdb images are stored for this run
+
+- key: database_registry
+  value: quay.io/mongodb
+  description: registry where database images are stored for this run
+
+- key: readiness_probe
+  value: ""
+  description: set this to the repository:tag of the readinessprobe image
+
+functions:
+  "golint":
+    - command: subprocess.exec
+      type: test
+      params:
+        add_to_path:
+        - *go_bin
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - workdir
+        env:
+          <<: [ *go_options ]
+        binary: scripts/evergreen/lint_code.sh
+
+  "clone":
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "mkdir -p src/github.com/10gen"
+    - command: git.get_project
+      type: setup
+      params:
+        directory: src/github.com/10gen/ops-manager-kubernetes
+
+  build_multi_cluster_binary:
+  - command: subprocess.exec
+    type: setup
+    params:
+      add_to_path:
+        - *go_bin
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+        - workdir
+      env:
+        <<: [ *go_options ]
+      binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
+
+  test_operator:
+    - command: subprocess.exec
+      type: test
+      params:
+        add_to_path:
+        - *go_bin
+        - ${workdir}/bin
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+        - workdir
+        env:
+          <<: [ *go_options ]
+        command: make test
+
+  python_venv: &python_venv
+    command: subprocess.exec
+    type: setup
+    params:
+      command: /opt/python/3.9/bin/python3 -m venv --upgrade-deps ./venv
+
+  python_requirements: &python_requirements
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+
+  pipeline:
+  - *python_venv
+  - *python_requirements
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      include_expansions_in_env:
+      - version_id
+      - registry
+      - distro
+      - include_tags
+      - skip_tags
+      - test_suffix
+      - om_version
+      - om_download_url
+      - triggered_by_git_tag
+      - readiness_probe
+      add_to_path:
+      - ${workdir}/bin
+      command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+
+  add_supported_release:
+  - *python_venv
+  - *python_requirements
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - atlas_connection_string
+      - atlas_password
+      - atlas_database
+      - om_version
+      add_to_path:
+      - ${workdir}/bin
+      command: "${workdir}/venv/bin/python scripts/add_supported_release.py --image ${image_name}"
+
+  # upload_e2e_logs has the responsibility of dumping as much information as
+  # posible into the S3 bucket that corresponds to this ${version}. The
+  # Kubernetes cluster where the test finished running, should still be
+  # reachable. Note that after a timeout, Evergreen kills the running process
+  # and any running container in the host (which kills Kind).
+  upload_e2e_logs:
+    - command: s3.put
+      params:
+        aws_key: ${enterprise_aws_access_key_id}
+        aws_secret: ${enterprise_aws_secret_access_key}
+        local_files_include_filter:
+          - src/github.com/10gen/ops-manager-kubernetes/logs/*
+        remote_file: logs/${task_id}/${execution}/
+        bucket: operator-e2e-artifacts
+        permissions: public-read
+        content_type: text/plain
+
+  # cleanup_exec_environment is a very generic name when the only thing this function
+  # does is to clean the logs directory. In the future, more "commands" can be
+  # added to it with more clearning features, when needed.
+  cleanup_exec_environment:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: "rm -rf logs/"
+
+  quay_login:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+
+  rh_login:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "sh -c 'docker login scan.connect.redhat.com -u unused -p ${project_id} || true'"
+
+  # Logs into all used registries
+  configure_docker_auth: &configure_docker_auth
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      - RED_HAT_TOKEN
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      binary: scripts/dev/configure_docker_auth.sh
+
+  setup_jq: &setup_jq
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_jq.sh
+
+  setup_aws: &setup_aws
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_aws.sh
+
+  # configures Docker size, installs the Kind binary (if necessary)
+  setup_kind: &setup_kind
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - workdir
+        - kube_environment_name
+      binary: scripts/evergreen/setup_kind.sh
+
+  setup_docker_datadir: &setup_docker_datadir
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      binary: scripts/evergreen/configure-docker-datadir.sh
+
+  # Configures docker authentication to ECR and RH registries.
+  setup_building_host:
+  - *setup_aws
+  - *configure_docker_auth
+  - *setup_docker_datadir
+
+  prune_docker_resources:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker system prune -a -f"
+
+  # the task configures the set of tools necessary for any task working with K8 cluster:
+  # installs kubectl, jq, kind (if necessary), configures docker authentication
+  download_kube_tools:
+    - command: subprocess.exec
+      type: setup
+      params:
+        include_expansions_in_env:
+        - workdir
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/setup_kubectl.sh
+
+    - *setup_jq
+      # we need aws to configure docker authentication
+    - *setup_aws
+
+    - *configure_docker_auth
+
+    - *setup_kind
+
+  teardown_kubernetes_environment:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - kube_environment_name
+      - workdir
+      binary: scripts/evergreen/teardown_kubernetes_environment.sh
+
+  # Makes sure a kubectl context is defined.
+  setup_kubernetes_environment_p: &setup_kubernetes_environment_p
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - cluster_name
+      - central_cluster
+      - member_clusters
+      - test_pod_cluster
+      - kube_environment_name
+      - mms_eng_test_aws_access_key
+      - mms_eng_test_aws_secret
+      - mms_eng_test_aws_region
+      - openshift_url
+      - openshift_token
+      - workdir
+      env:
+        kubernetes_kind_version: *kubernetes_kind_version
+      add_to_path:
+      - ${workdir}/bin
+      binary: scripts/evergreen/setup_kubernetes_environment.sh
+
+  setup_kubernetes_environment:
+  - *setup_kubernetes_environment_p
+
+  setup_cloud_qa:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      env:
+        NAMESPACE_FILE: ${workdir}/.namespace
+        ENV_FILE: ${workdir}/.ops-manager-env
+      include_expansions_in_env:
+      - e2e_cloud_qa_baseurl
+      - e2e_cloud_qa_orgid_owner
+      - e2e_cloud_qa_apikey_owner
+      - e2e_cloud_qa_user_owner
+      - ops_manager_version
+      - task_name
+
+      command: "scripts/evergreen/e2e/setup_cloud_qa.py create"
+
+  teardown_cloud_qa:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - e2e_cloud_qa_baseurl
+      - e2e_cloud_qa_orgid_owner
+      - e2e_cloud_qa_apikey_owner
+      - e2e_cloud_qa_user_owner
+      - ops_manager_version
+      env:
+        NAMESPACE_FILE: ${workdir}/.namespace
+        ENV_FILE: ${workdir}/.ops-manager-env
+
+      command: "scripts/evergreen/e2e/setup_cloud_qa.py delete"
+
+  # This is a blocker for the release process. It will *always* fail and needs to be overriden
+  # if the release needs to proceed.
+  release_blocker:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/release_blocker
+
+  # Tags and pushes an image into an external Docker registry. The source image
+  # needs to exist before it can be pushed to a remote registry.
+  # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
+  # local image), and the IMAGE_TARGET will be authenticated with DOCKER_* series of
+  # environment variables.
+  release_docker_image_to_registry:
+    - command: subprocess.exec
+      type: system
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+        - ${workdir}/bin
+        include_expansions_in_env:
+        - tag_source
+        - tag_dest
+        - image_source
+        - image_target
+        - docker_username
+        - docker_password
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+
+        binary: scripts/evergreen/tag_push_docker_image.sh
+
+  #
+  # e2e_test is the main function used to run the e2e tests. It expects Ops
+  # Manager to be running (local to the Kubernetes cluster or Cloud Manager) and
+  # its configuration to exist in a ${workdir}/.ops-manager-env file.
+  #
+  # The e2e script will run all the tasks that are needed by the e2e tests like
+  # fetching the OM API credentials to use and create the Secret and ConfigMap
+  # objects that are required.
+  #
+  # At this point, the Kubernetes environment should be configured already
+  # (kubectl configuration points to the Kubernetes cluster where we run the tests).
+  #
+  # Please note: There are many ENV variables passed to the `e2e` script, so try
+  # to not add more. If this is required, discuss your use case with the team first.
+  #
+  e2e_test:
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+        - ${workdir}/bin
+        include_expansions_in_env:
+          - always_remove_testing_namespace
+          - custom_appdb_version
+          - custom_om_version
+          - custom_mdb_version
+          - custom_mdb_prev_version
+          - ecr_registry
+          - ecr_registry_needs_auth
+          - kube_environment_name
+          - ops_manager_version
+          - version_id
+          - install_operator_in_python
+          - task_id
+          - GITHUB_TOKEN_READ
+          - RED_HAT_TOKEN
+          - usaf_operator_version
+          - usaf_database_version
+          - agent_version
+          - central_cluster
+          - member_clusters
+          - test_pod_cluster
+        env:
+          REGISTRY: ${ecr_registry}/dev/${image_type}
+          OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
+          APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
+          DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
+          INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
+          INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
+          INIT_DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
+          MANAGED_SECURITY_CONTEXT: ${managed_security_context}
+          TASK_NAME: ${task_name}
+          OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
+          OPS_MANAGER_ENV: ${workdir}/.ops-manager-env
+          NAMESPACE_FILE: ${workdir}/.namespace
+          NODE_PORT: ${node_port}
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          MMS_VERSION: ${ops_manager_version}
+          WATCH_NAMESPACE: ${watch_namespace}
+          STATIC_NAMESPACE: ${static_namespace}
+          TEST_MODE: ${test_mode}
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+          IMAGE_TYPE: ${image_type}
+          KUBE_ENVIRONMENT_NAME: ${kube_environment_name}
+
+        binary: scripts/evergreen/e2e/e2e.sh
+
+  #
+  # Performs some K8s cluster fixing things and also deploys a cluster cleaner.
+  # Optionally (if $ops_manager_namespace is specified) deploys the test OM
+  #
+  prepare_test_env:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+        - ${workdir}/bin
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+        include_expansions_in_env:
+        - ecr_registry
+        - version_id
+        - kube_environment_name
+        - member_clusters
+        - central_cluster
+        - test_pod_cluster
+        command: "scripts/evergreen/prepare_test_env.sh ${ops_manager_namespace} ${ops_manager_version} ${node_port}"
+  #
+  # Performs some AWS cleanup
+  #
+  prepare_aws:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+        - ${workdir}/bin
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+
+        command: scripts/evergreen/prepare_aws.sh
+
+  operator-sdk-make-bundle:
+  - *setup_kubernetes_environment_p
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      - *go_bin
+      env:
+        <<: [ *go_options ]
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+        operator_img: ${ecr_registry}/dev/ubi/mongodb-enterprise-operator:${version_id}
+      include_expansions_in_env:
+      - workdir
+      - quay_prod_username
+      - quay_prod_robot_token
+      command: scripts/evergreen/operator-sdk/make-bundle.sh
+
+  operator-sdk-run-bundle:
+  - command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      env:
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+      command: scripts/evergreen/operator-sdk/run-bundle.sh
+
+  operator-sdk-scorecard-test:
+  - command: subprocess.exec
+    type: test
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      env:
+        KUBECONFIG: ${workdir}/${kube_environment_name}_config
+      command: scripts/evergreen/operator-sdk/scorecard-test.sh
+
+  operator-sdk-bundle-push:
+  - command: subprocess.exec
+    type: test
+    params:
+      command: scripts/evergreen/operator-sdk/bundle-push.sh
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+
+      add_to_path:
+      - *go_bin
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      env:
+        <<: [ *go_options ]
+
+
+tasks:
+- name: unit_tests
+  tags: ["unit_tests"]
+  commands:
+    - func: "test_operator"
+
+- name: unit_tests_lint
+  tags: ["unit_tests"]
+  commands:
+    - func: "golint"
+
+- name: operator-sdk-run-bundle
+  tags: ["patch-run"]
+  commands:
+  - func: clone
+  - func: download_kube_tools
+  - func: operator-sdk-make-bundle
+  - func: operator-sdk-run-bundle
+
+- name: operator-sdk-scorecard-test
+  tags: ["patch-run"]
+  commands:
+  - func: clone
+  - func: download_kube_tools
+  - func: operator-sdk-make-bundle
+  - func: operator-sdk-scorecard-test
+
+- name: operator-sdk-bundle-push
+  patch_only: true
+  commands:
+  - func: clone
+  - func: rh_login
+    vars:
+      project_id: ${rhc_operator_bundle_pid}
+  - func: operator-sdk-bundle-push
+
+- name: release_blocker
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: release_blocker
+
+- name: release_operator
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: operator
+  - func: add_supported_release
+    vars:
+      image_name: operator
+
+# Releases init images to Quay
+- name: release_init_appdb
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: init-appdb
+  - func: add_supported_release
+    vars:
+      image_name: init-appdb
+
+- name: release_init_database
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: init-database
+  - func: add_supported_release
+    vars:
+      image_name: init-database
+
+- name: release_init_ops_manager
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: init-ops-manager
+      include_tags: release
+  - func: add_supported_release
+    vars:
+      image_name: init-ops-manager
+
+
+- name: prerelease_master_images
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: configure_docker_auth
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        tag_dest: '$(git describe --dirty)'
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-operator
+        image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        # sorry
+        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-ops-manager
+        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        # sorry
+        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-appdb
+        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+    - func: release_docker_image_to_registry
+      vars:
+        tag_source: ${version_id}
+        # sorry
+        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
+        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-database
+        image_target: quay.io/mongodb/mongodb-enterprise-init-database-prerelease
+        docker_username: ${quay_prod_username}
+        docker_password: ${quay_prod_robot_token}
+
+- name: build_test_image
+  exec_timeout_secs: 600
+  priority: 60
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: build_multi_cluster_binary
+  - func: pipeline
+    vars:
+      image_name: test
+
+- name: build_operator_ubi
+  exec_timeout_secs: 600
+  priority: 60
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      skip_tags: ubuntu,release
+      distro: ubi
+      image_name: operator
+
+- name: build_operator_ubuntu
+  priority: 60
+  exec_timeout_secs: 600
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      skip_tags: ubi,release
+      distro: ubuntu
+      image_name: operator
+
+- name: build_init_om_images_ubi
+  priority: 60
+  commands:
+  - func: clone
+  - func: setup_aws
+  - func: configure_docker_auth
+  - func: pipeline
+    vars:
+      image_name: init-ops-manager
+      skip_tags: ubuntu,release
+
+- name: build_init_om_images_ubuntu
+  commands:
+  - func: clone
+  - func: setup_aws
+  - func: configure_docker_auth
+  - func: pipeline
+    vars:
+      image_name: init-ops-manager
+      skip_tags: ubi,release
+
+- name: build_init_appdb_images_ubuntu
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: init-appdb
+      skip_tags: ubi,release
+
+- name: build_init_appdb_images_ubi
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: init-appdb
+      skip_tags: ubuntu,release
+
+- name: build_init_database_image_ubuntu
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: init-database
+      skip_tags: ubi,release
+
+- name: build_init_database_image_ubi
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: init-database
+      skip_tags: ubuntu,release
+
+- name: build_database_image_ubi
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: database
+      skip_tags: ubuntu,release
+
+- name: build_database_image_ubuntu
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: database
+      skip_tags: ubi,release
+
+- name: prepare_cluster_vanilla
+  exec_timeout_secs: 1800
+  priority: 59
+  depends_on:
+  - name: build_operator_ubuntu
+  - name: build_init_appdb_images_ubuntu
+  - name: build_init_om_images_ubuntu
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_kubernetes_environment
+      vars:
+        <<: [ *kubernetes_environment_vanilla ]
+    - func: prepare_test_env
+      vars:
+        <<: *ops_manager_44_current
+
+- name: prepare_multi_cluster
+  exec_timeout_secs: 1800
+  priority: 59
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_kubernetes_environment
+      vars:
+        <<: [ *kubernetes_environment_multi_cluster ]
+    - func: prepare_test_env
+
+- name: prepare_aws
+  exec_timeout_secs: 600
+  priority: 59
+  commands:
+    - func: clone
+    - func: setup_jq
+    - func: setup_aws
+    - func: prepare_aws
+
+- name: e2e_multiple_cluster_failures
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_standalone_custom_podspec
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_schema_validation
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_schema_validation
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_schema_validation
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_users_schema_validation
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_crd_validation
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_config_map
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_groups
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_recovery
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_recovery_k8s
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_partial_crd
+  tags: ["patch-run"]
+  exec_timeout_secs: 300
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_clusterwide
+  tags: ["patch-run"]
+  exec_timeout_secs: 1500
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_multi_namespaces
+  tags: ["patch-run"]
+  exec_timeout_secs: 1500
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_replica_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_ops_manager
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_appdb_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_appdb_tls_opaque_secret
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_operator_upgrade_automated_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 3600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_backup_delete_sts
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_liveness_probe
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 2700
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_mongodb_validation_webhook
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_mongodb_roles_validation_webhook
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_recovery
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_long_name
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_long_name
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_config_map
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ent
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_groups
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+     - func: "e2e_test"
+
+- name: e2e_replica_set_pv
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_pv_multiple
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_8_members
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_exposed_externally
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_readiness_probe
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replication_state_awareness
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_statefulset_status
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_update_delete_parallel
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_sc_additional_certs
+  tags: ["patch-run"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_sharded_cluster_certs_prefix
+  tags: ["patch-run"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_rs_additional_certs
+  tags: ["patch-run"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_rs_external_access
+  tags: ["patch-run"]
+  exec_timeout_secs: 900
+  commands:
+    - func: "e2e_test"
+
+
+- name: e2e_sharded_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_pv
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_recovery
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_secret
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scale_shards
+  tags: ["patch-run"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_statefulset_status
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_type_change_recovery
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_all_mongodb_resources_parallel
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_upgrade_downgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_upgrade_downgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_custom_podspec
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_custom_sa
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_report_pending_pods
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_project_whitespaces
+  tags: ["patch-run"]
+  exec_timeout_secs: 300
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_mongod_options
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_mongod_options
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_custom_podspec
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_upgrade_downgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_standalone_no_tls_no_status_is_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_default
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_override
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+
+- name: e2e_replica_set_ignore_unknown_users
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_allow
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_prefer
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_require
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_certs_secret_prefix
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_sharded_cluster_tls_certs_top_level_prefix
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_disable_tls_scale_up
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_require_to_allow
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_tls_require_custom_ca
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_sharded_cluster_tls_require_custom_ca
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_require_and_disable
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_tls_multiple_different_ssl_configs
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_replica_set_tls_require_upgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_tls_x509_rs
+  tags: ["patch-run"]
+  # longer timeout than usual as this test tests recovery from bad states which can take some time
+  exec_timeout_secs: 1800
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_tls_x509_sc
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_x509_users_addition_removal
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_x509_user_connectivity
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_x509_configure_all_options_rs
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_tls_x509_configure_all_options_sc
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_256_user_connectivity
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_256_user_first
+  tags: ["patch-run"]
+  exec_timeout_secs: 900
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_1_user_connectivity
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_256_user_connectivity
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_1_user_connectivity
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_1_upgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_1_upgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_x509_to_scram_transition
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_x509_to_scram_transition
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_internal_cluster_transition
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_ldap
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_tls
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_user_to_dn_mapping
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_agent_auth
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_agent_client_certs
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_custom_roles
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_update_roles_no_privileges
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_group_dn
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_ldap_group_dn_with_x509_agent
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_feature_controls_authentication
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_sha_and_x509
+  exec_timeout_secs: 1200
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_sha_and_x509
+  exec_timeout_secs: 1200
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_x509_internal_cluster
+  exec_timeout_secs: 1320
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_scram_x509_ic_manual_certs
+  exec_timeout_secs: 1320
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_x509_ic_manual_certs
+  exec_timeout_secs: 1320
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_scram_x509_internal_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 1320
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_configure_tls_and_x509_simultaneously_rs
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_configure_tls_and_x509_simultaneously_sc
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_configure_tls_and_x509_simultaneously_st
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+# E2E tests for Ops Manager (sorted alphabetically):
+- name: e2e_om_appdb_agent_flags
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_monitoring_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_multi_change
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_scale_up_down
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_scram
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_upgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+  - func: "e2e_test"
+
+- name: e2e_om_appdb_validation
+  tags: ["patch-run"]
+  exec_timeout_secs: 600
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_external_connectivity
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_weak_password
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_multiple
+  tags: ["patch-run"]
+  exec_timeout_secs: 2000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_appdb_configure_all_images
+  tags: ["patch-run"]
+  exec_timeout_secs: 2000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_backup
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_backup_sharded_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_backup_liveness_probe
+  tags: ["patch-run"]
+  exec_timeout_secs: 4000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_backup_light
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_backup_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_backup_s3_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_backup_tls_custom_ca
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_backup_restore
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_queryable_backup
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_feature_controls
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_scale
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_upgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_prometheus
+  tags: ["patch-run"]
+  exec_timeout_secs: 1800
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_pod_spec
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_validation_webhook
+  tags: ["patch-run"]
+  exec_timeout_secs: 1200
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_om_ops_manager_https_enabled
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_https_enabled_hybrid
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_https_enabled_prefix
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_https_enabled_internet_mode
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_jvm_params
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_localmode
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_enable_local_mode_running_om
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_remotemode
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_localmode_multiple_pv
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_ops_manager_secure_config
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_member_cluster_watch
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set_scale_up
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_scale_up_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_scale_up_cluster_new_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_scale_down_cluster
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set_scale_down
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set_deletion
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_mtls_test
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_scram
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_sts_override
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_tls_with_scram
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_enable_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 3200
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_upgrade_downgrade
+  tags: ["patch-run"]
+  exec_timeout_secs: 2400
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_tls_cert_rotation
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_backup_restore
+  tags: ["patch-run"]
+  exec_timeout_secs: 3300
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_tls_with_x509
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: e2e_test
+
+- name: e2e_om_update_before_reconciliation
+  tags: ["patch-run"]
+  exec_timeout_secs: 900
+  commands:
+    - func: e2e_test
+
+- name: e2e_vault_setup
+  tags: ["patch-run"]
+  exec_timeout_secs: 1300
+  commands:
+    - func: e2e_test
+
+- name: e2e_vault_setup_tls
+  tags: ["patch-run"]
+  exec_timeout_secs: 1300
+  commands:
+    - func: e2e_test
+
+- name: e2e_vault_setup_om
+  tags: ["patch-run"]
+  exec_timeout_secs: 1500
+  commands:
+    - func: e2e_test
+
+- name: e2e_vault_setup_om_backup
+  tags: ["patch-run"]
+  exec_timeout_secs: 1500
+  commands:
+    - func: e2e_test
+
+- name: release_appdb
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: appdb
+  - func: add_supported_release
+    vars:
+      image_name: appdb
+
+- name: release_database
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: database
+  - func: add_supported_release
+    vars:
+      image_name: database
+
+- name: build_om_images
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: pipeline
+    vars:
+      image_name: ops-manager
+      skip_tags: release
+
+- name: publish_ops_manager
+  patch_only: true
+  commands:
+  - func: clone
+  - func: setup_building_host
+  - func: quay_login
+  - func: pipeline
+    vars:
+      image_name: ops-manager
+      include_tags: release
+  - func: add_supported_release
+    vars:
+      image_name: ops-manager
+
+task_groups:
+- name: unit_task_group
+  setup_group:
+    - func: "clone"
+  tasks:
+    - unit_tests
+    - unit_tests_lint
+
+# This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
+- name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    # e2e_kube_only_task_group
+    - e2e_crd_validation
+    - e2e_sharded_cluster_long_name
+    - e2e_replica_set_long_name
+    - e2e_replica_set_config_map
+    - e2e_replica_set_exposed_externally
+    - e2e_replica_set_project_whitespaces
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_statefulset_status
+    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
+    - e2e_sharded_cluster_schema_validation
+    - e2e_sharded_cluster_statefulset_status
+    - e2e_standalone_config_map
+    - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
+    - e2e_standalone_schema_validation
+    - e2e_users_schema_validation
+    - e2e_replica_set_tls_default
+    - e2e_replica_set_tls_override
+    - e2e_replica_set_ignore_unknown_users
+    # e2e_core_task_group
+    - e2e_all_mongodb_resources_parallel
+    - e2e_multiple_cluster_failures
+    - e2e_replica_set_8_members
+    - e2e_replica_set_ent
+    - e2e_replica_set_custom_podspec
+    - e2e_replica_set_custom_sa
+    - e2e_replica_set_report_pending_pods
+    - e2e_replica_set_recovery
+    - e2e_replica_set_upgrade_downgrade
+    - e2e_replica_set_agent_flags
+    - e2e_sharded_cluster
+    - e2e_sharded_cluster_secret
+    - e2e_sharded_cluster_upgrade_downgrade
+    - e2e_sharded_cluster_custom_podspec
+    - e2e_sharded_cluster_agent_flags
+    - e2e_standalone_type_change_recovery
+    - e2e_standalone_upgrade_downgrade
+    - e2e_standalone_custom_podspec
+    - e2e_standalone_agent_flags
+    # e2e_tls_task_group
+    - e2e_replica_set_tls_allow
+    - e2e_replica_set_tls_prefer
+    - e2e_replica_set_tls_require_upgrade
+    - e2e_tls_rs_additional_certs
+    - e2e_tls_sc_additional_certs
+    - e2e_tls_sharded_cluster_certs_prefix
+    - e2e_standalone_no_tls_no_status_is_set
+    # e2e_om_4_4_plus_only_task_group
+    - e2e_feature_controls_authentication
+    - e2e_replica_set
+    - e2e_replica_set_liveness_probe
+    - e2e_replica_set_mongod_options
+    - e2e_replica_set_readiness_probe
+    - e2e_replica_set_update_delete_parallel
+    - e2e_sharded_cluster_scale_shards
+    - e2e_sharded_cluster_mongod_options
+    - e2e_tls_rs_external_access
+    - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_certs_secret_prefix
+    - e2e_sharded_cluster_tls_certs_top_level_prefix
+    - e2e_disable_tls_scale_up
+    - e2e_replica_set_tls_require_and_disable
+    # e2e_x509_task_group
+    - e2e_configure_tls_and_x509_simultaneously_st
+    - e2e_configure_tls_and_x509_simultaneously_rs
+    - e2e_configure_tls_and_x509_simultaneously_sc
+    - e2e_tls_x509_rs
+    - e2e_tls_x509_sc
+    - e2e_tls_x509_configure_all_options_rs
+    - e2e_tls_x509_configure_all_options_sc
+    - e2e_tls_x509_user_connectivity
+    - e2e_tls_x509_users_addition_removal
+    # e2e_ldap_task_group
+    - e2e_replica_set_ldap
+    - e2e_sharded_cluster_ldap
+    - e2e_replica_set_ldap_tls
+    - e2e_replica_set_ldap_user_to_dn_mapping
+    - e2e_replica_set_ldap_agent_auth
+    - e2e_replica_set_ldap_agent_client_certs
+    - e2e_replica_set_custom_roles
+    - e2e_replica_set_update_roles_no_privileges
+    - e2e_replica_set_ldap_group_dn
+    - e2e_replica_set_ldap_group_dn_with_x509_agent
+    # e2e_scram_sha_task_group_with_manually_generated_certs
+    - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_256_user_first
+    - e2e_replica_set_scram_sha_1_user_connectivity
+    - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_scram_x509_ic_manual_certs
+    - e2e_sharded_cluster_scram_sha_1_upgrade
+    - e2e_sharded_cluster_scram_sha_256_user_connectivity
+    - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_x509_ic_manual_certs
+    # e2e_auth_transitions_task_group
+    - e2e_replica_set_scram_sha_and_x509
+    - e2e_replica_set_x509_to_scram_transition
+    - e2e_sharded_cluster_scram_sha_and_x509
+    - e2e_sharded_cluster_x509_to_scram_transition
+    - e2e_sharded_cluster_internal_cluster_transition
+    # e2e_webhook_validation_task_group
+    - e2e_mongodb_validation_webhook
+    - e2e_mongodb_roles_validation_webhook
+    - e2e_vault_setup
+    - e2e_vault_setup_tls
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+
+# This is the task group that contains all the tests run in the e2e_mdb_openshift_ubi_cloudqa build variant
+- name: e2e_mdb_openshift_ubi_cloudqa_task_group
+  # OM tests are also run on the same Openshift cluster so we shouldn't go too high
+  max_hosts: 4
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    # e2e_kube_only_task_group
+    - e2e_crd_validation
+    - e2e_sharded_cluster_long_name
+    - e2e_replica_set_long_name
+    - e2e_replica_set_config_map
+    - e2e_replica_set_exposed_externally
+    - e2e_replica_set_project_whitespaces
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_statefulset_status
+    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
+    - e2e_sharded_cluster_schema_validation
+    - e2e_sharded_cluster_statefulset_status
+    - e2e_standalone_config_map
+    - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
+    - e2e_standalone_schema_validation
+    - e2e_users_schema_validation
+    - e2e_replica_set_tls_default
+    - e2e_replica_set_tls_override
+    # e2e_scram_sha_task_group_with_manually_generated_certs
+    - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_256_user_first
+    - e2e_replica_set_scram_sha_1_user_connectivity
+    - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_scram_x509_ic_manual_certs
+    - e2e_sharded_cluster_scram_sha_1_upgrade
+    - e2e_sharded_cluster_scram_sha_256_user_connectivity
+    - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_x509_ic_manual_certs
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
+# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om44 build variant
+- name: e2e_mdb_vanilla_ubuntu_om44_task_group
+  max_hosts: 12
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    # e2e_kube_only_task_group
+    - e2e_crd_validation
+    - e2e_sharded_cluster_long_name
+    - e2e_replica_set_long_name
+    - e2e_replica_set_config_map
+    - e2e_replica_set_exposed_externally
+    - e2e_replica_set_project_whitespaces
+    - e2e_replica_set_pv
+    - e2e_replica_set_pv_multiple
+    - e2e_replica_set_schema_validation
+    - e2e_replica_set_statefulset_status
+    - e2e_replication_state_awareness
+    - e2e_sharded_cluster_pv
+    - e2e_sharded_cluster_recovery
+    - e2e_sharded_cluster_schema_validation
+    - e2e_sharded_cluster_statefulset_status
+    - e2e_standalone_config_map
+    - e2e_standalone_recovery
+    - e2e_standalone_recovery_k8s
+    - e2e_standalone_schema_validation
+    - e2e_users_schema_validation
+    - e2e_replica_set_tls_default
+    - e2e_replica_set_tls_override
+    # e2e_om_4_4_plus_only_task_group
+    - e2e_feature_controls_authentication
+    - e2e_replica_set
+    - e2e_replica_set_liveness_probe
+    - e2e_replica_set_mongod_options
+    - e2e_replica_set_readiness_probe
+    - e2e_replica_set_update_delete_parallel
+    - e2e_sharded_cluster_scale_shards
+    - e2e_sharded_cluster_mongod_options
+    - e2e_tls_rs_external_access
+    - e2e_replica_set_tls_require
+    - e2e_replica_set_tls_certs_secret_prefix
+    - e2e_sharded_cluster_tls_certs_top_level_prefix
+    - e2e_disable_tls_scale_up
+    - e2e_replica_set_tls_require_and_disable
+    # e2e_tls_task_group
+    - e2e_replica_set_tls_allow
+    - e2e_replica_set_tls_prefer
+    - e2e_replica_set_tls_require_upgrade
+    - e2e_tls_rs_additional_certs
+    - e2e_tls_sc_additional_certs
+    - e2e_standalone_no_tls_no_status_is_set
+    # e2e_scram_sha_task_group
+    - e2e_replica_set_scram_sha_256_user_connectivity
+    - e2e_replica_set_scram_sha_256_user_first
+    - e2e_replica_set_scram_sha_1_user_connectivity
+    - e2e_replica_set_scram_sha_1_upgrade
+    - e2e_replica_set_scram_x509_internal_cluster
+    - e2e_sharded_cluster_scram_sha_1_upgrade
+    - e2e_sharded_cluster_scram_sha_256_user_connectivity
+    - e2e_sharded_cluster_scram_sha_1_user_connectivity
+    - e2e_sharded_cluster_scram_x509_internal_cluster
+    # e2e_ldap_task_group
+    - e2e_replica_set_ldap
+    - e2e_sharded_cluster_ldap
+    - e2e_replica_set_ldap_tls
+    - e2e_replica_set_ldap_user_to_dn_mapping
+    - e2e_replica_set_ldap_agent_auth
+    - e2e_replica_set_ldap_agent_client_certs
+    - e2e_replica_set_custom_roles
+    - e2e_replica_set_update_roles_no_privileges
+    - e2e_replica_set_ldap_group_dn
+    - e2e_replica_set_ldap_group_dn_with_x509_agent
+    # e2e_auth_transitions_task_group
+    - e2e_replica_set_scram_sha_and_x509
+    - e2e_replica_set_x509_to_scram_transition
+    - e2e_sharded_cluster_scram_sha_and_x509
+    - e2e_sharded_cluster_x509_to_scram_transition
+    - e2e_sharded_cluster_internal_cluster_transition
+    # e2e_tls_custom_ca_task_group
+    - e2e_replica_set_tls_require_custom_ca
+    - e2e_replica_set_tls_require_to_allow
+    - e2e_sharded_cluster_tls_require_custom_ca
+    # e2e_mongodb_non_cloudqa_task_group
+    - e2e_standalone_groups
+    - e2e_replica_set_groups
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
+# e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
+# cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
+- name: e2e_operator_task_group
+  max_hosts: 2
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_operator_upgrade_replica_set
+    - e2e_operator_upgrade_ops_manager
+    - e2e_operator_partial_crd
+    - e2e_operator_clusterwide
+    - e2e_operator_multi_namespaces
+    - e2e_operator_upgrade_appdb_tls
+    - e2e_operator_upgrade_appdb_tls_opaque_secret
+    - e2e_operator_upgrade_automated_tls
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+
+
+- name: e2e_multi_cluster_task_group
+  max_hosts: 2
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_multi_cluster_replica_set
+    - e2e_multi_cluster_replica_set_deletion
+    - e2e_multi_cluster_replica_set_scale_up
+    - e2e_multi_cluster_scale_up_cluster
+    - e2e_multi_cluster_scale_up_cluster_new_cluster
+    - e2e_multi_cluster_replica_set_scale_down
+    - e2e_multi_cluster_scale_down_cluster
+    - e2e_multi_cluster_mtls_test
+    - e2e_multi_cluster_scram
+    - e2e_multi_sts_override
+    - e2e_multi_cluster_tls_with_scram
+    - e2e_multi_cluster_member_cluster_watch
+    - e2e_multi_cluster_enable_tls
+    - e2e_multi_cluster_upgrade_downgrade
+    - e2e_multi_cluster_tls_cert_rotation
+    - e2e_multi_cluster_backup_restore
+    - e2e_multi_cluster_tls_with_x509
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+
+
+# This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
+# including the cluster-wide resources changing. Uses Cloud-qa.
+- name: e2e_ops_manager_kind_only_task_group
+  max_hosts: 15
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_monitoring_tls
+    - e2e_om_appdb_multi_change
+    - e2e_om_appdb_scale_up_down
+    - e2e_om_appdb_upgrade
+    - e2e_om_appdb_validation
+    - e2e_om_appdb_scram
+    - e2e_om_external_connectivity
+    - e2e_om_jvm_params
+    - e2e_om_localmode
+    - e2e_om_ops_manager_enable_local_mode_running_om
+    - e2e_om_localmode_multiple_pv
+    - e2e_om_weak_password
+    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_light
+    - e2e_om_ops_manager_backup_tls
+    - e2e_om_ops_manager_backup_s3_tls
+    - e2e_om_ops_manager_backup_tls_custom_ca
+    - e2e_om_ops_manager_backup_liveness_probe
+    - e2e_om_ops_manager_backup_sharded_cluster
+    - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_https_enabled
+    - e2e_om_ops_manager_https_enabled_hybrid
+    - e2e_om_ops_manager_https_enabled_internet_mode
+    - e2e_om_ops_manager_https_enabled_prefix
+    - e2e_om_ops_manager_scale
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_validation_webhook
+    - e2e_om_ops_manager_secure_config
+    - e2e_om_update_before_reconciliation
+    - e2e_om_multiple
+    - e2e_om_appdb_configure_all_images
+    - e2e_om_feature_controls
+    - e2e_vault_setup_om
+    - e2e_vault_setup_om_backup
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+
+# The following group of tasks are also used for OM5. So far there are not
+# substantial changes to justify the creation of a new task_group.
+- name: e2e_ops_manager_kind_4_4_only_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_remotemode
+    - e2e_om_ops_manager_backup_restore
+    - e2e_om_ops_manager_queryable_backup
+    # The task has problems running in e2e_kind_ops_manager_ubi build variant - so running only on e2e_kind_ops_manager_4_4
+    # (it's ubuntu based)
+    - e2e_om_ops_manager_backup
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+
+# Tests features only supported on OM60
+- name: e2e_ops_manager60_kind_only_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_ops_manager_prometheus
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+
+# This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
+# it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
+# that the Ops Manager tests will not overload the cluster if run in parallel builds.
+# Operator upgrade tests must not be included here!
+- name: e2e_ops_manager_task_group_safe
+  max_hosts: 2
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_monitoring_tls
+    - e2e_om_appdb_multi_change
+    - e2e_om_appdb_scale_up_down
+    - e2e_om_appdb_upgrade
+    - e2e_om_appdb_validation
+    - e2e_om_appdb_scram
+    - e2e_om_external_connectivity
+    - e2e_om_jvm_params
+    - e2e_om_localmode
+    - e2e_om_ops_manager_enable_local_mode_running_om
+    - e2e_om_localmode_multiple_pv
+    - e2e_om_weak_password
+    - e2e_om_ops_manager_backup
+    - e2e_om_ops_manager_backup_sharded_cluster
+    - e2e_om_ops_manager_backup_light
+    - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_scale
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_ops_manager_secure_config
+    - e2e_om_appdb_configure_all_images
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
+
+buildvariants:
+
+## Build variants for E2E tests
+
+# The pattern for naming build variants for E2E tests:
+# e2e_<type>_<cluster>_<distro>[<om_version>]
+# where <type> is any of mdb|om<version>|operator
+# where <cluster> is any of kind|vanilla|openshift
+# where <distro> is any of ubuntu|ubi
+# where <om_version> denotes the OM version tested (e.g. om40, om44, cloudqa) - used only for MDB tests
+
+## MongoDB build variants
+
+- name: e2e_mdb_kind_ubuntu_cloudqa
+  display_name: e2e_mdb_kind_ubuntu_cloudqa
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
+    custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
+    image_type: ubuntu
+  tasks:
+    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+
+
+# Run with evergreen patch -p ops-manager-kubernetes -v e2e_mdb_kind_usaf_cloudqa -t all -f -y -u -d "Usaf CloudQA Run"
+#- name: e2e_mdb_kind_usaf_cloudqa
+#  patch_only: true
+#  display_name: e2e_mdb_kind_usaf_cloudqa
+#  run_on:
+#    - ubuntu1804-large
+#  depends_on:
+#    # Note: no images are built, they are expected to be there already
+#    # we should have
+#    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-operator:${usaf_operator_version}
+#    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:${usaf_database_version}
+#    - name: build_test_image
+#      variant: init_test_run
+#  expansions:
+#    <<: [ *cloud_manager_qa, *kubernetes_environment_kind, *usaf ]
+#    custom_mdb_version: *mdb_44_latest
+#    image_type: usaf
+#  tasks:
+#    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+
+- name: e2e_mdb_vanilla_ubuntu_om44
+  display_name: "e2e_mdb_vanilla_ubuntu_om44"
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: prepare_cluster_vanilla
+      variant: init_test_run
+  run_on:
+  - ubuntu1804-small
+  stepback: false
+  expansions:
+    <<: [ *ops_manager_44_current, *kubernetes_environment_vanilla ]
+    custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
+    image_type: ubuntu
+  tasks:
+  - name: e2e_mdb_vanilla_ubuntu_om44_task_group
+
+- name: e2e_mdb_openshift_ubi_cloudqa
+  display_name: e2e_mdb_openshift_ubi_cloudqa
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+  run_on:
+  - ubuntu1804-small
+  stepback: false
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_openshift_4 ]
+    custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
+    image_type: ubi
+  tasks:
+  - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+
+## Ops Manager build variants
+
+# Isolated Ops Manager Tests for 4.4 version
+- name: e2e_om44_kind_ubuntu
+  display_name: e2e_om44_kind_ubuntu
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om44_images
+  - name: build_operator_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubuntu
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+    custom_mdb_prev_version: *mdb_42_latest
+    agent_version: *agent_version60
+
+    # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+- name: e2e_om44_kind_ubi
+  display_name: e2e_om44_kind_ubi
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om44_images
+  - name: build_operator_ubi
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_database_image_ubi
+    variant: init_test_run
+  - name: build_init_appdb_images_ubi
+    variant: init_test_run
+  expansions:
+    # The ubi checks also run on kind because of memory problems on Openshift!
+    # A few tests of these at any given time and the Nodes in the Openshift cluster
+    # will run out of mem.
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubi
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+    custom_mdb_prev_version: *mdb_42_latest
+    agent_version: *agent_version60
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+
+# Isolated Ops Manager Tests for 5.0 version
+- name: e2e_om50_kind_ubuntu
+  display_name: e2e_om50_kind_ubuntu
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om50_images
+  - name: build_operator_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubuntu
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_50_latest
+    custom_mdb_version: *mdb_50_latest
+    custom_mdb_prev_version: *mdb_44_latest
+    agent_version: *agent_version60
+
+    custom_appdb_version: *ops_manager_50_appdb_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+# Isolated Ops Manager Tests for 6.0 version
+- name: e2e_om60_kind_ubuntu
+  display_name: e2e_om60_kind_ubuntu
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om60_images
+  - name: build_operator_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubuntu
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_60_latest
+    custom_mdb_version: *mdb_50_latest
+    custom_mdb_prev_version: *mdb_44_latest
+    agent_version: *agent_version60
+
+    custom_appdb_version: *ops_manager_60_appdb_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager60_kind_only_task_group
+
+- name: e2e_om50_kind_ubi
+  display_name: e2e_om50_kind_ubi
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om50_images
+  - name: build_operator_ubi
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_database_image_ubi
+    variant: init_test_run
+  - name: build_init_appdb_images_ubi
+    variant: init_test_run
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubi
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_50_latest
+    custom_mdb_version: *mdb_50_latest
+    custom_mdb_prev_version: *mdb_44_latest
+    agent_version: *agent_version60
+
+    custom_appdb_version: *ops_manager_50_appdb_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+# Multi Cluster build variants
+- name: e2e_multi_cluster
+  display_name: e2e_multi_cluster
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: prepare_multi_cluster
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
+    image_type: ubuntu
+    agent_version: *agent_version50
+  tasks:
+    - name: e2e_multi_cluster_task_group
+
+
+## Operator tests build variants
+
+- name: e2e_operator_kind_ubuntu_cloudqa
+  display_name: e2e_operator_kind_ubuntu_cloudqa
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_operator_ubuntu
+    variant: init_test_run
+  - name: build_init_database_image_ubuntu
+    variant: init_test_run
+  - name: build_database_image_ubuntu
+    variant: init_test_run
+  - name: build_init_om_images_ubuntu
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_appdb_images_ubuntu
+    variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
+    image_type: ubuntu
+    custom_om_version: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_operator_task_group
+
+- name: e2e_operator_kind_ubi_cloudqa
+  display_name: e2e_operator_kind_ubi_cloudqa
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
+    image_type: ubi
+    custom_om_version: *ops_manager_44_latest
+    custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+  tasks:
+    - name: e2e_operator_task_group
+
+
+### End of build variants for E2E
+
+### Release build variants
+
+## Adds versions as supported in the supported versions Database.
+## The reponsibility of actually building this image/version and pushing them
+## to public Docker repositories is of the periodic-build task.
+- name: release
+  display_name: release
+  depends_on:
+    - name: release_blocker
+      variant: release_blocker
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubuntu
+      variant: init_test_run
+    - name: build_init_appdb_images_ubuntu
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+  run_on:
+    - ubuntu1804-small
+  expansions:
+    include_tags: release
+  tasks:
+    - name: release_operator
+    - name: release_init_appdb
+    - name: release_init_database
+    - name: release_init_ops_manager
+    - name: release_database
+
+
+- name: release_blocker
+  display_name: release_blocker
+  run_on:
+    - ubuntu1604-packer  # Note: cheapest machine I found
+  tasks:
+    - name: release_blocker
+
+- name: init_test_run
+  display_name: init_test_run
+  run_on:
+    - ubuntu1804-small
+  stepback: false
+  tasks:
+    - name: build_operator_ubi
+    - name: build_operator_ubuntu
+    - name: build_test_image
+
+    # Init AppDB images
+    - name: build_init_appdb_images_ubuntu
+    - name: build_init_appdb_images_ubi
+
+    - name: build_init_om_images_ubuntu
+    - name: build_init_om_images_ubi
+    - name: build_init_database_image_ubuntu
+    - name: build_init_database_image_ubi
+    - name: build_database_image_ubuntu
+    - name: build_database_image_ubi
+    - name: prepare_cluster_vanilla
+    - name: prepare_multi_cluster
+    - name: prepare_aws
+
+  # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
+  # registries with the images that were pushed to master
+- name: prerelease_master_images
+  display_name: prerelease_master_images
+  run_on:
+    - ubuntu1804-small
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_init_om_images_ubuntu
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
+  expansions:
+    image_type: ubuntu
+  tasks:
+    - name: prerelease_master_images
+
+- name: go_unit_tests
+  display_name: "go_unit_tests"
+  run_on:
+    - ubuntu1804-small
+  stepback: false
+  tasks:
+    - name: "unit_task_group"
+
+- name: operator-sdk-tests
+  display_name: operator-sdk-tests
+  depends_on:
+  - name: build_operator_ubi
+    variant: init_test_run
+  run_on:
+  - ubuntu1804-small
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+  tasks:
+  # TODO: Fix and re-enable as part of CLOUDP-112507
+  # - name: operator-sdk-run-bundle
+  - name: operator-sdk-scorecard-test
+
+### Build variants for manual patch only
+
+# Release Operator Bundle to Openshift Marketplace.
+# This variant should be called by PCT and not manually.
+- name: marketplace-release
+  display_name: marketplace-release
+  run_on:
+  - ubuntu1804-small
+  tasks:
+  - name: operator-sdk-bundle-push
+
+# build AppDB: to be launched independently of the operator build process (evergreen patch)
+# evergreen patch --project ops-manager-kubernetes -v build_and_push_appdb_images -d "AppDB release" --finalize
+- name: build_and_push_appdb_images
+  display_name: build_and_push_appdb_images
+  run_on:
+  - ubuntu1804-small
+  tasks:
+  - name: release_appdb
+
+- name: build_om44_images
+  display_name: build_om44_images
+  run_on:
+  - ubuntu1804-small
+  expansions:
+    om_version: *ops_manager_44_latest
+  tasks:
+  - name: build_om_images
+
+- name: build_om50_images
+  display_name: build_om50_images
+  run_on:
+  - ubuntu1804-small
+  expansions:
+    om_version: *ops_manager_50_latest
+  tasks:
+  - name: build_om_images
+
+- name: build_om60_images
+  display_name: build_om60_images
+  run_on:
+  - ubuntu1804-small
+  expansions:
+    om_version: *ops_manager_60_latest
+    om_download_url: *ops_manager_60_download_url
+  tasks:
+  - name: build_om_images
+
+# To publish OM4.4 images:
+#
+# 1) Modify `variables.ops_manager_44_latest` to the version to be released
+# 2) Run
+#    evergreen patch -v publish_om44_images -t all -y -f -d "Releasing OM 4.4" -u --browse
+#
+- name: publish_om44_images
+  display_name: publish_om44_images
+  run_on:
+  - ubuntu1804-small
+  depends_on:
+  - variant: e2e_om44_kind_ubuntu
+    name: '*'
+  - variant: e2e_om44_kind_ubi
+    name: '*'
+  expansions:
+    om_version: *ops_manager_44_latest
+  tasks:
+  - name: publish_ops_manager
+
+
+- name: publish_om50_images
+  display_name: publish_om50_images
+  run_on:
+  - ubuntu1804-small
+  depends_on:
+  - variant: e2e_om50_kind_ubuntu
+    name: '*'
+  - variant: e2e_om50_kind_ubi
+    name: '*'
+  expansions:
+    om_version: *ops_manager_50_latest
+  tasks:
+  - name: publish_ops_manager

@@ -1,0 +1,19 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-upgrade
+spec:
+  replicas: 1
+  version: 4.4.0
+  adminCredentials: ops-manager-admin-secret
+
+  applicationDatabase:
+    members: 3
+    version: 4.4.0-ent
+    persistent: true
+    additionalMongodConfig:
+      operationProfiling:
+        mode: slowOp
+
+  backup:
+    enabled: false

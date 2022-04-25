@@ -1,0 +1,30 @@
+# This is a configuration file for working with Operator remotely using Kops
+# The docker builds (based on Ubuntu image) are pushed to the ECR registry
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+# IMPORTANT: this file is just an example, you need to change the values proper way
+
+
+export NAME=myname
+export kube_environment_name=
+export NAMESPACE=${NAME}
+export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/${NAME}"
+export IMAGE_TYPE=ubuntu
+export CLUSTER_NAME="${NAME}.mongokubernetes.com"
+export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+export REPO_URL="268558157000.dkr.ecr.eu-west-1.amazonaws.com/${NAME}"
+export INIT_OPS_MANAGER_REGISTRY=${REPO_URL}/ubuntu
+export INIT_APPDB_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/${NAME}/ubuntu"
+export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+export KUBECONFIG=~/.kube/config
+export CLUSTER_TYPE=
+export KOPS_ZONES=
+export RED_HAT_TOKEN=
+
+
+# Ops Manager related options
+# export OM_HOST=https://cloud-qa.mongodb.com
+# export OM_USER=<public_key>
+# export OM_API_KEY=<private_key>
+# export OM_ORGID=<org_id>

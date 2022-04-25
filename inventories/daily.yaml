@@ -1,0 +1,48 @@
+vars:
+  quay_registry: quay.io/mongodb/<image-name-quay>
+  # rh_registry: scan.connect.redhat.com/ospid-<ospid>/<image-name-th>
+  s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
+
+images:
+  - name: image-daily-build
+    vars:
+      context: .
+
+    stages:
+    - name: build-ubi
+      task_type: docker_build
+      tags: ["ubi"]
+
+      inputs:
+      - build_id
+
+      dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
+      buildargs:
+        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+
+      output:
+      - registry: $(inputs.params.quay_registry)-ubi
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.quay_registry)-ubi
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      - registry: $(inputs.params.rh_registry)
+        tag: $(inputs.params.release_version)
+      # - registry: $(inputs.params.rh_registry)
+      #   tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+
+    - name: build-ubuntu
+      task_type: docker_build
+      tags: ["ubuntu"]
+
+      inputs:
+      - build_id
+
+      dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubuntu/Dockerfile
+      buildargs:
+        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+
+      output:
+      - registry: $(inputs.params.quay_registry)
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.quay_registry)
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

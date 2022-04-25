@@ -1,0 +1,17 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-scale
+spec:
+  replicas: 1
+  version: 4.2.0
+  adminCredentials: ops-manager-admin-secret
+
+  applicationDatabase:
+    version: "4.2.0-ent"
+    members: 3
+    podSpec:
+      cpu: '0.25'
+
+  backup:
+    enabled: false

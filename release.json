@@ -1,0 +1,15 @@
+{
+  "mongodbToolsBundle": {
+    "ubi": "mongodb-database-tools-rhel80-x86_64-100.5.1.tgz",
+    "ubuntu": "mongodb-database-tools-ubuntu1804-x86_64-100.5.1.tgz"
+  },
+  "mongodbOperator": "1.16.0",
+  "initDatabaseVersion": "1.0.9",
+  "initOpsManagerVersion": "1.0.7",
+  "initAppDbVersion": "1.0.9",
+  "databaseImageVersion": "2.0.2",
+  "readinessProbeVersion": "1.0.8",
+  "versionUpgradePostStartHookVersion": "1.0.4",
+  "agentVersion": "11.12.0.7388-1",
+  "communityOperatorVersion": "0.7.4-0.20220412113529-13b007650718"
+}

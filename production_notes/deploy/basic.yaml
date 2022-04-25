@@ -1,0 +1,38 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: basic
+spec:
+  members: 3
+  version: 4.4.0-ent
+  type: ReplicaSet
+
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+
+  podSpec:
+    podTemplate:
+      spec:
+        containers:
+          - name: mongodb-enterprise-database
+            resources:
+              limits:
+                cpu: "2"
+                memory: 1G
+              requests:
+                cpu: "1"
+                memory: 500M
+
+      persistence:
+        single:
+          storage: 10G
+
+  security:
+    tls:
+      enabled: true
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]

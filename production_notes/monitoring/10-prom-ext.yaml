@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-ext
+  namespace: monitoring
+  labels:
+    app: prometheus
+    component: core
+  annotations:
+    prometheus.io/scrape: 'true'
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8080
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: prometheus
+    component: core

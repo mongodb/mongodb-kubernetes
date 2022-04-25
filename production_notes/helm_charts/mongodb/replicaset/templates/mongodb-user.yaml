@@ -1,0 +1,18 @@
+{{- range .Values.users }}
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: {{ $.Values.name }}-{{ .username }}-mongodbuser
+  namespace: {{ $.Release.Namespace }}
+spec:
+  passwordSecretKeyRef:
+    name: {{ $.Values.name }}-{{ .username }}-secret # the name of the secret that stores this user's password
+    key: password # the key in the secret that stores the password
+  username: {{ .username }}
+  db: {{ .db }}
+  mongodbResourceRef:
+    name: {{ $.Values.name }} # The name of the MongoDB resource this user will be added to
+  roles:
+    {{- toYaml .roles | nindent 6 }}
+{{- end }}

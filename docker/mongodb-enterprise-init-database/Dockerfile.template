@@ -1,0 +1,42 @@
+ARG imagebase
+FROM ${imagebase} as base
+
+FROM {{ base_image }}
+
+ARG version
+
+{%- if is_appdb %}
+LABEL name="MongoDB Enterprise Init AppDB" \
+      version="mongodb-enterprise-init-appdb-${version}" \
+      summary="MongoDB Enterprise AppDB Init Image" \
+      description="Startup Scripts for MongoDB Enterprise Application Database for Ops Manager" \
+{%- else %}
+LABEL name="MongoDB Enterprise Init Database" \
+      version="mongodb-enterprise-init-database-${version}" \
+      summary="MongoDB Enterprise Database Init Image" \
+      description="Startup Scripts for MongoDB Enterprise Database" \
+{%- endif %}
+      release="1" \
+      vendor="MongoDB" \
+      maintainer="support@mongodb.com"
+
+COPY --from=base /data/readinessprobe /probes/readinessprobe
+COPY --from=base /data/probe.sh /probes/probe.sh
+COPY --from=base /data/scripts/ /scripts/
+COPY --from=base /data/licenses /licenses/
+
+{%- if is_appdb %}
+COPY --from=base /data/version-upgrade-hook /probes/version-upgrade-hook
+{%- endif %}
+
+{% block mongodb_tools %}
+{% endblock %}
+
+RUN tar xfz /tools/mongodb_tools.tgz --directory /tools \
+    && rm /tools/mongodb_tools.tgz
+
+USER 2000
+ENTRYPOINT [ "/bin/cp", "-f", "-r", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/tools", "/opt/scripts/" ]
+
+{% block healthcheck %}
+{% endblock %}

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+
+source scripts/dev/read_context.sh
+source scripts/funcs/kubernetes
+source scripts/funcs/printing
+
+# Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
+# considerably less time
+
+title "Cleaning Kubernetes resources"
+
+ensure_namespace "${NAMESPACE}"
+
+kubectl delete mdb --all -n "${NAMESPACE}" || true
+kubectl delete mdbu --all -n "${NAMESPACE}" || true
+kubectl delete mdbm --all -n "${NAMESPACE}" || true
+
+# Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
+kubectl delete "$(kubectl get sts -o name -n "${NAMESPACE}" | grep "backup-daemon")" 2>/dev/null || true
+
+# shellcheck disable=SC2016,SC2086
+timeout "30s" bash -c \
+          'while [[ $(kubectl -n '${NAMESPACE}' get pods | grep "backup-daemon-0" | wc -l) -gt 0 ]]; do sleep 1; done' \
+           || echo "Warning: failed to remove backup daemon statefulset"
+
+kubectl delete opsmanager --all -n "${NAMESPACE}" || true
+kubectl delete pvc --all -n "${NAMESPACE}"
+
+helm uninstall mongodb-enterprise-operator || true
+
+# shellcheck disable=SC2046
+for csr in $(kubectl get csr -o name | grep "${NAMESPACE}"); do
+    kubectl delete "${csr}"
+done
+# note, that "kubectl delete .. -all" always enables "--ignore-not-found=true" option so there's no need to tolerate
+# failures explicitly (" || true")
+kubectl delete secrets --all -n "${NAMESPACE}"
+
+# Services created by the Operator, and the Operator webhook Service
+# will be labeled as controller=mongodb-enterprise-operator
+kubectl delete svc -l controller=mongodb-enterprise-operator -n "${NAMESPACE}" --ignore-not-found=true
+
+kubectl delete configmaps --all -n "${NAMESPACE}"
+kubectl delete validatingwebhookconfigurations/mdbpolicy.mongodb.com --ignore-not-found=true
+
+# certificates and issuers may not be installed
+kubectl delete certificates --all -n "${NAMESPACE}" || true
+kubectl delete issuers --all -n "${NAMESPACE}" || true

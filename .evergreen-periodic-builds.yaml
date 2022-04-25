@@ -1,0 +1,225 @@
+parameters:
+- key: registry
+  value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
+  description: Development ECR registry
+
+- key: pin_tag_at
+  value: 00:00
+  description: Pin tags at this time of the day. Midnight by default.
+
+### All the functions in this file are copies of what is in
+### .evergreen.yml. If there's any modification on these, it should be also
+### modified in there.
+functions:
+  clone:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "mkdir -p src/github.com/10gen"
+  - command: git.get_project
+    type: setup
+    params:
+      directory: src/github.com/10gen/ops-manager-kubernetes
+
+  configure_docker_auth:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_aws.sh
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      - RED_HAT_TOKEN
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      binary: scripts/dev/configure_docker_auth.sh
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+
+  configure_rh_docker_auth:
+  - command: subprocess.exec
+    type: setup
+    params:
+      # Note: we add || true to keep going if RH connect is failing for some maintenance/temporary error
+      # We need to wrap the command in `sh -c 'command'` otherwise we can't use || operator
+      command: "sh -c 'docker login scan.connect.redhat.com -u unused -p ${project_id} || true'"
+
+
+  build_and_push_appdb_database:
+    - command: subprocess.exec
+      params:
+        include_expansions_in_env:
+          - workdir
+        working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
+        binary: ./build_and_push_appdb_database_images.sh
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}
+        env:
+          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+
+
+  pipeline:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: /opt/python/3.9/bin/python3 -m venv --upgrade-deps ./venv
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      env:
+        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+      include_expansions_in_env:
+      - version_id
+      - registry
+      - distro
+      - include_tags
+      - skip_tags
+      - test_suffix
+      - om_version
+      - created_at
+      - pin_tag_at
+      add_to_path:
+      - ${workdir}/bin
+      command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+
+
+# Periodic builds can't use task_groups.
+# Fix is planned in EVG-13702.
+tasks:
+- name: periodic_build_operator
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_operator_pid}
+  - func: pipeline
+    vars:
+      image_name: operator-daily
+
+- name: periodic_build_init_appdb
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_init_appdb_pid}
+  - func: pipeline
+    vars:
+      image_name: init-appdb-daily
+
+- name: periodic_build_init_database
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_init_database_pid}
+  - func: pipeline
+    vars:
+      image_name: init-database-daily
+
+- name: periodic_build_init_opsmanager
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_init_om_pid}
+  - func: pipeline
+    vars:
+      image_name: init-ops-manager-daily
+
+- name: periodic_build_appdb
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_appdb_pid}
+  - func: pipeline
+    vars:
+      image_name: appdb-daily
+
+- name: periodic_build_database
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_database_pid}
+  - func: pipeline
+    vars:
+      image_name: database-daily
+
+- name: periodic_build_ops_manager
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_om_pid}
+  - func: pipeline
+    vars:
+      image_name: ops-manager-daily
+
+- name: periodic_build_agent
+  commands:
+    - func: clone
+    - func: configure_docker_auth
+    - func: configure_rh_docker_auth
+      vars:
+        project_id: ${rhc_agent_pid}
+    - func: pipeline
+      vars:
+        image_name: mongodb-agent-daily
+
+- name: periodic_build_appdb_database
+  commands:
+    - func: clone
+    - func: configure_docker_auth
+    - func: configure_rh_docker_auth
+      vars:
+        project_id: ${rhc_appdb_database_pid}
+    - func: build_and_push_appdb_database
+
+buildvariants:
+- name: periodic_build
+  display_name: periodic_build
+  run_on:
+  - ubuntu1804-small
+  tasks:
+  - periodic_build_operator
+  - periodic_build_init_appdb
+  - periodic_build_init_database
+  - periodic_build_init_opsmanager
+  - periodic_build_ops_manager
+  - periodic_build_appdb
+  - periodic_build_database
+  - periodic_build_agent
+  - periodic_build_appdb_database
