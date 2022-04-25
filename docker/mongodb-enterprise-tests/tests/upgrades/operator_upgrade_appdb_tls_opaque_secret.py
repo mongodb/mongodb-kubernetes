@@ -26,7 +26,7 @@ Steps forward:
 """
 
 
-EOL_FOR_V1_12 = datetime(year=2022, month=4, day=20)
+EOL_FOR_V1_12 = datetime(year=2022, month=5, day=20)
 CERT_PREFIX = "prefix"
 
 
