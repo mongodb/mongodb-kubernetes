@@ -26,6 +26,12 @@ operator:
   - opsmanagers
   - mongodbusers
 
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
   # Create operator-service account
   createOperatorServiceAccount: true
 
