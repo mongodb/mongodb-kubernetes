@@ -289,7 +289,6 @@ def test_om_change_appdb_cert_reference(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_operator_upgrade_automated_tls
-@mark.skip
 def test_change_replicaset_cert_reference(replicaset: MongoDB):
     replicaset.load()
     replicaset["spec"]["security"]["tls"]["secretRef"] = None
@@ -300,7 +299,6 @@ def test_change_replicaset_cert_reference(replicaset: MongoDB):
 
 
 @mark.e2e_operator_upgrade_automated_tls
-@mark.skip
 def test_change_shardedcluster_cert_reference(shardedcluster: MongoDB):
     shardedcluster.load()
     shardedcluster["spec"]["security"]["tls"]["secretRef"] = None
