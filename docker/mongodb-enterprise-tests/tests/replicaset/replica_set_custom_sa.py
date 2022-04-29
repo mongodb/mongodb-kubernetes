@@ -18,7 +18,7 @@ def replica_set(
     resource["spec"]["podSpec"] = {
         "podTemplate": {"spec": {"serviceAccountName": "test-sa"}}
     }
-
+    resource["spec"]["statefulSet"] = {"spec": {"serviceName": "rs-svc"}}
     resource.set_version(custom_mdb_version)
     yield resource.create()
     # teardown, delete the custom service-account
@@ -36,3 +36,10 @@ def test_stateful_set_spec_service_account(replica_set: MongoDB, namespace: str)
     sts = appsv1.read_namespaced_stateful_set(replica_set.name, namespace)
 
     assert sts.spec.template.spec.service_account_name == "test-sa"
+
+
+@mark.e2e_replica_set_custom_sa
+def test_service_is_created(namespace: str):
+    corev1 = KubernetesTester.clients("corev1")
+    svc = corev1.read_namespaced_service("rs-svc", namespace)
+    assert svc
