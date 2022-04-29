@@ -492,6 +492,11 @@ func (in *MongoDbSpec) DeepCopyInto(out *MongoDbSpec) {
 		*out = new(v1.Prometheus)
 		**out = **in
 	}
+	if in.StatefulSetConfiguration != nil {
+		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
+		*out = new(v1.StatefulSetConfiguration)
+		(*in).DeepCopyInto(*out)
+	}
 	out.MongodbShardedClusterSizeConfig = in.MongodbShardedClusterSizeConfig
 	in.Agent.DeepCopyInto(&out.Agent)
 	if in.PodSpec != nil {

@@ -253,6 +253,7 @@ type MongoDbSpec struct {
 	Version                     string  `json:"version"`
 	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
 
+	// DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
 
@@ -281,8 +282,9 @@ type MongoDbSpec struct {
 	//MongosStatefulSetConfiguration *StatefulSetConfiguration `json:"mongosStatefulSet,omitempty"`
 	// +optional
 	//ShardStatefulSetConfiguration *StatefulSetConfiguration `json:"shardStatefulSet,omitempty"`
+
 	// +optional
-	//StatefulSetConfiguration *StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
 	MongodbShardedClusterSizeConfig `json:",inline"`
 
@@ -817,6 +819,14 @@ func getMapFromAnnotation(m client.Object, annotationKey string) (map[string]int
 }
 
 func (m *MongoDB) ServiceName() string {
+	if m.Spec.StatefulSetConfiguration != nil {
+		svc := m.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName
+
+		if svc != "" {
+			return svc
+		}
+	}
+
 	if m.Spec.Service == "" {
 		return m.Name + "-svc"
 	}

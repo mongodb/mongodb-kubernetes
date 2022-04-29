@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 	"github.com/google/uuid"
@@ -52,6 +53,19 @@ func TestCreateReplicaSet(t *testing.T) {
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
 	connection.CheckNumberOfUpdateRequests(t, 2)
+}
+
+func TestReplicaSetServiceName(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().SetService("rs-svc").Build()
+	rs.Spec.StatefulSetConfiguration = &mdbcv1.StatefulSetConfiguration{}
+	rs.Spec.StatefulSetConfiguration.SpecWrapper.Spec.ServiceName = "foo"
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+	assert.Equal(t, "foo", rs.ServiceName())
+	_, err := client.GetService(kube.ObjectKey(rs.Namespace, rs.ServiceName()))
+	assert.NoError(t, err)
 }
 
 func TestHorizonVerificationTLS(t *testing.T) {
@@ -600,6 +614,11 @@ func (b *ReplicaSetBuilder) SetMembers(m int) *ReplicaSetBuilder {
 
 func (b *ReplicaSetBuilder) SetSecurity(security mdbv1.Security) *ReplicaSetBuilder {
 	b.Spec.Security = &security
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetService(name string) *ReplicaSetBuilder {
+	b.Spec.Service = name
 	return b
 }
 

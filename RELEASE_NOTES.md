@@ -1,5 +1,12 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 
+
+# MongoDB Enterprise Kubernetes Operator 1.16.1
+
+## MongoDB Resource
+
+* `spec.Service` has been deprecated. Please use `spec.statefulSet.spec.serviceName` to provide a custom service name. 
+
 # MongoDB Enterprise Kubernetes Operator 1.15.3
 
 ## MongoDB Resource
