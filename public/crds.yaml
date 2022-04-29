@@ -602,8 +602,9 @@ spec:
                     type: object
                 type: object
               service:
-                description: DEPRECATED please enable this is an optional service,
-                  it will get the name "<rsName>-service" in case not provided
+                description: DEPRECATED please use `spec.statefulSet.spec.serviceName`
+                  to provide a custom service name. this is an optional service, it
+                  will get the name "<rsName>-service" in case not provided
                 type: string
               shard:
                 properties:
