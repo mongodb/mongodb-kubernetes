@@ -267,7 +267,8 @@ def get_default_storage_class() -> str:
     )
     sc: client.V1StorageClass
     for sc in client.StorageV1Api().list_storage_class().items:
-        if any(
+
+        if sc.metadata.annotations is not None and any(
             sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
         ):
             return sc.metadata.name
