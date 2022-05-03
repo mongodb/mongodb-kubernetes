@@ -25,6 +25,12 @@ spec:
                   image: busybox
                   command: ["sleep"]
                   args: [ "infinity" ]
+            volumeClaimTemplates:
+            - metadata:
+                name: data
+              spec:
+                accessModes: [ "ReadWriteOnce" ]
+                storageClassName: "gp2"
       - clusterName: e2e.cluster2.mongokubernetes.com
         members: 1
         statefulSet:
@@ -36,6 +42,12 @@ spec:
                   image: busybox
                   command: ["sleep"]
                   args: [ "infinity" ]
+            volumeClaimTemplates:
+            - metadata:
+                name: data
+              spec:
+                accessModes: [ "ReadWriteOnce" ]
+                storageClassName: "gp2"      
       - clusterName: e2e.cluster3.mongokubernetes.com
         members: 1
         statefulSet:
@@ -47,3 +59,9 @@ spec:
                   image: busybox
                   command: ["sleep"]
                   args: [ "infinity" ]
+            volumeClaimTemplates:
+            - metadata:
+                name: data
+              spec:
+                accessModes: [ "ReadWriteOnce" ]
+                storageClassName: "gp2"

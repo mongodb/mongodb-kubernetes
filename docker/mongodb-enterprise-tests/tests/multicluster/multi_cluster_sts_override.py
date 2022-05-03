@@ -49,6 +49,21 @@ def test_statefulset_overrides(
     assert_container_in_sts("sidecar2", cluster_two_sts)
 
 
+@pytest.mark.e2e_multi_sts_override
+def test_storage_class_pvc(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    namespace: str,
+):
+    pvc = client.CoreV1Api(
+        api_client=member_cluster_clients[0].api_client
+    ).read_namespaced_persistent_volume_claim(
+        f"data-{mongodb_multi.name}-{0}-{0}", namespace
+    )
+
+    assert pvc.spec.storage_class_name == "gp2"
+
+
 def assert_container_in_sts(container_name: str, sts: client.V1StatefulSet):
     container_names = [c.name for c in sts.spec.template.spec.containers]
     assert container_name in container_names
