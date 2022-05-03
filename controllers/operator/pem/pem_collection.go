@@ -102,12 +102,25 @@ func (p *Collection) MergeWith(data map[string][]byte) map[string]string {
 	return p.Merge()
 }
 
-func (pf File) ParseCertificate() (*x509.Certificate, error) {
-	block, _ := pem.Decode([]byte(pf.Certificate))
-	if block == nil {
-		return nil, fmt.Errorf("failed to parse certificate PEM, please ensure validity of the file")
+func (pf File) ParseCertificate() ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	for block, rest := pem.Decode([]byte(pf.Certificate)); block != nil; block, rest = pem.Decode(rest) {
+		if block == nil {
+			return []*x509.Certificate{}, fmt.Errorf("failed to parse certificate PEM, please ensure validity of the file")
+		}
+		switch block.Type {
+		case "CERTIFICATE":
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return []*x509.Certificate{}, err
+			}
+			certs = append(certs, cert)
+		default:
+			return []*x509.Certificate{}, fmt.Errorf("failed to parse certificate PEM, please ensure validity of the file")
+		}
+
 	}
-	return x509.ParseCertificate(block.Bytes)
+	return certs, nil
 }
 
 type File struct {
@@ -122,7 +135,7 @@ func NewFileFrom(data string) File {
 
 	for _, el := range parts {
 		if strings.Contains(el, "BEGIN CERTIFICATE") {
-			certificate = el
+			certificate += el
 		} else if strings.Contains(el, "PRIVATE KEY") {
 			privateKey = el
 		}

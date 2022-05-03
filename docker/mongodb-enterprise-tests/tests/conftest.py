@@ -8,7 +8,7 @@ from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import create_configmap, create_secret, get_pod_when_ready
 from kubetester.awss3client import AwsS3Client
-from kubetester.certs import Issuer
+from kubetester.certs import Issuer, Certificate
 from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
 from kubetester.http import get_retriable_https_session
@@ -180,6 +180,32 @@ def issuer(cert_manager: str, namespace: str) -> str:
     issuer.create().block_until_ready()
 
     return "ca-issuer"
+
+
+@fixture(scope="module")
+def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
+    """
+    This fixture creates an intermediate "Issuer" in the testing namespace
+    """
+    # Create the Certificate for the intermediate CA based on the issuer fixture
+    intermediate_ca_cert = Certificate(
+        namespace=namespace, name="intermediate-ca-issuer"
+    )
+    intermediate_ca_cert["spec"] = {
+        "isCA": True,
+        "commonName": "intermediate-ca-issuer",
+        "secretName": "intermediate-ca-secret",
+        "issuerRef": {"name": issuer},
+        "dnsNames": ["intermediate-ca.example.com"],
+    }
+    intermediate_ca_cert.create().block_until_ready()
+
+    # Create the intermediate issuer
+    issuer = Issuer(name="intermediate-ca-issuer", namespace=namespace)
+    issuer["spec"] = {"ca": {"secretName": "intermediate-ca-secret"}}
+    issuer.create().block_until_ready()
+
+    return "intermediate-ca-issuer"
 
 
 @fixture(scope="module")

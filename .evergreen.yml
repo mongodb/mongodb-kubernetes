@@ -1154,6 +1154,12 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_tls_rs_intermediate_ca
+  tags: ["patch-run"]
+  exec_timeout_secs: 720
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_tls_rs_external_access
   tags: ["patch-run"]
   exec_timeout_secs: 900
@@ -2054,6 +2060,7 @@ task_groups:
     - e2e_replica_set_tls_require_upgrade
     - e2e_tls_rs_additional_certs
     - e2e_tls_sc_additional_certs
+    - e2e_tls_rs_intermediate_ca
     - e2e_tls_sharded_cluster_certs_prefix
     - e2e_standalone_no_tls_no_status_is_set
     # e2e_om_4_4_plus_only_task_group
