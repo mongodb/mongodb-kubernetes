@@ -203,18 +203,30 @@ func validatePemData(data []byte, additionalDomains []string) error {
 	if !pemFile.IsComplete() {
 		return fmt.Errorf("the certificate is not complete\n")
 	}
-
-	cert, err := pemFile.ParseCertificate()
+	certs, err := pemFile.ParseCertificate()
 	if err != nil {
 		return fmt.Errorf("can't parse certificate: %s\n", err)
 	}
 
-	for _, domain := range additionalDomains {
-		if !stringutil.CheckCertificateAddresses(cert.DNSNames, domain) {
-			return fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
+	var lastError error
+	// in case of using an intermediate certificate authority, the certificate
+	// data might contain all the certificate chain excluding the root-ca (in case of cert-manager).
+	// We need to iterate through the certificates in the chain and find the one at the bottom of the chain
+	// containing the additionalDomains which we're validating for.
+	for _, cert := range certs {
+		var certError error
+		for _, domain := range additionalDomains {
+			if !stringutil.CheckCertificateAddresses(cert.DNSNames, domain) {
+				certError = fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
+				lastError = certError
+			}
+		}
+		if certError == nil {
+			return nil
 		}
 	}
-	return nil
+
+	return lastError
 }
 
 // validatePemSecret returns true if the given Secret contains a parsable certificate and contains all required domains.
@@ -254,6 +266,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secr
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
+
 		if err != nil {
 			return err, false
 		}
