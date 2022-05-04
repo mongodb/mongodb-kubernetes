@@ -135,15 +135,14 @@ func main() {
 	}
 	log.Info("Registering Components.")
 
-	setupWebhook(mgr, cfg, log)
+	commandLineFlags := parseCommandLineArgs()
+	crdsToWatch := commandLineFlags.crdsToWatch
+	setupWebhook(mgr, cfg, log, multicluster.IsMultiClusterMode(crdsToWatch))
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {
 		log.Fatal(err)
 	}
-
-	commandLineFlags := parseCommandLineArgs()
-	crdsToWatch := commandLineFlags.crdsToWatch
 
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]cluster.Cluster)
@@ -198,7 +197,7 @@ func main() {
 
 // setupWebhook sets up the validation webhook for MongoDB resources in order
 // to give people early warning when their MongoDB resources are wrong.
-func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger) {
+func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool) {
 	// set webhook port — 1993 is chosen as Ben's birthday
 	webhookPort := env.ReadIntOrDefault(mdbWebHookPortEnvName, 1993)
 	mgr.GetWebhookServer().Port = webhookPort
@@ -221,9 +220,10 @@ func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger)
 		Name:      "operator-webhook",
 		Namespace: env.ReadOrPanic(util.CurrentNamespace),
 	}
-	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort); err != nil {
+	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode); err != nil {
 		log.Warnw("could not set up webhook", "error", err)
 	}
+	log.Info("setup webhook successfully")
 }
 
 func initializeEnvironment() {

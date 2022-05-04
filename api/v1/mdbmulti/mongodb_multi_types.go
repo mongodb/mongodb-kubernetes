@@ -6,12 +6,14 @@ import (
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -46,6 +48,10 @@ type MongoDBMulti struct {
 	// +optional
 	Status MongoDBMultiStatus `json:"status"`
 	Spec   MongoDBMultiSpec   `json:"spec"`
+}
+
+func (m *MongoDBMulti) AddValidationToManager(mgr manager.Manager, clt map[string]cluster.Cluster) error {
+	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 
 func (m MongoDBMulti) GetProjectConfigMapNamespace() string {

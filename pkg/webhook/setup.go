@@ -18,7 +18,12 @@ import (
 const controllerLabelName = "app.kubernetes.io/name"
 
 // createWebhookService creates a Kubernetes service for the webhook.
-func createWebhookService(client client.Client, location types.NamespacedName, webhookPort int) error {
+func createWebhookService(client client.Client, location types.NamespacedName, webhookPort int, multiClusterMode bool) error {
+	svcSelector := util.OperatorName
+	if multiClusterMode {
+		svcSelector = util.MultiClusterOperatorName
+	}
+
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      location.Name,
@@ -34,7 +39,7 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 				},
 			},
 			Selector: map[string]string{
-				controllerLabelName: util.OperatorName,
+				controllerLabelName: svcSelector,
 			},
 		},
 	}
@@ -64,11 +69,12 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 	}
 
 	// need to make variables as one can't take the address of a constant
-	var scope admissionv1.ScopeType = admissionv1.NamespacedScope
-	var sideEffects admissionv1.SideEffectClass = admissionv1.SideEffectClassNone
-	var failurePolicy admissionv1.FailurePolicyType = admissionv1.Ignore
+	var scope = admissionv1.NamespacedScope
+	var sideEffects = admissionv1.SideEffectClassNone
+	var failurePolicy = admissionv1.Ignore
 	var port int32 = 443
 	dbPath := "/validate-mongodb-com-v1-mongodb"
+	dbmultiPath := "/validate-mongodb-com-v1-mongodbmulti"
 	omPath := "/validate-mongodb-com-v1-mongodbopsmanager"
 	return admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
@@ -112,7 +118,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 					Service: &admissionv1.ServiceReference{
 						Name:      serviceLocation.Name,
 						Namespace: serviceLocation.Namespace,
-						Path:      &dbPath,
+						Path:      &dbmultiPath,
 						Port:      &port,
 					},
 					CABundle: caBytes,
@@ -170,8 +176,8 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 	}
 }
 
-func Setup(client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int) error {
-	if err := createWebhookService(client, serviceLocation, webhookPort); err != nil {
+func Setup(client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool) error {
+	if err := createWebhookService(client, serviceLocation, webhookPort, multiClusterMode); err != nil {
 		return err
 	}
 

@@ -56,6 +56,7 @@ plural_map = {
     "MongoDB": "mongodb",
     "MongoDBUser": "mongodbusers",
     "MongoDBOpsManager": "opsmanagers",
+    "MongoDBMulti": "mongodbmulti",
 }
 
 
@@ -488,7 +489,11 @@ class KubernetesTester(object):
 
     @staticmethod
     def create_custom_resource_from_object(
-        namespace, resource, exception_reason=None, patch=None
+        namespace,
+        resource,
+        exception_reason=None,
+        patch=None,
+        api_client: Optional[client.ApiClient] = None,
     ):
         name, kind, group, version, res_type = get_crd_meta(resource)
         if patch:
@@ -512,7 +517,9 @@ class KubernetesTester(object):
 
         # TODO move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
-            KubernetesTester.clients("customv1").create_namespaced_custom_object(
+            KubernetesTester.clients(
+                "customv1", api_client=api_client
+            ).create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
             )
         except ApiException as e:
