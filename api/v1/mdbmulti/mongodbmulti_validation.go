@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
@@ -34,6 +35,7 @@ func (m *MongoDBMulti) ProcessValidationsOnReconcile(old *MongoDBMulti) error {
 func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
 	validators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
 		validateUniqueClusterNames,
+		validateSpecifiedClusterNames,
 	}
 	var validationResults []v1.ValidationResult
 
@@ -43,7 +45,6 @@ func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
 			validationResults = append(validationResults, res)
 		}
 	}
-	// TODO: Add update validators when need
 	return validationResults
 }
 func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
@@ -56,5 +57,26 @@ func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
 		}
 		present[e.ClusterName] = struct{}{}
 	}
+	return v1.ValidationSuccess()
+}
+
+func validateSpecifiedClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
+	kubeConfigFile, err := multicluster.LoadKubeConfigFile()
+	if err != nil {
+		msg := fmt.Sprintf("Couldn't load kubeconfig file from the path: %s", multicluster.KubeConfigPath)
+		return v1.ValidationError(msg)
+	}
+
+	clusters := make(map[string]struct{})
+	for _, context := range kubeConfigFile.Contexts {
+		clusters[context.Context.Cluster] = struct{}{}
+	}
+
+	for _, cluster := range ms.ClusterSpecList.ClusterSpecs {
+		if _, ok := clusters[cluster.ClusterName]; !ok {
+			return v1.ValidationError("Cluster %s credentials is not specified in Kubeconfig", cluster.ClusterName)
+		}
+	}
+
 	return v1.ValidationSuccess()
 }

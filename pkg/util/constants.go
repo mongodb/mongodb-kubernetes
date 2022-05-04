@@ -72,6 +72,7 @@ const (
 
 	// Pod/StatefulSet specific constants
 	OperatorName                = "mongodb-enterprise-operator"
+	MultiClusterOperatorName    = "mongodb-enterprise-operator-multi-cluster"
 	OpsManagerContainerName     = "mongodb-ops-manager"
 	BackupDaemonContainerName   = "mongodb-backup-daemon"
 	DatabaseContainerName       = "mongodb-enterprise-database"

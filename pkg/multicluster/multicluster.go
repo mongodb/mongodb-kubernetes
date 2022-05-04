@@ -13,7 +13,7 @@ import (
 
 const (
 	// kubeconfig path holding the credentials for different member clusters
-	kubeConfigPath = "/etc/config/kubeconfig/kubeconfig"
+	KubeConfigPath = "/etc/config/kubeconfig/kubeconfig"
 )
 
 // getClient returns a kubernetes.Clientset using the given context from the
@@ -37,7 +37,7 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 	clusterClientsMap := map[string]*restclient.Config{}
 
 	for _, c := range clusterNames {
-		clientset, err := getClient(c, kubeConfigPath)
+		clientset, err := getClient(c, KubeConfigPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create clientset map: %s", err)
 		}
@@ -51,7 +51,7 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 
 // LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
 func LoadKubeConfigFile() (KubeConfigFile, error) {
-	kubeConfigBytes, err := ioutil.ReadFile(kubeConfigPath)
+	kubeConfigBytes, err := ioutil.ReadFile(KubeConfigPath)
 	if err != nil {
 		return KubeConfigFile{}, err
 	}
