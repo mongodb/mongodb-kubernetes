@@ -1,4 +1,4 @@
-{{- $watchNamespace := list .Release.Namespace }}
+{{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
@@ -8,7 +8,7 @@
 
 {{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-{{- $namespaceBlock = printf "namespace: %s" $.Release.Namespace }}
+{{- $namespaceBlock = include "mongodb-enterprise-operator.namespace" . | printf "namespace: %s"  }}
 {{- end }}
 ---
 apiVersion: v1
