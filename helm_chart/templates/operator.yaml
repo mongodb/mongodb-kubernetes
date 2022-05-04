@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.operator.name }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 spec:
   replicas: 1
   selector:
