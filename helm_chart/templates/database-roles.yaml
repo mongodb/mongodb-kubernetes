@@ -8,7 +8,7 @@
 
 {{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-{{- $namespaceBlock = include "mongodb-enterprise-operator.namespace" . | printf "namespace: %s"  }}
+{{- $namespaceBlock = include "mongodb-enterprise-operator.namespace" $ | printf "namespace: %s"  }}
 {{- end }}
 ---
 apiVersion: v1
