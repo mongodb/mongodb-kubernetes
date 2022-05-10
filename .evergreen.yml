@@ -633,6 +633,7 @@ tasks:
   - func: operator-sdk-run-bundle
 
 - name: operator-sdk-scorecard-test
+  disable: true
   tags: ["patch-run"]
   commands:
   - func: clone
