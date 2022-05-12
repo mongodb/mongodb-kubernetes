@@ -17,7 +17,6 @@ from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture
-
 from tests.multicluster import prepare_multi_cluster_namespaces
 
 try:
@@ -449,6 +448,31 @@ def multi_cluster_operator(
 
 
 @fixture(scope="module")
+def multi_cluster_operator_clustermode(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+    run_kube_config_creation_tool(member_cluster_names, namespace, True)
+    return _install_multi_cluster_operator(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            # override the serviceAccountName for the operator deployment
+            "operator.createOperatorServiceAccount": "false",
+            "operator.watchNamespace": "*",
+        },
+    )
+
+
+@fixture(scope="module")
 def install_multi_cluster_operator_set_members_fn(
     namespace: str,
     central_cluster_name: str,
@@ -736,21 +760,27 @@ def get_clients_for_clusters(
     }
 
 
-def run_kube_config_creation_tool(member_clusters: List[str], namespace: str):
+def run_kube_config_creation_tool(
+    member_clusters: List[str], namespace: str, cluster_scoped: Optional[bool] = False
+):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
+    args = [
+        "multi-cluster-kube-config-creator",
+        "-member-clusters",
+        member_clusters_str,
+        "-central-cluster",
+        central_cluster,
+        "-member-cluster-namespace",
+        namespace,
+        "-central-cluster-namespace",
+        namespace,
+    ]
+    if cluster_scoped:
+        args.append("-cluster-scoped", cluster_scoped)
+
     subprocess.call(
-        [
-            "multi-cluster-kube-config-creator",
-            "-member-clusters",
-            member_clusters_str,
-            "-central-cluster",
-            central_cluster,
-            "-member-cluster-namespace",
-            namespace,
-            "-central-cluster-namespace",
-            namespace,
-        ],
+        args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
