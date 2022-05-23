@@ -184,6 +184,11 @@ func TestSetIntersection(t *testing.T) {
 
 	assert.Equal(t, [][]identifiable.Identifiable{pair(oneLeft, oneRight), pair(twoLeft, twoRight)}, identifiable.SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable))
 	assert.Equal(t, [][]identifiable.Identifiable{pair(oneRight, oneLeft), pair(twoRight, twoLeft)}, identifiable.SetIntersectionGeneric(rightNotIdentifiable, leftNotIdentifiable))
+
+	leftNotIdentifiable = []someId{oneLeft, twoLeft}
+	rightNotIdentifiable = []someId{oneLeft, twoLeft}
+
+	assert.Len(t, identifiable.SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable), 0)
 }
 
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {
