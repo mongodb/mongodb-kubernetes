@@ -59,6 +59,22 @@ func SetIntersectionGeneric(left, right interface{}) [][]Identifiable {
 	leftIdentifiers := toIdentifiableSlice(left)
 	rightIdentifiers := toIdentifiableSlice(right)
 
+	// check if there is a difference in the config with same ID
+	found := false
+	for _, l := range leftIdentifiers {
+		for _, r := range rightIdentifiers {
+			if l.Identifier() == r.Identifier() {
+				if l != r {
+					found = true
+					break
+				}
+			}
+		}
+	}
+	if !found {
+		return nil
+	}
+
 	return SetIntersection(leftIdentifiers, rightIdentifiers)
 }
 
