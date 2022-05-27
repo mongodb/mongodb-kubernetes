@@ -444,6 +444,7 @@ def multi_cluster_operator(
             # override the serviceAccountName for the operator deployment
             "operator.createOperatorServiceAccount": "false",
         },
+        central_cluster_name,
     )
 
 
@@ -469,6 +470,7 @@ def multi_cluster_operator_clustermode(
             "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": "*",
         },
+        central_cluster_name,
     )
 
 
@@ -493,6 +495,7 @@ def install_multi_cluster_operator_set_members_fn(
                 "operator.createOperatorServiceAccount": "false",
                 "multiCluster.clusters": ",".join(member_cluster_names),
             },
+            central_cluster_name,
         )
 
     return _fn
@@ -504,9 +507,13 @@ def _install_multi_cluster_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     helm_opts: Dict[str, str],
+    central_cluster_name: str,
 ) -> Operator:
     prepare_multi_cluster_namespaces(
-        namespace, multi_cluster_operator_installation_config, member_cluster_clients
+        namespace,
+        multi_cluster_operator_installation_config,
+        member_cluster_clients,
+        central_cluster_name,
     )
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -741,13 +748,15 @@ def install_cert_manager(
 
 @fixture(scope="module")
 def cluster_clients(
-    namespace: str,
+    namespace: str, member_cluster_names: List[str]
 ) -> Dict[str, kubernetes.client.api_client.ApiClient]:
     member_clusters = [
         _read_multi_cluster_config_value("member_cluster_1"),
         _read_multi_cluster_config_value("member_cluster_2"),
-        _read_multi_cluster_config_value("member_cluster_3"),
     ]
+
+    if len(member_cluster_names) == 3:
+        member_clusters.append(_read_multi_cluster_config_value("member_cluster_3"))
     return get_clients_for_clusters(member_clusters, namespace)
 
 
