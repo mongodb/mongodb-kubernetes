@@ -96,11 +96,16 @@ EOF
     local central_cluster_token
     central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${PROJECT_NAMESPACE}" | base64 -d)"
     echo "Creating Multi Cluster configuration secret"
-
+    
     configuration_params=(
-      "--from-literal=${central_cluster}=${central_cluster_token}"
       "--from-literal=central_cluster=${central_cluster}"
     )
+
+    if [ "$central_cluster" == "e2e.operator.mongokubernetes.com" ]; then
+      configuration_params+=(
+        "--from-literal=${central_cluster}=${central_cluster_token}"
+      )
+    fi
 
     INDEX=1
     for member_cluster in ${member_clusters}; do

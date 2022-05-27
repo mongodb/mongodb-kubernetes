@@ -9,6 +9,7 @@ def prepare_multi_cluster_namespaces(
     namespace: str,
     multi_cluster_operator_installation_config: Dict[str, str],
     member_cluster_clients: List[MultiClusterClient],
+    central_cluster_name: str,
 ):
     """create a new namespace and configures all necessary service accounts there"""
 
@@ -20,4 +21,5 @@ def prepare_multi_cluster_namespaces(
     )
     # create database roles in member clusters.
     for mcc in member_cluster_clients:
-        create_or_replace_from_yaml(mcc.api_client, yaml_file)
+        if mcc.cluster_name != central_cluster_name:
+            create_or_replace_from_yaml(mcc.api_client, yaml_file)

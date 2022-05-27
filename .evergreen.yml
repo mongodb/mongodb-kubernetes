@@ -68,6 +68,13 @@ variables:
     central_cluster: e2e.operator.mongokubernetes.com
     test_pod_cluster: e2e.cluster1.mongokubernetes.com
 
+    # Multi Cluster Environment with 2 clusters
+  - &kubernetes_environment_multi_cluster_2_clusters
+    kube_environment_name: multi
+    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com"
+    central_cluster: e2e.cluster1.mongokubernetes.com
+    test_pod_cluster: e2e.cluster1.mongokubernetes.com
+
   - &kubernetes_environment_kind
     kube_environment_name: kind
     # we can use kind to test ubi images, however we must disable managed security context
@@ -900,6 +907,17 @@ tasks:
     - func: setup_kubernetes_environment
       vars:
         <<: [ *kubernetes_environment_multi_cluster ]
+    - func: prepare_test_env
+
+- name: prepare_multi_cluster_2_clusters
+  exec_timeout_secs: 1800
+  priority: 59
+  commands:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_kubernetes_environment
+      vars:
+        <<: [ *kubernetes_environment_multi_cluster_2_clusters ]
     - func: prepare_test_env
 
 - name: prepare_aws
@@ -1913,6 +1931,16 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_2_clusters_replica_set
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+  tags: ["patch-run"]
+  exec_timeout_secs: 2800
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_update_before_reconciliation
   tags: ["patch-run"]
   exec_timeout_secs: 900
@@ -2335,6 +2363,23 @@ task_groups:
   teardown_group:
     - func: prune_docker_resources
 
+- name: e2e_multi_cluster_2_clusters_task_group
+  max_hosts: 2
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_multi_cluster_2_clusters_replica_set
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
 # including the cluster-wide resources changing. Uses Cloud-qa.
@@ -2786,6 +2831,28 @@ buildvariants:
     agent_version: *agent_version50
   tasks:
     - name: e2e_multi_cluster_task_group
+
+- name: e2e_multi_cluster_2_clusters
+  display_name: e2e_multi_cluster_2_clusters
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubuntu
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: prepare_multi_cluster_2_clusters
+      variant: init_test_run
+    - name: build_init_database_image_ubuntu
+      variant: init_test_run
+    - name: build_database_image_ubuntu
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_2_clusters ]
+    image_type: ubuntu
+    agent_version: *agent_version50
+  tasks:
+    - name: e2e_multi_cluster_2_clusters_task_group
 
 
 ## Operator tests build variants
