@@ -772,9 +772,7 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	}
 
 	// append any additional env vars specified.
-	for _, envVar := range opts.ExtraEnvs {
-		vars = append(vars, envVar)
-	}
+	vars = append(vars, opts.ExtraEnvs...)
 
 	return vars
 }

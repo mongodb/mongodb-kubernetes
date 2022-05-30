@@ -470,6 +470,13 @@ func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {
 	return semverVersion.Major
 }
 
+func (m *MongoDBMultiSpec) GetPersistence() bool {
+	if m.Persistent == nil {
+		return true
+	}
+	return *m.Persistent
+}
+
 // GetOrderedClusterSpecList returns the cluster spec items sorted by name.
 func (m *MongoDBMultiSpec) GetOrderedClusterSpecList() []ClusterSpecItem {
 	clusterSpecs := m.ClusterSpecList.ClusterSpecs
