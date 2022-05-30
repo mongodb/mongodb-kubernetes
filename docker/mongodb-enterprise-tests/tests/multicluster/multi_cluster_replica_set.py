@@ -7,6 +7,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
+from kubernetes import client
 
 
 @pytest.fixture(scope="module")
@@ -16,6 +17,7 @@ def mongodb_multi(
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
     )
+    resource["spec"]["persistent"] = False
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -61,6 +63,21 @@ def test_statefulset_is_created_across_multiple_clusters(
     cluster_three_client = member_cluster_clients[2]
     cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
     assert cluster_three_sts.status.ready_replicas == 2
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_pvc_not_created(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    namespace: str,
+):
+    with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
+        pvc = client.CoreV1Api(
+            api_client=member_cluster_clients[0].api_client
+        ).read_namespaced_persistent_volume_claim(
+            f"data-{mongodb_multi.name}-{0}-{0}", namespace
+        )
+        assert e.value.reason == "Not Found"
 
 
 @skip_if_local

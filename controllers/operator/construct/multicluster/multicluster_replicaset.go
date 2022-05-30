@@ -61,28 +61,8 @@ func PodLabel(mdbmName string) map[string]string {
 	}
 }
 
-func mongodbVolumeMount(cmName string) []corev1.VolumeMount {
-	return []corev1.VolumeMount{
-		{
-			Name:      "data",
-			MountPath: "/data",
-			SubPath:   "data",
-		},
-		{
-			Name:      "data",
-			MountPath: "/journal",
-			SubPath:   "journal",
-		},
-		{
-			Name:      "data",
-			MountPath: "/var/log/mongodb-mms-automation",
-			SubPath:   "logs",
-		},
-		{
-			Name:      "database-scripts",
-			MountPath: "/opt/scripts",
-			ReadOnly:  true,
-		},
+func mongodbVolumeMount(cmName string, persistent bool) []corev1.VolumeMount {
+	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      cmName,
 			MountPath: "/opt/scripts/config",
@@ -91,7 +71,32 @@ func mongodbVolumeMount(cmName string) []corev1.VolumeMount {
 			Name:      construct.AgentAPIKeyVolumeName,
 			MountPath: construct.AgentAPIKeySecretPath,
 		},
+		{
+			Name:      "database-scripts",
+			MountPath: "/opt/scripts",
+			ReadOnly:  true,
+		},
 	}
+
+	if persistent {
+		volumeMounts = append(volumeMounts, []corev1.VolumeMount{{
+			Name:      "data",
+			MountPath: "/data",
+			SubPath:   "data",
+		},
+			{
+				Name:      "data",
+				MountPath: "/journal",
+				SubPath:   "journal",
+			},
+			{
+				Name:      "data",
+				MountPath: "/var/log/mongodb-mms-automation",
+				SubPath:   "logs",
+			},
+		}...)
+	}
+	return volumeMounts
 }
 
 func mongodbInitVolumeMount(cmName string) []corev1.VolumeMount {
@@ -165,6 +170,11 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	// create image for database container
 	databaseImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
 	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
+
+	pvcVolume := statefulset.NOOP()
+	if mdbm.Spec.GetPersistence() {
+		pvcVolume = statefulset.Apply(statefulset.WithVolumeClaimTemplates(statefulSetVolumeClaimTemplates()))
+	}
 	// create the statefulSet modifications
 	stsModifications := statefulset.Apply(
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
@@ -187,7 +197,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
+					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName(), mdbm.Spec.GetPersistence())),
 					container.WithEnvs(mongodbEnv(conn)...),
 					configureContainerSecurityContext,
 				)),
@@ -203,7 +213,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 				configureContainerSecurityContext,
 			),
 		)),
-		statefulset.WithVolumeClaimTemplates(statefulSetVolumeClaimTemplates()),
+		pvcVolume,
 	)
 
 	sts := statefulset.New(stsModifications)
