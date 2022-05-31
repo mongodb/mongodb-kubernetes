@@ -338,7 +338,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		_, err = enterprisests.CreateOrUpdateStatefulset(memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
-			return workflow.Failed(fmt.Sprintf("failed to delete StatefulSet in cluster: %s, err: %s", item.ClusterName, err))
+			return workflow.Failed(fmt.Sprintf("failed to create/update StatefulSet in cluster: %s, err: %s", item.ClusterName, err))
 		}
 
 		if status := getStatefulSetStatus(sts.Namespace, sts.Name, memberClient); !status.IsOK() {

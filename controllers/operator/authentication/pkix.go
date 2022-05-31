@@ -107,7 +107,7 @@ func (enc *encodeState) writeDistinguishedName(subject pkix.RDNSequence) (allUnk
 }
 func (enc *encodeState) writeRelativeDistinguishedName(rdn pkix.RelativeDistinguishedNameSET) (unknownOIDs []string, err error) {
 	if len(rdn) == 0 {
-		return []string{}, errors.New("Expected RelativeDistinguishedNameSET to contain at least 1 attribute")
+		return []string{}, errors.New("expected RelativeDistinguishedNameSET to contain at least 1 attribute")
 	}
 
 	// 2.2. Converting RelativeDistinguishedName
@@ -171,7 +171,7 @@ func (enc *encodeState) writeAttributeTypeAndValue(atv pkix.AttributeTypeAndValu
 		// of the bytes from the BER encoding. However, there is no need to
 		// handle that case because all of the recognized attributes are of type
 		// IA5String, PrintableString, or UTF8String.
-		return false, fmt.Errorf("Value for attribute type `%v` was not a string: %v", atv.Type, atv.Value)
+		return false, fmt.Errorf("value for attribute type `%v` was not a string: %v", atv.Type, atv.Value)
 	}
 
 	if found {
