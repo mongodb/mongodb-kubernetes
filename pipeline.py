@@ -8,6 +8,7 @@ import argparse
 import json
 import logging
 import os
+import semver
 import shutil
 import subprocess
 import sys
@@ -423,7 +424,9 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     return images[image_name]
 
 
-def build_image_daily(image_name: str):
+def build_image_daily(
+    image_name: str, min_version: str = None, max_version: str = None
+):
     """Builds a daily image."""
 
     def inner(build_configuration: BuildConfiguration):
@@ -433,21 +436,31 @@ def build_image_daily(image_name: str):
         logging.info(
             "Supported Versions for {}: {}".format(image_name, supported_versions)
         )
-
+        completed_versions = set()
         for releases in supported_versions:
+            if (
+                min_version is not None
+                and max_version is not None
+                and (
+                    semver.compare(releases["version"], min_version) <= 0
+                    or semver.compare(releases["version"], max_version) > 0
+                )
+            ):
+                continue
             logging.info("Rebuilding {}".format(releases["version"]))
             args["release_version"] = releases["version"]
-
-            try:
-                sonar_build_image(
-                    "image-daily-build",
-                    build_configuration,
-                    args,
-                    inventory="inventories/daily.yaml",
-                )
-            except Exception as e:
-                # Log error and continue
-                logging.error(e)
+            if releases["version"] not in completed_versions:
+                try:
+                    sonar_build_image(
+                        "image-daily-build",
+                        build_configuration,
+                        args,
+                        inventory="inventories/daily.yaml",
+                    )
+                    completed_versions.add(releases["version"])
+                except Exception as e:
+                    # Log error and continue
+                    logging.error(e)
 
     return inner
 
@@ -588,7 +601,21 @@ def get_builder_function_for_image_name():
         "init-appdb-daily": build_image_daily("init-appdb"),
         "init-database-daily": build_image_daily("init-database"),
         "init-ops-manager-daily": build_image_daily("init-ops-manager"),
-        "ops-manager-daily": build_image_daily("ops-manager"),
+        "ops-manager-4-4-0-daily": build_image_daily(
+            "ops-manager", min_version="4.4.0", max_version="4.4.10"
+        ),
+        "ops-manager-4-4-10-daily": build_image_daily(
+            "ops-manager", min_version="4.4.10", max_version="4.4.20"
+        ),
+        "ops-manager-4-4-20-daily": build_image_daily(
+            "ops-manager", min_version="4.4.20", max_version="5.0.0"
+        ),
+        "ops-manager-5-daily": build_image_daily(
+            "ops-manager", min_version="5.0.0", max_version="6.0.0"
+        ),
+        "ops-manager-6-daily": build_image_daily(
+            "ops-manager", min_version="6.0.0", max_version="7.0.0"
+        ),
         "mongodb-agent-daily": build_image_daily("mongodb-agent"),
         #
         # Ops Manager image
