@@ -11,3 +11,4 @@ gitpython==3.1.14
 pymongo==3.11.3
 dnspython==2.1.0
 MarkupSafe==2.0.1
+semver==2.13.0

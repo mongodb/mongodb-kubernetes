@@ -107,9 +107,6 @@ functions:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
 
-
-# Periodic builds can't use task_groups.
-# Fix is planned in EVG-13702.
 tasks:
 - name: periodic_build_operator
   commands:
@@ -177,7 +174,7 @@ tasks:
     vars:
       image_name: database-daily
 
-- name: periodic_build_ops_manager
+- name: periodic_build_ops_manager_4_4_0
   commands:
   - func: clone
   - func: configure_docker_auth
@@ -186,7 +183,52 @@ tasks:
       project_id: ${rhc_om_pid}
   - func: pipeline
     vars:
-      image_name: ops-manager-daily
+      image_name: ops-manager-4-4-0-daily
+
+- name: periodic_build_ops_manager_4_4_10
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_om_pid}
+  - func: pipeline
+    vars:
+      image_name: ops-manager-4-4-10-daily
+
+- name: periodic_build_ops_manager_4_4_20
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_om_pid}
+  - func: pipeline
+    vars:
+      image_name: ops-manager-4-4-20-daily
+
+
+- name: periodic_build_ops_manager_5
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_om_pid}
+  - func: pipeline
+    vars:
+      image_name: ops-manager-5-daily
+
+- name: periodic_build_ops_manager_6
+  commands:
+  - func: clone
+  - func: configure_docker_auth
+  - func: configure_rh_docker_auth
+    vars:
+      project_id: ${rhc_om_pid}
+  - func: pipeline
+    vars:
+      image_name: ops-manager-6-daily
 
 - name: periodic_build_agent
   commands:
@@ -208,18 +250,28 @@ tasks:
         project_id: ${rhc_appdb_database_pid}
     - func: build_and_push_appdb_database
 
+task_groups:
+  - name: periodic_build_task_group
+    max_hosts: 5
+    tasks:
+    - periodic_build_operator
+    - periodic_build_init_appdb
+    - periodic_build_init_database
+    - periodic_build_init_opsmanager
+    - periodic_build_ops_manager_4_4_0
+    - periodic_build_ops_manager_4_4_10
+    - periodic_build_ops_manager_4_4_20
+    - periodic_build_ops_manager_5
+    - periodic_build_ops_manager_6
+    - periodic_build_appdb
+    - periodic_build_database
+    - periodic_build_agent
+    - periodic_build_appdb_database
+
 buildvariants:
 - name: periodic_build
   display_name: periodic_build
   run_on:
   - ubuntu1804-small
   tasks:
-  - periodic_build_operator
-  - periodic_build_init_appdb
-  - periodic_build_init_database
-  - periodic_build_init_opsmanager
-  - periodic_build_ops_manager
-  - periodic_build_appdb
-  - periodic_build_database
-  - periodic_build_agent
-  - periodic_build_appdb_database
+    - name: periodic_build_task_group
