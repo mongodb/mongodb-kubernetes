@@ -27,9 +27,24 @@ AUTOMATION_AGENT_NAME = "mms-automation-agent"
 
 
 def pytest_runtest_setup(item):
-    """ This allows to automatically install the default Operator before running any test """
+    """This allows to automatically install the default Operator before running any test"""
     if "default_operator" not in item.fixturenames:
         item.fixturenames.insert(0, "default_operator")
+
+
+def openldap_install(namespace: str, name: str) -> OpenLDAP:
+    helm_install(
+        name,
+        helm_args={
+            "namespace": namespace,
+            "fullnameOverride": name,
+            "nameOverride": name,
+        },
+        helm_chart_path="vendor/openldap",
+    )
+    get_pod_when_ready(namespace, f"app={name}")
+
+    return OpenLDAP(ldap_url(namespace, name), ldap_admin_password(namespace, name))
 
 
 @fixture(scope="module")
@@ -39,21 +54,22 @@ def openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
     In order to do it, this fixture will install the vendored openldap Helm chart
     located in `vendor/openldap` directory inside the `tests` container image.
     """
-    helm_install(
-        LDAP_NAME, helm_args={"namespace": namespace}, helm_chart_path="vendor/openldap"
-    )
-
-    get_pod_when_ready(namespace, LDAP_POD_LABEL)
-
-    yield OpenLDAP(ldap_url(namespace), ldap_admin_password(namespace))
+    yield openldap_install(namespace, LDAP_NAME)
 
     helm_uninstall(LDAP_NAME)
 
 
 @fixture(scope="module")
+def secondary_openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
+    yield openldap_install(namespace, f"{LDAP_NAME}secondary")
+
+    helm_uninstall(f"{LDAP_NAME}secondary")
+
+
+@fixture(scope="module")
 def openldap_cert(namespace: str, issuer: str) -> str:
     """Returns a new secret to be used to enable TLS on LDAP."""
-    host = ldap_host(namespace)
+    host = ldap_host(namespace, LDAP_NAME)
     return generate_cert(namespace, "openldap", host, issuer)
 
 
@@ -80,8 +96,8 @@ def openldap_tls(namespace: str, openldap_cert: str) -> Generator[OpenLDAP, None
     pod = get_pod_when_ready(namespace, LDAP_POD_LABEL)
 
     yield OpenLDAP(
-        ldap_url(namespace, LDAP_PROTO_TLS, LDAP_PORT_TLS),
-        ldap_admin_password(namespace),
+        ldap_url(namespace, LDAP_NAME, LDAP_PROTO_TLS, LDAP_PORT_TLS),
+        ldap_admin_password(namespace, LDAP_NAME),
     )
 
     helm_uninstall(LDAP_NAME)
@@ -146,6 +162,21 @@ def ldap_mongodb_agent_user(openldap: OpenLDAP) -> LDAPUser:
 
 
 @fixture(scope="module")
+def secondary_ldap_mongodb_agent_user(secondary_openldap: OpenLDAP) -> LDAPUser:
+    user = LDAPUser(AUTOMATION_AGENT_NAME, LDAP_PASSWORD)
+
+    ensure_organizational_unit(secondary_openldap, "groups")
+    create_user(secondary_openldap, user, ou="groups")
+
+    ensure_group(secondary_openldap, cn="agents", ou="groups")
+    add_user_to_group(
+        secondary_openldap, user=AUTOMATION_AGENT_NAME, group_cn="agents", ou="groups"
+    )
+
+    return user
+
+
+@fixture(scope="module")
 def ldap_mongodb_user(openldap: OpenLDAP) -> LDAPUser:
     user = LDAPUser("mdb0", LDAP_PASSWORD)
 
@@ -167,16 +198,28 @@ def ldap_mongodb_users(openldap: OpenLDAP) -> List[LDAPUser]:
     return user_list
 
 
-def ldap_host(namespace: str) -> str:
-    return "{}.{}.svc.cluster.local".format(LDAP_NAME, namespace)
+@fixture(scope="module")
+def secondary_ldap_mongodb_users(secondary_openldap: OpenLDAP) -> List[LDAPUser]:
+    user_list = [LDAPUser("mdb0", LDAP_PASSWORD)]
+    for user in user_list:
+        create_user(secondary_openldap, user)
+
+    return user_list
+
+
+def ldap_host(namespace: str, name: str) -> str:
+    return "{}.{}.svc.cluster.local".format(name, namespace)
 
 
 def ldap_url(
-    namespace: str, proto: str = LDAP_PROTO_PLAIN, port: int = LDAP_PORT_PLAIN
+    namespace: str,
+    name: str,
+    proto: str = LDAP_PROTO_PLAIN,
+    port: int = LDAP_PORT_PLAIN,
 ) -> str:
-    host = ldap_host(namespace)
+    host = ldap_host(namespace, name)
     return "{}://{}:{}".format(proto, host, port)
 
 
-def ldap_admin_password(namespace: str) -> str:
-    return KubernetesTester.read_secret(namespace, LDAP_NAME)["LDAP_ADMIN_PASSWORD"]
+def ldap_admin_password(namespace: str, name: str) -> str:
+    return KubernetesTester.read_secret(namespace, name)["LDAP_ADMIN_PASSWORD"]
