@@ -277,3 +277,41 @@ def test_x509_user_connectivity(
     tester.assert_x509_authentication(
         cert_file_name=cert_file.name, ssl_ca_certs=ca_path
     )
+
+
+@mark.e2e_replica_set_ldap
+def test_change_ldap_servers(
+    namespace: str,
+    replica_set: MongoDB,
+    secondary_openldap: OpenLDAP,
+    secondary_ldap_mongodb_users: List[LDAPUser],
+    secondary_ldap_mongodb_agent_user,
+):
+    secret_name = "bind-query-password-secondary"
+    create_secret(
+        namespace, secret_name, {"password": secondary_openldap.admin_password}
+    )
+    ac_secret_name = "automation-config-password-secondary"
+    create_secret(
+        namespace,
+        ac_secret_name,
+        {"automationConfigPassword": secondary_ldap_mongodb_agent_user.password},
+    )
+    replica_set.load()
+    replica_set["spec"]["security"]["authentication"]["ldap"]["servers"] = [
+        secondary_openldap.servers
+    ]
+    replica_set["spec"]["security"]["authentication"]["ldap"][
+        "bindQueryPasswordSecretRef"
+    ] = {"name": secret_name}
+    replica_set["spec"]["security"]["authentication"]["agents"] = {
+        "mode": "LDAP",
+        "automationPasswordSecretRef": {
+            "name": ac_secret_name,
+            "key": "automationConfigPassword",
+        },
+        "automationUserName": secondary_ldap_mongodb_agent_user.uid,
+    }
+
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
