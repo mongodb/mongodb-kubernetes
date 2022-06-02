@@ -26,9 +26,11 @@ A release ticket needs to be created manually. The following attributes must be 
 * State: `Open`
 * Due date: Set the expected release data
 * Fix Version/s: `kube-enterprise-x.y.z` _This needs to be created beforehand_
-* Description: Use `key=value` to change a few parameters for the release,
-  currently we support `minKubeVersion` and `replaces`, both changing the
-  attributes for the `ClusterServiceVersion`
+* Description: Use `key=value` to change parameters for the release.
+  - `minKubeVersion`: Minimum Kubernetes version supported
+  - `replaces`: Previous version of the operator
+  - `signed_off_by`: "Name <email>" that will be used as `signed_off_by` in commits
+    on the "certified" and "community" Redhat operator repos.
 
 ## Start release
 
@@ -120,6 +122,16 @@ alert the DOCS team that the release notes are ready for them.
 
 - _The release notes ticket will be linked to the release ticket_
 
+## Publish to Community And Certified Operators
+
+`PCT` will create 2 PRs over "k8s-operatorhub/community-operators" and
+"redhat-openshift-ecosystem/certified-operators", for the new version of the
+operator, that integrates with Operator Hub and Openshift Operators.
+
+These PRs will be tested and merged by Redhat so there should not be any more
+interaction between us. If the PRs test fail, the "approvers" in
+(`operators/mongob-enterprise/ci.yaml`) will be notified.
+
 ## Finalize release
 
 The final step on the release is to _finalize_ it, which will make `pct` close
@@ -132,8 +144,3 @@ After `pct` execution, make sure that:
 - Release ticket is in _RESOLVED_ state
 - Release status is in _FINISHED_ state (`/pct k8s status <RELEASE-TICKET>`)
 - You have received a release email from _private-cloud-kubernetes@10gen.com_
-
-## Redhat publishing
-
-`pct` does not support Redhat publishing for now, but we are planning on
-supporting that soon. The Redhat publishing process is still a manual process.

@@ -1,5 +1,4 @@
 ignore:
-  - "*.md"
   - "docs/**"
   - "public/support/*"
   - "public/samples/*"
