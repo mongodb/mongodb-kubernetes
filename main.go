@@ -17,7 +17,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -145,7 +145,7 @@ func main() {
 	}
 
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
-	memberClusterObjectsMap := make(map[string]cluster.Cluster)
+	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if multicluster.IsMultiClusterMode(crdsToWatch) {
 		memberClustersNames := commandLineFlags.memberclusters
@@ -163,12 +163,26 @@ func main() {
 
 		// Add the cluster object to the manager corresponding to each member clusters.
 		for k, v := range memberClusterClients {
-			cluster, err := cluster.New(v, func(options *cluster.Options) {
-				options.Namespace = kubeConfig.GetMemberClusterNamespace()
-			})
-			if err != nil {
-				log.Fatal(err)
+			var cluster runtime_cluster.Cluster
+			// if lenght of namespaces is 1(one particular namespace or * namespace) we can use the namespace in options
+			// but if we are watching a subsect of namespaces we need to initialize the cache with specific namespaces only
+			if len(namespacesToWatch) == 1 {
+				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+					options.Namespace = kubeConfig.GetMemberClusterNamespace()
+				})
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else if len(namespacesToWatch) > 1 {
+				log.Infof("Building member cluster cache for multiple namespaces: %v", namespacesToWatch)
+				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+					options.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
+				})
+				if err != nil {
+					log.Fatal(err)
+				}
 			}
+
 			log.Infof("Adding cluster %s to cluster map.", k)
 			memberClusterObjectsMap[k] = cluster
 			if err = mgr.Add(cluster); err != nil {
