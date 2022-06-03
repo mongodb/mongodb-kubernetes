@@ -1776,13 +1776,19 @@ def create_testing_namespace(
     evergreen_task_id: str,
     name: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    istio_label: Optional[bool] = False,
 ) -> str:
     """creates the namespace that is used by the test. Marks it with necessary labels and annotations so that
     it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information)"""
+
+    labels = {"evg": "task"}
+    if istio_label:
+        labels.update({"istio-injection": "enabled"})
+
     test_ns = client.V1Namespace(
         metadata=V1ObjectMeta(
             name=name,
-            labels={"evg": "task"},
+            labels=labels,
             annotations={
                 "evg/task": f"https://evergreen.mongodb.com/task/{evergreen_task_id}"
             },

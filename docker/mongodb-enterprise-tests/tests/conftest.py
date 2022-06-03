@@ -433,7 +433,7 @@ def multi_cluster_operator(
     member_cluster_names: List[str],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace)
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -458,7 +458,7 @@ def multi_cluster_operator_clustermode(
     member_cluster_names: List[str],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace, True)
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, True)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -770,7 +770,10 @@ def get_clients_for_clusters(
 
 
 def run_kube_config_creation_tool(
-    member_clusters: List[str], namespace: str, cluster_scoped: Optional[bool] = False
+    member_clusters: List[str],
+    central_namespace: str,
+    member_namespace: str,
+    cluster_scoped: Optional[bool] = False,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -781,12 +784,12 @@ def run_kube_config_creation_tool(
         "-central-cluster",
         central_cluster,
         "-member-cluster-namespace",
-        namespace,
+        member_namespace,
         "-central-cluster-namespace",
-        namespace,
+        central_namespace,
     ]
     if cluster_scoped:
-        args.append("-cluster-scoped", cluster_scoped)
+        args.extend(["-cluster-scoped", "true"])
 
     subprocess.call(
         args,

@@ -1930,6 +1930,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_specific_namespaces
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_2_clusters_replica_set
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2356,6 +2362,7 @@ task_groups:
     - e2e_multi_cluster_backup_restore
     - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_validation
+    - e2e_multi_cluster_specific_namespaces
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
