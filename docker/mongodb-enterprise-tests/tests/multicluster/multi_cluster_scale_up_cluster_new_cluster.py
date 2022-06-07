@@ -76,7 +76,7 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace)
+    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.assert_is_running()
@@ -127,7 +127,7 @@ def test_re_deploy_operator(
     namespace: str,
 ):
 
-    run_kube_config_creation_tool(member_cluster_names, namespace)
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
 
     # deploy the operator without all clusters
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names)
