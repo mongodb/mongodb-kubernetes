@@ -31,7 +31,6 @@ RUN microdnf install -y --disableplugin=subscription-manager \
         findutils
 
 
-RUN microdnf remove perl-IO-Socket-SSL
 {#
 TODO: Find public mongodb documentation about this
 # mongodb enterprise expects this library /usr/lib64/libsasl2.so.2 but
