@@ -18,7 +18,7 @@ from pytest import fixture, mark
 def ops_manager(
     namespace: str, custom_version: Optional[str], custom_appdb_version: str
 ) -> MongoDBOpsManager:
-    """ The fixture for Ops Manager to be created."""
+    """The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
@@ -66,7 +66,7 @@ class TestOpsManagerCreation:
         ops_manager.backup_status().assert_empty_status_resources_not_ready()
 
     def test_backup_1_pod_becomes_ready(self, ops_manager: MongoDBOpsManager):
-        """ backup web server is up and running"""
+        """backup web server is up and running"""
         ops_manager.wait_until_backup_pods_become_ready()
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
@@ -281,7 +281,7 @@ class TestOpsManagerUpdate:
         ops_manager.backup_status().assert_empty_status_resources_not_ready()
 
     def test_backup_1_pod_becomes_ready(self, ops_manager: MongoDBOpsManager):
-        """ backup web server is up and running"""
+        """backup web server is up and running"""
         ops_manager.wait_until_backup_pods_become_ready()
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):

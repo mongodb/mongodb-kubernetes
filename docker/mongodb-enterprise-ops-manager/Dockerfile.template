@@ -5,18 +5,19 @@ FROM {{ base_image  }}
 
 {% block labels %}
 LABEL name="MongoDB Enterprise Ops Manager" \
-      maintainer="support@mongodb.com" \
-      vendor="MongoDB" \
-      version="{{ om_version }}" \
-      release="1" \
-      summary="MongoDB Enterprise Ops Manager Image" \
-      description="MongoDB Enterprise Ops Manager"
+  maintainer="support@mongodb.com" \
+  vendor="MongoDB" \
+  version="{{ om_version }}" \
+  release="1" \
+  summary="MongoDB Enterprise Ops Manager Image" \
+  description="MongoDB Enterprise Ops Manager"
 {% endblock %}
 
 ENV MMS_HOME /mongodb-ops-manager
 ENV MMS_PROP_FILE ${MMS_HOME}/conf/conf-mms.properties
 ENV MMS_CONF_FILE ${MMS_HOME}/conf/mms.conf
 ENV MMS_LOG_DIR ${MMS_HOME}/logs
+ENV MMS_TMP_DIR ${MMS_HOME}/tmp
 
 EXPOSE 8080
 
@@ -30,18 +31,20 @@ COPY --from=base /data/licenses /licenses/
 
 {% block static %}
 RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \
-    && tar -xzf ops_manager.tar.gz \
-    && rm ops_manager.tar.gz \
-    && mv mongodb-mms-* "${MMS_HOME}"
+  && tar -xzf ops_manager.tar.gz \
+  && rm ops_manager.tar.gz \
+  && mv mongodb-mms-* "${MMS_HOME}"
 {% endblock %}
 
 # permissions
-RUN chmod -R 0775 "${MMS_LOG_DIR}" \
-    && chmod -R 0775 "${MMS_HOME}/conf" \
-    && chmod -R 0775 "${MMS_HOME}/jdk" \
-    && chmod -R 0775 "${MMS_HOME}/tmp" \
-    && mkdir "${MMS_HOME}/mongodb-releases/" \
-    && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
+RUN chmod -R 0777 "${MMS_LOG_DIR}" \
+  && chmod -R 0777 "${MMS_TMP_DIR}" \
+  && chmod -R 0775 "${MMS_HOME}/conf" \
+  && chmod -R 0775 "${MMS_HOME}/jdk" \
+  && mkdir "${MMS_HOME}/mongodb-releases/" \
+  && chmod -R 0775 "${MMS_HOME}/mongodb-releases" \
+  && chmod -R 0777 "${MMS_CONF_FILE}" \
+  && chmod -R 0777 "${MMS_PROP_FILE}"
 
 USER 2000
 
