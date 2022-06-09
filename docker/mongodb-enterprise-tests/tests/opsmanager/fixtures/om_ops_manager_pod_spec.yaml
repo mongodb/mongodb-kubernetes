@@ -40,6 +40,11 @@ spec:
               effect: "NoSchedule"
           containers:
             - name: mongodb-ops-manager
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
               readinessProbe:
                 failureThreshold: 20
               volumeMounts:
@@ -49,6 +54,13 @@ spec:
                 limits:
                   cpu: '0.70'
                   memory: '6G'
+          initContainers:
+            - name: mongodb-enterprise-init-ops-manager
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
 
   applicationDatabase:
     members: 3
@@ -72,7 +84,24 @@ spec:
                   cpu: "1"
                 requests:
                   cpu: 500m
+            - name: mongod
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
+            - name: mongodb-agent-monitoring
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
             - name: mongodb-agent
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1001
+                runAsGroup: 1001
               resources:
                 limits:
                   cpu: '0.25'
