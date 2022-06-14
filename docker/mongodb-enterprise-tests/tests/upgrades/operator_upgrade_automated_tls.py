@@ -32,7 +32,6 @@ Steps forward:
 """
 
 
-EOL_FOR_V1_12 = datetime(year=2022, month=5, day=20)
 CERT_PREFIX = "prefix"
 NEW_CERT_PREFIX = "new-prefix"
 MDB_RESOURCE_NAME = "replica-set-tls"
@@ -183,20 +182,6 @@ def shardedcluster(
     }
 
     return sc.create()
-
-
-@mark.e2e_operator_upgrade_automated_tls
-def test_operator_v12_is_still_supported():
-    """
-    Will fail when v12 is not supported anymore.
-
-    EOL date obtained from: https://docs.google.com/spreadsheets/d/1x5vfesgCaGJbFI07OPNRgOAxSIZIAxrJcRME8qjuvcw
-    """
-
-    if datetime.now() > EOL_FOR_V1_12:
-        assert (
-            False
-        ), "Operator Version 1.12.0 has been deprecated. === THIS TEST SHOULD BE REMOVED ==="
 
 
 @mark.e2e_operator_upgrade_automated_tls
