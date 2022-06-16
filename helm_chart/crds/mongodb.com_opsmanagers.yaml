@@ -184,9 +184,6 @@ spec:
                     type: object
                   podSpec:
                     properties:
-                      nodeAffinity:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       persistence:
                         properties:
                           multiple:
@@ -233,9 +230,6 @@ spec:
                                 type: string
                             type: object
                         type: object
-                      podAffinity:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       podAntiAffinityTopologyKey:
                         type: string
                       podTemplate:

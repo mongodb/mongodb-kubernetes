@@ -112,9 +112,6 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               configSrvPodSpec:
                 properties:
-                  nodeAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   persistence:
                     properties:
                       multiple:
@@ -161,9 +158,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   podAntiAffinityTopologyKey:
                     type: string
                   podTemplate:
@@ -226,9 +220,6 @@ spec:
                 type: integer
               mongosPodSpec:
                 properties:
-                  nodeAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   persistence:
                     properties:
                       multiple:
@@ -275,9 +266,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   podAntiAffinityTopologyKey:
                     type: string
                   podTemplate:
@@ -296,9 +284,6 @@ spec:
                 type: boolean
               podSpec:
                 properties:
-                  nodeAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   persistence:
                     properties:
                       multiple:
@@ -345,9 +330,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   podAntiAffinityTopologyKey:
                     type: string
                   podTemplate:
@@ -624,9 +606,6 @@ spec:
                 type: integer
               shardPodSpec:
                 properties:
-                  nodeAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   persistence:
                     properties:
                       multiple:
@@ -673,9 +652,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAffinity:
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
                   podAntiAffinityTopologyKey:
                     type: string
                   podTemplate:
@@ -1665,9 +1641,6 @@ spec:
                     type: object
                   podSpec:
                     properties:
-                      nodeAffinity:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       persistence:
                         properties:
                           multiple:
@@ -1714,9 +1687,6 @@ spec:
                                 type: string
                             type: object
                         type: object
-                      podAffinity:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       podAntiAffinityTopologyKey:
                         type: string
                       podTemplate:
