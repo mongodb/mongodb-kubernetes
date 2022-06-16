@@ -1031,10 +1031,6 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 
 type MongoDbPodSpec struct {
 	ContainerResourceRequirements `json:"-"`
-	// +kubebuilder:pruning:PreserveUnknownFields
-	PodAffinityWrapper PodAffinityWrapper `json:"podAffinity,omitempty"`
-	// +kubebuilder:pruning:PreserveUnknownFields
-	NodeAffinityWrapper NodeAffinityWrapper `json:"nodeAffinity,omitempty"`
 
 	// +kubebuilder:pruning:PreserveUnknownFields
 	PodTemplateWrapper         PodTemplateSpecWrapper `json:"podTemplate,omitempty"`

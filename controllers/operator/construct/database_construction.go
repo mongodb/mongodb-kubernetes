@@ -447,8 +447,6 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			podtemplatespec.WithAffinity(mdb.GetName(), PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinityWrapper.NodeAffinity),
-			podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinityWrapper.PodAffinity),
 			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*opts.PodSpec, volumeMounts, configureContainerSecurityContext)),
 			volumesFunc,
 			configurePodSpecSecurityContext,
@@ -665,8 +663,6 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 		pullSecretsConfigurationFunc,
 		configurePodSpecSecurityContext,
 		podtemplatespec.WithAffinity(opts.Name, PodAntiAffinityLabelKey, 100),
-		podtemplatespec.WithNodeAffinity(opts.PodSpec.NodeAffinityWrapper.NodeAffinity),
-		podtemplatespec.WithPodAffinity(opts.PodSpec.PodAffinityWrapper.PodAffinity),
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(

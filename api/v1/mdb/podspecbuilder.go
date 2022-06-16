@@ -24,6 +24,13 @@ func NewPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 			MemoryLimit:    "500M",
 			MemoryRequests: "400M",
 		},
+		PodTemplateWrapper: PodTemplateSpecWrapper{&corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Affinity: &corev1.Affinity{
+					PodAffinity: &corev1.PodAffinity{},
+				},
+			},
+		}},
 	}
 	return &PodSpecWrapperBuilder{PodSpecWrapper{
 		MongoDbPodSpec: spec,
@@ -67,12 +74,12 @@ func (p *PodSpecWrapperBuilder) SetMemoryRequest(memory string) *PodSpecWrapperB
 }
 
 func (p *PodSpecWrapperBuilder) SetPodAffinity(affinity corev1.PodAffinity) *PodSpecWrapperBuilder {
-	p.spec.PodAffinityWrapper.PodAffinity = &affinity
+	p.spec.PodTemplateWrapper.PodTemplate.Spec.Affinity.PodAffinity = &affinity
 	return p
 }
 
 func (p *PodSpecWrapperBuilder) SetNodeAffinity(affinity corev1.NodeAffinity) *PodSpecWrapperBuilder {
-	p.spec.NodeAffinityWrapper.NodeAffinity = &affinity
+	p.spec.PodTemplateWrapper.PodTemplate.Spec.Affinity.NodeAffinity = &affinity
 	return p
 }
 
@@ -143,5 +150,6 @@ func NewPodSpecWithDefaultValues() MongoDbPodSpec {
 			Logs:    &PersistenceConfig{Storage: util.DefaultLogsStorageSize},
 		},
 	}
+	defaultPodSpec.PodTemplateWrapper = NewMongoDbPodSpec().PodTemplateWrapper
 	return defaultPodSpec
 }

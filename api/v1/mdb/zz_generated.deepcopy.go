@@ -413,8 +413,6 @@ func (in *MongoDBList) DeepCopyObject() runtime.Object {
 func (in *MongoDbPodSpec) DeepCopyInto(out *MongoDbPodSpec) {
 	*out = *in
 	out.ContainerResourceRequirements = in.ContainerResourceRequirements
-	in.PodAffinityWrapper.DeepCopyInto(&out.PodAffinityWrapper)
-	in.NodeAffinityWrapper.DeepCopyInto(&out.NodeAffinityWrapper)
 	in.PodTemplateWrapper.DeepCopyInto(&out.PodTemplateWrapper)
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
