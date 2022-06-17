@@ -365,3 +365,22 @@ func TestService_mergeAnnotations(t *testing.T) {
 func defaultPodVars() *env.PodEnvVars {
 	return &env.PodEnvVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
 }
+
+func TestPodAntiAffinityOverride(t *testing.T) {
+	podAntiAffinity := defaultPodAntiAffinity()
+
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
+
+	// override pod Anti Affinity
+	podSpec.PodTemplateWrapper.PodTemplate.Spec.Affinity.PodAntiAffinity = &podAntiAffinity
+
+	mdb := mdbv1.NewReplicaSetBuilder().
+		SetName("s").
+		SetPodSpec(&podSpec.MongoDbPodSpec).
+		Build()
+	sts := DatabaseStatefulSet(
+		*mdb, ReplicaSetOptions(GetpodEnvOptions()),
+	)
+	spec := sts.Spec.Template.Spec
+	assert.Equal(t, podAntiAffinity, *spec.Affinity.PodAntiAffinity)
+}

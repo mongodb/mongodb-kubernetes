@@ -1033,8 +1033,11 @@ type MongoDbPodSpec struct {
 	ContainerResourceRequirements `json:"-"`
 
 	// +kubebuilder:pruning:PreserveUnknownFields
-	PodTemplateWrapper         PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
-	PodAntiAffinityTopologyKey string                 `json:"podAntiAffinityTopologyKey,omitempty"`
+	PodTemplateWrapper PodTemplateSpecWrapper `json:"podTemplate,omitempty"`
+	// Note, this field is not serialized in the CRD, it's only present here because of the
+	// way we currently set defaults for this field in the operator, similar to "ContainerResourceRequirements"
+
+	PodAntiAffinityTopologyKey string `json:"-"`
 
 	// Note, that this field is used by MongoDB resources only, let's keep it here for simplicity
 
