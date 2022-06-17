@@ -405,6 +405,17 @@ func defaultPodAffinity() corev1.PodAffinity {
 		}}}
 }
 
+func defaultPodAntiAffinity() corev1.PodAntiAffinity {
+	return corev1.PodAntiAffinity{
+		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+			Weight: 77,
+			PodAffinityTerm: corev1.PodAffinityTerm{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web-server"}},
+				TopologyKey:   "rack",
+			},
+		}}}
+}
+
 // buildSafeResourceList returns a ResourceList but should not be called
 // with dynamic values. This function ignores errors in the parsing of
 // resource.Quantities and as a result should only be used in tests with

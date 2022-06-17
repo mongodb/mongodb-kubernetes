@@ -158,8 +158,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAntiAffinityTopologyKey:
-                    type: string
                   podTemplate:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
@@ -266,8 +264,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAntiAffinityTopologyKey:
-                    type: string
                   podTemplate:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
@@ -330,8 +326,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAntiAffinityTopologyKey:
-                    type: string
                   podTemplate:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
@@ -652,8 +646,6 @@ spec:
                             type: string
                         type: object
                     type: object
-                  podAntiAffinityTopologyKey:
-                    type: string
                   podTemplate:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
