@@ -177,7 +177,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	if newTLSDesignMemberCert {
 		oldTLSMemberSecret, err = r.getOldMemberCertSecret(rs, rs.Name)
 		if err != nil {
-			return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+			log.Warnf("Failed retrieving old TLS certificates: %e", err)
+			oldTLSMemberSecret = ""
 		}
 	}
 
