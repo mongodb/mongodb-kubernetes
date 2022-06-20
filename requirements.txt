@@ -1,4 +1,4 @@
-git+https://github.com/mongodb/sonar@96d13ff76a29349d07d2d6baa95e057495f00adf
+git+https://github.com/mongodb/sonar@0c21097a55a4426c8824f74cdcfbceb11b27bb68
 requests==2.26.0
 boto3==1.18.8
 click==7.1.2

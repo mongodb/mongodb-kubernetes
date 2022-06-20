@@ -1,3 +1,4 @@
+
 ## Configuration parameters for dev context files
 
 This is a list of all configuration options that can be set by the developer inside the dev context file
@@ -5,7 +6,21 @@ This is a list of all configuration options that can be set by the developer ins
 
 * `CLUSTER_TYPE`: the type of Kubernetes cluster. Possible values are "kops", "openshift", "kind"
 * `CLUSTER_NAME`: the name of kubectl context. Will be created as soon as relevant kubernetes cluster is created
-* `REPO_URL`: the url of docker repository used to store docker images
+* `kube_environment_name`: use `vanilla` for kops cluster, `multi` for multi cluster, `kind` for kind cluster type 
+* `BASE_REPO_URL`: the url of docker repository used to store docker images
+* `agent_version`: version of mms-automation agent
+* `RED_HAT_TOKEN`: API token to Red Hat registry
+* Registry and version configuration. Reference versions can be taken from the [yaml file](../../../public/mongodb-enterprise.yaml)
+  * `INIT_OPS_MANAGER_REGISTRY` 
+  * `INIT_OPS_MANAGER_VERSION`
+  * `INIT_DATABASE_REGISTRY`
+  * `INIT_DATABASE_VERSION`
+  * `INIT_APPDB_REGISTRY`
+  * `INIT_APPDB_VERSION`
+  * `OPS_MANAGER_REGISTRY`
+  * `OPS_MANAGER_VERSION`
+  * `DATABASE_REGISTRY`
+  * `DATABASE_VERSION`
 * `NAMESPACE`: (optional) the name of Kubernetes namespace that will be created. Note, that the group name
             in Ops Manager will have the same name. It's recommended to have different namespace names for different
             contexts to avoid Ops Manager clashing. "mongodb" by default

@@ -36,6 +36,12 @@ usage` to see detailed description of all targets.
 
 #### Install necessary tools and commit hook
 
+Initialize python virtual environment.
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
 This will install different tools used for development: kubectl, kops, helm,
 coreutils, also initialise necessary environment variables.
 
@@ -72,6 +78,8 @@ clusters by default. Edit the file:
     example, `eu-west-1a`)
 
 You can edit the other context files or copy them to new ones.
+
+See [additional documentation](../../scripts/dev/samples/README.md) for the context variables.
 
 #### Switching between contexts 
 
@@ -117,6 +125,57 @@ working namespaces in the same K8s cluster
 
 ```bash
 export NAMESPACE=cloudqa
+```
+
+#### Example context file
+This is example context file with initial configuration allowing to execute [initial dev workflow](#initial-dev-workflow).
+Before that `lsierant-kops2` cluster was created. Specific configuration was left intentionally.     
+
+```bash
+# configure
+export NAMESPACE=lsierant-kops2
+export CLUSTER_NAME=lsierant-kops2.mongokubernetes.com
+export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/lsierant-kops2
+
+export IMAGE_TYPE=ubuntu
+export CLUSTER_TYPE=kops
+export kube_environment_name=vanilla
+export KOPS_ZONES=eu-west-1a
+export KOPS_K8S_VERSION=1.23.7
+export agent_version=10.29.0.6830-1
+export REGISTRY=quay.io/mongodb
+
+export INIT_OPS_MANAGER_REGISTRY=${REGISTRY}/ubuntu
+export INIT_OPS_MANAGER_VERSION=1.0.7
+
+export INIT_DATABASE_REGISTRY=${REGISTRY}
+export INIT_DATABASE_VERSION=1.0.9
+
+export OPS_MANAGER_REGISTRY=${REGISTRY}
+
+export INIT_APPDB_REGISTRY="${REGISTRY}"
+export APPDB_REGISTRY=${REGISTRY}
+export DATABASE_REGISTRY=${REGISTRY}
+export DATABASE_VERSION=2.0.2
+export KUBECONFIG=~/.kube/config
+
+export RED_HAT_TOKEN=eyJhb...
+```
+
+#### Initial dev workflow
+These steps allow to execute the first e2e test. For the simplest case only the operator and e2e tests images are built locally.
+
+```bash
+# ensure cluster&credentials
+make ensure-k8s
+make aws_login
+
+# build operator image locally
+./pipeline.py --include operator-quick
+
+# build test image and run e2e test
+# light=true is for building test image only, otherwise it will build all images
+make e2e test=e2e_replica_set light=true  
 ```
 
 #### Dev workflow
