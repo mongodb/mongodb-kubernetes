@@ -522,8 +522,7 @@ def _install_multi_cluster_operator(
         namespace=namespace,
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
-        enable_webhook_check=False,
-    ).upgrade(install=True)
+    ).upgrade(install=True, multi_cluster=True)
 
 
 @fixture(scope="module")
@@ -550,7 +549,6 @@ def official_operator(
     The version installed is always the latest version published as a Helm Chart.
     """
 
-    enable_webhook_check = True
     helm_options = []
 
     # When running in Openshift "managedSecurityContext" will be true.
@@ -597,7 +595,6 @@ def official_operator(
         helm_chart_path="mongodb/enterprise-operator",
         helm_options=helm_options,
         name=name,
-        enable_webhook_check=enable_webhook_check,
     ).install()
 
 
@@ -611,7 +608,6 @@ def official_operator_v12(
     """
     Installs version 1.12 of the Operator
     """
-    enable_webhook_check = True
     helm_options = []
 
     name = "mongodb-enterprise-operator"
@@ -645,7 +641,6 @@ def official_operator_v12(
         helm_chart_path=chart_dir,
         helm_options=helm_options,
         name=name,
-        enable_webhook_check=enable_webhook_check,
     ).install()
 
 

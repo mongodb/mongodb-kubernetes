@@ -43,7 +43,6 @@ class Operator(object):
         helm_options: Optional[List[str]] = None,
         helm_chart_path: Optional[str] = "helm_chart",
         name: Optional[str] = "mongodb-enterprise-operator",
-        enable_webhook_check: bool = True,
         api_client: Optional[client.api_client.ApiClient] = None,
     ):
 
@@ -61,7 +60,6 @@ class Operator(object):
         self.helm_options = helm_options
         self.helm_chart_path = helm_chart_path
         self.name = name
-        self.enable_webhook_check = enable_webhook_check
         self.api_client = api_client
 
     def install_from_template(self):
@@ -89,7 +87,7 @@ class Operator(object):
 
         return self
 
-    def upgrade(self, install: bool = True) -> Operator:
+    def upgrade(self, install: bool = True, multi_cluster: bool = False) -> Operator:
         """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
         helm_upgrade(
             self.name,
@@ -99,7 +97,7 @@ class Operator(object):
             helm_options=self.helm_options,
         )
         self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready()
+        self._wait_operator_webhook_is_ready(multi_cluster=multi_cluster)
 
         return self
 
@@ -165,9 +163,13 @@ class Operator(object):
             f"Operator hasn't started in specified time after {retries} retries."
         )
 
-    def _wait_operator_webhook_is_ready(self, retries: int = 10):
-        # TODO: Remove after 1.11 has been released
-        if self.enable_webhook_check is False:
+    def _wait_operator_webhook_is_ready(
+        self, retries: int = 10, multi_cluster: bool = False
+    ):
+
+        # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
+        # so we skip this extra check for multi-cluster
+        if multi_cluster:
             return
 
         logging.debug("_wait_operator_webhook_is_ready")
