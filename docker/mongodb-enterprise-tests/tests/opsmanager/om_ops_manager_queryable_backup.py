@@ -375,7 +375,7 @@ class TestOpsManagerCreation:
             s for s in services if s.metadata.name.startswith("om-backup")
         ]
 
-        assert len(backup_services) >= 4
+        assert len(backup_services) >= 3
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):

@@ -148,14 +148,11 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	}
 
 	// Need to create queryable backup service
-	var backupService *corev1.Service = nil
 	if opsManager.Spec.Backup.Enabled {
 		if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 			if err := addQueryableBackupPortToExternalService(opsManager, externalService); err != nil {
 				return err
 			}
-		} else if backupService, err = buildBackupService(opsManager, set.Spec.ServiceName+"-backup"); err != nil {
-			return err
 		}
 	}
 
@@ -164,13 +161,6 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 			return err
 		}
 	}
-
-	if backupService != nil {
-		if err := service.CreateOrUpdateService(client, *backupService); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -187,25 +177,6 @@ func addQueryableBackupPortToExternalService(opsManager omv1.MongoDBOpsManager, 
 		Port: backupSvcPort,
 	})
 	return nil
-}
-
-// buildBackupService returns the service needed for queryable backup.
-func buildBackupService(opsManager omv1.MongoDBOpsManager, serviceName string) (*corev1.Service, error) {
-	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
-	if err != nil {
-		return nil, fmt.Errorf("can't parse queryable backup port: %s", err)
-	}
-
-	// Otherwise create a new service
-	namespacedName := kube.ObjectKey(opsManager.Namespace, serviceName)
-
-	serviceType := corev1.ServiceTypeClusterIP
-	if opsManager.Spec.Backup.ExternalServiceEnabled == nil || *opsManager.Spec.Backup.ExternalServiceEnabled {
-		serviceType = corev1.ServiceTypeLoadBalancer
-	}
-
-	svc := buildService(namespacedName, &opsManager, "ops-manager-backup", backupSvcPort, omv1.MongoDBOpsManagerServiceDefinition{Type: serviceType})
-	return &svc, nil
 }
 
 // buildService creates the Kube Service. If it should be seen externally it makes it of type NodePort that will assign
@@ -228,14 +199,15 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 		SetServiceType(mongoServiceDefinition.Type)
 
 	serviceType := mongoServiceDefinition.Type
-	if serviceType == corev1.ServiceTypeNodePort || serviceType == corev1.ServiceTypeLoadBalancer {
+	switch serviceType {
+	case corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer:
 		// Service will have a NodePort
 		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port), NodePort: mongoServiceDefinition.Port}).SetClusterIP("")
-	} else if serviceType == corev1.ServiceTypeClusterIP {
+	case corev1.ServiceTypeClusterIP:
 		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None")
 		// Service will have a named Port
 		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port), Name: "mongodb"})
-	} else {
+	default:
 		// Service will have a regular Port (unnamed)
 		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port)})
 	}

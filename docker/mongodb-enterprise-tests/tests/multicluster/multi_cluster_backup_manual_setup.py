@@ -282,7 +282,7 @@ class TestOpsManagerCreation:
             s for s in services if s.metadata.name.startswith("om-backup")
         ]
 
-        assert len(backup_services) >= 4
+        assert len(backup_services) >= 3
 
 
 @mark.e2e_multi_cluster_om_ops_manager_backup_manual_setup
