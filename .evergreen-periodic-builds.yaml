@@ -21,6 +21,44 @@ functions:
     params:
       directory: src/github.com/10gen/ops-manager-kubernetes
 
+  setup_preflight:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_preflight.sh
+
+  preflight_image:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: python3 -m venv --upgrade ./venv
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet
+  - command: subprocess.exec
+    type: setup
+    params:
+      include_expansions_in_env:
+      - RED_HAT_TOKEN
+      - rh_e2e_cluster_user
+      command: "podman login -u=\"${rh_e2e_cluster_user}\" -p=\"${RED_HAT_TOKEN}\" registry.connect.redhat.com"
+  - command: subprocess.exec
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - project_id
+      - rh_pyxis
+      command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name}"
+
   configure_docker_auth:
   - command: subprocess.exec
     type: setup
@@ -108,6 +146,43 @@ functions:
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
 
 tasks:
+- name: preflight_images
+  commands:
+  - func: clone
+  - func: setup_preflight
+  - func: preflight_image
+    vars:
+      image_name: operator
+      project_id: ${rhc_operator_pid}
+  - func: preflight_image
+    vars:
+      image_name: ops-manager
+      project_id: ${rhc_om_pid}
+  - func: preflight_image
+    vars:
+      image_name: init-appdb
+      project_id: ${rhc_init_appdb_pid}
+  - func: preflight_image
+    vars:
+      image_name: init-database
+      project_id: ${rhc_init_database_pid}
+  - func: preflight_image
+    vars:
+      image_name: init-ops-manager
+      project_id: ${rhc_init_om_pid}
+  - func: preflight_image
+    vars:
+      image_name: appdb
+      project_id: ${rhc_appdb_pid}
+  - func: preflight_image
+    vars:
+      image_name: database
+      project_id: ${rhc_database_pid}
+  - func: preflight_image
+    vars:
+      image_name: mongodb-agent
+      project_id: ${rhc_agent_pid}
+
 - name: periodic_build_operator
   commands:
   - func: clone
@@ -268,6 +343,10 @@ task_groups:
     - periodic_build_agent
     - periodic_build_appdb_database
 
+  - name: preflight_images_task_group
+    tasks:
+    - preflight_images
+
 buildvariants:
 - name: periodic_build
   display_name: periodic_build
@@ -275,3 +354,13 @@ buildvariants:
   - ubuntu1804-small
   tasks:
     - name: periodic_build_task_group
+
+- name: preflight_images
+  display_name: preflight_images
+  depends_on:
+    - name: periodic_build_task_group
+      variant: periodic_build
+  run_on:
+  - rhel84-small
+  tasks:
+    - name: preflight_images_task_group
