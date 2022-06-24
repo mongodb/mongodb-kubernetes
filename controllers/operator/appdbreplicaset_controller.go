@@ -13,7 +13,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
@@ -465,7 +464,6 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 			p.Args26 = objx.New(rs.AdditionalMongodConfig.ToMap())
 			p.SetPort(int(rs.AdditionalMongodConfig.GetPortOrDefault()))
 			p.SetReplicaSetName(rs.Name())
-			p.SetWiredTigerCache(wiredtiger.CalculateCache(set, util.AppDbContainerName, rs.GetMongoDBVersion()))
 			p.SetSystemLog(automationconfig.SystemLog{
 				Destination: "file",
 				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),

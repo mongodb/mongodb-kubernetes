@@ -5,7 +5,7 @@
 ## MongoDB Resource
 
 * `spec.podSpec.podAntiAffinityTopologyKey` , `spec.podSpec.podAffinity` and `spec.podSpec.nodeAffinity` has been removed. Please use `spec.podSpec.podTemplate` override to set these fields.
-
+* Wiredtiger cache computation has been removed. This was needed for server version `>=4.0.0 <4.0.9` and `<3.6.13`. These server version have reached EOL. Make sure to update your MDB deployment to a version later than `4.0.9` before upgrading the operator.
 
 ## MongoDBOpsManager Resource
 
