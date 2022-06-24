@@ -15,7 +15,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 
@@ -377,10 +377,6 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
-	wiredTigerCache := wiredtiger.CalculateCache(set, containerName, s.Spec.GetMongoDBVersion())
 	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec(), "")
-	if wiredTigerCache != nil {
-		process.SetWiredTigerCache(*wiredTigerCache)
-	}
 	return process
 }

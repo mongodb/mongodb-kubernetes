@@ -22,8 +22,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/wiredtiger"
-
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
@@ -905,14 +903,10 @@ func createShardProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificat
 func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
 	processes := make([]om.Process, len(hostnames))
-	wiredTigerCache := wiredtiger.CalculateCache(set, util.DatabaseContainerName, mdb.Spec.GetMongoDBVersion())
 
 	for idx, hostname := range hostnames {
 
 		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, &mdb.Spec, certificateFilePath)
-		if wiredTigerCache != nil {
-			processes[idx].SetWiredTigerCache(*wiredTigerCache)
-		}
 	}
 
 	return processes
