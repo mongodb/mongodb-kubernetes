@@ -78,6 +78,7 @@ class Operator(object):
         """Installs the Operator to Kubernetes cluster using 'helm install', waits until it's running"""
         helm_install(
             "mongodb-enterprise-operator",
+            self.namespace,
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
             helm_options=self.helm_options,

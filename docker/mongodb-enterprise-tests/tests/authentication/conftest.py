@@ -1,9 +1,12 @@
-from typing import List, Generator
+import os
+from typing import List, Generator, Optional
 
-from kubetester import get_pod_when_ready
+from kubernetes import client
+from kubetester import get_pod_when_ready, read_secret
 from kubetester.certs import generate_cert
 from kubetester.helm import helm_install, helm_uninstall
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.ldap import (
     create_user,
     ensure_organizational_unit,
@@ -32,9 +35,17 @@ def pytest_runtest_setup(item):
         item.fixturenames.insert(0, "default_operator")
 
 
-def openldap_install(namespace: str, name: str) -> OpenLDAP:
+def openldap_install(
+    namespace: str,
+    name: str = LDAP_NAME,
+    cluster_client: Optional[client.ApiClient] = None,
+    cluster_name: Optional[str] = None,
+) -> OpenLDAP:
+    if cluster_name is not None:
+        os.environ["HELM_KUBECONTEXT"] = cluster_name
     helm_install(
-        name,
+        name=name,
+        namespace=namespace,
         helm_args={
             "namespace": namespace,
             "fullnameOverride": name,
@@ -42,9 +53,12 @@ def openldap_install(namespace: str, name: str) -> OpenLDAP:
         },
         helm_chart_path="vendor/openldap",
     )
-    get_pod_when_ready(namespace, f"app={name}")
+    get_pod_when_ready(namespace, f"app={name}", api_client=cluster_client)
 
-    return OpenLDAP(ldap_url(namespace, name), ldap_admin_password(namespace, name))
+    return OpenLDAP(
+        ldap_url(namespace, name),
+        ldap_admin_password(namespace, name, api_client=cluster_client),
+    )
 
 
 @fixture(scope="module")
@@ -89,6 +103,7 @@ def openldap_tls(namespace: str, openldap_cert: str) -> Generator[OpenLDAP, None
     }
     helm_install(
         name=LDAP_NAME,
+        namespace=namespace,
         helm_chart_path="vendor/openldap",
         helm_args=helm_args,
     )
@@ -221,5 +236,7 @@ def ldap_url(
     return "{}://{}:{}".format(proto, host, port)
 
 
-def ldap_admin_password(namespace: str, name: str) -> str:
-    return KubernetesTester.read_secret(namespace, name)["LDAP_ADMIN_PASSWORD"]
+def ldap_admin_password(
+    namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+) -> str:
+    return read_secret(namespace, name, api_client=api_client)["LDAP_ADMIN_PASSWORD"]
