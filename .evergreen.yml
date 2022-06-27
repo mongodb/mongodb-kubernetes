@@ -1929,6 +1929,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_with_ldap
+  tags: ["patch-run"]
+  exec_timeout_sect: 1800
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_specific_namespaces
   tags: ["patch-run"]
   exec_timeout_secs: 3000
@@ -2360,6 +2366,7 @@ task_groups:
     - e2e_multi_cluster_tls_cert_rotation
     - e2e_multi_cluster_backup_restore
     - e2e_multi_cluster_tls_with_x509
+    - e2e_multi_cluster_with_ldap
     - e2e_multi_cluster_validation
     - e2e_multi_cluster_specific_namespaces
   teardown_task:

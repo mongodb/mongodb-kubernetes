@@ -32,12 +32,20 @@ def helm_template(
 
 def helm_install(
     name: str,
+    namespace: str,
     helm_args: Dict,
     helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
 ):
     command_args = _create_helm_args(helm_args, helm_options)
-    args = ("helm", "install", *(command_args), name, _helm_chart_dir(helm_chart_path))
+    args = (
+        "helm",
+        "install",
+        f"--namespace={namespace}",
+        *(command_args),
+        name,
+        _helm_chart_dir(helm_chart_path),
+    )
     logging.info(args)
 
     process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)

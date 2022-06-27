@@ -10,10 +10,13 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -29,8 +32,12 @@ func init() {
 	v1.SchemeBuilder.Register(&MongoDBMulti{}, &MongoDBMultiList{})
 }
 
+type TransportSecurity string
+
 const (
-	LastClusterIndexMapping = "mongodb.com/v1.lastClusterIndexMapping"
+	LastClusterIndexMapping                   = "mongodb.com/v1.lastClusterIndexMapping"
+	TransportSecurityNone   TransportSecurity = "none"
+	TransportSecurityTLS    TransportSecurity = "tls"
 )
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
@@ -109,11 +116,43 @@ func (m *MongoDBMulti) GetMinimumMajorVersion() uint64 {
 }
 
 func (m *MongoDBMulti) IsLDAPEnabled() bool {
-	return false
+	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
+		return false
+	}
+	return stringutil.Contains(m.Spec.GetSecurityAuthenticationModes(), util.LDAP)
 }
 
 func (m *MongoDBMulti) GetLDAP(password, caContents string) *ldap.Ldap {
-	return nil
+	if !m.IsLDAPEnabled() {
+		return nil
+	}
+	mdbLdap := m.Spec.Security.Authentication.Ldap
+	transportSecurity := TransportSecurityNone
+	if mdbLdap.TransportSecurity != nil {
+		transportSecurity = TransportSecurityTLS
+	}
+
+	validateServerConfig := true
+	if mdbLdap.ValidateLDAPServerConfig != nil {
+		validateServerConfig = *mdbLdap.ValidateLDAPServerConfig
+	}
+
+	return &ldap.Ldap{
+		BindQueryUser:            mdbLdap.BindQueryUser,
+		BindQueryPassword:        password,
+		Servers:                  strings.Join(mdbLdap.Servers, ","),
+		TransportSecurity:        string(transportSecurity),
+		CaFileContents:           caContents,
+		ValidateLDAPServerConfig: validateServerConfig,
+
+		// Related to LDAP Authorization
+		AuthzQueryTemplate: mdbLdap.AuthzQueryTemplate,
+		UserToDnMapping:    mdbLdap.UserToDNMapping,
+
+		// TODO: Enable LDAP SASL bind method
+		BindMethod:         "simple",
+		BindSaslMechanisms: "",
+	}
 }
 
 func (m MongoDBMulti) GetHostNameOverrideConfigmapName() string {
