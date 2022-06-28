@@ -20,11 +20,20 @@ def image_config(
     rh_cert_project_id: str,
     name_prefix: str = "mongodb-enterprise-",
 ) -> Tuple[str, Dict[str, str]]:
-    args = {
-        "rh_registry": f"scan.connect.redhat.com/ospid-{rh_ospid}/{name_prefix}{image}",
-        "public_rh_registry": f"registry.connect.redhat.com/mongodb/{name_prefix}{image}",
-        "rh_cert_project_id": rh_cert_project_id,
-    }
+
+    if image == "operator":
+        prefix = "mongodb-enterprise-"
+        args = {
+            "rh_registry": f"scan.connect.redhat.com/ospid-{rh_ospid}/{prefix}{image}",
+            "public_rh_registry": f"registry.connect.redhat.com/mongodb/{name_prefix}{image}",
+            "rh_cert_project_id": rh_cert_project_id,
+        }
+    else:
+        args = {
+            "rh_registry": f"scan.connect.redhat.com/ospid-{rh_ospid}/{name_prefix}{image}",
+            "public_rh_registry": f"registry.connect.redhat.com/mongodb/{name_prefix}{image}",
+            "rh_cert_project_id": rh_cert_project_id,
+        }
     return image, args
 
 
