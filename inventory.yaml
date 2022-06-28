@@ -9,6 +9,7 @@ images:
       context: .
       template_context: docker/mongodb-enterprise-operator
 
+    platform: linux/amd64
     inputs:
     - release_version
     - log_automation_config_diff
