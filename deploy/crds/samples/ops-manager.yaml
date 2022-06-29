@@ -32,6 +32,5 @@ spec:
     # optional. Configures the version of MongoDB used as an application database.
     # The bundled MongoDB binary will be used if omitted and no download from the Internet will happen
     version: 4.2.6-ent
-    persistent: true
     podSpec:
       cpu: '0.25'

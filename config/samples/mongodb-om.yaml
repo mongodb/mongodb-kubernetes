@@ -11,6 +11,5 @@ spec:
     type: LoadBalancer
   applicationDatabase:
     members: 3
-    persistent: true
     podSpec:
       cpu: 1

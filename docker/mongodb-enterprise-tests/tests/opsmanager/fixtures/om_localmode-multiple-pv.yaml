@@ -34,6 +34,5 @@ spec:
   applicationDatabase:
     version: "4.2.0-ent"
     members: 3
-    persistent: true
 
 
