@@ -15,5 +15,4 @@ spec:
   applicationDatabase:
     # version is configured in the test
     members: 3
-    persistent: true
     version: "4.2.0-ent"
