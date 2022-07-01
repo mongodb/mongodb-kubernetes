@@ -437,7 +437,7 @@ func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) 
 			return project, nil
 		}
 	}
-	return nil, fmt.Errorf("Failed to find project")
+	return nil, fmt.Errorf("failed to find project")
 }
 
 func (oc *MockedOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.Config, error) {

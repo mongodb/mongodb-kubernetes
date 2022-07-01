@@ -365,7 +365,7 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 		}
 	}
 	if failedMembers != "" {
-		return fmt.Errorf("Failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
+		return fmt.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
 	}
 	return nil
 }
@@ -418,7 +418,7 @@ func (d Deployment) RemoveReplicaSetByName(name string, log *zap.SugaredLogger) 
 func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.SugaredLogger) error {
 	sc := d.getShardedClusterByName(clusterName)
 	if sc == nil {
-		return errors.New("Sharded Cluster does not exist")
+		return errors.New("sharded Cluster does not exist")
 	}
 
 	// 1. Remove the sharded cluster
@@ -750,7 +750,7 @@ func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptio
 	// Then merging mongos processes with existing ones
 	for _, p := range opts.MongosProcesses {
 		if p.ProcessType() != ProcessTypeMongos {
-			return errors.New(`All mongos processes must have processType="mongos"`)
+			return errors.New(`all mongos processes must have processType="mongos"`)
 		}
 		p.setCluster(opts.Name)
 		d.MergeStandalone(p, opts.MongosAdditionalOptionsDesired, opts.MongosAdditionalOptionsPrev, log)
@@ -1137,7 +1137,7 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 	for _, p := range newProcesses {
 		sampleProcessCopy, err := sampleProcess.DeepCopy()
 		if err != nil {
-			return fmt.Errorf("Failed to make a copy of Process %s: %s", sampleProcess.Name(), err)
+			return fmt.Errorf("failed to make a copy of Process %s: %s", sampleProcess.Name(), err)
 		}
 		sampleProcessCopy.setName(p.Name())
 
