@@ -7,6 +7,8 @@ images:
   vars:
     context: docker/mongodb-enterprise-database
 
+  platform: linux/amd64
+
   stages:
   - name: database-build-context
     task_type: docker_build

@@ -6,7 +6,9 @@ images:
 - name: init-ops-manager
   vars:
     context: docker/mongodb-enterprise-init-ops-manager
-  
+
+  platform: linux/amd64
+
   stages:
   - name: init-ops-manager-build-context
     task_type: docker_build
