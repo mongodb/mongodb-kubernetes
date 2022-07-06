@@ -302,13 +302,23 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return status
 		}
 
-		// TODO: add multi cluster label to these secrets.
 		// copy the agent api key to the member cluster.
-		err = secret.CopySecret(r.client, memberClient,
-			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
-			types.NamespacedName{Name: fmt.Sprintf("%s-group-secret", conn.GroupID()), Namespace: mrs.Namespace},
-		)
+		apiKeySecretName := fmt.Sprintf("%s-group-secret", conn.GroupID())
+		secretByte, err := secret.ReadByteData(r.client, types.NamespacedName{Name: apiKeySecretName, Namespace: mrs.Namespace})
+		if err != nil {
+			return workflow.Failed(err.Error())
+		}
 
+		secretObject := corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      apiKeySecretName,
+				Namespace: mrs.Namespace,
+				Labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
+			},
+			Data: secretByte,
+		}
+
+		err = secret.CreateOrUpdate(memberClient, secretObject)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -532,11 +542,16 @@ func getExistingProcessIds(conn om.Connection, mrs mdbmultiv1.MongoDBMulti) (map
 	return processIds, nil
 }
 
-func getSRVService(mrs *mdbmultiv1.MongoDBMulti) corev1.Service {
-	svcLabels := map[string]string{
+func mongoDBMultiLabels(name, namespace string) map[string]string {
+	return map[string]string{
 		"controller":   "mongodb-enterprise-operator",
-		"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
+		"mongodbmulti": fmt.Sprintf("%s-%s", name, namespace),
 	}
+}
+
+func getSRVService(mrs *mdbmultiv1.MongoDBMulti) corev1.Service {
+	svcLabels := mongoDBMultiLabels(mrs.Name, mrs.Namespace)
+
 	svc := service.Builder().
 		SetName(fmt.Sprintf("%s-svc", mrs.Name)).
 		SetNamespace(mrs.Namespace).
@@ -645,10 +660,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, m
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-hostname-override", mrs.Name),
 			Namespace: mrs.Namespace,
-			Labels: map[string]string{
-				"controller":   "mongodb-enterprise-operator",
-				"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
-			},
+			Labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
 		},
 		Data: data,
 	}

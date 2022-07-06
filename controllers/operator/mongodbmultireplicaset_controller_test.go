@@ -233,6 +233,7 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 			s := corev1.Secret{}
 			err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-group-secret", om.CurrMockedConnection.GroupID())), &s)
 			assert.NoError(t, err)
+			assert.Equal(t, mongoDBMultiLabels(mrs.Name, mrs.Namespace), s.Labels)
 		})
 	}
 }
