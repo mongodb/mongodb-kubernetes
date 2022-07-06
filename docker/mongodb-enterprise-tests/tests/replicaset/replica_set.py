@@ -43,8 +43,8 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
                         "name": "mongodb-enterprise-database",
                         "resources": {
                             "limits": {
-                                "cpu": "0.5",
-                                "memory": "700M",
+                                "cpu": "1",
+                                "memory": "1Gi",
                             },
                             "requests": {"cpu": "0.2", "memory": "300M"},
                         },
@@ -133,8 +133,8 @@ class TestReplicaSetCreation(KubernetesTester):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            assert c0.resources.limits["cpu"] == "500m"
-            assert c0.resources.limits["memory"] == "700M"
+            assert c0.resources.limits["cpu"] == "1"
+            assert c0.resources.limits["memory"] == "1Gi"
             assert c0.resources.requests["cpu"] == "200m"
             assert c0.resources.requests["memory"] == "300M"
 

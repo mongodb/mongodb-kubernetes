@@ -2,9 +2,9 @@
 
 set -Eeou pipefail
 
+script_directory=$(dirname "$0")
+
 # script checks if kubectl has the matching contexts - if not - then tries to create Kube cluster
-
-
 source scripts/dev/read_context.sh
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
@@ -33,12 +33,7 @@ if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ;
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
 elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
-  echo "Deleting existing kind cluster"
-  kind delete cluster
-  echo "Creating kind cluster"
-
-  # K8s version is aligned with the one used in our E2E tests
-  kind create cluster --image kindest/node:v1.16.9 # --config "$HOME/.operator-dev/kind-ecr-config.yaml"
+  "${script_directory}"/setup_kind_cluster.sh -n "${CLUSTER_NAME}" -e -r
 fi
 
 title "Kubernetes cluster ${CLUSTER_NAME} is up"
