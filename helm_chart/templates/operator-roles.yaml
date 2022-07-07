@@ -15,7 +15,7 @@ imagePullSecrets:
 {{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-enterprise-operator.namespace" . | list) }}
+{{- $watchNamespace = concat $watchNamespace (include "mongodb-enterprise-operator.namespace" . | list) | uniq }}
 {{- end }}
 
 {{- $roleScope := "Role" -}}
