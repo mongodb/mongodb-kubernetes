@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 set -Eeou pipefail
-
 prepare_operator_config_map() {
     local context=${1}
     title "Preparing the ConfigMap with Operator installation configuration"
@@ -26,7 +25,7 @@ prepare_operator_config_map() {
 
     config=(
       "--from-literal" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-      "--from-literal" "registry.operator=${REGISTRY}"
+      "--from-literal" "registry.operator=${OPERATOR_REGISTRY:-${REGISTRY}}"
       "--from-literal" "registry.imagePullSecrets=image-registries-secret"
       "--from-literal" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
       "--from-literal" "registry.initAppDb=${INIT_APPDB_REGISTRY}"
