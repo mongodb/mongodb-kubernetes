@@ -1,7 +1,7 @@
 git+https://github.com/mongodb/sonar@0c21097a55a4426c8824f74cdcfbceb11b27bb68
 requests==2.26.0
 boto3==1.18.8
-click==8.1.3
+click==8.0.4
 docker==5.0.0
 Jinja2==2.11.3
 pytest==6.2.3

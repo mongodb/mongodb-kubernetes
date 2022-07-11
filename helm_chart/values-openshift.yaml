@@ -39,7 +39,7 @@ database:
 
 initDatabase:
   name: mongodb-enterprise-init-database
-  version: 1.0.9
+  version: 1.0.10
 
 ## Ops Manager
 opsManager:
@@ -51,7 +51,7 @@ initOpsManager:
 
 initAppDb:
   name: mongodb-enterprise-init-appdb
-  version: 1.0.9
+  version: 1.0.10
 
 agent:
   name: mongodb-agent
