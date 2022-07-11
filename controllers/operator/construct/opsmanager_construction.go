@@ -219,7 +219,7 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 
 		postStart = func(lc *corev1.Lifecycle) {
 			if lc.PostStart == nil {
-				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}
+				lc.PostStart = &corev1.LifecycleHandler{Exec: &corev1.ExecAction{}}
 			}
 			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScriptCmd()}
 		}
@@ -254,10 +254,8 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	omImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.OpsManagerImageUrl), opts.Version)
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
-	configureContainerSecurityContext := container.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
-		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -386,7 +384,6 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 						container.WithEnvs(opts.EnvVars...),
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName, opts.CertHash)...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
-						configureContainerSecurityContext,
 						container.WithVolumeMounts(omVolumeMounts),
 					),
 				),
@@ -417,7 +414,7 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 		probes.WithPeriodSeconds(5),
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(12),
-		probes.WithHandler(corev1.Handler{
+		probes.WithHandler(corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{Scheme: scheme, Port: intstr.FromInt(port), Path: "/monitor/health"},
 		}),
 	)
@@ -428,16 +425,10 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 func buildOpsManagerAndBackupInitContainer() container.Modification {
 	version := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitOpsManagerImageUrl), version)
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
-	configureContainerSecurityContext := container.NOOP()
-	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
-	}
 	return container.Apply(
 		container.WithName(util.InitOpsManagerContainerName),
 		container.WithImage(initContainerImageURL),
-		configureContainerSecurityContext,
 		container.WithVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
 	)
 }

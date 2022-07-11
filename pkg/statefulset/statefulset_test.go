@@ -190,7 +190,7 @@ func getDefaultContainer() corev1.Container {
 		Name:  "container-0",
 		Image: "image-0",
 		ReadinessProbe: &corev1.Probe{
-			Handler: corev1.Handler{HTTPGet: &corev1.HTTPGetAction{
+			ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 				Path: "/foo",
 			}},
 			PeriodSeconds: 10,

@@ -1,5 +1,11 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 
+# MongoDB Enterprise Kubernetes Operator 1.16.3
+
+## MongoDB Resource
+
+* Security Context are now defined only at Pod level (not both Pod and Container level as before).
+
 # MongoDB Enterprise Kubernetes Operator 1.16.2
 
 ## MongoDB Resource

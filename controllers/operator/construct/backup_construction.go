@@ -108,7 +108,7 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
 		postStart = func(lc *corev1.Lifecycle) {
 			if lc.PostStart == nil {
-				lc.PostStart = &corev1.Handler{Exec: &corev1.ExecAction{}}
+				lc.PostStart = &corev1.LifecycleHandler{Exec: &corev1.ExecAction{}}
 			}
 			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScriptCmd()}
 		}

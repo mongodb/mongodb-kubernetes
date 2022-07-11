@@ -48,12 +48,10 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 		MountPath: "/opt/scripts",
 		ReadOnly:  false,
 	}}
-	expectedSecurityContext := DefaultSecurityContext()
 	expectedContainer := &corev1.Container{
-		Name:            util.InitOpsManagerContainerName,
-		Image:           "test-registry:latest",
-		VolumeMounts:    expectedVolumeMounts,
-		SecurityContext: expectedSecurityContext,
+		Name:         util.InitOpsManagerContainerName,
+		Image:        "test-registry:latest",
+		VolumeMounts: expectedVolumeMounts,
 	}
 	assert.Equal(t, expectedContainer, container)
 
@@ -375,8 +373,8 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, corev1.PullNever, container.ImagePullPolicy)
 
 	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), container.Ports[0].ContainerPort)
-	assert.Equal(t, "/monitor/health", container.ReadinessProbe.Handler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), container.ReadinessProbe.Handler.HTTPGet.Port.IntVal)
+	assert.Equal(t, "/monitor/health", container.ReadinessProbe.ProbeHandler.HTTPGet.Path)
+	assert.Equal(t, int32(8080), container.ReadinessProbe.ProbeHandler.HTTPGet.Port.IntVal)
 
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, container.Command)
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},

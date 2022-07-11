@@ -134,12 +134,6 @@ func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modifi
 	version := env.ReadOrDefault(initAppdbVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitAppdbImageUrlEnv), version)
 
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
-
-	configureContainerSecurityContext := container.NOOP()
-	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
-	}
 	return container.Apply(
 		container.WithName(InitAppDbContainerName),
 		container.WithImage(initContainerImageURL),
@@ -151,7 +145,6 @@ cp /probes/readinessprobe /opt/scripts/readinessprobe
 # the mongod requires the version upgrade hook
 cp /probes/version-upgrade-hook /hooks/version-upgrade
 `}),
-		configureContainerSecurityContext,
 		container.WithVolumeMounts(volumeMounts),
 	)
 }
