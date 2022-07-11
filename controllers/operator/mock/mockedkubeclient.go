@@ -765,7 +765,7 @@ func (m *MockedManager) Elected() <-chan struct{} {
 }
 
 func (m *MockedManager) GetLogger() logr.Logger {
-	return nil
+	return logr.Logger{}
 }
 
 func (m *MockedManager) GetControllerOptions() v1alpha1.ControllerConfigurationSpec {

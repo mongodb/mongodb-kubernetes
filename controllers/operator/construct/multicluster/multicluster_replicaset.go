@@ -159,10 +159,11 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection, certHash string) (appsv1.StatefulSet, error) {
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
-	configureContainerSecurityContext := container.NOOP()
+	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(construct.DefaultSecurityContext())
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
 	}
+
 	// create image for init database container
 	version := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
@@ -188,6 +189,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 			podtemplatespec.WithAffinity(statefulSetName(mdbm.Name, clusterNum), construct.PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTopologyKey("kubernetes.io/hostname", 0),
 			podtemplatespec.WithServiceAccount("mongodb-enterprise-database-pods"),
+			configurePodSpecSecurityContext,
 			podtemplatespec.WithContainerByIndex(0,
 				container.Apply(
 					container.WithName(util.DatabaseContainerName),
@@ -199,7 +201,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName(), mdbm.Spec.GetPersistence())),
 					container.WithEnvs(mongodbEnv(conn)...),
-					configureContainerSecurityContext,
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(mdbm.GetHostNameOverrideConfigmapName(), mdbm.GetHostNameOverrideConfigmapName())),
@@ -210,7 +211,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 				container.WithImage(initContainerImageURL),
 				container.WithImagePullPolicy(corev1.PullAlways),
 				container.WithVolumeMounts(mongodbInitVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
-				configureContainerSecurityContext,
 			),
 		)),
 		pvcVolume,

@@ -361,8 +361,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	configureContainerSecurityContext := container.NOOP()
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
-		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
 	}
 
 	configureImagePullSecrets := podtemplatespec.NOOP()
@@ -644,12 +643,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
 	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(defaultPodSecurityContext())
-	}
-
-	configureContainerSecurityContext := container.NOOP()
-	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
+		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
 	}
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -671,7 +665,6 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-				configureContainerSecurityContext,
 			),
 		),
 	)
@@ -718,16 +711,9 @@ func buildDatabaseInitContainer() container.Modification {
 	version := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
 
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
-
-	configureContainerSecurityContext := container.NOOP()
-	if !managedSecurityContext {
-		configureContainerSecurityContext = container.WithSecurityContext(DefaultSecurityContext())
-	}
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
 		container.WithImage(initContainerImageURL),
-		configureContainerSecurityContext,
 		container.WithVolumeMounts([]corev1.VolumeMount{
 			databaseScriptsVolumeMount(false),
 		}),
@@ -798,19 +784,6 @@ func defaultPodAnnotations(certHash string) map[string]string {
 		// if the certificate secret is out of date. This happens if
 		// existing certificates have been replaced/rotated/renewed.
 		"certHash": certHash,
-	}
-}
-
-func defaultPodSecurityContext() corev1.PodSecurityContext {
-	return corev1.PodSecurityContext{
-		FSGroup: util.Int64Ref(util.FsGroup),
-	}
-}
-
-func DefaultSecurityContext() *corev1.SecurityContext {
-	return &corev1.SecurityContext{
-		RunAsNonRoot: util.BooleanRef(true),
-		RunAsUser:    util.Int64Ref(util.RunAsUser),
 	}
 }
 
