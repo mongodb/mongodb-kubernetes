@@ -545,7 +545,7 @@ func getExistingProcessIds(conn om.Connection, mrs mdbmultiv1.MongoDBMulti) (map
 func mongoDBMultiLabels(name, namespace string) map[string]string {
 	return map[string]string{
 		"controller":   "mongodb-enterprise-operator",
-		"mongodbmulti": fmt.Sprintf("%s-%s", name, namespace),
+		"mongodbmulti": fmt.Sprintf("%s-%s", namespace, name),
 	}
 }
 
@@ -825,9 +825,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesCli
 	// cleanup resources in the namespace as the MongoDBMulti with the corresponding label.
 	cleanupOptions := mongodbCleanUpOptions{
 		namespace: mrs.Namespace,
-		labels: map[string]string{
-			"mongodbmulti": fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
-		},
+		labels:    mongoDBMultiLabels(mrs.Name, mrs.Namespace),
 	}
 
 	if err := c.DeleteAllOf(context.TODO(), &corev1.Service{}, &cleanupOptions); err != nil {
