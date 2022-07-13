@@ -109,7 +109,9 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.Additi
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
-	p.ConfigureTLS(spec.GetTLSMode(), certificateFilePath)
+
+	p.ConfigureTLS(getTLSMode(spec, additionalMongodConfig), certificateFilePath)
+
 	return p
 }
 
@@ -131,9 +133,17 @@ func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMo
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
-	p.ConfigureTLS(spec.GetTLSMode(), certificateFilePath)
+	p.ConfigureTLS(getTLSMode(spec, additionalConfig), certificateFilePath)
 
 	return p
+}
+
+func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongodConfig) tls.Mode {
+	if !spec.IsSecurityTLSConfigEnabled() {
+		return tls.Disabled
+	}
+
+	return tls.GetTLSModeFromMongodConfig(additionalMongodConfig.Object)
 }
 
 // DeepCopy

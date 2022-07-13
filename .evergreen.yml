@@ -1155,7 +1155,7 @@ tasks:
 
 - name: e2e_tls_sharded_cluster_certs_prefix
   tags: ["patch-run"]
-  exec_timeout_secs: 720
+  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
