@@ -360,6 +360,8 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 				BindQuerySecretRef: mdbv1.SecretRef{
 					Name: "bind-query-password",
 				},
+				TimeoutMS:                     10000,
+				UserCacheInvalidationInterval: 60,
 			},
 		).
 		Build()
@@ -384,6 +386,8 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.Equal(t, "LITZTOd6YiCV8j", ac.Ldap.BindQueryPassword)
 	assert.Equal(t, "bindQueryUser", ac.Ldap.BindQueryUser)
 	assert.Equal(t, "server0:1234,server1:9876", ac.Ldap.Servers)
+	assert.Equal(t, 10000, ac.Ldap.TimeoutMS)
+	assert.Equal(t, 60, ac.Ldap.UserCacheInvalidationInterval)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "PLAIN")
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 }

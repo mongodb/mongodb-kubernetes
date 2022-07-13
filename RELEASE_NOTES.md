@@ -5,6 +5,7 @@
 ## MongoDB Resource
 
 * Security Context are now defined only at Pod level (not both Pod and Container level as before).
+* Added `timeoutMS`, `userCacheInvalidationInterval` fields to `spec.security.authentication.ldap` object.
 
 * Bug fixes
   * Fixes ignored `additionalMongodConfig.net.tls.mode` for `mongos`, `configSrv` and `shard` objects when configuring ShardedCluster resource.

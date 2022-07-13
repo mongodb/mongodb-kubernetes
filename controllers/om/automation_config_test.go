@@ -642,16 +642,18 @@ func getVersionBuild(deployment map[string]interface{}, versionIndex, buildIndex
 func TestLDAPIsMerged(t *testing.T) {
 	ac := getTestAutomationConfig()
 	ac.Ldap = &ldap.Ldap{
-		AuthzQueryTemplate:       "AuthzQueryTemplate",
-		BindMethod:               "",
-		BindQueryUser:            "BindQueryUser",
-		BindSaslMechanisms:       "BindSaslMechanisms",
-		Servers:                  "",
-		TransportSecurity:        "TransportSecurity",
-		UserToDnMapping:          "UserToDnMapping",
-		ValidateLDAPServerConfig: false,
-		BindQueryPassword:        "",
-		CaFileContents:           "",
+		AuthzQueryTemplate:            "AuthzQueryTemplate",
+		BindMethod:                    "",
+		BindQueryUser:                 "BindQueryUser",
+		BindSaslMechanisms:            "BindSaslMechanisms",
+		Servers:                       "",
+		TransportSecurity:             "TransportSecurity",
+		UserToDnMapping:               "UserToDnMapping",
+		ValidateLDAPServerConfig:      false,
+		BindQueryPassword:             "",
+		TimeoutMS:                     1000,
+		UserCacheInvalidationInterval: 60,
+		CaFileContents:                "",
 	}
 	if err := ac.Apply(); err != nil {
 		t.Fatal(err)
@@ -661,7 +663,9 @@ func TestLDAPIsMerged(t *testing.T) {
 	assert.Equal(t, "BindQueryUser", ldapMap["bindQueryUser"])
 	assert.Equal(t, "BindSaslMechanisms", ldapMap["bindSaslMechanisms"])
 	assert.Equal(t, "TransportSecurity", ldapMap["transportSecurity"])
-	assert.Equal(t, "UserToDnMapping", ldapMap["userToDNMapping"])
+	// ldap.Ldap is being merged by marshalling it to a map first, so ints end up as float64
+	assert.Equal(t, float64(1000), ldapMap["timeoutMS"])
+	assert.Equal(t, float64(60), ldapMap["userCacheInvalidationInterval"])
 	// ensure zero value fields are added
 	assert.Contains(t, ldapMap, "bindMethod")
 	assert.Contains(t, ldapMap, "servers")
