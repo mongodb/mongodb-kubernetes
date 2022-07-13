@@ -6,6 +6,9 @@
 
 * Security Context are now defined only at Pod level (not both Pod and Container level as before).
 
+* Bug fixes
+  * Fixes ignored `additionalMongodConfig.net.tls.mode` for `mongos`, `configSrv` and `shard` objects when configuring ShardedCluster resource.
+
 # MongoDB Enterprise Kubernetes Operator 1.16.2
 
 ## MongoDB Resource

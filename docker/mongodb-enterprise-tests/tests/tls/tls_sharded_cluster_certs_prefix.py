@@ -1,7 +1,9 @@
+import json
+
 from kubetester.certs import create_mongodb_tls_certs, SetProperties
 from kubetester.mongodb import MongoDB, Phase
 
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import skip_if_local, KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from pytest import mark, fixture
 
@@ -93,5 +95,62 @@ def test_disable_tls(sharded_cluster: MongoDB):
 )
 @skip_if_local
 def test_sharded_cluster_has_connectivity_without_tls(sharded_cluster: MongoDB):
+    tester = sharded_cluster.tester(use_ssl=False)
+    tester.assert_connectivity()
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+def test_sharded_cluster_with_allow_tls(sharded_cluster: MongoDB):
+    sharded_cluster.load()
+
+    sharded_cluster["spec"]["security"]["tls"]["enabled"] = True
+
+    additional_mongod_config = {
+        "additionalMongodConfig": {
+            "net": {
+                "tls": {
+                    "mode": "allowTLS",
+                }
+            }
+        }
+    }
+
+    sharded_cluster["spec"]["mongos"] = additional_mongod_config
+    sharded_cluster["spec"]["shard"] = additional_mongod_config
+    sharded_cluster["spec"]["configSrv"] = additional_mongod_config
+
+    sharded_cluster.update()
+    sharded_cluster.assert_abandons_phase(Phase.Running)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
+
+    automation_config = KubernetesTester.get_automation_config()
+
+    tls_modes = [
+        process.get("args2_6", {}).get("net", {}).get("tls", {}).get("mode")
+        for process in automation_config["processes"]
+    ]
+
+    # 3 mongod + 3 configSrv + 2 mongos = 8 processes
+    assert len(tls_modes) == 8
+    tls_modes_set = set(tls_modes)
+    # all processes should have the same allowTLS value
+    assert len(tls_modes_set) == 1
+    assert tls_modes_set.pop() == "allowTLS"
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+@skip_if_local
+def test_sharded_cluster_has_connectivity_with_tls_with_allow_tls_mode(
+    sharded_cluster: MongoDB, ca_path: str
+):
+    tester = sharded_cluster.tester(ca_path=ca_path, use_ssl=True)
+    tester.assert_connectivity()
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+@skip_if_local
+def test_sharded_cluster_has_connectivity_without_tls_with_allow_tls_mode(
+    sharded_cluster: MongoDB,
+):
     tester = sharded_cluster.tester(use_ssl=False)
     tester.assert_connectivity()

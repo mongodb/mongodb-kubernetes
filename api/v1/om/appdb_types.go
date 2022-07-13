@@ -10,7 +10,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -83,10 +82,6 @@ func (m *AppDBSpec) GetMongodConfiguration() mdbcv1.MongodConfiguration {
 		mongodConfig.SetOption(k, v)
 	}
 	return mongodConfig
-}
-
-func (m *AppDBSpec) GetTLSMode() tls.Mode {
-	return m.GetTLSMode()
 }
 
 func (m *AppDBSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {

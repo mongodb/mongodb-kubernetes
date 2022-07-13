@@ -152,13 +152,13 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(tls.Prefer))
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
-	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb.GetSpec(), "")
+	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", additionalConfig, mdb.GetSpec(), "")
 	assert.Equal(t, map[string]interface{}{"mode": string(tls.Disabled)}, process.TLSConfig())
 
 	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 
-	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", mdbv1.AdditionalMongodConfig{Object: nil}, mdb.GetSpec(), "")
+	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", additionalConfig, mdb.GetSpec(), "")
 
 	assert.Equal(t, map[string]interface{}{"mode": string(tls.Prefer),
 		"certificateKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
@@ -171,6 +171,34 @@ func TestCreateMongosProcess_SSL(t *testing.T) {
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", additionalConfig, mdb.GetSpec(), "")
 
 	assert.Equal(t, map[string]interface{}{"mode": string(tls.Allow), "certificateKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
+}
+
+func TestCreateMongodMongosProcess_TLSModeForDifferentSpecs(t *testing.T) {
+	assertTLSConfig := func(p Process) {
+		expectedMap := map[string]interface{}{
+			"mode":               string(tls.Allow),
+			"certificateKeyFile": "/mongodb-automation/server.pem",
+		}
+		assert.Equal(t, expectedMap, p.TLSConfig())
+	}
+
+	getSpec := func(builder *mdbv1.MongoDBBuilder) mdbv1.DbSpec {
+		return builder.SetSecurityTLSEnabled().Build().GetSpec()
+	}
+
+	name := "name"
+	host := "host"
+	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.tls.mode", string(tls.Allow))
+
+	// standalone spec
+	assertTLSConfig(NewMongodProcess(name, host, additionalConfig, getSpec(mdbv1.NewStandaloneBuilder()), ""))
+
+	// replica set spec
+	assertTLSConfig(NewMongodProcess(name, host, additionalConfig, getSpec(mdbv1.NewReplicaSetBuilder()), ""))
+
+	// sharded cluster spec
+	assertTLSConfig(NewMongosProcess(name, host, additionalConfig, getSpec(mdbv1.NewClusterBuilder()), ""))
+	assertTLSConfig(NewMongodProcess(name, host, additionalConfig, getSpec(mdbv1.NewClusterBuilder()), ""))
 }
 
 // TestMergeMongodProcess_SSL verifies that merging for the process SSL settings keeps the Operator "owned" properties

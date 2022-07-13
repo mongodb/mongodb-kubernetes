@@ -22,7 +22,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/blang/semver"
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -479,14 +478,6 @@ func (m *MongoDBMultiSpec) IsSecurityTLSConfigEnabled() bool {
 
 func (m *MongoDBMultiSpec) GetFeatureCompatibilityVersion() *string {
 	return m.FeatureCompatibilityVersion
-}
-
-func (m *MongoDBMultiSpec) GetTLSMode() tls.Mode {
-	if m.Security == nil || !m.Security.IsTLSEnabled() {
-		return tls.Disabled
-	}
-
-	return tls.GetTLSModeFromMongodConfig(m.AdditionalMongodConfig.Object)
 }
 
 func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {

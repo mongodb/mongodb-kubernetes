@@ -9,7 +9,6 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
@@ -202,7 +201,6 @@ type DbSpec interface {
 	GetResourceType() ResourceType
 	IsSecurityTLSConfigEnabled() bool
 	GetFeatureCompatibilityVersion() *string
-	GetTLSMode() tls.Mode
 	GetHorizonConfig() []MongoDBHorizonConfig
 	GetAdditionalMongodConfig() AdditionalMongodConfig
 }
@@ -1147,13 +1145,6 @@ func GetStorageOrDefault(config *PersistenceConfig, defaultConfig PersistenceCon
 // in order to prevent panicking at runtime.
 func NewMongoDbPodSpec() *MongoDbPodSpec {
 	return &MongoDbPodSpec{}
-}
-
-func (spec MongoDbSpec) GetTLSMode() tls.Mode {
-	if spec.Security == nil || !spec.Security.IsTLSEnabled() {
-		return tls.Disabled
-	}
-	return tls.GetTLSModeFromMongodConfig(spec.AdditionalMongodConfig.Object)
 }
 
 // Replicas returns the number of "user facing" replicas of the MongoDB resource. This method can be used for
