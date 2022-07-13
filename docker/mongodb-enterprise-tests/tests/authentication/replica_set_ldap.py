@@ -315,3 +315,23 @@ def test_change_ldap_servers(
 
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_replica_set_ldap
+def test_replica_set_ldap_settings_are_updated(
+    replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]
+):
+    replica_set.reload()
+    replica_set["spec"]["security"]["authentication"]["ldap"]["timeoutMS"] = 12345
+    replica_set["spec"]["security"]["authentication"]["ldap"][
+        "userCacheInvalidationInterval"
+    ] = 60
+    replica_set.update()
+
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    ac = replica_set.get_automation_config_tester()
+    assert "timeoutMS" in ac.automation_config["ldap"]
+    assert "userCacheInvalidationInterval" in ac.automation_config["ldap"]
+    assert ac.automation_config["ldap"]["timeoutMS"] == 12345
+    assert ac.automation_config["ldap"]["userCacheInvalidationInterval"] == 60

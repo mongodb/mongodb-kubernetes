@@ -696,6 +696,10 @@ type Ldap struct {
 	AuthzQueryTemplate string `json:"authzQueryTemplate"`
 	// +optional
 	UserToDNMapping string `json:"userToDNMapping"`
+	// +optional
+	TimeoutMS int `json:"timeoutMS"`
+	// +optional
+	UserCacheInvalidationInterval int `json:"userCacheInvalidationInterval"`
 }
 
 type SecretRef struct {
@@ -1023,6 +1027,9 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 		// TODO: Enable LDAP SASL bind method
 		BindMethod:         "simple",
 		BindSaslMechanisms: "",
+
+		TimeoutMS:                     mdbLdap.TimeoutMS,
+		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
 
 }
