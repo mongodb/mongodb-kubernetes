@@ -2,7 +2,9 @@ package multicluster
 
 import (
 	"fmt"
+	"path"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
@@ -61,7 +63,7 @@ func PodLabel(mdbmName string) map[string]string {
 	}
 }
 
-func mongodbVolumeMount(cmName string, persistent bool) []corev1.VolumeMount {
+func mongodbVolumeMount(cmName string, projectConfig mdbv1.ProjectConfig, persistent bool) []corev1.VolumeMount {
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      cmName,
@@ -76,6 +78,14 @@ func mongodbVolumeMount(cmName string, persistent bool) []corev1.VolumeMount {
 			MountPath: "/opt/scripts",
 			ReadOnly:  true,
 		},
+	}
+
+	if projectConfig.SSLMMSCAConfigMap != "" {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      construct.CaCertName,
+			MountPath: util.SSLMMSCAMountPath,
+			ReadOnly:  true,
+		})
 	}
 
 	if persistent {
@@ -112,8 +122,8 @@ func mongodbInitVolumeMount(cmName string) []corev1.VolumeMount {
 	}
 }
 
-func mongodbEnv(conn om.Connection) []corev1.EnvVar {
-	return []corev1.EnvVar{
+func mongodbEnv(conn om.Connection, projectConfig mdbv1.ProjectConfig) []corev1.EnvVar {
+	envVars := []corev1.EnvVar{
 		{
 			Name:  "AGENT_FLAGS",
 			Value: "-logFile,/var/log/mongodb-mms-automation/automation-agent.log,-logLevel,DEBUG,",
@@ -135,6 +145,13 @@ func mongodbEnv(conn om.Connection) []corev1.EnvVar {
 			Value: "true",
 		},
 	}
+	if projectConfig.SSLMMSCAConfigMap != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  util.EnvVarSSLTrustedMMSServerCertificate,
+			Value: path.Join(util.SSLMMSCAMountPath, util.CaCertMMS),
+		})
+	}
+	return envVars
 }
 
 func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
@@ -156,7 +173,9 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int, conn om.Connection, certHash string) (appsv1.StatefulSet, error) {
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int,
+	conn om.Connection, projectConfig mdbv1.ProjectConfig, certHash string) (appsv1.StatefulSet, error) {
+
 	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 
 	configurePodSpecSecurityContext := podtemplatespec.NOOP()
@@ -176,6 +195,12 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	if mdbm.Spec.GetPersistence() {
 		pvcVolume = statefulset.Apply(statefulset.WithVolumeClaimTemplates(statefulSetVolumeClaimTemplates()))
 	}
+
+	mmsCAVolume := podtemplatespec.NOOP()
+	if projectConfig.SSLMMSCAConfigMap != "" {
+		mmsCAVolume = podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(construct.CaCertName, projectConfig.SSLMMSCAConfigMap))
+	}
+
 	// create the statefulSet modifications
 	stsModifications := statefulset.Apply(
 		statefulset.WithName(statefulSetName(mdbm.Name, clusterNum)),
@@ -199,8 +224,8 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
-					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName(), mdbm.Spec.GetPersistence())),
-					container.WithEnvs(mongodbEnv(conn)...),
+					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName(), projectConfig, mdbm.Spec.GetPersistence())),
+					container.WithEnvs(mongodbEnv(conn, projectConfig)...),
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(mdbm.GetHostNameOverrideConfigmapName(), mdbm.GetHostNameOverrideConfigmapName())),
@@ -212,6 +237,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 				container.WithImagePullPolicy(corev1.PullAlways),
 				container.WithVolumeMounts(mongodbInitVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
 			),
+			mmsCAVolume,
 		)),
 		pvcVolume,
 	)

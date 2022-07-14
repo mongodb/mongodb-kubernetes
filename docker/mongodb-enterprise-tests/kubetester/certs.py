@@ -202,6 +202,7 @@ def create_ops_manager_tls_certs(
     secret_name: Optional[str] = None,
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> str:
 
     certs_secret_name = "certs-for-ops-manager"
@@ -225,6 +226,7 @@ def create_ops_manager_tls_certs(
         secret_name=certs_secret_name,
         secret_backend=secret_backend,
         vault_subpath="opsmanager",
+        api_client=api_client,
     )
 
 

@@ -243,7 +243,7 @@ def multi_cluster_issuer(
 
 @fixture(scope="module")
 def issuer_ca_filepath():
-    return _fixture("ca-tls.crt")
+    return _fixture("ca-tls-full-chain.crt")
 
 
 @fixture(scope="module")

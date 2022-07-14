@@ -207,14 +207,16 @@ class OMTester(object):
 
     def assert_test_service(self):
         endpoint = self.context.base_url + "/test/utils/systemTime"
-        response = requests.request("get", endpoint)
+        response = requests.request("get", endpoint, verify=False)
         assert response.status_code == requests.status_codes.codes.OK
 
     def assert_support_page_enabled(self):
         """The method ends successfully if 'mms.helpAndSupportPage.enabled' is set to 'true'. It's 'false' by default.
         See mms SupportResource.supportLoggedOut()"""
         endpoint = self.context.base_url + "/support"
-        response = requests.request("get", endpoint, allow_redirects=False)
+        response = requests.request(
+            "get", endpoint, allow_redirects=False, verify=False
+        )
 
         # logic: if mms.helpAndSupportPage.enabled==true - then status is 307, otherwise 303"
         assert response.status_code == 307
@@ -293,7 +295,7 @@ class OMTester(object):
     @staticmethod
     def do_assert_healthiness(base_url: str):
         endpoint = base_url + "/monitor/health"
-        response = requests.request("get", endpoint)
+        response = requests.request("get", endpoint, verify=False)
         assert (
             response.status_code == requests.status_codes.codes.OK
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(
@@ -308,7 +310,12 @@ class OMTester(object):
 
         endpoint = f"{self.context.base_url}/api/public/v1.0{path}"
         response = requests.request(
-            method, endpoint, auth=auth, headers=headers, json=json_object
+            method,
+            endpoint,
+            auth=auth,
+            headers=headers,
+            json=json_object,
+            verify=False,
         )
 
         if response.status_code >= 300:

@@ -25,7 +25,7 @@ def base_url(
         ops_manager.namespace, external_svc_name, api_client=central_cluster_client
     )
     hostname = svc.status.load_balancer.ingress[0].hostname
-    return f"http://{hostname}:8080"
+    return f"https://{hostname}:8443"
 
 
 @fixture(scope="module")
@@ -82,6 +82,7 @@ def ops_manager(
 @fixture(scope="module")
 def mongodb_multi_one(
     ops_manager: MongoDBOpsManager,
+    multi_cluster_issuer_ca_configmap: str,
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     base_url: str,
@@ -110,6 +111,7 @@ def mongodb_multi_one(
         namespace, "multi-replica-set-one-config", api_client=central_cluster_client
     )
     data["baseUrl"] = base_url
+    data["sslMMSCAConfigMap"] = multi_cluster_issuer_ca_configmap
     KubernetesTester.create_configmap(
         namespace,
         "multi-replica-set-one-config",

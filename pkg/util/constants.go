@@ -53,8 +53,9 @@ const (
 	// (if false) or to not generate them (if true).
 	UseCustomCAConfigMap = "useCustomCA"
 
+	SSLMMSCAMountPath = "/mongodb-automation/certs"
 	// SSLMMSCALocation Specifies where the CA certificate should be mounted.
-	SSLMMSCALocation = "/mongodb-automation/certs/ca.crt"
+	SSLMMSCALocation = SSLMMSCAMountPath + "/ca.crt"
 	// CaCertMMS is the name of the CA file provided for MMS.
 	CaCertMMS = "mms-ca.crt"
 
