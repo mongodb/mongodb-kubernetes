@@ -1,6 +1,7 @@
 from typing import Optional, Dict
 
 from kubernetes import client
+from kubetester.certs import create_ops_manager_tls_certs
 from kubetester import (
     create_configmap,
     get_default_storage_class,
@@ -28,9 +29,31 @@ BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
 
 
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client):
+@fixture(scope="module")
+def ops_manager_certs(
+    namespace: str,
+    multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    return create_ops_manager_tls_certs(
+        multi_cluster_issuer,
+        namespace,
+        "om-backup",
+        secret_name="mdb-om-backup-cert",
+        additional_domains=["fastdl.mongodb.org"],
+        api_client=central_cluster_client,
+    )
+
+
+def create_project_config_map(
+    om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca
+):
     name = f"{mdb_name}-config"
-    data = {"baseUrl": om.om_status().get_url(), "projectName": project_name}
+    data = {
+        "baseUrl": om.om_status().get_url(),
+        "projectName": project_name,
+        "sslMMSCAConfigMap": custom_ca,
+    }
 
     create_configmap(om.namespace, name, data, client)
 
@@ -78,8 +101,9 @@ def create_om_admin_secret(namespace: str, client: kubernetes.client.ApiClient):
 @fixture(scope="module")
 def ops_manager(
     namespace: str,
-    custom_version: Optional[str],
+    multi_cluster_issuer_ca_configmap: str,
     custom_appdb_version: str,
+    ops_manager_certs: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> MongoDBOpsManager:
 
@@ -91,11 +115,16 @@ def ops_manager(
     resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
     resource["spec"]["backup"]["members"] = 1
     resource["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
+    resource["spec"]["security"] = {
+        "certsSecretPrefix": "mdb",
+        "tls": {"ca": multi_cluster_issuer_ca_configmap},
+    }
     # remove s3 config
     del resource["spec"]["backup"]["s3Stores"]
     resource.allow_mdb_rc_versions()
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+
     yield resource.create()
 
 
@@ -105,6 +134,7 @@ def oplog_replica_set(
     namespace,
     custom_mdb_version: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    multi_cluster_issuer_ca_configmap: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
@@ -117,6 +147,7 @@ def oplog_replica_set(
         project_name="development",
         mdb_name=OPLOG_RS_NAME,
         client=central_cluster_client,
+        custom_ca=multi_cluster_issuer_ca_configmap,
     )
 
     resource["spec"]["opsManager"]["configMapRef"]["name"] = "my-mongodb-oplog-config"
@@ -137,6 +168,7 @@ def blockstore_replica_set(
     namespace,
     custom_mdb_version: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    multi_cluster_issuer_ca_configmap: str,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
@@ -149,6 +181,7 @@ def blockstore_replica_set(
         project_name="blockstore",
         mdb_name=BLOCKSTORE_RS_NAME,
         client=central_cluster_client,
+        custom_ca=multi_cluster_issuer_ca_configmap,
     )
 
     resource["spec"]["version"] = custom_mdb_version
@@ -339,5 +372,9 @@ def test_update_central_url(
 
     # update the central url app setting to point at the external address
     # this allows agents in other clusters to communicate correctly with this OM instance.
-    ops_manager["spec"]["configuration"]["mms.centralUrl"] = f"http://{hostname}:8080"
+    ops_manager["spec"]["configuration"]["mms.centralUrl"] = f"https://{hostname}:8443"
     ops_manager.update()
+
+
+# @mark.e2e_multi_cluster_om_ops_manager_backup_manual_setup
+# def test_patch_ops_manager_https_certificates

@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
@@ -126,6 +127,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
 	}
 
+	// Copy over OM CustomCA if specified in project config
+	if projectConfig.SSLMMSCAConfigMap != "" {
+		err = r.reconcileOMCAConfigMap(log, mrs, projectConfig.SSLMMSCAConfigMap)
+		if err != nil {
+			return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+		}
+	}
+
 	// register for the cert secrets and configmap to be watched
 	if mrs.Spec.GetSecurity().IsTLSEnabled() {
 		r.RegisterWatchedTLSResources(mrs.ObjectKey(), mrs.Spec.GetSecurity().TLSConfig.CA,
@@ -145,7 +154,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileStatefulSets(mrs, log, conn)
+			return r.reconcileStatefulSets(mrs, log, conn, projectConfig)
 
 		})
 
@@ -251,7 +260,7 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 	return false, nil
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return workflow.Failed(fmt.Sprintf("failed to read cluster spec list: %s", err))
@@ -329,7 +338,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
 
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
-		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, certHash)
+		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, projectConfig, certHash)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}
@@ -683,6 +692,27 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 		}
 		log.Infof("Successfully ensured configmap: %s in cluster: %s", cm.Name, e.ClusterName)
 
+	}
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMulti, configMapName string) error {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return err
+	}
+	cm, err := r.client.GetConfigMap(kube.ObjectKey(mrs.Namespace, configMapName))
+	if err != nil {
+		return err
+	}
+	for _, cluster := range clusterSpecList {
+		client := r.memberClusterClientsMap[cluster.ClusterName]
+		memberCm := configmap.Builder().SetName(configMapName).SetNamespace(mrs.Namespace).SetData(cm.Data).Build()
+		err := configmap.CreateOrUpdate(client, memberCm)
+		if err != nil && !apiErrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create configmap: %s in cluster %s, err: %v", cm.Name, cluster.ClusterName, err)
+		}
+		log.Infof("Sucessfully ensured configmap: %s in cluster: %s", cm.Name, cluster.ClusterName)
 	}
 	return nil
 }
