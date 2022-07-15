@@ -18,7 +18,7 @@ message in the release thread.
 
 ## Creating a Release Ticket
 
-* Example: [CLOUDP-97129](https://jira.mongodb.org/browse/CLOUDP-97129)
+* Example: [CLOUDP-128343](https://jira.mongodb.org/browse/CLOUDP-128343)
 
 A release ticket needs to be created manually. The following attributes must be set!
 
@@ -92,6 +92,16 @@ To publish the collection of images in RedHat, visit:
 * https://connect.redhat.com/project/5961771/images (MongoDB Agent)
 
 And make sure the relevant images are set to published.
+
+### Find certified operator image SHA
+
+After publishing the images in Redhat Connect, retrieve the image sha from the operator image in
+https://connect.redhat.com/project/850021/images and pass it as:
+
+* `/pct k8s set-certified-operator-image-sha <RELEASE-TICKET> <CERTIFIED-OPERATOR-IMAGE-SHA>`
+
+This will be used when creating the PR against [redhat-openshift-ecosystem/certified-operators](https://github.com/redhat-openshift-ecosystem/certified-operators).
+
 
 ## Publish to public repo
 
