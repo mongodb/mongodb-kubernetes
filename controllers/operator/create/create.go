@@ -21,6 +21,7 @@ import (
 
 var (
 	externalConnectivityPortName = "external-connectivity-port"
+	internalConnectivityPortName = "internal-connectivity-port"
 	backupPortName               = "backup-port"
 	appLabelKey                  = "app"
 )
@@ -130,6 +131,13 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	// add queryable backup port to service
+	if opsManager.Spec.Backup.Enabled {
+		if err := addQueryableBackupPortToService(opsManager, &internalService, internalConnectivityPortName); err != nil {
+			return err
+		}
+	}
+
 	err = service.CreateOrUpdateService(client, internalService)
 	if err != nil {
 		return err
@@ -150,7 +158,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	// Need to create queryable backup service
 	if opsManager.Spec.Backup.Enabled {
 		if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-			if err := addQueryableBackupPortToExternalService(opsManager, externalService); err != nil {
+			if err := addQueryableBackupPortToService(opsManager, externalService, externalConnectivityPortName); err != nil {
 				return err
 			}
 		}
@@ -164,15 +172,15 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	return nil
 }
 
-// addQueryableBackupPortToExternalService adds the backup port to the existing external Ops Manager service.
+// addQueryableBackupPortToService adds the backup port to the existing external Ops Manager service.
 // this function assumes externalService is not nil.
-func addQueryableBackupPortToExternalService(opsManager omv1.MongoDBOpsManager, externalService *corev1.Service) error {
+func addQueryableBackupPortToService(opsManager omv1.MongoDBOpsManager, service *corev1.Service, portName string) error {
 	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
 	if err != nil {
 		return fmt.Errorf("can't parse queryable backup port: %s", err)
 	}
-	externalService.Spec.Ports[0].Name = externalConnectivityPortName
-	externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{
+	service.Spec.Ports[0].Name = portName
+	service.Spec.Ports = append(service.Spec.Ports, corev1.ServicePort{
 		Name: backupPortName,
 		Port: backupSvcPort,
 	})
