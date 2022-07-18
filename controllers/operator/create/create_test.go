@@ -60,6 +60,19 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 
 	_, err = client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.Error(t, err, "No external service should have been created")
+
+	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	assert.NoError(t, err, "Internal service exists")
+
+	assert.Len(t, svc.Spec.Ports, 2, "Backup Service should have been added to existing external service")
+
+	port0 := svc.Spec.Ports[0]
+	assert.Equal(t, internalConnectivityPortName, port0.Name)
+
+	port1 := svc.Spec.Ports[1]
+	assert.Equal(t, backupPortName, port1.Name)
+	assert.Equal(t, int32(1234), port1.Port)
+
 }
 
 func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
@@ -96,7 +109,4 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	port1 := externalService.Spec.Ports[1]
 	assert.Equal(t, backupPortName, port1.Name)
 	assert.Equal(t, int32(1234), port1.Port)
-
-	_, err = client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-backup"))
-	assert.Error(t, err, "The Backup Service should have been created")
 }
