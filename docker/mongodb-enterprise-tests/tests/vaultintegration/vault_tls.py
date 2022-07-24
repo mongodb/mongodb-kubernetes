@@ -8,7 +8,6 @@ from kubernetes import client
 from kubernetes.client import V1ConfigMap
 from kubetester.opsmanager import MongoDBOpsManager
 from typing import Optional
-from tests.opsmanager.conftest import custom_appdb_version
 from kubetester.certs import Certificate
 
 

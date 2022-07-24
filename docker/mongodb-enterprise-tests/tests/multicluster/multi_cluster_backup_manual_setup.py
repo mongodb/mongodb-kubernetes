@@ -19,7 +19,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 from pytest import mark, fixture
 import kubernetes
-from tests.opsmanager.conftest import custom_appdb_version
 from kubetester.operator import Operator
 from kubetester import create_secret
 

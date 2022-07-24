@@ -24,4 +24,4 @@ spec:
 
   applicationDatabase:
     members: 3
-    version: "4.4.0-ent"
+    version: "4.4.11-ent"

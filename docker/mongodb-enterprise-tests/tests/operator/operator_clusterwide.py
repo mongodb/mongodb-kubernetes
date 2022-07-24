@@ -38,12 +38,15 @@ def unmanaged_namespace(evergreen_task_id: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(ops_manager_namespace: str, custom_version: str) -> MongoDBOpsManager:
+def ops_manager(
+    ops_manager_namespace: str, custom_version: str, custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=ops_manager_namespace
     )
     resource["spec"]["backup"]["enabled"] = True
-    resource["spec"]["version"] = custom_version
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     return resource.create()
 
@@ -63,6 +66,7 @@ def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str) -> M
             name="my-replica-set",
         )
         .configure(ops_manager, "development")
+        .set_version("4.2.8")
         .create()
     )
 

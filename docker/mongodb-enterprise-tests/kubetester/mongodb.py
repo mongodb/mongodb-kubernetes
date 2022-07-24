@@ -300,6 +300,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def set_version(self, version: str):
         self["spec"]["version"] = version
+        return self
 
     def get_authentication(self) -> Optional[Dict]:
         try:

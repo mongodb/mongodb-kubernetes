@@ -23,11 +23,13 @@ def ops_manager(
 
 
 @pytest.mark.e2e_om_update_before_reconciliation
-def test_create_om(ops_manager: MongoDBOpsManager):
+def test_create_om(ops_manager: MongoDBOpsManager, custom_appdb_version: str):
     time.sleep(30)
 
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["featureCompatibilityVersion"] = "4.2"
+    ops_manager["spec"]["applicationDatabase"][
+        "featureCompatibilityVersion"
+    ] = ".".join(custom_appdb_version.split(".")[:2])
     ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)

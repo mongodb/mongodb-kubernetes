@@ -7,7 +7,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 
 def pytest_runtest_setup(item):
-    """ This allows to automatically install the default Operator before running any test """
+    """This allows to automatically install the default Operator before running any test"""
     if (
         "default_operator" not in item.fixturenames
         and "operator_with_monitored_appdb" not in item.fixturenames
@@ -16,20 +16,17 @@ def pytest_runtest_setup(item):
 
 
 @fixture(scope="module")
+def custom_om_prev_version() -> str:
+    """Returns a CUSTOM_OM_PREV_VERSION for OpsManager to be created/upgraded."""
+    return os.getenv("CUSTOM_OM_PREV_VERSION", "4.4.15")
+
+
+@fixture(scope="module")
 def custom_mdb_prev_version() -> str:
     """Returns a CUSTOM_MDB_PREV_VERSION for Mongodb to be created/upgraded to for testing.
     Used for backup mainly (to test backup for different mdb versions).
     Defaults to 4.2.8 (simplifies testing locally)"""
-    return os.getenv("CUSTOM_MDB_PREV_VERSION", "4.2.8")
-
-
-@fixture(scope="module")
-def custom_appdb_version() -> str:
-    """Returns a CUSTOM_APPDB_VERSION for AppDB to be created/upgraded to for testing,
-    defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)"""
-
-    # Defaulting to 4.4.0-ent if not specified as we didn't release all possible images yet
-    return os.getenv("CUSTOM_APPDB_VERSION", "4.4.0-ent")
+    return os.getenv("CUSTOM_MDB_PREV_VERSION", "4.4.11")
 
 
 def ensure_ent_version(mdb_version: str) -> str:

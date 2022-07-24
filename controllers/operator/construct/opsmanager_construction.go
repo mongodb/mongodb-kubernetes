@@ -238,7 +238,7 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 						container.WithLifecycle(postStart),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
-						container.WithReadinessProbe(opsManagerReadinessProbe(getURIScheme(opts.HTTPSCertSecretName))),
+						container.WithReadinessProbe(opsManagerReadinessProbe()),
 						container.WithLifecycle(buildOpsManagerLifecycle()),
 						container.WithEnvs(corev1.EnvVar{Name: "ENABLE_IRP", Value: "true"}),
 					),
@@ -392,22 +392,9 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	)
 }
 
-func getURIScheme(httpsCertSecretName string) corev1.URIScheme {
-	httpsSecretName := httpsCertSecretName
-	scheme, _ := omv1.SchemePortFromAnnotation("http")
-	if httpsSecretName != "" {
-		scheme, _ = omv1.SchemePortFromAnnotation("https")
-	}
-	return scheme
-}
-
 // opsManagerReadinessProbe creates the readiness probe.
 // Note on 'PeriodSeconds': /monitor/health is a super lightweight method not doing any IO so we can make it more often.
-func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
-	port := 8080
-	if scheme == corev1.URISchemeHTTPS {
-		port = 8443
-	}
+func opsManagerReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithInitialDelaySeconds(60),
 		probes.WithTimeoutSeconds(5),
@@ -415,7 +402,7 @@ func opsManagerReadinessProbe(scheme corev1.URIScheme) probes.Modification {
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(12),
 		probes.WithHandler(corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{Scheme: scheme, Port: intstr.FromInt(port), Path: "/monitor/health"},
+			HTTPGet: &corev1.HTTPGetAction{Scheme: corev1.URISchemeHTTP, Port: intstr.FromInt(8080), Path: "/monitor/health"},
 		}),
 	)
 }

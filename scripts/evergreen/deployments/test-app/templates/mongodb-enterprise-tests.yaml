@@ -94,6 +94,10 @@ spec:
     - name: CUSTOM_OM_VERSION
       value: {{ .Values.customOmVersion }}
     {{ end }}
+    {{ if .Values.customOmPrevVersion }}
+    - name: CUSTOM_OM_PREV_VERSION
+      value: {{ .Values.customOmPrevVersion }}
+    {{ end }}
     {{ if .Values.customOmMdbVersion }}
     - name: CUSTOM_MDB_VERSION
       value: {{ .Values.customOmMdbVersion }}

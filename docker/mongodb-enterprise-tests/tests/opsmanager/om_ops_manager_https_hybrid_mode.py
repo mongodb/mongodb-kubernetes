@@ -28,7 +28,9 @@ def appdb_certs(namespace: str, issuer: str) -> str:
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
-    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https")
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert"
+    )
 
 
 @fixture(scope="module")
@@ -48,7 +50,10 @@ def ops_manager(
     om.allow_mdb_rc_versions()
     del om["spec"]["statefulSet"]
     om["spec"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+        "certsSecretPrefix": "prefix",
+        "tls": {
+            "ca": issuer_ca_configmap,
+        },
     }
     om["spec"]["configuration"]["automation.versions.source"] = "hybrid"
     om["spec"]["applicationDatabase"]["security"] = {
@@ -76,13 +81,13 @@ def replicaset0(
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid
 def test_appdb_running_over_tls(ops_manager: MongoDBOpsManager, ca_path: str):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.get_appdb_tester(ssl=True, ca_path=ca_path).assert_connectivity()
 
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid
 def test_om_reaches_running_state(ops_manager: MongoDBOpsManager):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid

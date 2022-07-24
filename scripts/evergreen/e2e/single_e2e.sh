@@ -62,6 +62,10 @@ deploy_test_app() {
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${custom_om_version}")
     fi
+    if [[ -n "${custom_om_prev_version:-}" ]]; then
+        # The test needs to create an OM resource with specific version
+        helm_params+=("--set" "customOmPrevVersion=${custom_om_prev_version}")
+    fi
     if [[ -n "${custom_mdb_version:-}" ]]; then
         # The test needs to test MongoDB of a specific version
         helm_params+=("--set" "customOmMdbVersion=${custom_mdb_version}")

@@ -139,6 +139,8 @@ func getMmsProperties() (map[string]string, error) {
 		return nil, err
 	}
 	newProperties[appDbUriKey] = string(appDbConnectionString)
+	// Enable dualConnectors to allow the kubelet to perform health checks through HTTP
+	newProperties["mms.https.dualConnectors"] = "true"
 
 	return newProperties, nil
 }

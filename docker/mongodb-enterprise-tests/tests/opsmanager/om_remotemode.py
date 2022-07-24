@@ -69,7 +69,7 @@ def nginx(namespace: str, custom_mdb_version: str):
 
         # Adds versions to Nginx deployment.
         new_versions = set()
-        new_versions.add("4.4.0")
+        new_versions.add("4.4.11")
         new_versions.add(custom_mdb_version)
         new_versions.add(custom_mdb_version + "-ent")
 
@@ -174,6 +174,7 @@ def test_replica_sets_reaches_running_phase(
 
 @mark.e2e_om_remotemode
 def test_replica_set_reaches_failed_phase(replica_set: MongoDB):
+    replica_set.load()
     replica_set["spec"]["version"] = VERSION_NOT_IN_WEB_SERVER
     replica_set.update()
 

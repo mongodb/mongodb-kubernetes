@@ -13,6 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client
 from pytest import fixture
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
+from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     HEAD_PATH,
     OPLOG_RS_NAME,
@@ -21,9 +22,6 @@ from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_s3_bucket,
 )
-
-OM_CURRENT_VERSION = "4.4.15"
-MDB_CURRENT_VERSION = "4.4.0-ent"
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of minor OM version upgrade (4.2 -> 4.4) agents are expected to be upgraded
@@ -37,13 +35,18 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(namespace, s3_bucket: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str,
+    s3_bucket: str,
+    custom_om_prev_version: str,
+    custom_mdb_prev_version: str,
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
     resource.allow_mdb_rc_versions()
-    resource.set_version(OM_CURRENT_VERSION)
-    resource.set_appdb_version(MDB_CURRENT_VERSION)
+    resource.set_version(custom_om_prev_version)
+    resource.set_appdb_version(ensure_ent_version(custom_mdb_prev_version))
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     return resource.create()
@@ -61,13 +64,13 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
 
 
 @fixture(scope="module")
-def mdb(ops_manager: MongoDBOpsManager) -> MongoDB:
+def mdb(ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name="my-replica-set",
     )
-    resource["spec"]["version"] = MDB_CURRENT_VERSION
+    resource["spec"]["version"] = custom_mdb_prev_version
     resource.configure(ops_manager, "development")
     return resource.create()
 
@@ -96,11 +99,11 @@ class TestOpsManagerCreation:
         assert "privateKey" in data
 
     @skip_if_local
-    def test_om(self, ops_manager: MongoDBOpsManager):
+    def test_om(self, ops_manager: MongoDBOpsManager, custom_om_prev_version: str):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        om_tester.assert_version(OM_CURRENT_VERSION)
+        om_tester.assert_version(custom_om_prev_version)
 
         om_tester.assert_test_service()
         try:
@@ -166,10 +169,10 @@ class TestBackupCreation:
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerWithMongoDB:
-    def test_mongodb_create(self, mdb: MongoDB):
+    def test_mongodb_create(self, mdb: MongoDB, custom_mdb_prev_version: str):
         mdb.assert_reaches_phase(Phase.Running, timeout=350)
         mdb.assert_connectivity()
-        mdb.tester().assert_version(MDB_CURRENT_VERSION)
+        mdb.tester().assert_version(custom_mdb_prev_version)
 
     def test_mongodb_upgrade(self, mdb: MongoDB):
         """Scales up the mongodb. Note, that we are not upgrading the Mongodb version at this stage as it can be
@@ -254,7 +257,7 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_appdb_version(custom_appdb_version)
 
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         pods = ops_manager.read_om_pods()
@@ -309,15 +312,17 @@ class TestMongoDbsVersionUpgrade:
         mdb["spec"]["version"] = custom_mdb_version
         mdb.update()
 
-        mdb.assert_reaches_phase(Phase.Running, timeout=900)
+        mdb.assert_reaches_phase(Phase.Running, timeout=1200)
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)
 
-    def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager):
+    def test_agents_upgraded(
+        self, mdb: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str
+    ):
         """The agents were requested to get upgraded immediately after Ops Manager upgrade.
         Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         TODO CLOUDP-64622: we need to check the periodic agents upgrade as well - this can be done through Operator custom configuration"""
-        prev_version = semver.VersionInfo.parse(OM_CURRENT_VERSION)
+        prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if (
             prev_version.major != new_version.major

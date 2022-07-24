@@ -347,13 +347,21 @@ def ca_path() -> str:
 def custom_mdb_version() -> str:
     """Returns a CUSTOM_MDB_VERSION for Mongodb to be created/upgraded to for testing.
     Defaults to 4.4.0 (simplifies testing locally)"""
-    return os.getenv("CUSTOM_MDB_VERSION", "4.4.0")
+    return os.getenv("CUSTOM_MDB_VERSION", "5.0.5")
+
+
+@fixture(scope="module")
+def custom_appdb_version(custom_mdb_version: str) -> str:
+    """Returns a CUSTOM_APPDB_VERSION for AppDB to be created/upgraded to for testing,
+    defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)"""
+
+    return os.getenv("CUSTOM_APPDB_VERSION", f"{custom_mdb_version}-ent")
 
 
 @fixture(scope="module")
 def custom_version() -> str:
     """Returns a CUSTOM_OM_VERSION for OM.
-    Defaults to 4.4+ (for development)"""
+    Defaults to 5.0+ (for development)"""
     return os.getenv("CUSTOM_OM_VERSION", "5.0.2")
 
 

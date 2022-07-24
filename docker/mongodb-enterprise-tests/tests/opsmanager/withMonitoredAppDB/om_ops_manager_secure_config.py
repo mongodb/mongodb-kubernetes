@@ -142,6 +142,7 @@ def test_changing_app_db_password_triggers_rolling_restart(
 def test_no_unnecessary_rolling_upgrades_happen(
     skip_if_om5: None,
     ops_manager: MongoDBOpsManager,
+    custom_appdb_version: str,
 ):
     sts = ops_manager.read_statefulset()
     old_generation = sts.metadata.generation
@@ -156,7 +157,7 @@ def test_no_unnecessary_rolling_upgrades_happen(
     assert old_backup_hash == old_hash
 
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["version"] = "4.4.11-ent"
+    ops_manager["spec"]["applicationDatabase"]["version"] = custom_appdb_version
     ops_manager.update()
 
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
