@@ -1,5 +1,4 @@
 from kubetester.opsmanager import MongoDBOpsManager
-from tests.opsmanager.conftest import custom_appdb_version
 from typing import Optional
 from pytest import fixture, mark
 import pytest

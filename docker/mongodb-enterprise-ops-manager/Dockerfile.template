@@ -33,7 +33,7 @@ COPY --from=base /data/licenses /licenses/
 RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \
   && tar -xzf ops_manager.tar.gz \
   && rm ops_manager.tar.gz \
-  && mv mongodb-mms-* "${MMS_HOME}"
+  && mv mongodb-mms* "${MMS_HOME}"
 {% endblock %}
 
 # permissions

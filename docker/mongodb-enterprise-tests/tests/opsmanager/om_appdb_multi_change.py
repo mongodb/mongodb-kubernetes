@@ -36,10 +36,10 @@ def test_change_appdb(ops_manager: MongoDBOpsManager):
         "operationProfiling": {"mode": "slowOp"}
     }
     ops_manager.update()
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_appdb_multi_change
 def test_om_ok(ops_manager: MongoDBOpsManager):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
     ops_manager.get_om_tester().assert_healthiness()

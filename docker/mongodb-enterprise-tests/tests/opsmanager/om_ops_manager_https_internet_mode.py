@@ -19,7 +19,9 @@ def appdb_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
-    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https")
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert"
+    )
 
 
 @fixture(scope="module")
@@ -48,7 +50,10 @@ def ops_manager(
 
     # configure the CA that will be used to communicate with Ops Manager
     om["spec"]["security"] = {
-        "tls": {"ca": issuer_ca_plus, "secretRef": {"name": ops_manager_certs}}
+        "certsSecretPrefix": "prefix",
+        "tls": {
+            "ca": issuer_ca_plus,
+        },
     }
     return om.create()
 
@@ -77,8 +82,8 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
 def test_enable_https_on_opsmanager(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     # some more time for monitoring rolling upgrade
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     assert ops_manager.om_status().get_url().startswith("https://")
     assert ops_manager.om_status().get_url().endswith(":8443")

@@ -20,20 +20,23 @@ variables:
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
   - &ops_manager_44_latest 4.4.22
+  - &ops_manager_44_prev 4.4.15
 
   - &ops_manager_50_latest 5.0.12
   - &ops_manager_50_appdb_version 4.4.11-ent
 
-  - &ops_manager_60_latest 5.9.0
-  - &ops_manager_60_download_url https://s3.amazonaws.com/mongodb-mms-build-onprem/73c99a5ff9b7d100055adfe9e0b3dc0836a4c027/mongodb-mms-5.9.0.100.20220306T2335Z-1.x86_64.tar.gz
-  - &ops_manager_60_appdb_version 4.4.11-ent
+  - &ops_manager_60_latest 6.0.0
+  - &ops_manager_60_download_url https://s3.amazonaws.com/mongodb-mms-build-onprem/6e9a03e1d1fdff54cc10f535822e20f0ec6103dc/mongodb-mms-6.0.0.100.20220711T2118Z.tar.gz
+
+  - &ops_manager_60_appdb_version 5.0.5-ent
 
   # Latest MDB release as of today. Update this to latest `rc`s or GA version when
   # it is released.
   # https://opsmanager.mongodb.com/static/version_manifest/5.0.json
-  - &mdb_50_latest 5.0.0
+  - &mdb_50_latest 5.0.5
+  - &mdb_50_prev 5.0.1
 
-  - &mdb_44_latest 4.4.0
+  - &mdb_44_latest 4.4.11
   - &mdb_42_latest 4.2.8
   - &mdb_40_latest 4.0.20
 
@@ -46,7 +49,7 @@ variables:
     # Agent version used in OM50
   - &agent_version50 11.0.11.7036-1
 
-  - &agent_version60 11.12.0.7388-1
+  - &agent_version60 12.0.4.7554-1
 
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
@@ -482,6 +485,7 @@ functions:
           - always_remove_testing_namespace
           - custom_appdb_version
           - custom_om_version
+          - custom_om_prev_version
           - custom_mdb_version
           - custom_mdb_prev_version
           - ecr_registry
@@ -1677,7 +1681,7 @@ tasks:
 
 - name: e2e_om_ops_manager_backup
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
+  exec_timeout_secs: 3600
   commands:
     - func: "e2e_test"
 
@@ -2659,6 +2663,7 @@ buildvariants:
     test_mode: opsmanager
 
     custom_om_version: *ops_manager_44_latest
+    custom_om_prev_version: *ops_manager_44_prev
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
     agent_version: *agent_version60
@@ -2698,6 +2703,7 @@ buildvariants:
     test_mode: opsmanager
 
     custom_om_version: *ops_manager_44_latest
+    custom_om_prev_version: *ops_manager_44_prev
     custom_mdb_version: *mdb_44_latest
     custom_mdb_prev_version: *mdb_42_latest
     agent_version: *agent_version60
@@ -2735,6 +2741,7 @@ buildvariants:
     test_mode: opsmanager
 
     custom_om_version: *ops_manager_50_latest
+    custom_om_prev_version: *ops_manager_44_latest
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
     agent_version: *agent_version60
@@ -2743,6 +2750,44 @@ buildvariants:
 
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
+  tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
+
+- name: e2e_om50_kind_ubi
+  display_name: e2e_om50_kind_ubi
+  run_on:
+  - ubuntu1804-large
+  depends_on:
+  - name: build_om_images
+    variant: build_om50_images
+  - name: build_operator_ubi
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_database_image_ubi
+    variant: init_test_run
+  - name: build_init_appdb_images_ubi
+    variant: init_test_run
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubi
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_50_latest
+    custom_om_prev_version: *ops_manager_44_latest
+    custom_mdb_version: *mdb_50_latest
+    custom_mdb_prev_version: *mdb_44_latest
+    agent_version: *agent_version60
+
+    custom_appdb_version: *ops_manager_50_appdb_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group
@@ -2773,8 +2818,9 @@ buildvariants:
     test_mode: opsmanager
 
     custom_om_version: *ops_manager_60_latest
+    custom_om_prev_version: *ops_manager_50_latest
     custom_mdb_version: *mdb_50_latest
-    custom_mdb_prev_version: *mdb_44_latest
+    custom_mdb_prev_version: *mdb_50_prev
     agent_version: *agent_version60
 
     custom_appdb_version: *ops_manager_60_appdb_version
@@ -2782,15 +2828,17 @@ buildvariants:
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
+  - name: e2e_ops_manager_kind_only_task_group
+  - name: e2e_ops_manager_kind_4_4_only_task_group
   - name: e2e_ops_manager60_kind_only_task_group
 
-- name: e2e_om50_kind_ubi
-  display_name: e2e_om50_kind_ubi
+- name: e2e_om60_kind_ubi
+  display_name: e2e_om60_kind_ubi
   run_on:
   - ubuntu1804-large
   depends_on:
   - name: build_om_images
-    variant: build_om50_images
+    variant: build_om60_images
   - name: build_operator_ubi
     variant: init_test_run
   - name: build_test_image
@@ -2808,18 +2856,21 @@ buildvariants:
     image_type: ubi
     test_mode: opsmanager
 
-    custom_om_version: *ops_manager_50_latest
+    custom_om_version: *ops_manager_60_latest
+    custom_om_prev_version: *ops_manager_50_latest
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
     agent_version: *agent_version60
 
-    custom_appdb_version: *ops_manager_50_appdb_version
+    custom_appdb_version: *ops_manager_60_appdb_version
 
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_4_4_only_task_group
+  - name: e2e_ops_manager60_kind_only_task_group
+
 
 # Multi Cluster build variants
 - name: e2e_multi_cluster
@@ -3128,5 +3179,19 @@ buildvariants:
     name: '*'
   expansions:
     om_version: *ops_manager_50_latest
+  tasks:
+  - name: publish_ops_manager
+
+- name: publish_om60_images
+  display_name: publish_om60_images
+  run_on:
+  - ubuntu1804-small
+  depends_on:
+  - variant: e2e_om60_kind_ubuntu
+    name: '*'
+  - variant: e2e_om60_kind_ubi
+    name: '*'
+  expansions:
+    om_version: *ops_manager_60_latest
   tasks:
   - name: publish_ops_manager

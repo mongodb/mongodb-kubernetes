@@ -12,5 +12,8 @@ data:
         location /linux/ {
           alias /mongodb-ops-manager/mongodb-releases/linux/;
         }
+        location /compass/ {
+          alias /mongodb-ops-manager/mongodb-releases/compass/;
+        }
       }
     }

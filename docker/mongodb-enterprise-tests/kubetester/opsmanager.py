@@ -334,6 +334,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Sets a specific `version` if set. If `version` is None, then skip."""
         if version is not None:
             self["spec"]["version"] = version
+        return self
 
     def update_key_to_programmatic(self):
         """

@@ -22,7 +22,9 @@ def appdb_certs(namespace: str, issuer: str) -> str:
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
-    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https")
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-with-https", "prefix-om-with-https-cert"
+    )
 
 
 @fixture(scope="module")
@@ -94,12 +96,13 @@ def test_appdb_enable_tls(
     """Enable TLS for the AppDB (not for OM though)."""
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
+        "certsSecretPrefix": appdb_certs,
+        "tls": {"ca": issuer_ca_configmap},
     }
     ops_manager.update()
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -126,7 +129,8 @@ def test_enable_https_on_opsmanager(
     """Ops Manager is restarted with HTTPS enabled."""
     ops_manager.load()
     ops_manager["spec"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+        "certsSecretPrefix": "prefix",
+        "tls": {"ca": issuer_ca_configmap},
     }
     ops_manager.update()
 
@@ -180,7 +184,7 @@ def test_mongodb_replicaset_over_https_ops_manager(
 def test_change_om_certificate_and_wait_for_running(
     ops_manager: MongoDBOpsManager, namespace: str
 ):
-    cert = Certificate(name="certs-for-ops-manager", namespace=namespace).load()
+    cert = Certificate(name="prefix-om-with-https-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
     ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=60)
