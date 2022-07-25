@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -177,6 +178,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	effectiveSpecList := filterClusterSpecItem(actualSpecList, func(item mdbmultiv1.ClusterSpecItem) bool {
 		return item.Members > 0
 	})
+
+	// sort both actual and desired to match the effective and desired list version before comparing
+	sortClusterSpecList(desiredSpecList)
+	sortClusterSpecList(effectiveSpecList)
 
 	needToRequeue := !reflect.DeepEqual(desiredSpecList, effectiveSpecList)
 	if needToRequeue {
@@ -896,4 +901,10 @@ func filterClusterSpecItem(items []mdbmultiv1.ClusterSpecItem, fn func(item mdbm
 		}
 	}
 	return result
+}
+
+func sortClusterSpecList(clusterSpecList []mdbmultiv1.ClusterSpecItem) {
+	sort.SliceStable(clusterSpecList, func(i, j int) bool {
+		return clusterSpecList[i].ClusterName < clusterSpecList[j].ClusterName
+	})
 }

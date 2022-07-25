@@ -3,7 +3,6 @@ package mdbmulti
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -510,9 +509,6 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 // GetOrderedClusterSpecList returns the cluster spec items sorted by name.
 func (m *MongoDBMultiSpec) GetOrderedClusterSpecList() []ClusterSpecItem {
 	clusterSpecs := m.ClusterSpecList.ClusterSpecs
-	sort.SliceStable(clusterSpecs, func(i, j int) bool {
-		return clusterSpecs[i].ClusterName < clusterSpecs[j].ClusterName
-	})
 	return clusterSpecs
 }
 
