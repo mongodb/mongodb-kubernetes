@@ -167,6 +167,45 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
 
+  setup_preflight:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_preflight.sh
+
+  preflight_image:
+  - command: subprocess.exec
+    type: setup
+    params:
+      command: python3 -m venv --upgrade ./venv
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet
+  - command: subprocess.exec
+    type: setup
+    params:
+      include_expansions_in_env:
+      - RED_HAT_TOKEN
+      - rh_e2e_cluster_user
+      command: "podman login -u=\"${rh_e2e_cluster_user}\" -p=\"${RED_HAT_TOKEN}\" registry.connect.redhat.com"
+  - command: subprocess.exec
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - image_version
+      - project_id
+      - rh_pyxis
+      command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit"
+
   pipeline:
   - *python_venv
   - *python_requirements
@@ -621,6 +660,49 @@ functions:
 
 
 tasks:
+- name: preflight_release_images
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: setup_preflight
+  - func: preflight_image
+    vars:
+      image_name: operator
+      project_id: ${rhc_operator_pid}
+  - func: preflight_image
+    vars:
+      image_name: init-appdb
+      project_id: ${rhc_init_appdb_pid}
+  - func: preflight_image
+    vars:
+      image_name: init-database
+      project_id: ${rhc_init_database_pid}
+  - func: preflight_image
+    vars:
+      image_name: init-ops-manager
+      project_id: ${rhc_init_om_pid}
+  - func: preflight_image
+    vars:
+      image_name: appdb
+      project_id: ${rhc_appdb_pid}
+  - func: preflight_image
+    vars:
+      image_name: database
+      project_id: ${rhc_database_pid}
+  - func: preflight_image
+    vars:
+      image_name: mongodb-agent
+      project_id: ${rhc_agent_pid}
+
+- name: preflight_om_image
+  commands:
+  - func: clone
+  - func: setup_preflight
+  - func: preflight_image
+    vars:
+      image_name: ops-manager
+      project_id: ${rhc_om_pid}
+
 - name: unit_tests
   tags: ["unit_tests"]
   commands:
@@ -724,7 +806,6 @@ tasks:
   - func: add_supported_release
     vars:
       image_name: init-ops-manager
-
 
 - name: prerelease_master_images
   commands:
@@ -3016,6 +3097,12 @@ buildvariants:
     - name: release_init_ops_manager
     - name: release_database
 
+- name: preflight_release_images
+  display_name: preflight_release_images
+  run_on:
+  - rhel84-small
+  tasks:
+    - name: preflight_release_images
 
 - name: release_blocker
   display_name: release_blocker
@@ -3164,6 +3251,14 @@ buildvariants:
   tasks:
   - name: publish_ops_manager
 
+- name: preflight_om44_images
+  display_name: preflight_om44_images
+  run_on:
+  - rhel84-small
+  expansions:
+    image_version: *ops_manager_44_latest
+  tasks:
+  - name: preflight_om_image
 
 - name: publish_om50_images
   display_name: publish_om50_images
@@ -3179,6 +3274,16 @@ buildvariants:
   tasks:
   - name: publish_ops_manager
 
+- name: preflight_om50_images
+  display_name: preflight_om50_images
+  run_on:
+  - rhel84-small
+  expansions:
+    image_version: *ops_manager_50_latest
+  tasks:
+  - name: preflight_om_image
+
+
 - name: publish_om60_images
   display_name: publish_om60_images
   run_on:
@@ -3192,3 +3297,12 @@ buildvariants:
     om_version: *ops_manager_60_latest
   tasks:
   - name: publish_ops_manager
+
+- name: preflight_om60_images
+  display_name: preflight_om60_images
+  run_on:
+  - rhel84-small
+  expansions:
+    image_version: *ops_manager_60_latest
+  tasks:
+  - name: preflight_om_image

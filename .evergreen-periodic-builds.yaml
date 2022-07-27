@@ -358,7 +358,34 @@ buildvariants:
 - name: preflight_images
   display_name: preflight_images
   depends_on:
-    - name: periodic_build_task_group
+    # We have to add every task in the periodic build variant here
+    # because otherwise evergreen moves on to the preflight task after
+    # a single task in the referenced task group succeeds.
+    - name: periodic_build_operator
+      variant: periodic_build
+    - name: periodic_build_init_appdb
+      variant: periodic_build
+    - name: periodic_build_init_database
+      variant: periodic_build
+    - name: periodic_build_init_opsmanager
+      variant: periodic_build
+    - name: periodic_build_ops_manager_4_4_0
+      variant: periodic_build
+    - name: periodic_build_ops_manager_4_4_10
+      variant: periodic_build
+    - name: periodic_build_ops_manager_4_4_20
+      variant: periodic_build
+    - name: periodic_build_ops_manager_5
+      variant: periodic_build
+    - name: periodic_build_ops_manager_6
+      variant: periodic_build
+    - name: periodic_build_appdb
+      variant: periodic_build
+    - name: periodic_build_database
+      variant: periodic_build
+    - name: periodic_build_agent
+      variant: periodic_build
+    - name: periodic_build_appdb_database
       variant: periodic_build
   run_on:
   - rhel84-small
