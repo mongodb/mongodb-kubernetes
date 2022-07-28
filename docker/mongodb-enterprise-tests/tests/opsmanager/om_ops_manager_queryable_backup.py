@@ -427,6 +427,7 @@ class TestBackupDatabasesAdded:
         oplog_user: MongoDBUser,
     ):
         """Creates mongodb databases all at once"""
+        oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {
             "authentication": {"enabled": True, "modes": ["SCRAM"]}
         }
