@@ -1,5 +1,11 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 
+# MongoDB Enterprise Kubernetes Operator 1.16.4
+
+## Security fixes
+
+* The operator and init-ops-manager binaries are built with Go 1.18.4 which addresses security issues.
+
 # MongoDB Enterprise Kubernetes Operator 1.16.3
 
 ## MongoDB Resource

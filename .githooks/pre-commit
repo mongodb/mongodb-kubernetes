@@ -76,12 +76,12 @@ mkdir -p "$(go env GOPATH)/bin"
 # important to turn off modules to ensure a global install
 if ! [[ -x "$(command -v goimports)" ]]; then
     echo "installing goimports..."
-    GO111MODULE=off go get golang.org/x/tools/cmd/goimports
+    go install golang.org/x/tools/cmd/goimports
 fi
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
     echo "installing go tools..."
-    GO111MODULE=off go get -u honnef.co/go/tools/...
+    go install honnef.co/go/tools/cmd/staticcheck@v0.3.2
 fi
 
 # check for dead code
