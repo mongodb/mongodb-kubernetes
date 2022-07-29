@@ -4,10 +4,11 @@ set -Eeou pipefail
 export GOPATH="${workdir:?}"
 
 go env
+go version
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
     echo "installing gotools..."
-    GOFLAGS="" go get honnef.co/go/tools/...
+    go install honnef.co/go/tools/cmd/staticcheck@v0.3.2
   else
     echo "go tools are already installed"
 fi

@@ -45,7 +45,7 @@ elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   sudo snap install helm --classic  || true
 
   # Kind
-  go get sigs.k8s.io/kind
+  go install sigs.k8s.io/kind
 
   sudo snap install --channel=edge shellcheck
 
