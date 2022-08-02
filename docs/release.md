@@ -72,6 +72,9 @@ that was triggered after the previous step, look for the release variant and
 unlock *only the relevant release tasks*. This is going to always be the
 "_Operator_" image plus some others.
 
+To unlock a task, click *Override Dependencies* in the blocked task's page in EVG (e.g.: [release_database_task](https://evergreen.mongodb.com/task/ops_manager_kubernetes_release_release_database__1.16.4_22_08_01_10_12_02)
+).
+
 In case you need these images to be published earlier, you can trigger a manual
 rebuild (causing the new images to be published) following the [docs](./running-manual-periodic-builds.md).
 
@@ -81,7 +84,13 @@ The current process releases new images to [Quay.io](https://quay.io/organizatio
 and Redhat Connect. The later requires the images to be _published_ manually, before
 they can be fetched or pulled. _This is not required for Quay_.
 
-To publish the collection of images in RedHat, visit:
+To publish the collection of images in RedHat, first run the pre-flight tool on the images pushed to scan.connect.redhat.com, by running the following patch:
+
+```
+evergreen patch -p ops-manager-kubernetes -v preflight_release_images -t all -y -f -d "Pre-flight release images" -u --browse
+```
+
+After the task succeded, visit:
 
 * https://connect.redhat.com/project/850021/images (Operator)
 * https://connect.redhat.com/project/5718431/images (Init Database)
