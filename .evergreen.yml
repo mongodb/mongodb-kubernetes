@@ -661,7 +661,6 @@ functions:
 
 tasks:
 - name: preflight_release_images
-  git_tag_only: true
   commands:
   - func: clone
   - func: setup_preflight
