@@ -137,6 +137,16 @@ class Operator(object):
             assert pods[0].status.container_statuses[0].ready
             time.sleep(1)
 
+    def assert_is_error(self):
+        """Makes 3 checks that the Operator is in error state with 1 second interval."""
+        for _ in range(0, 6):
+            pods = self.list_operator_pods()
+            assert len(pods) == 1
+            if pods[0].status.phase == "Running":
+                continue
+            assert pods[0].status.phase == "Error"
+            time.sleep(1)
+
     def _wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
         # we need to give some time for the new pod to start instead of the existing one (if any)
