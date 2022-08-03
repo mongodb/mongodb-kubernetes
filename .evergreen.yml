@@ -20,7 +20,7 @@ variables:
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
   - &ops_manager_44_prev 4.4.15
-  - &ops_manager_44_latest 4.4.23
+  - &ops_manager_44_latest 4.4.24
 
   - &ops_manager_50_latest 5.0.13
   - &ops_manager_50_appdb_version 4.4.11-ent
