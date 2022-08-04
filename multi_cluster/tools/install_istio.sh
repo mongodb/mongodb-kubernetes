@@ -5,7 +5,7 @@ set -eux
 export CTX_CLUSTER1=e2e.cluster1.mongokubernetes.com
 export CTX_CLUSTER2=e2e.cluster2.mongokubernetes.com
 export CTX_CLUSTER3=e2e.cluster3.mongokubernetes.com
-export VERSION=1.10.3
+export VERSION=1.12.8
 
 # download Istio 1.10.3 under the path
 curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -
@@ -143,8 +143,9 @@ bin/istioctl x create-remote-secret \
 # disable namespace injection explicitly for istio-system namespace
 kubectl --context="${CTX_CLUSTER1}" label namespace istio-system istio-injection=disabled
 kubectl --context="${CTX_CLUSTER2}" label namespace istio-system istio-injection=disabled
+kubectl --context="${CTX_CLUSTER3}" label namespace istio-system istio-injection=disabled
 
 # cleanup: delete the istio repo at the end
 cd ..
 rm -r istio-${VERSION}
-rm -f cluster1.yaml cluster2.yaml
+rm -f cluster1.yaml cluster2.yaml cluster3.yaml
