@@ -42,7 +42,7 @@ spec:
     anonymousAuth: false
   kubernetesApiAccess:
   - 0.0.0.0/0
-  kubernetesVersion: 1.18.10
+  kubernetesVersion: 1.20.10
   masterPublicName: api.<CLUSTER_NAME>
   networkID: <VPC_ID>
   # configure the CNI, default "kubenet" CNI which KOPS uses won't work
