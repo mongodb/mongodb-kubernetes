@@ -566,6 +566,18 @@ functions:
 
         binary: scripts/evergreen/e2e/e2e.sh
 
+  run_retry_script:
+    - command: shell.exec
+      type: test
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        include_expansions_in_env:
+          - EVERGREEN_API_KEY
+          - EVERGREEN_USER
+        script: |
+          scripts/evergreen/retry-evergreen.sh ${version_id}
+
   #
   # Performs some K8s cluster fixing things and also deploys a cluster cleaner.
   # Optionally (if $ops_manager_namespace is specified) deploys the test OM
@@ -1008,6 +1020,11 @@ tasks:
     - func: setup_jq
     - func: setup_aws
     - func: prepare_aws
+
+- name: run_retry_script
+  tags: ["patch-run"]
+  commands:
+    - func: run_retry_script
 
 - name: e2e_multiple_cluster_failures
   tags: ["patch-run"]
@@ -2254,6 +2271,7 @@ task_groups:
     - func: teardown_cloud_qa
   teardown_group:
     - func: prune_docker_resources
+    - func: run_retry_script
 
 # This is the task group that contains all the tests run in the e2e_mdb_openshift_ubi_cloudqa build variant
 - name: e2e_mdb_openshift_ubi_cloudqa_task_group
@@ -2425,7 +2443,7 @@ task_groups:
     - func: teardown_cloud_qa
   teardown_group:
     - func: prune_docker_resources
-
+    - func: run_retry_script
 
 - name: e2e_multi_cluster_task_group
   max_hosts: 2
@@ -2464,6 +2482,7 @@ task_groups:
     - func: teardown_kubernetes_environment
   teardown_group:
     - func: prune_docker_resources
+    - func: run_retry_script
 
 - name: e2e_multi_cluster_2_clusters_task_group
   max_hosts: 2
@@ -2482,6 +2501,7 @@ task_groups:
     - func: teardown_kubernetes_environment
   teardown_group:
     - func: prune_docker_resources
+    - func: run_retry_script
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
 # including the cluster-wide resources changing. Uses Cloud-qa.
@@ -2537,6 +2557,7 @@ task_groups:
     - func: teardown_cloud_qa
   teardown_group:
     - func: prune_docker_resources
+    - func: run_retry_script
 
 # The following group of tasks are also used for OM5. So far there are not
 # substantial changes to justify the creation of a new task_group.
@@ -2561,6 +2582,7 @@ task_groups:
     - func: teardown_kubernetes_environment
   teardown_group:
     - func: prune_docker_resources
+    - func: run_retry_script
 
 # Tests features only supported on OM60
 - name: e2e_ops_manager60_kind_only_task_group
@@ -2579,6 +2601,7 @@ task_groups:
     - func: teardown_kubernetes_environment
   teardown_group:
     - func: prune_docker_resources
+    - func: run_retry_script
 
 # This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
 # it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
