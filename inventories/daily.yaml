@@ -2,6 +2,7 @@ vars:
   quay_registry: quay.io/mongodb/<image-name-quay>
   # rh_registry: scan.connect.redhat.com/ospid-<ospid>/<image-name-th>
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
+  ecr_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu/<image-name-ecr>
 
 images:
   - name: image-daily-build
@@ -29,6 +30,10 @@ images:
         tag: $(inputs.params.release_version)
       # - registry: $(inputs.params.rh_registry)
       #   tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      - registry: $(inputs.params.ecr_registry)-ubi
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.ecr_registry)-ubi
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
 
     - name: build-ubuntu
       task_type: docker_build
@@ -45,4 +50,6 @@ images:
       - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.release_version)
       - registry: $(inputs.params.quay_registry)
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      - registry: $(inputs.params.ecr_registry)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
