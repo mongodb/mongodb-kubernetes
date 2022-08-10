@@ -398,7 +398,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfig(opsManager omv1.Mongo
 
 func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.MongoDBOpsManager, set appsv1.StatefulSet, acType agentType, prometheusCertHash string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
-	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.GetClusterName())
+	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
 	auth := automationconfig.Auth{}
 	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: opsManager}
 	if err := scram.Enable(&auth, r.SecretClient, appDBConfigurable); err != nil {
