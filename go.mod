@@ -13,14 +13,14 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/vault/api v1.3.0
 	github.com/imdario/mergo v0.3.13
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.5-0.20220708070423-bc0ba12da835
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.5
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.32.1
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/objx v0.4.0
-	github.com/stretchr/testify v1.7.4
+	github.com/stretchr/testify v1.8.0
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.21.0
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292
