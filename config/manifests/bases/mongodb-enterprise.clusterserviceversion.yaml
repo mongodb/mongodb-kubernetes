@@ -5,14 +5,14 @@ metadata:
     alm-examples: '[]'
     capabilities: Deep Insights
     categories: Database
-    certified: 'true'
-    createdAt: ''
+    certified: "true"
+    containerImage: registry.connect.redhat.com/mongodb/enterprise-operator:1.16.4
+    createdAt: ""
     description: The MongoDB Enterprise Kubernetes Operator enables easy deploys of
       MongoDB into Kubernetes clusters, using our management, monitoring and backup
       platforms, Ops Manager and Cloud Manager.
     repository: https://github.com/mongodb/mongodb-enterprise-kubernetes
     support: support@mongodb.com
-    containerImage: registry.connect.redhat.com/mongodb/enterprise-operator:1.16.4
   name: mongodb-enterprise.v0.0.0
   namespace: placeholder
 spec:
@@ -28,7 +28,7 @@ spec:
         name: StatefulSet holding the Pod with MongoDB
         version: apps/v1
       - kind: Service
-        name: ''
+        name: ""
         version: v1
       specDescriptors:
       - displayName: MongoDB Deployment Type
@@ -144,7 +144,7 @@ spec:
         name: StatefulSet holding the Pod with MongoDB
         version: apps/v1
       - kind: Service
-        name: ''
+        name: ""
         version: v1
       specDescriptors:
       - displayName: MongoDB Deployment Type
@@ -230,7 +230,7 @@ spec:
       name: mongodbusers.mongodb.com
       resources:
       - kind: Secret
-        name: ''
+        name: ""
         version: v1
       specDescriptors:
       - displayName: Name of the database user.
@@ -277,13 +277,13 @@ spec:
       name: opsmanagers.mongodb.com
       resources:
       - kind: StatefulSet
-        name: ''
+        name: ""
         version: apps/v1
       - kind: Service
-        name: ''
+        name: ""
         version: v1
       - kind: ConfigMap
-        name: ''
+        name: ""
         version: v1
       specDescriptors:
       - displayName: The version of Ops Manager to deploy.
@@ -410,8 +410,8 @@ spec:
     mediatype: image/png
   install:
     spec:
-      deployments:
-    strategy: ''
+      deployments: null
+    strategy: ""
   installModes:
   - supported: true
     type: OwnNamespace

@@ -92,6 +92,14 @@ rules:
 - apiGroups:
   - mongodb.com
   resources:
+  - mongodbmulti
+  - mongodbmulti/finalizers
+  - mongodbmulti/status
+  verbs:
+  - '*'
+- apiGroups:
+  - mongodb.com
+  resources:
   - mongodbusers
   - mongodbusers/finalizers
   - mongodbusers/status

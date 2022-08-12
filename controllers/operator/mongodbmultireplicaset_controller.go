@@ -87,6 +87,9 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 	}
 }
 
+// MongoDBMulti Resource
+// +kubebuilder:rbac:groups=mongodb.com,resources={mongodbmulti,mongodbmulti/status,mongodbmulti/finalizers},verbs=*,namespace=placeholder
+
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
