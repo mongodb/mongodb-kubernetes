@@ -5,18 +5,19 @@ FROM registry.access.redhat.com/ubi8/ubi-minimal
 
 
 LABEL name="MongoDB Enterprise Ops Manager" \
-      maintainer="support@mongodb.com" \
-      vendor="MongoDB" \
-      version="5.0.0" \
-      release="1" \
-      summary="MongoDB Enterprise Ops Manager Image" \
-      description="MongoDB Enterprise Ops Manager"
+  maintainer="support@mongodb.com" \
+  vendor="MongoDB" \
+  version="6.0.0" \
+  release="1" \
+  summary="MongoDB Enterprise Ops Manager Image" \
+  description="MongoDB Enterprise Ops Manager"
 
 
 ENV MMS_HOME /mongodb-ops-manager
 ENV MMS_PROP_FILE ${MMS_HOME}/conf/conf-mms.properties
 ENV MMS_CONF_FILE ${MMS_HOME}/conf/mms.conf
 ENV MMS_LOG_DIR ${MMS_HOME}/logs
+ENV MMS_TMP_DIR ${MMS_HOME}/tmp
 
 EXPOSE 8080
 
@@ -46,22 +47,21 @@ COPY --from=base /data/licenses /licenses/
 
 
 
-RUN curl --fail -L -o ops_manager.tar.gz https://s3.amazonaws.com/mongodb-mms-build-onprem/10cf46c744564e2cb3e61e5b777f7820f586aef8/mongodb-mms-5.0.0.100.20210710T1827Z-1.x86_64.tar.gz \
-    && tar -xzf ops_manager.tar.gz \
-    && rm ops_manager.tar.gz \
-    && mv mongodb-mms-* "${MMS_HOME}"
+RUN curl --fail -L -o ops_manager.tar.gz https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-6.0.0.100.20220711T2118Z.tar.gz \
+  && tar -xzf ops_manager.tar.gz \
+  && rm ops_manager.tar.gz \
+  && mv mongodb-mms* "${MMS_HOME}"
 
 
 # permissions
-RUN chmod -R 0775 "${MMS_LOG_DIR}" \
-    && chmod -R 0775 "${MMS_HOME}/conf" \
-    && chmod -R 0775 "${MMS_HOME}/tmp" \
-    && mkdir "${MMS_HOME}/mongodb-releases/" \
-    && chmod -R 0775 "${MMS_HOME}/mongodb-releases"
-
-# The "${MMS_HOME}/conf" will be populated by the docker-entry-point.sh.
-# For now we need to move into the templates directory.
-RUN cp -r "${MMS_HOME}/conf" "${MMS_HOME}/conf-template"
+RUN chmod -R 0777 "${MMS_LOG_DIR}" \
+  && chmod -R 0777 "${MMS_TMP_DIR}" \
+  && chmod -R 0775 "${MMS_HOME}/conf" \
+  && chmod -R 0775 "${MMS_HOME}/jdk" \
+  && mkdir "${MMS_HOME}/mongodb-releases/" \
+  && chmod -R 0775 "${MMS_HOME}/mongodb-releases" \
+  && chmod -R 0777 "${MMS_CONF_FILE}" \
+  && chmod -R 0777 "${MMS_PROP_FILE}"
 
 # The "${MMS_HOME}/conf" will be populated by the docker-entry-point.sh.
 # For now we need to move into the templates directory.
