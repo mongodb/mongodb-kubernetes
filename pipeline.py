@@ -443,8 +443,8 @@ def build_image_daily(
                 min_version is not None
                 and max_version is not None
                 and (
-                    semver.compare(releases["version"], min_version) <= 0
-                    or semver.compare(releases["version"], max_version) > 0
+                    semver.compare(releases["version"], min_version) < 0
+                    or semver.compare(releases["version"], max_version) >= 0
                 )
             ):
                 continue
