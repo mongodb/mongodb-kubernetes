@@ -54,7 +54,7 @@ COPY --from=base /data/licenses /licenses/
 
 
 
-RUN curl --fail -L -o ops_manager.tar.gz https://s3.amazonaws.com/mongodb-mms-build-onprem/10cf46c744564e2cb3e61e5b777f7820f586aef8/mongodb-mms-5.0.0.100.20210710T1827Z-1.x86_64.tar.gz \
+RUN curl --fail -L -o ops_manager.tar.gz https://downloads.mongodb.com/on-prem-mms/tar/mongodb-mms-5.0.0.100.20210710T1827Z-1.x86_64.tar.gz \
     && tar -xzf ops_manager.tar.gz \
     && rm ops_manager.tar.gz \
     && mv mongodb-mms-* "${MMS_HOME}"
