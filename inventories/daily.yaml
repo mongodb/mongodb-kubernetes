@@ -9,6 +9,8 @@ images:
     vars:
       context: .
 
+    platform: linux/amd64
+
     stages:
     - name: build-ubi
       task_type: docker_build
@@ -51,5 +53,7 @@ images:
         tag: $(inputs.params.release_version)
       - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      - registry: $(inputs.params.ecr_registry)
+        tag: $(inputs.params.release_version)
       - registry: $(inputs.params.ecr_registry)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
