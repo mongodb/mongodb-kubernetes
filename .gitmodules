@@ -1,6 +1,3 @@
-[submodule "dccscr"]
-	path = dccscr
-	url = git@dccscr.dsop.io:dsop/dccscr.git
 [submodule "deploy/helm-charts"]
 	path = deploy/helm-charts
 	url = https://github.com/mongodb/helm-charts
