@@ -144,7 +144,7 @@ def test_mongodb_multi_tls_enable_x509(
     mongodb_multi.update()
 
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_multi_cluster_tls_with_x509
