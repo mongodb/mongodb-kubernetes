@@ -171,7 +171,10 @@ func main() {
 					options.Namespace = kubeConfig.GetMemberClusterNamespace()
 				})
 				if err != nil {
-					log.Fatal(err)
+					// don't panic here but rather log the error, for example, error might happen when one of the cluster is
+					// unreachable, we would still like the operator to continue reconciliation on the other clusters.
+					log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
+					continue
 				}
 			} else if len(namespacesToWatch) > 1 {
 				log.Infof("Building member cluster cache for multiple namespaces: %v", namespacesToWatch)
@@ -179,7 +182,8 @@ func main() {
 					options.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
 				})
 				if err != nil {
-					log.Fatal(err)
+					log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
+					continue
 				}
 			}
 

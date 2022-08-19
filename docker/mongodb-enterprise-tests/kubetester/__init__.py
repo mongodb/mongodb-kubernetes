@@ -157,8 +157,10 @@ def delete_secret(
     client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
 
 
-def delete_pod(namespace: str, name: str):
-    client.CoreV1Api().delete_namespaced_pod(name, namespace)
+def delete_pod(
+    namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
+):
+    client.CoreV1Api(api_client=api_client).delete_namespaced_pod(name, namespace)
 
 
 def delete_namespace(name: str):
