@@ -13,9 +13,6 @@ variables:
     node_port: 30044
   - &cloud_manager_qa
     ops_manager_version: "cloud_qa"
-  - &usaf
-    usaf_operator_version: "1.7.1"
-    usaf_database_version: "1.5.3"
 
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
   - &ops_manager_44_prev 4.4.15
@@ -35,7 +32,6 @@ variables:
 
   - &mdb_44_latest 4.4.11
   - &mdb_42_latest 4.2.8
-  - &mdb_40_latest 4.0.20
 
   # Latest available version of Kubernetes
   # https://kubernetes.io/releases/
@@ -176,8 +172,6 @@ functions:
       include_expansions_in_env:
       - workdir
       binary: scripts/evergreen/setup_preflight.sh
-
-  preflight_image:
   - command: subprocess.exec
     type: setup
     params:
@@ -186,14 +180,16 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt
   - command: subprocess.exec
     type: setup
     params:
       include_expansions_in_env:
-      - RED_HAT_TOKEN
-      - rh_e2e_cluster_user
+        - RED_HAT_TOKEN
+        - rh_e2e_cluster_user
       command: "podman login -u=\"${rh_e2e_cluster_user}\" -p=\"${RED_HAT_TOKEN}\" registry.connect.redhat.com"
+
+  preflight_image:
   - command: subprocess.exec
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -203,7 +199,7 @@ functions:
       - image_version
       - project_id
       - rh_pyxis
-      command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit"
+      command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit ${preflight_submit}"
 
   pipeline:
   - *python_venv
@@ -259,7 +255,7 @@ functions:
       content_type: application/x-binary
 
   # upload_e2e_logs has the responsibility of dumping as much information as
-  # posible into the S3 bucket that corresponds to this ${version}. The
+  # possible into the S3 bucket that corresponds to this ${version}. The
   # Kubernetes cluster where the test finished running, should still be
   # reachable. Note that after a timeout, Evergreen kills the running process
   # and any running container in the host (which kills Kind).
@@ -277,7 +273,7 @@ functions:
 
   # cleanup_exec_environment is a very generic name when the only thing this function
   # does is to clean the logs directory. In the future, more "commands" can be
-  # added to it with more clearning features, when needed.
+  # added to it with more clearing features, when needed.
   cleanup_exec_environment:
   - command: subprocess.exec
     type: setup
@@ -2029,7 +2025,7 @@ tasks:
 
 - name: e2e_multi_cluster_with_ldap
   tags: ["patch-run"]
-  exec_timeout_sect: 1800
+  exec_timeout_secs: 1800
   commands:
     - func: e2e_test
 
@@ -2047,10 +2043,6 @@ tasks:
 
 
 - name: e2e_multi_cluster_2_clusters_replica_set
-  tags: ["patch-run"]
-  exec_timeout_secs: 2800
-  commands:
-    - func: e2e_test
   tags: ["patch-run"]
   exec_timeout_secs: 2800
   commands:
@@ -3129,7 +3121,18 @@ buildvariants:
 - name: preflight_release_images
   display_name: preflight_release_images
   run_on:
-  - rhel84-small
+  - rhel90-small
+  expansions:
+    preflight_submit: true
+  tasks:
+    - name: preflight_release_images
+
+- name: preflight_release_images_check
+  display_name: preflight_release_images_check
+  run_on:
+    - rhel90-small
+  expansions:
+    preflight_submit: false
   tasks:
     - name: preflight_release_images
 
@@ -3283,9 +3286,10 @@ buildvariants:
 - name: preflight_om44_images
   display_name: preflight_om44_images
   run_on:
-  - rhel84-small
+  - rhel90-small
   expansions:
     image_version: *ops_manager_44_latest
+    preflight_submit: true
   tasks:
   - name: preflight_om_image
 
@@ -3300,15 +3304,17 @@ buildvariants:
     name: '*'
   expansions:
     om_version: *ops_manager_50_latest
+    preflight_submit: true
   tasks:
   - name: publish_ops_manager
 
 - name: preflight_om50_images
   display_name: preflight_om50_images
   run_on:
-  - rhel84-small
+  - rhel90-small
   expansions:
     image_version: *ops_manager_50_latest
+    preflight_submit: true
   tasks:
   - name: preflight_om_image
 
@@ -3324,14 +3330,16 @@ buildvariants:
     name: '*'
   expansions:
     om_version: *ops_manager_60_latest
+    preflight_submit: true
   tasks:
   - name: publish_ops_manager
 
 - name: preflight_om60_images
   display_name: preflight_om60_images
   run_on:
-  - rhel84-small
+  - rhel90-small
   expansions:
     image_version: *ops_manager_60_latest
+    preflight_submit: true
   tasks:
   - name: preflight_om_image

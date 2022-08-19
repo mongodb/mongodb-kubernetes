@@ -168,7 +168,7 @@ def main() -> int:
         "--image", help="image to run preflight checks on", type=str, required=True
     )
     parser.add_argument(
-        "--submit", help="submit image for certification", action="store_true"
+        "--submit", help="submit image for certification (true|false)", type=str, required=True
     )
     parser.add_argument(
         "--version", help="specific version to check", type=str, default=None
@@ -176,6 +176,7 @@ def main() -> int:
     args = parser.parse_args()
     available_versions = get_available_versions_for_image(args.image)
     supported_versions = get_supported_version_for_image(args.image)
+    submit = args.submit.lower() == "true"
 
     image_version = os.environ.get("image_version", args.version)
 
@@ -193,7 +194,7 @@ def main() -> int:
             )
         else:
             return_code = run_preflight_check(
-                args.image, image_version, submit=args.submit
+                args.image, image_version, submit=submit
             )
             if return_code != 0:
                 logging.error(
@@ -208,7 +209,7 @@ def main() -> int:
         logging.info(f"Every supported version for: {args.image} was already checked")
     for version in missing_versions:
         logging.info(f"Running preflight check for image: {args.image}:{version}")
-        return_code = run_preflight_check(args.image, version, submit=args.submit)
+        return_code = run_preflight_check(args.image, version, submit=submit)
         if return_code != 0:
             logging.error(
                 f"Running preflight check for image: {args.image}:{version} failed with exit code: {return_code}"

@@ -22,42 +22,43 @@ functions:
       directory: src/github.com/10gen/ops-manager-kubernetes
 
   setup_preflight:
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-      include_expansions_in_env:
-      - workdir
-      binary: scripts/evergreen/setup_preflight.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - workdir
+        binary: scripts/evergreen/setup_preflight.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: python3 -m venv --upgrade ./venv
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        command: ${workdir}/venv/bin/python -m pip install -r requirements.txt
+    - command: subprocess.exec
+      type: setup
+      params:
+        include_expansions_in_env:
+          - RED_HAT_TOKEN
+          - rh_e2e_cluster_user
+        command: "podman login -u=\"${rh_e2e_cluster_user}\" -p=\"${RED_HAT_TOKEN}\" registry.connect.redhat.com"
 
   preflight_image:
-  - command: subprocess.exec
-    type: setup
-    params:
-      command: python3 -m venv --upgrade ./venv
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet
-  - command: subprocess.exec
-    type: setup
-    params:
-      include_expansions_in_env:
-      - RED_HAT_TOKEN
-      - rh_e2e_cluster_user
-      command: "podman login -u=\"${rh_e2e_cluster_user}\" -p=\"${RED_HAT_TOKEN}\" registry.connect.redhat.com"
-  - command: subprocess.exec
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-      - ${workdir}/bin
-      include_expansions_in_env:
-      - project_id
-      - rh_pyxis
-      command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name}"
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - image_version
+          - project_id
+          - rh_pyxis
+        command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit ${preflight_submit}"
 
   configure_docker_auth:
   - command: subprocess.exec
@@ -389,5 +390,7 @@ buildvariants:
       variant: periodic_build
   run_on:
   - rhel90-small
+  expansions:
+    preflight_submit: false
   tasks:
     - name: preflight_images_task_group
