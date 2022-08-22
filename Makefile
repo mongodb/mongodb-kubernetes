@@ -125,9 +125,6 @@ reset:
 status:
 	@ scripts/dev/status
 
-dashboard:
-	@ scripts/dev/kube-dashboard
-
 # opens the automation config in your editor
 open-automation-config: ac
 ac:

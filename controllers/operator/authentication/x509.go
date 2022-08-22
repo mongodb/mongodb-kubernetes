@@ -167,7 +167,7 @@ func isValidX509Subject(subject string) bool {
 	return true
 }
 
-//canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
+// canEnableX509 determines if it's possible to enable/disable x509 configuration options in the current
 // version of Ops Manager
 func canEnableX509(conn om.Connection) bool {
 	err := conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {

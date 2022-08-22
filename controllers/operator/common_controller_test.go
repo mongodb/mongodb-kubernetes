@@ -182,8 +182,8 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 		mock.HItem(reflect.ValueOf(manager.Client.Create), &corev1.Secret{}))
 }
 
-//TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
-//map that allows to watch them for changes
+// TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
+// map that allows to watch them for changes
 func TestConfigMapAndSecretWatched(t *testing.T) {
 	//t.Skip("Skipping TestPrepareOmConnection_ConfigMapAndSecretWatched, test needs to be refactored with new OM connection logic")
 	//manager := mock.NewEmptyManager()

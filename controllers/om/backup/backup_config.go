@@ -32,18 +32,18 @@ type ConfigHostReadUpdater interface {
 }
 
 /*
-{
-      "authMechanismName": "NONE",
-      "clusterId": "5ba4ec37a957713d7f9bcb9a",
-      "encryptionEnabled": false,
-      "excludedNamespaces": [],
-      "groupId": "5ba0c398a957713d7f8653bd",
-      "links": [
-		...
-      ],
-      "sslEnabled": false,
-      "statusName": "INACTIVE"
-    }
+	{
+	      "authMechanismName": "NONE",
+	      "clusterId": "5ba4ec37a957713d7f9bcb9a",
+	      "encryptionEnabled": false,
+	      "excludedNamespaces": [],
+	      "groupId": "5ba0c398a957713d7f8653bd",
+	      "links": [
+			...
+	      ],
+	      "sslEnabled": false,
+	      "statusName": "INACTIVE"
+	    }
 */
 type ConfigsResponse struct {
 	Configs []*Config `json:"results"`

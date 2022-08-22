@@ -163,7 +163,6 @@ func MD5Hex(s string) string {
 }
 
 // RedactMongoURI will strip the password out of the MongoURI and replace it with the text "<redacted>"
-//
 func RedactMongoURI(uri string) string {
 	if !strings.Contains(uri, "@") {
 		return uri

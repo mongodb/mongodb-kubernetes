@@ -697,8 +697,8 @@ func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing
 	})
 }
 
-//TestShardedCluster_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
-//map that allows to watch them for changes
+// TestShardedCluster_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
+// map that allows to watch them for changes
 func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	sc := DefaultClusterBuilder().Build()
 
@@ -714,8 +714,8 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
-//TestShardedClusterTLSResourcesWatched verifies that TLS config map and secret are added to the internal
-//map that allows to watch them for changes
+// TestShardedClusterTLSResourcesWatched verifies that TLS config map and secret are added to the internal
+// map that allows to watch them for changes
 func TestShardedClusterTLSResourcesWatched(t *testing.T) {
 	sc := DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
 

@@ -75,8 +75,8 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(&otherTestOm))
 }
 
-//TestOMTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
-//map that allows to watch them for changes
+// TestOMTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
+// map that allows to watch them for changes
 func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,

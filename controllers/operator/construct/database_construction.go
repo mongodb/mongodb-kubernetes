@@ -503,7 +503,6 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 //
 // The Secret will be mounted in:
 // `/var/lib/mongodb-automation/secrets/prometheus`.
-//
 func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{}
 	volumeMounts := []corev1.VolumeMount{}

@@ -29,7 +29,7 @@ func SetDifference(left, right []Identifiable) []Identifiable {
 }
 
 // SetIntersection returns all 'Identifiable' elements from 'left' and 'right' slice that intersect by 'Identifier()'
-//value. Each intersection is represented as a tuple of two elements - matching elements from 'left' and 'right'
+// value. Each intersection is represented as a tuple of two elements - matching elements from 'left' and 'right'
 func SetIntersection(left, right []Identifiable) [][]Identifiable {
 	result := make([][]Identifiable, 0)
 	for _, l := range left {
