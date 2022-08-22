@@ -11,13 +11,14 @@ from git import Repo
 from add_supported_release import get_repo_root
 
 SUPPORTED_IMAGES = (
-    "database",
-    "init-database",
-    "appdb",
-    "init-appdb",
-    "ops-manager",
-    "init-ops-manager",
-    "operator",
+    "mongodb-agent",
+    "mongodb-enterprise-database",
+    "mongodb-enterprise-init-database",
+    "mongodb-enterprise-appdb",
+    "mongodb-enterprise-init-appdb",
+    "mongodb-enterprise-ops-manager",
+    "mongodb-enterprise-init-ops-manager",
+    "mongodb-enterprise-operator",
 )
 
 
@@ -30,6 +31,10 @@ DOCKERFILE_NAME = "Dockerfile"
 
 
 def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
+    splitted_image_name = image.split("mongodb-enterprise-", 1)
+    if len(splitted_image_name) == 2:
+        image = splitted_image_name[1]
+
     supported_versions = (
         "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
         "kubernetes-release-support-kpvbh/service/"
@@ -41,7 +46,7 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
 
 def download_dockerfile_from_s3(image: str, version: str, distro: str) -> str:
     url = (
-        f"{URL_LOCATION_BASE}/mongodb-enterprise-{image}/{version}/{distro}/Dockerfile"
+        f"{URL_LOCATION_BASE}/{image}/{version}/{distro}/Dockerfile"
     )
     return requests.get(url).text
 
@@ -71,7 +76,7 @@ def save_supported_dockerfiles():
         for version in versions:
             for variant in version["variants"]:
                 version_str = version["version"]
-                dockerdir = f"{LOCAL_DOCKERFILE_LOCATION}/mongodb-enterprise-{image}/{version_str}/{variant}"
+                dockerdir = f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version_str}/{variant}"
                 os.makedirs(dockerdir, exist_ok=True)
                 dockerfile = download_dockerfile_from_s3(
                     image, version["version"], variant
