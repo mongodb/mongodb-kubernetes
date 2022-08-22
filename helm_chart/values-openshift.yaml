@@ -47,7 +47,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-enterprise-init-ops-manager
-  version: 1.0.8
+  version: 1.0.9
 
 initAppDb:
   name: mongodb-enterprise-init-appdb

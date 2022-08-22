@@ -176,12 +176,7 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int,
 	conn om.Connection, projectConfig mdbv1.ProjectConfig, certHash string) (appsv1.StatefulSet, error) {
 
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
-
-	configurePodSpecSecurityContext := podtemplatespec.NOOP()
-	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
-	}
+	configurePodSpecSecurityContext, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	// create image for init database container
 	version := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
@@ -199,6 +194,18 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	mmsCAVolume := podtemplatespec.NOOP()
 	if projectConfig.SSLMMSCAConfigMap != "" {
 		mmsCAVolume = podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(construct.CaCertName, projectConfig.SSLMMSCAConfigMap))
+	}
+
+	volumeMounts := make([]corev1.VolumeMount, 0)
+	volumes := make([]corev1.Volume, 0)
+	volumes, volumeMounts = construct.GetNonPersistentMongoDBVolumeMounts(volumes, volumeMounts)
+	volumes, volumeMounts = construct.GetNonPersistentAgentVolumeMounts(volumes, volumeMounts)
+	volumeMounts = append(volumeMounts, mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName(), projectConfig, mdbm.Spec.GetPersistence())...)
+
+	volumesFunc := func(spec *corev1.PodTemplateSpec) {
+		for _, v := range volumes {
+			podtemplatespec.WithVolume(v)(spec)
+		}
 	}
 
 	// create the statefulSet modifications
@@ -224,18 +231,23 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
+					container.WithVolumeMounts(volumeMounts),
+					container.WithEnvs(mongodbEnv(conn, projectConfig)...),
 					container.WithVolumeMounts(mongodbVolumeMount(mdbm.GetHostNameOverrideConfigmapName(), projectConfig, mdbm.Spec.GetPersistence())),
 					container.WithEnvs(mongodbEnv(conn, projectConfig)...),
+					containerSecurityContext,
 				)),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromEmptyDir("database-scripts")),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(mdbm.GetHostNameOverrideConfigmapName(), mdbm.GetHostNameOverrideConfigmapName())),
 			podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, agents.ApiKeySecretName(conn.GroupID()))),
+			volumesFunc,
 			podtemplatespec.WithTerminationGracePeriodSeconds(600),
 			podtemplatespec.WithInitContainerByIndex(0,
 				container.WithName(construct.InitDatabaseContainerName),
 				container.WithImage(initContainerImageURL),
 				container.WithImagePullPolicy(corev1.PullAlways),
 				container.WithVolumeMounts(mongodbInitVolumeMount(mdbm.GetHostNameOverrideConfigmapName())),
+				containerSecurityContext,
 			),
 			mmsCAVolume,
 		)),

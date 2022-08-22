@@ -12,6 +12,23 @@ cleanup () {
 # we need to change the Home directory for current bash so that the gen key was found correctly
 # (the key is searched in "${HOME}/.mongodb-mms/gen.key")
 HOME=${MMS_HOME}
+CONFIG_TEMPLATE_DIR=${MMS_HOME}/conf-template
+CONFIG_DIR=${MMS_HOME}/conf
+
+if [ -d "${CONFIG_TEMPLATE_DIR}" ]
+then
+    if [ "$(ls -A $CONFIG_DIR)" ]; then
+        echo "The ${CONFIG_DIR} directory is not empty. Skipping copying files from ${CONFIG_TEMPLATE_DIR}"
+        echo "This might cause errors when booting up the OpsManager with read-only root filesystem"
+    else
+        echo "Copying ${CONFIG_TEMPLATE_DIR} content to ${CONFIG_DIR}"
+        cp "${CONFIG_TEMPLATE_DIR}"/* "${CONFIG_DIR}"
+        echo "Done copying ${CONFIG_TEMPLATE_DIR} content to ${CONFIG_DIR}"
+    fi
+else
+    echo "It seems you're running an older version of the Ops Manager image."
+    echo "Please pull the latest one."
+fi
 
 # Execute script that updates properties and conf file used to start ops manager
 echo "Updating configuration properties file ${MMS_PROP_FILE} and conf file ${MMS_CONF_FILE}"

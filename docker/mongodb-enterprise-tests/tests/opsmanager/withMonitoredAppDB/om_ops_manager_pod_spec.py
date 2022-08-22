@@ -191,8 +191,57 @@ class TestOpsManagerCreation:
                     "mount_propagation": None,
                     "read_only": None,
                 },
+                {
+                    "name": "data",
+                    "mount_path": "/mongodb-ops-manager/logs",
+                    "sub_path": "logs",
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "data",
+                    "mount_path": "/mongodb-ops-manager/tmp",
+                    "sub_path": "tmp-ops-manager",
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "data",
+                    "mount_path": "/tmp",
+                    "sub_path": "tmp",
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "data",
+                    "mount_path": "/mongodb-ops-manager/conf",
+                    "sub_path": "conf",
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "data",
+                    "mount_path": "/etc/mongodb-mms",
+                    "sub_path": "etc-ops-manager",
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                },
+                {
+                    "name": "data",
+                    "mount_path": "/mongodb-ops-manager/mongodb-releases",
+                    "sub_path": "mongodb-releases",
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": None,
+                }
             ],
         }
+
         for k in expected_spec:
             if k == "volume_mounts":
                 continue
@@ -203,7 +252,7 @@ class TestOpsManagerCreation:
         )
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
-        assert len(sts.spec.template.spec.volumes) == 4
+        assert len(sts.spec.template.spec.volumes) == 5
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()

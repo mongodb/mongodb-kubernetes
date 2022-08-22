@@ -22,5 +22,9 @@ def assert_pod_security_context(pod: client.V1Pod, managed: bool):
 
 
 def assert_pod_container_security_context(container: client.V1Container, managed: bool):
-    assert container.security_context is None
+    sc = container.security_context
 
+    if managed:
+        assert sc is None
+    else:
+        assert sc.read_only_root_filesystem

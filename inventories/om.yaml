@@ -9,6 +9,8 @@ images:
   vars:
     context: docker/mongodb-enterprise-ops-manager
 
+  platform: linux/amd64
+
   stages:
   - name: ops-manager-context
     task_type: docker_build

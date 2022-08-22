@@ -356,13 +356,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		PodAntiAffinityLabelKey: opts.Name,
 	}
 
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
-
-	configureContainerSecurityContext := container.NOOP()
-	configurePodSpecSecurityContext := podtemplatespec.NOOP()
-	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
-	}
+	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	configureImagePullSecrets := podtemplatespec.NOOP()
 	name, found := env.Read(util.ImagePullSecrets)
@@ -386,6 +380,8 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	if opts.Persistent == nil || *opts.Persistent {
 		pvcFuncs, mounts = buildPersistentVolumeClaimsFuncs(opts)
 		volumeMounts = append(volumeMounts, mounts...)
+	} else {
+		volumes, volumeMounts = GetNonPersistentMongoDBVolumeMounts(volumes, volumeMounts)
 	}
 
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
@@ -582,6 +578,8 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
+
 	return volumesToAdd, volumeMounts
 }
 
@@ -639,12 +637,7 @@ func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
 // between the appDb and MongoDB resources
 func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
-
-	configurePodSpecSecurityContext := podtemplatespec.NOOP()
-	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
-	}
+	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
 	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
@@ -665,6 +658,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+				configureContainerSecurityContext,
 			),
 		),
 	)
@@ -805,4 +799,30 @@ func newDefaultPodSpec() mdbv1.MongoDbPodSpec {
 		Build()
 
 	return podSpecWrapper.MongoDbPodSpec
+}
+
+// GetNonPersistentMongoDBVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the database container.
+func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvcNameData))
+
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, statefulset.WithSubPath(util.PvcNameData)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathLogs, statefulset.WithSubPath(util.PvcNameLogs)))
+
+	return volumes, volumeMounts
+}
+
+// GetNonPersistentAgentVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the Agent container.
+func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvMms))
+
+	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
+	// This one is published by the Dockerfile
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+
+	// Runtime data for MMS
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))
+
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+	return volumes, volumeMounts
 }
