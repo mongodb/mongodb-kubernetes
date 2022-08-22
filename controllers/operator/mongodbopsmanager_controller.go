@@ -282,7 +282,7 @@ func ensureSharedGlobalResources(secretGetUpdaterCreator secret.GetUpdateCreator
 	return nil
 }
 
-//ensureResourcesForArchitectureChange ensures that the new resources expected to be present.
+// ensureResourcesForArchitectureChange ensures that the new resources expected to be present.
 func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpdateCreator, opsManager omv1.MongoDBOpsManager) error {
 	acSecret, err := secretGetUpdaterCreator.GetSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()))
 

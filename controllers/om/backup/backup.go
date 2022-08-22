@@ -20,36 +20,41 @@ const (
 
 /*
 for sharded cluster:
-{
-  "clusterName": "shannon",
-  "groupId": "5ba0c398a957713d7f8653bd",
-  "id": "5ba3d344a957713d7f8f43fd",
-  "lastHeartbeat": "2018-09-20T17:12:28Z",
-  "links": [ ... ],
-  "shardName": "shannon-0",
-  "typeName": "SHARDED_REPLICA_SET"
-}
+
+	{
+	  "clusterName": "shannon",
+	  "groupId": "5ba0c398a957713d7f8653bd",
+	  "id": "5ba3d344a957713d7f8f43fd",
+	  "lastHeartbeat": "2018-09-20T17:12:28Z",
+	  "links": [ ... ],
+	  "shardName": "shannon-0",
+	  "typeName": "SHARDED_REPLICA_SET"
+	}
+
 for sharded cluster member:
-{
-  "clusterName": "shannon",
-  "groupId": "5ba0c398a957713d7f8653bd",
-  "id": "5ba4ec37a957713d7f9bcba0",
-  "lastHeartbeat": "2018-09-24T12:41:05Z",
-  "links": [ ... ],
-  "replicaSetName": "shannon-0",
-  "shardName": "shannon-0",
-  "typeName": "REPLICA_SET"
-}
+
+	{
+	  "clusterName": "shannon",
+	  "groupId": "5ba0c398a957713d7f8653bd",
+	  "id": "5ba4ec37a957713d7f9bcba0",
+	  "lastHeartbeat": "2018-09-24T12:41:05Z",
+	  "links": [ ... ],
+	  "replicaSetName": "shannon-0",
+	  "shardName": "shannon-0",
+	  "typeName": "REPLICA_SET"
+	}
+
 for replica set:
-{
-  "clusterName": "liffey",
-  "groupId": "5ba0c398a957713d7f8653bd",
-  "id": "5ba8db64a957713d7fa5018b",
-  "lastHeartbeat": "2018-09-24T12:41:08Z",
-  "links": [ ... ],
-  "replicaSetName": "liffey",
-  "typeName": "REPLICA_SET"
-}
+
+	{
+	  "clusterName": "liffey",
+	  "groupId": "5ba0c398a957713d7f8653bd",
+	  "id": "5ba8db64a957713d7fa5018b",
+	  "lastHeartbeat": "2018-09-24T12:41:08Z",
+	  "links": [ ... ],
+	  "replicaSetName": "liffey",
+	  "typeName": "REPLICA_SET"
+	}
 */
 type HostCluster struct {
 	ReplicaSetName string `json:"replicaSetName"`

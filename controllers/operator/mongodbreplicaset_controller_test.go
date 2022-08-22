@@ -399,8 +399,8 @@ func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
 }
 
-//TestReplicaSet_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
-//map that allows to watch them for changes
+// TestReplicaSet_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
+// map that allows to watch them for changes
 func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
@@ -416,8 +416,8 @@ func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
-//TestTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
-//map that allows to watch them for changes
+// TestTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
+// map that allows to watch them for changes
 func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").Build()
 

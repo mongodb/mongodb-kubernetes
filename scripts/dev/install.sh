@@ -6,8 +6,6 @@ source scripts/funcs/printing
 title "The following tools will be installed: kubectl, kops, helm, coreutils"
 echo "Note, that you must download 'go' and Docker by yourself"
 
-grep -a "GO111MODULE=on" ~/.bashrc || echo "export GO111MODULE=on" >> ~/.bashrc
-grep -a 'GOFLAGS="-mod=vendor"' ~/.bashrc || echo 'export GOFLAGS="-mod=vendor"' >> ~/.bashrc
 grep -a "KOPS_STATE_STORE='s3://kube-om-state-store'" ~/.bashrc || echo "export KOPS_STATE_STORE='s3://kube-om-state-store'" >> ~/.bashrc
 grep -a "/usr/local/opt/coreutils/libexec/gnubin:\$PATH" ~/.bashrc || echo "PATH=\"/usr/local/opt/coreutils/libexec/gnubin:\$PATH\"" >> ~/.bashrc
 

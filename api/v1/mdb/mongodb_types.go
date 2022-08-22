@@ -214,10 +214,12 @@ type MongoDBList struct {
 
 // MongoDBHorizonConfig holds a map of horizon names to the node addresses,
 // e.g.
-// {
-//   "internal": "my-rs-2.my-internal-domain.com:31843",
-//   "external": "my-rs-2.my-external-domain.com:21467"
-// }
+//
+//	{
+//	  "internal": "my-rs-2.my-internal-domain.com:31843",
+//	  "external": "my-rs-2.my-external-domain.com:21467"
+//	}
+//
 // The key of each item in the map is an arbitrary, user-chosen string that
 // represents the name of the horizon. The value of the item is the host and,
 // optionally, the port that this mongod node will be connected to from.
@@ -561,7 +563,7 @@ func (s Security) InternalClusterAuthSecretName(defaultName string) string {
 // RequiresClientTLSAuthentication checks if client TLS authentication is required, depending
 // on a set of defined attributes in the MongoDB resource. This can be explicitly set, setting
 // `Authentication.RequiresClientTLSAuthentication` to true or implicitly by setting x509 auth
-//  as the only auth mechanism.
+// as the only auth mechanism.
 func (s Security) RequiresClientTLSAuthentication() bool {
 	if s.Authentication == nil {
 		return false

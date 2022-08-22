@@ -64,8 +64,8 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	})
 }
 
-//TestBuildStatefulSet_PersistentVolumeClaimMultiple checks multiple volumes for multiple mounts. Note, that subpaths
-//for mount points are not created (unlike in single mode)
+// TestBuildStatefulSet_PersistentVolumeClaimMultiple checks multiple volumes for multiple mounts. Note, that subpaths
+// for mount points are not created (unlike in single mode)
 func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	labels1 := map[string]string{"app": "bar"}
 	labels2 := map[string]string{"app": "foo"}

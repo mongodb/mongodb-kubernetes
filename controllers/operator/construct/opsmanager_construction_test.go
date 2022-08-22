@@ -1,9 +1,10 @@
 package construct
 
 import (
-	"k8s.io/utils/pointer"
 	"os"
 	"testing"
+
+	"k8s.io/utils/pointer"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 

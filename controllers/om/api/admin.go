@@ -312,7 +312,7 @@ func (a *DefaultOmAdmin) ReadGlobalAPIKeys() ([]Key, error) {
 	return apiKeyResponse.ApiKeys, nil
 }
 
-//addWhitelistEntryIfItDoesntExist adds a whitelist through OM API. If it already exists, in just retun
+// addWhitelistEntryIfItDoesntExist adds a whitelist through OM API. If it already exists, in just retun
 func (a *DefaultOmAdmin) addWhitelistEntryIfItDoesntExist(cidrBlock string, description string) error {
 	_, _, err := a.post("admin/whitelist", Whitelist{
 		CidrBlock:   cidrBlock,
