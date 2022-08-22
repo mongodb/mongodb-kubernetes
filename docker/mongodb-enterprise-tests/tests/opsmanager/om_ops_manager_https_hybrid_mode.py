@@ -109,5 +109,5 @@ def test_config_map_has_ca_set_correctly(
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid
 def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, ca_path: str):
-    replicaset0.assert_reaches_phase(Phase.Running, timeout=360, ignore_errors=True)
+    replicaset0.assert_reaches_phase(Phase.Running, timeout=400, ignore_errors=True)
     replicaset0.assert_connectivity(ca_path=ca_path)

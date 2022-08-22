@@ -28,14 +28,14 @@ CONFIGURED_PROMETHEUS_PORT = 9999
 def ops_manager(
     namespace: str,
     custom_appdb_version: str,
+    custom_version: str,
     issuer: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
 
-    # TODO(om60): Change this version to point at OM60 when released.
-    resource.set_version("5.9.0")
+    resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
     resource["spec"]["replicas"] = 1

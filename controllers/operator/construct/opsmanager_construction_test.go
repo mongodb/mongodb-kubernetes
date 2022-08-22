@@ -1,6 +1,7 @@
 package construct
 
 import (
+	"k8s.io/utils/pointer"
 	"os"
 	"testing"
 
@@ -52,6 +53,9 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 		Name:         util.InitOpsManagerContainerName,
 		Image:        "test-registry:latest",
 		VolumeMounts: expectedVolumeMounts,
+		SecurityContext: &corev1.SecurityContext{
+			ReadOnlyRootFilesystem: pointer.Bool(true),
+		},
 	}
 	assert.Equal(t, expectedContainer, container)
 

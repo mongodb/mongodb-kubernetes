@@ -5,11 +5,11 @@
   },
   "mongodbOperator": "1.16.4",
   "initDatabaseVersion": "1.0.11",
-  "initOpsManagerVersion": "1.0.8",
+  "initOpsManagerVersion": "1.0.9",
   "initAppDbVersion": "1.0.11",
   "databaseImageVersion": "2.0.2",
   "readinessProbeVersion": "1.0.10",
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "11.12.0.7388-1",
-  "communityOperatorVersion": "0.7.5"
+  "communityOperatorVersion": "0.7.6-0.20220816124201-923b61465d3e"
 }

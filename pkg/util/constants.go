@@ -53,7 +53,7 @@ const (
 	// (if false) or to not generate them (if true).
 	UseCustomCAConfigMap = "useCustomCA"
 
-	SSLMMSCAMountPath = "/mongodb-automation/certs"
+	SSLMMSCAMountPath = PvcMmsHomeMountPath + "/certs"
 	// SSLMMSCALocation Specifies where the CA certificate should be mounted.
 	SSLMMSCALocation = SSLMMSCAMountPath + "/ca.crt"
 	// CaCertMMS is the name of the CA file provided for MMS.
@@ -87,18 +87,25 @@ const (
 	PvcMountPathLogs            = "/var/log/mongodb-mms-automation"
 	PvcNameHeadDb               = "head"
 	PvcMountPathHeadDb          = "/head/"
-	CAFilePathInContainer       = "/mongodb-automation/ca.pem"
-	PEMKeyFilePathInContainer   = "/mongodb-automation/server.pem"
+	PvcNameTmp                  = "tmp"
+	PvcMountPathTmp             = "/tmp"
+	PvcMmsHome                  = "mongodb-automation"
+	PvcMmsHomeMountPath         = "/mongodb-automation"
+	CAFilePathInContainer       = PvcMmsHomeMountPath + "/ca.pem"
+	PEMKeyFilePathInContainer   = PvcMmsHomeMountPath + "/server.pem"
+	PvcMms                      = "mongodb-mms-automation"
+	PvcMmsMountPath             = "/var/lib/mongodb-mms-automation"
+	PvMms                       = "agent"
+	AgentDownloadsDir           = PvcMmsMountPath + "/downloads"
 
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
 
 	AutomationAgentName         = "mms-automation-agent"
 	AutomationAgentPemSecretKey = AutomationAgentName + "-pem"
-	AutomationAgentPemFilePath  = "/mongodb-automation/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
+	AutomationAgentPemFilePath  = PvcMmsHomeMountPath + "/" + AgentSecretName + "/" + AutomationAgentPemSecretKey
 	RunAsUser                   = 2000
 	FsGroup                     = 2000
-	AgentDownloadsDir           = "/var/lib/mongodb-mms-automation/downloads"
 
 	// Service accounts
 	OpsManagerServiceAccount = "mongodb-enterprise-ops-manager"
@@ -114,7 +121,7 @@ const (
 	RequireClientCertificates         = "REQUIRE"
 	OptionalClientCertficates         = "OPTIONAL"
 	ClusterFileName                   = "clusterfile"
-	InternalClusterAuthMountPath      = "/mongodb-automation/cluster-auth/"
+	InternalClusterAuthMountPath      = PvcMmsHomeMountPath + "/cluster-auth/"
 	DefaultUserDatabase               = "admin"
 	X509                              = "X509"
 	SCRAM                             = "SCRAM"
@@ -133,7 +140,7 @@ const (
 
 	//AutomationAgentKeyFilePathInContainer is the default path of the keyfile and should be
 	// kept as is for the same reason as above
-	AutomationAgentKeyFilePathInContainer = "/var/lib/mongodb-mms-automation/keyfile"
+	AutomationAgentKeyFilePathInContainer = PvcMmsMountPath + "/keyfile"
 
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
@@ -190,6 +197,19 @@ const (
 	AppDbConnectionStringKey           = "connectionString"
 	AppDbProjectIdKey                  = "projectId"
 
+	// Below is a list of non-persistent PV and PVCs for OpsManager
+	OpsManagerPvcNameData       = "data"
+	OpsManagerPvcNameConf       = "conf"
+	OpsManagerPvcMountPathConf  = "/mongodb-ops-manager/conf"
+	OpsManagerPvcNameLogs       = "logs"
+	OpsManagerPvcMountPathLogs  = "/mongodb-ops-manager/logs"
+	OpsManagerPvcNameTmp        = "tmp-ops-manager"
+	OpsManagerPvcMountPathTmp   = "/mongodb-ops-manager/tmp"
+	OpsManagerPvcNameDownloads  = "mongodb-releases"
+	OpsManagerPvcMountDownloads = "/mongodb-ops-manager/mongodb-releases"
+	OpsManagerPvcNameEtc        = "etc-ops-manager"
+	OpsManagerPvcMountPathEtc   = "/etc/mongodb-mms"
+
 	// Ops Manager configuration properties
 	MmsCentralUrlPropKey    = "mms.centralUrl"
 	MmsMongoUri             = "mongo.mongoUri"
@@ -207,8 +227,8 @@ const (
 
 	SecretVolumeMountPathPrometheus = SecretVolumeMountPath + "/prometheus"
 
-	TLSCertMountPath = "/mongodb-automation/tls"
-	TLSCaMountPath   = "/mongodb-automation/tls/ca"
+	TLSCertMountPath = PvcMmsHomeMountPath + "/tls"
+	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
 
 	// TODO: remove this from here and move it to the certs package
 	// This currently creates an import cycle

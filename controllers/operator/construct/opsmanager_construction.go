@@ -208,7 +208,6 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 
 // opsManagerStatefulSetFunc constructs the default Ops Manager StatefulSet modification function.
 func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
-
 	postStart := func(lc *corev1.Lifecycle) {}
 	caVolumeFunc := podtemplatespec.NOOP()
 	caVolumeMountFunc := container.NOOP()
@@ -225,6 +224,8 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 		}
 	}
 
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
 	return statefulset.Apply(
 		backupAndOpsManagerSharedConfiguration(opts),
 		statefulset.WithPodSpecTemplate(
@@ -235,6 +236,7 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						caVolumeMountFunc,
+						configureContainerSecurityContext,
 						container.WithLifecycle(postStart),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
@@ -250,13 +252,9 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 // backupAndOpsManagerSharedConfiguration returns a function which configures all of the shared
 // options between the backup and Ops Manager StatefulSet
 func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) statefulset.Modification {
-	managedSecurityContext, _ := env.ReadBool(util.ManagedSecurityContextEnv)
 	omImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.OpsManagerImageUrl), opts.Version)
 
-	configurePodSpecSecurityContext := podtemplatespec.NOOP()
-	if !managedSecurityContext {
-		configurePodSpecSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
-	}
+	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
 	if pullSecrets, ok := env.Read(util.ImagePullSecrets); ok {
@@ -352,6 +350,8 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 		stsLabels[k] = v
 	}
 
+	omVolumes, omVolumeMounts = getNonPersistentOpsManagerVolumeMounts(omVolumes, omVolumeMounts, opts)
+
 	return statefulset.Apply(
 		statefulset.WithLabels(stsLabels),
 		statefulset.WithMatchLabels(labels),
@@ -385,6 +385,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 						container.WithEnvs(getOpsManagerHTTPSEnvVars(opts.HTTPSCertSecretName, opts.CertHash)...),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithVolumeMounts(omVolumeMounts),
+						configureContainerSecurityContext,
 					),
 				),
 			),
@@ -413,10 +414,13 @@ func buildOpsManagerAndBackupInitContainer() container.Modification {
 	version := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitOpsManagerImageUrl), version)
 
+	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+
 	return container.Apply(
 		container.WithName(util.InitOpsManagerContainerName),
 		container.WithImage(initContainerImageURL),
 		container.WithVolumeMounts([]corev1.VolumeMount{buildOmScriptsVolumeMount(false)}),
+		configureContainerSecurityContext,
 	)
 }
 
@@ -499,4 +503,36 @@ func postStartScriptCmd() string {
 	return fmt.Sprintf(
 		`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s/ca-pem`, MMSHome, MMSHome, util.AppDBMmsCaFileDirInContainer,
 	)
+}
+
+func hasReleasesVolumeMount(opts OpsManagerStatefulSetOptions) bool {
+	if opts.StatefulSetSpecOverride != nil {
+		for _, c := range opts.StatefulSetSpecOverride.Template.Spec.Containers {
+			for _, vm := range c.VolumeMounts {
+				if vm.MountPath == util.OpsManagerPvcMountDownloads {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, opts OpsManagerStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.OpsManagerPvcNameData))
+
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+
+	// This content is used by the Ops Manager to download mongodbs. Mount it only if there's no downloads override (like in om_localmode-multiple-pv.yaml for example)
+	if !hasReleasesVolumeMount(opts) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountDownloads, statefulset.WithSubPath(util.OpsManagerPvcNameDownloads)))
+	}
+
+	// This content is populated by the docker-entry-point.sh. It's being copied from conf-template
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathConf, statefulset.WithSubPath(util.OpsManagerPvcNameConf)))
+
+	return volumes, volumeMounts
 }

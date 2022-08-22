@@ -37,6 +37,10 @@ const (
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv             = "HEADLESS_AGENT"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
+	// Since the Monitoring Agent is created based on Agent's Pod spec (we modfy it using addMonitoringContainer),
+	// We can not reuse "tmp" here - this name is already taken and could lead to a clash. It's better to
+	// come up with a unique name here.
+	tmpSubpathName = "mongodb-agent-monitoring-tmp"
 )
 
 type AppDBStatefulSetOptions struct {
@@ -421,7 +425,6 @@ func replaceImageTag(image string, newTag string) string {
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
 func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions) podtemplatespec.Modification {
-
 	var monitoringAcVolume corev1.Volume
 	var monitoringACFunc podtemplatespec.Modification
 
@@ -434,7 +437,6 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 		secretsToInject.AutomationConfigPath = util.AppDBMonitoringAutomationConfigKey
 		secretsToInject.AgentType = "monitoring-agent"
 		monitoringACFunc = podtemplatespec.WithAnnotations(secretsToInject.AppDBAnnotations(appDB.Namespace))
-
 	} else {
 		// Create a volume to store the monitoring automation config.
 		// This is different from the AC for the automation agent, since:
@@ -453,7 +455,6 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	if vault.IsVaultSecretBackend() {
 		command += " -cluster /var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
 	} else {
-
 		command += " -cluster /var/lib/automation/config/" + util.AppDBAutomationConfigKey
 	}
 
@@ -518,6 +519,11 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 			configMapIndex := getVolumeMountIndexByName(volumeMounts, "automation-config-goal-version")
 			if configMapIndex != -1 {
 				volumeMounts[configMapIndex].Name = monitoringConfigMapVolume.Name
+			}
+
+			tmpVolumeMountIndex := getVolumeMountIndexByName(volumeMounts, util.PvcNameTmp)
+			if tmpVolumeMountIndex != -1 {
+				volumeMounts[tmpVolumeMountIndex].SubPath = tmpSubpathName
 			}
 
 			// Set up custom persistence options - see customPersistenceConfig() for an explanation
