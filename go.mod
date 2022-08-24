@@ -13,7 +13,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/vault/api v1.7.2
 	github.com/imdario/mergo v0.3.13
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.6-0.20220816124201-923b61465d3e
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.6-0.20220824081808-dcf511714c0c
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/common v0.37.0
