@@ -28,3 +28,4 @@ def assert_pod_container_security_context(container: client.V1Container, managed
         assert sc is None
     else:
         assert sc.read_only_root_filesystem
+        assert sc.allow_privilege_escalation is False

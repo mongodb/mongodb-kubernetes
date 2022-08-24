@@ -55,7 +55,8 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 		Image:        "test-registry:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
-			ReadOnlyRootFilesystem: pointer.Bool(true),
+			ReadOnlyRootFilesystem:   pointer.Bool(true),
+			AllowPrivilegeEscalation: pointer.Bool(false),
 		},
 	}
 	assert.Equal(t, expectedContainer, container)
