@@ -197,6 +197,9 @@ type ClusterSpecItem struct {
 	Members int `json:"members,omitempty"`
 	// +optional
 	StatefulSetConfiguration mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
+	// for a reconcilliation
+	Discard bool `json:"-"`
 }
 
 // ClusterStatusList holds a list of clusterStatuses corresponding to each cluster
@@ -295,7 +298,8 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
 func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
-	clusterSpecs := m.Spec.GetOrderedClusterSpecList()
+	clusterSpecs := m.Spec.GetClusterSpecList()
+
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
 		return nil, err
@@ -305,7 +309,7 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 		return clusterSpecs, nil
 	}
 
-	prevSpecs := prevSpec.GetOrderedClusterSpecList()
+	prevSpecs := prevSpec.GetClusterSpecList()
 
 	var specsForThisReconciliation []ClusterSpecItem
 	specsForThisReconciliation = append(specsForThisReconciliation, prevSpecs...)
@@ -362,6 +366,16 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 		if item.Members < prevItem.Members {
 			specsForThisReconciliation[m.ClusterIndex(item.ClusterName)].Members -= 1
 			return specsForThisReconciliation, nil
+		}
+	}
+
+	// remove the clusters from the spec which shouldn't be reconciled because we don't have
+	// a corresponsing client for them in the clusterClientMap
+	for n, currentSpec := range specsForThisReconciliation {
+		for _, clusterSpec := range clusterSpecs {
+			if clusterSpec.ClusterName == currentSpec.ClusterName && clusterSpec.Discard {
+				specsForThisReconciliation = removeFromSlice(specsForThisReconciliation, n)
+			}
 		}
 	}
 
@@ -506,10 +520,9 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 	return *m.Persistent
 }
 
-// GetOrderedClusterSpecList returns the cluster spec items sorted by name.
-func (m *MongoDBMultiSpec) GetOrderedClusterSpecList() []ClusterSpecItem {
-	clusterSpecs := m.ClusterSpecList.ClusterSpecs
-	return clusterSpecs
+// GetClusterSpecList returns the cluster spec items.
+func (m *MongoDBMultiSpec) GetClusterSpecList() []ClusterSpecItem {
+	return m.ClusterSpecList.ClusterSpecs
 }
 
 // ClusterIndex returns the index associated with a given clusterName, it assigns a unique id to each
@@ -544,7 +557,7 @@ func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
 // to complete.
 func (m MongoDBMulti) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
-	for _, spec := range m.Spec.GetOrderedClusterSpecList() {
+	for _, spec := range m.Spec.GetClusterSpecList() {
 		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterIndex(spec.ClusterName), spec.Members)...)
 	}
 	builder := connectionstring.Builder().
@@ -573,4 +586,10 @@ func getNextIndex(m map[string]int) int {
 		maxi = intp.Max(maxi, val)
 	}
 	return maxi + 1
+}
+
+// removes the nth index element from the slice
+func removeFromSlice(arr []ClusterSpecItem, n int) []ClusterSpecItem {
+	arr[n] = arr[len(arr)-1]
+	return arr[:len(arr)-1]
 }

@@ -137,3 +137,20 @@ def test_update_mongodb_multi_to_failed_state(
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_operator_pod_restart(multi_cluster_operator: Operator):
+    multi_cluster_operator.restart_operator_deployment()
+    multi_cluster_operator.assert_is_running()
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_mongodb_multi_is_in_failed_state(mongodb_multi: MongoDBMulti):
+    mongodb_multi.assert_reaches_phase(Phase.Failed)
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_replica_set_is_reachable_after_operator_restart(mongodb_multi: MongoDBMulti):
+    tester = mongodb_multi.tester()
+    tester.assert_connectivity()

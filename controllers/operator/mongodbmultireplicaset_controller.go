@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -120,6 +121,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
+	// filter clusterSpecList
+	clusterErr := r.validateClusterSpecList(&mrs, log)
+
 	err = r.reconcileServices(log, &mrs)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
@@ -166,7 +170,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, status, log)
 	}
 
-	desiredSpecList := mrs.Spec.GetOrderedClusterSpecList()
+	desiredSpecList := mrs.Spec.GetClusterSpecList()
 	actualSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
@@ -189,6 +193,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	needToRequeue := !reflect.DeepEqual(desiredSpecList, effectiveSpecList)
 	if needToRequeue {
 		return r.updateStatus(&mrs, workflow.Pending("MongoDBMulti deployment is not yet ready, requeing reconciliation."), log)
+	}
+
+	if clusterErr != nil {
+		log.Errorf("Failed to reconcile on few clusters, err: %s", err)
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
@@ -248,7 +256,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mr
 
 // isScalingDown returns true if the MongoDBMulti is attempting to scale down.
 func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
-	desiredSpec := mrs.Spec.GetOrderedClusterSpecList()
+	desiredSpec := mrs.Spec.GetClusterSpecList()
 	specThisReconciliation, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return false, err
@@ -640,7 +648,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		return err
 	}
 
-	// create non-duplicate service objects
 	for _, e := range clusterSpecList {
 		client := r.memberClusterClientsMap[e.ClusterName]
 
@@ -723,6 +730,35 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.Sugare
 		log.Infof("Sucessfully ensured configmap: %s in cluster: %s", cm.Name, cluster.ClusterName)
 	}
 	return nil
+}
+
+// validateClusterSpecList validates the clusters present in the ClusterSpecList of the CR and ensures
+// that it is a subset of the cluster present in the clusterClientMap.
+func (r *ReconcileMongoDbMultiReplicaSet) validateClusterSpecList(mrs *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
+
+	var errors []string
+	var clusterError error
+	specItems, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		r.updateStatus(mrs, workflow.Failed(err.Error()), log)
+	}
+
+	if len(r.memberClusterClientsMap) < len(specItems) {
+		for n, e := range specItems {
+			if _, ok := r.memberClusterClientsMap[e.ClusterName]; !ok {
+				// add to the error array to propagate to the status and make remove the element from the cluster spec list
+				specItems[n].Discard = true
+				errors = append(errors, fmt.Errorf("cluster %s is not configured in operator deployment", e.ClusterName).Error())
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		clusterError = fmt.Errorf(strings.Join(errors, "\n"))
+		mrs.Spec.ClusterSpecList.ClusterSpecs = specItems
+	}
+
+	return clusterError
 }
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller

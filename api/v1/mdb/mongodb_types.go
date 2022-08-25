@@ -212,17 +212,13 @@ type MongoDBList struct {
 	Items           []MongoDB `json:"items"`
 }
 
-// MongoDBHorizonConfig holds a map of horizon names to the node addresses,
-// e.g.
-//
-//	{
-//	  "internal": "my-rs-2.my-internal-domain.com:31843",
-//	  "external": "my-rs-2.my-external-domain.com:21467"
-//	}
-//
-// The key of each item in the map is an arbitrary, user-chosen string that
-// represents the name of the horizon. The value of the item is the host and,
-// optionally, the port that this mongod node will be connected to from.
+// MongoDBHorizonConfig holds a map of horizon
+// names to the node addresses, e.g. {   "internal": "my-rs-2.my-internal-domain.com:31843",   "external":
+// "my-rs-2.my-external-domain.com:21467" } The key of each
+// item in the map is an arbitrary, user-chosen string that
+// represents the name of the horizon. The value of the item
+// is the host and, optionally, the port that this mongod
+// node will be connected to from.
 type MongoDBHorizonConfig map[string]string
 
 type MongoDBConnectivity struct {

@@ -137,16 +137,6 @@ class Operator(object):
             assert pods[0].status.container_statuses[0].ready
             time.sleep(1)
 
-    def assert_is_error(self):
-        """Makes 3 checks that the Operator is in error state with 1 second interval."""
-        for _ in range(0, 6):
-            pods = self.list_operator_pods()
-            assert len(pods) == 1
-            if pods[0].status.phase == "Running":
-                continue
-            assert pods[0].status.phase == "Error"
-            time.sleep(1)
-
     def _wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
         # we need to give some time for the new pod to start instead of the existing one (if any)
@@ -251,6 +241,30 @@ class Operator(object):
         webhook_api.replace_validating_webhook_configuration(
             "mdbpolicy.mongodb.com", webhook
         )
+
+    def restart_operator_deployment(self):
+        client.AppsV1Api(api_client=self.api_client).patch_namespaced_deployment_scale(
+            self.name,
+            self.namespace,
+            [{"op": "replace", "path": "/spec/replicas", "value": 0}],
+        )
+
+        # wait till there are 0 operator pods
+        count = 0
+        while count < 6:
+            pods = self.list_operator_pods()
+            if len(pods) == 0:
+                break
+            time.sleep(3)
+
+        # scale the resource back to 1
+        client.AppsV1Api(api_client=self.api_client).patch_namespaced_deployment_scale(
+            self.name,
+            self.namespace,
+            [{"op": "replace", "path": "/spec/replicas", "value": 1}],
+        )
+
+        return self._wait_for_operator_ready()
 
 
 def delete_operator_crds():
