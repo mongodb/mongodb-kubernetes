@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
@@ -32,7 +34,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/authentication"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/multicluster"
+	mconstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/multicluster"
 	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -354,7 +356,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
 
 		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
-		sts, err := multicluster.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, projectConfig, certHash)
+		sts, err := mconstruct.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, projectConfig, certHash)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}
@@ -580,7 +582,7 @@ func getSRVService(mrs *mdbmultiv1.MongoDBMulti) corev1.Service {
 	svc := service.Builder().
 		SetName(fmt.Sprintf("%s-svc", mrs.Name)).
 		SetNamespace(mrs.Namespace).
-		SetSelector(multicluster.PodLabel(mrs.Name)).
+		SetSelector(mconstruct.PodLabel(mrs.Name)).
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
 		AddPort(&corev1.ServicePort{Port: 27017, Name: "mongodb"}).
@@ -806,8 +808,13 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 		}
 	}
 
-	// TODO: add watch predicates for other objects like sts/secrets/configmaps while we implement the reconcile
-	// logic for those objects
+	// if the operator should perform auto remediation it should keep watching the member clusters'
+	// API servers to determine whether the clsters are healthy or not
+	if multicluster.ShouldPerformFailover() {
+		eventChannel := make(chan event.GenericEvent)
+		go memberwatch.WatchMemeberClusterHealth(zap.S(), eventChannel, reconciler.memberClusterClientsMap, reconciler.client)
+	}
+
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
 	return err
 }

@@ -3,6 +3,7 @@ package multicluster
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 
@@ -67,6 +68,17 @@ func LoadKubeConfigFile() (KubeConfigFile, error) {
 // In multi-cluster mode the operator is passsed the name of the CRD in command line arguments.
 func IsMultiClusterMode(crdsToWatch string) bool {
 	return strings.Contains(crdsToWatch, "mongodbmulti")
+}
+
+// shouldPerformFailover checks if the operator is configured to perform automatic failover
+// of the MongoDB Replicaset members spread over multiple Kubernetes clusters.
+func ShouldPerformFailover() bool {
+	str := os.Getenv("PERFORM_FAILOVER")
+	val, err := strconv.ParseBool(str)
+	if err != nil {
+		return false
+	}
+	return val
 }
 
 // KubeConfigFile represents the contents of a KubeConfig file.
