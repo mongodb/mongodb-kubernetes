@@ -154,3 +154,20 @@ def test_mongodb_multi_is_in_failed_state(mongodb_multi: MongoDBMulti):
 def test_replica_set_is_reachable_after_operator_restart(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_unblock_traffic_cluster3(service_entry: CustomObject):
+    service_entry.load()
+    service_entry["spec"]["hosts"] = [
+        "cloud-qa.mongodb.com",
+        "api.e2e.cluster1.mongokubernetes.com",
+        "api.e2e.cluster2.mongokubernetes.com",
+        "api.e2e.cluster3.mongokubernetes.com",
+    ]
+    service_entry.update()
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_mdbm_reaches_running_state(mongodb_multi: MongoDBMulti):
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
