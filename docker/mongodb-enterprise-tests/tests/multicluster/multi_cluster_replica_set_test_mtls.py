@@ -105,7 +105,7 @@ def test_connectivity_fails_from_second_namespace(
     cluster_1_client = member_cluster_clients[0]
 
     cmd = [
-        "mongo",
+        "mongosh",
         "--host",
         f"{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local",
     ]
@@ -118,10 +118,7 @@ def test_connectivity_fails_from_second_namespace(
         api_client=cluster_1_client.api_client,
     )
 
-    assert (
-        "Error: network error while attempting to run command 'isMaster' on host"
-        in result
-    )
+    assert "MongoServerSelectionError: connection <monitor> to" in result
 
     assert "HostNotFound" not in result
 
@@ -205,7 +202,7 @@ def test_connectivity_succeeds_from_second_namespace(
 ):
     cluster_1_client = member_cluster_clients[0]
     cmd = [
-        "mongo",
+        "mongosh",
         "--host",
         f"{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local",
     ]
@@ -228,7 +225,7 @@ def test_connectivity_succeeds_from_second_namespace(
             return False
 
         if (
-            f"connecting to: mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local"
+            f"Connecting to:		mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local:27017"
             not in result
         ):
             return False
