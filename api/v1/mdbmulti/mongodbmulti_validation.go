@@ -3,6 +3,7 @@ package mdbmulti
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -61,7 +62,13 @@ func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
 }
 
 func validateSpecifiedClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
-	kubeConfigFile, err := multicluster.LoadKubeConfigFile()
+	file, err := os.Open(multicluster.KubeConfigPath)
+	if err != nil {
+		v1.ValidationError(fmt.Sprintf("failed to open kubeconfig file: %s, err: %s", multicluster.KubeConfigPath, err))
+	}
+	kubeConfig := multicluster.KubeConfig{Reader: file}
+
+	kubeConfigFile, err := kubeConfig.LoadKubeConfigFile()
 	if err != nil {
 		msg := fmt.Sprintf("Couldn't load kubeconfig file from the path: %s", multicluster.KubeConfigPath)
 		return v1.ValidationError(msg)

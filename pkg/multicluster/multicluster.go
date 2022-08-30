@@ -2,6 +2,7 @@ package multicluster
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -17,20 +18,22 @@ const (
 	KubeConfigPath = "/etc/config/kubeconfig/kubeconfig"
 )
 
-// getClient returns a kubernetes.Clientset using the given context from the
-// specified KubeConfig filepath.
-func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
-	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
-		&clientcmd.ConfigOverrides{
-			CurrentContext: context,
-		}).ClientConfig()
+type KubeConfig struct {
+	Reader io.Reader
+}
 
+// LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
+func (k KubeConfig) LoadKubeConfigFile() (KubeConfigFile, error) {
+	kubeConfigBytes, err := ioutil.ReadAll(k.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client config: %s", err)
+		return KubeConfigFile{}, err
 	}
 
-	return config, nil
+	kubeConfig := KubeConfigFile{}
+	if err := yaml.Unmarshal(kubeConfigBytes, &kubeConfig); err != nil {
+		return KubeConfigFile{}, err
+	}
+	return kubeConfig, nil
 }
 
 // CreateMemberClusterClients creates a client(map of cluster-name to client) to talk to the API-Server corresponding to each member clusters.
@@ -50,18 +53,20 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 	return clusterClientsMap, nil
 }
 
-// LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
-func LoadKubeConfigFile() (KubeConfigFile, error) {
-	kubeConfigBytes, err := ioutil.ReadFile(KubeConfigPath)
+// getClient returns a kubernetes.Clientset using the given context from the
+// specified KubeConfig filepath.
+func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
+		&clientcmd.ConfigOverrides{
+			CurrentContext: context,
+		}).ClientConfig()
+
 	if err != nil {
-		return KubeConfigFile{}, err
+		return nil, fmt.Errorf("failed to create client config: %s", err)
 	}
 
-	kubeConfig := KubeConfigFile{}
-	if err := yaml.Unmarshal(kubeConfigBytes, &kubeConfig); err != nil {
-		return KubeConfigFile{}, err
-	}
-	return kubeConfig, nil
+	return config, nil
 }
 
 // IsMultiClusterMode checks if the operator is running in multi-cluster mode.
