@@ -2,7 +2,8 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.16.5
 
-* Improved security by introducing `readOnlyRootFilesystem` property to all deployed containers. This change also introduces a few additional volumes and volume mounts. 
+* Improved security by introducing `readOnlyRootFilesystem` property to all deployed containers. This change also introduces a few additional volumes and volume mounts.
+* Improved security by introducing `allowPrivilegeEscalation` set to `false` for all containers.
 
 # MongoDB Enterprise Kubernetes Operator 1.16.4
 
