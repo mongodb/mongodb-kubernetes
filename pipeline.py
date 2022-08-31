@@ -5,6 +5,7 @@ and where to fetch and calculate parameters. It uses Sonar.py
 to produce the final images."""
 
 import argparse
+import copy
 import json
 import logging
 import os
@@ -371,7 +372,9 @@ def image_config(
     rh_ospid: str,
     name_prefix: str = "mongodb-enterprise-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
-) -> Dict[str, str]:
+    ubi_suffix: str = "-ubi",
+    ubuntu_suffix: str = "",
+) -> Tuple[str, Dict[str, str]]:
     """Generates configuration for an image suitable to be passed
     to Sonar.
 
@@ -383,12 +386,15 @@ def image_config(
         "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(
             s3_bucket, name_prefix, image_name
         ),
+        "ubi_suffix": ubi_suffix,
+        "ubuntu_suffix": ubuntu_suffix,
     }
 
     if rh_ospid:
         args["rh_registry"] = "scan.connect.redhat.com/ospid-{}/{}{}".format(
             rh_ospid, name_prefix, image_name
         )
+
     return image_name, args
 
 
@@ -420,6 +426,19 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config(
             "mongodb-agent", "b2beced3-e4db-46e1-9850-4b85ab4ff8d6", name_prefix=""
         ),
+        image_config(
+            image_name="mongodb-kubernetes-operator",
+            # This rh_ospid is a RedHat project used only for pushing the operator image.
+            # It is not intended to be used for preflight images and certification process.
+            # It is set because outputs in daily.yml are pushing ubi images to scan.connect.redhat.com also.
+            rh_ospid="630cd2cecc80b375a434ff6d",
+            name_prefix="",
+            s3_bucket="enterprise-operator-dockerfiles",
+            # community ubi image does not have a suffix in its name
+            ubi_suffix="",
+            # there is no ubuntu version of this image
+            ubuntu_suffix="",
+        ),
     ]
 
     images = {k: v for k, v in image_configs}
@@ -449,7 +468,14 @@ def build_image_daily(
                 )
             ):
                 continue
-            logging.info("Rebuilding {}".format(releases["version"]))
+
+            build_configuration = copy.deepcopy(build_configuration)
+            if build_configuration.include_tags is None:
+                build_configuration.include_tags = []
+
+            build_configuration.include_tags.extend(releases["variants"])
+
+            logging.info("Rebuilding {} with variants {}".format(releases["version"], releases["variants"]))
             args["release_version"] = releases["version"]
             if releases["version"] not in completed_versions:
                 try:
@@ -618,10 +644,13 @@ def get_builder_function_for_image_name():
         "ops-manager-6-daily": build_image_daily(
             "ops-manager", min_version="6.0.0", max_version="7.0.0"
         ),
-        "mongodb-agent-daily": build_image_daily("mongodb-agent"),
         #
         # Ops Manager image
         "ops-manager": build_om_image,
+        #
+        # Community images
+        "mongodb-agent-daily": build_image_daily("mongodb-agent"),
+        "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
 
 
