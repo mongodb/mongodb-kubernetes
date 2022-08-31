@@ -317,6 +317,18 @@ tasks:
       vars:
         image_name: mongodb-agent-daily
 
+- name: periodic_build_community_operator
+  commands:
+    - func: clone
+    - func: configure_docker_auth
+    - func: configure_rh_docker_auth
+      vars:
+        project_id: ${rhc_mongodb_community_operator_pid}
+    - func: pipeline
+      vars:
+        image_name: mongodb-kubernetes-operator-daily
+
+
 - name: periodic_build_appdb_database
   commands:
     - func: clone
@@ -342,6 +354,7 @@ task_groups:
     - periodic_build_appdb
     - periodic_build_database
     - periodic_build_agent
+    - periodic_build_community_operator
     - periodic_build_appdb_database
 
   - name: preflight_images_task_group
