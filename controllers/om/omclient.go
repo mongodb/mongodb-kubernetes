@@ -281,44 +281,31 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	if err := depFunc(deployment); err != nil {
 		return apierror.New(err)
 	}
-
-	if reflect.DeepEqual(original, deployment) {
-		log.Debug("Deployment has not changed, not pushing changes to Ops Manager")
-	} else {
-		_, err = oc.UpdateDeployment(deployment)
-		if err != nil {
-			if util.ShouldLogAutomationConfigDiff() {
-				var originalDeployment Deployment = original
-				log.Debug("Current Automation Config")
-				originalDeployment.Debug(log)
-				log.Debug("Invalid Automation Config")
-				deployment.Debug(log)
-			}
-
-			return err
+	// Since Deployments comparison don't work, we don't need to check if deployment changed here.
+	_, err = oc.UpdateDeployment(deployment)
+	if err != nil {
+		if util.ShouldLogAutomationConfigDiff() {
+			var originalDeployment Deployment = original
+			log.Debug("Current Automation Config")
+			originalDeployment.Debug(log)
+			log.Debug("Invalid Automation Config")
+			deployment.Debug(log)
 		}
-	}
 
+		return err
+	}
 	return nil
 }
 
 func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
-	original, err := util.MapDeepCopy(ac.Deployment)
-	if err != nil {
-		return err
-	}
-	err = ac.Apply()
+	err := ac.Apply()
 	if err != nil {
 		return err
 	}
 
-	if reflect.DeepEqual(original, ac.Deployment) {
-		log.Debug("AutomationConfig has not changed, not pushing changes to Ops Manager")
-	} else {
-		_, err = oc.UpdateDeployment(ac.Deployment)
-		if err != nil {
-			return err
-		}
+	_, err = oc.UpdateDeployment(ac.Deployment)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -334,7 +321,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return err
 	}
 
-	original, err := util.MapDeepCopy(ac.Deployment)
+	original, err := BuildAutomationConfigFromDeployment(ac.Deployment)
 	if err != nil {
 		return err
 	}
@@ -342,10 +329,20 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 		return apierror.New(err)
 	}
 
+	if !reflect.DeepEqual(original.Deployment, ac.Deployment) {
+		panic("It seems you modified the deployment directly. This is not allowed. Please use helper objects instead.")
+	}
+
+	areEqual := original.EqualsWithoutDeployment(ac)
+	if areEqual {
+		log.Debug("AutomationConfig has not changed, not pushing changes to Ops Manager")
+		return nil
+	}
+
 	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
 		if util.ShouldLogAutomationConfigDiff() {
-			var originalDeployment Deployment = original
+			var originalDeployment Deployment = original.Deployment
 			log.Debug("Current Automation Config")
 			originalDeployment.Debug(log)
 			log.Debug("Invalid Automation Config")

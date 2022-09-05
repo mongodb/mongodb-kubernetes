@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
@@ -50,6 +51,22 @@ func (a *AutomationConfig) Apply() error {
 		a.Deployment["ldap"] = mergedLdap
 	}
 	return nil
+}
+
+// EqualsWithoutDeployment returns true if two AutomationConfig objects are meaningful equal without
+// taking AutomationConfig.Deployment into consideration.
+//
+// Comparing Deployments will not work correctly in current AutomationConfig implementation. Helper
+// structs, such as AutomationConfig.AgentSSL or AutomationConfig.Auth use non-pointer fields (without `omitempty`).
+// When merging them into AutomationConfig.deployment, JSON unmarshaller renders them into their representations,
+// and they get into the final result. Sadly, some tests (especially TestLDAPIsMerged) relies on this behavior.
+//
+// In the future, we might want to refactor this part, see: https://jira.mongodb.org/browse/CLOUDP-134971
+func (a *AutomationConfig) EqualsWithoutDeployment(b *AutomationConfig) bool {
+	deploymentsComparer := cmp.Comparer(func(x, y Deployment) bool {
+		return true
+	})
+	return cmp.Equal(a, b, deploymentsComparer)
 }
 
 // NewAutomationConfig returns an AutomationConfig instance with all reference
