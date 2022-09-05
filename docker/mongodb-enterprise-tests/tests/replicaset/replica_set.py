@@ -299,6 +299,12 @@ class TestReplicaSetCreation(KubernetesTester):
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
+    def test_proper_automation_config_version(self):
+        config = self.get_automation_config()
+        # We create 3 members of the replicaset here, so there will be 3 changes only
+        # Anything more would indicate that we're sending more things to the Ops/Cloud Manager than we should
+        assert config["version"] == 3
+
     @skip_if_local
     def test_replica_set_was_configured(self):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False).assert_connectivity()

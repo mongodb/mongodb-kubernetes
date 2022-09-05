@@ -598,6 +598,99 @@ func TestAssigningListsReassignsInDeployment(t *testing.T) {
 	assert.Len(t, authMechanisms, 0)
 }
 
+func TestAutomationConfigEquality(t *testing.T) {
+	deployment1 := NewDeployment()
+	deployment1.setReplicaSets([]ReplicaSet{NewReplicaSet("1", "5.0.0")})
+
+	deployment2 := NewDeployment()
+	deployment2.setReplicaSets([]ReplicaSet{NewReplicaSet("2", "5.0.0")})
+
+	authConfig := Auth{
+		Users: []*MongoDBUser{
+			{
+				Roles: []*Role{
+					{
+						Role:     "root",
+						Database: "db1",
+					},
+				},
+			},
+		},
+		Disabled: false,
+	}
+	authConfig2 := authConfig
+
+	agentSSLConfig := AgentSSL{
+		CAFilePath: "/tmp/mypath",
+	}
+	agentSSLConfig2 := agentSSLConfig
+
+	ldapConfig := ldap.Ldap{
+		Servers: "server1",
+	}
+	ldapConfig2 := ldapConfig
+
+	tests := map[string]struct {
+		a                *AutomationConfig
+		b                *AutomationConfig
+		expectedEquality bool
+	}{
+		"Two empty configs are equal": {
+			a:                &AutomationConfig{},
+			b:                &AutomationConfig{},
+			expectedEquality: true,
+		},
+		"Two different configs are not qual": {
+			a:                getTestAutomationConfig(),
+			b:                &AutomationConfig{},
+			expectedEquality: false,
+		},
+		"Two different configs are equal apart from the deployment": {
+			a: &AutomationConfig{
+				Deployment: deployment1,
+			},
+			b: &AutomationConfig{
+				Deployment: deployment2,
+			},
+			expectedEquality: true,
+		},
+		"Two the same configs created using the same structs are the same": {
+			a: &AutomationConfig{
+				Auth:       &authConfig,
+				AgentSSL:   &agentSSLConfig,
+				Deployment: deployment1,
+				Ldap:       &ldapConfig,
+			},
+			b: &AutomationConfig{
+				Auth:       &authConfig,
+				AgentSSL:   &agentSSLConfig,
+				Deployment: deployment1,
+				Ldap:       &ldapConfig,
+			},
+			expectedEquality: true,
+		},
+		"Two the same configs created using deep copy (and structs with different addresses) are the same": {
+			a: &AutomationConfig{
+				Auth:     &authConfig,
+				AgentSSL: &agentSSLConfig,
+				Ldap:     &ldapConfig,
+			},
+			b: &AutomationConfig{
+				Auth:     &authConfig2,
+				AgentSSL: &agentSSLConfig2,
+				Ldap:     &ldapConfig2,
+			},
+			expectedEquality: true,
+		},
+	}
+	for testName, testParameters := range tests {
+		t.Run(testName, func(t *testing.T) {
+			result := testParameters.a.EqualsWithoutDeployment(testParameters.b)
+			assert.Equalf(t, testParameters.expectedEquality, result, "Expected %v, got %v", testParameters.expectedEquality, result)
+		})
+	}
+}
+
 func getUsers(deployment map[string]interface{}) []interface{} {
 	auth := deployment["auth"].(map[string]interface{})
 	if users, ok := auth["usersWanted"]; ok {

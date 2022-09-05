@@ -40,11 +40,66 @@ func TestReadOrganizationsByName(t *testing.T) {
 	assert.Equal(t, organizations, data)
 }
 
+func TestGettingAutomationConfig(t *testing.T) {
+	testAutomationConfig := getTestAutomationConfig()
+	handleFunc, _ := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	data, err := connection.ReadAutomationConfig()
+
+	assert.NoError(t, err)
+	assert.Equal(t, testAutomationConfig.Deployment, data.Deployment)
+}
+
+func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	testAutomationConfig := getTestAutomationConfig()
+	handleFunc, counters := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+		return nil
+	}, logger)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, counters.getHitCount)
+	assert.Equal(t, 0, counters.putHitCount)
+}
+
+func TestRetriesOnWritingAutomationConfig(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	testAutomationConfig := getTestAutomationConfig()
+	successfulResponse := automationConfigResponse{config: testAutomationConfig}
+	errorResponse := automationConfigResponse{errorCode: 500, errorString: "testing"}
+	handleFunc, counters := automationConfig("1", errorResponse, errorResponse, successfulResponse)
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+		return nil
+	}, logger)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 3, counters.getHitCount)
+}
+
 // ******************************* Mock HTTP Server methods *****************************************************
 
 type handleFunc func(mux *http.ServeMux)
 
+type counters struct {
+	getHitCount int
+	putHitCount int
+	totalCount  int
+}
+
 func serverMock(handlers ...handleFunc) *httptest.Server {
+
 	handler := http.NewServeMux()
 	for _, h := range handlers {
 		h(handler)
@@ -95,4 +150,35 @@ func organizationsByName(organizations []*Organization) handleFunc {
 				_, _ = w.Write(data)
 			})
 	}
+}
+
+type automationConfigResponse struct {
+	config      *AutomationConfig
+	errorCode   int
+	errorString string
+}
+
+func automationConfig(groupId string, responses ...automationConfigResponse) (handleFunc, *counters) {
+	counters := &counters{}
+	handle := func(mux *http.ServeMux) {
+		mux.HandleFunc(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", groupId),
+			func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case "GET":
+					counters.getHitCount = counters.getHitCount + 1
+					response := responses[counters.totalCount]
+					if response.config != nil {
+						data, _ := json.Marshal(response.config.Deployment)
+						_, _ = w.Write(data)
+					} else if response.errorCode != 0 {
+						http.Error(w, response.errorString, response.errorCode)
+					}
+				case "PUT":
+					counters.putHitCount = counters.putHitCount + 1
+					w.WriteHeader(http.StatusOK)
+				}
+				counters.totalCount = counters.totalCount + 1
+			})
+	}
+	return handle, counters
 }

@@ -6,18 +6,26 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/go-retryablehttp"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
+	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 
 	"go.uber.org/zap"
 )
 
+const (
+	defaultRetryWaitMin = 1 * time.Second
+	defaultRetryWaitMax = 10 * time.Second
+	defaultRetryMax     = 3
+)
+
 type Client struct {
-	*http.Client
+	*retryablehttp.Client
 
 	// Digest username and password
 	username string
@@ -40,8 +48,19 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 	return applyOptions(client, options...)
 }
 
-func newDefaultHTTPClient() *http.Client {
-	return &http.Client{Transport: http.DefaultTransport}
+func newDefaultHTTPClient() *retryablehttp.Client {
+	return &retryablehttp.Client{
+		HTTPClient:   &http.Client{Transport: http.DefaultTransport},
+		RetryWaitMin: defaultRetryWaitMin,
+		RetryWaitMax: defaultRetryWaitMax,
+		RetryMax:     defaultRetryMax,
+		// Will retry on all errors
+		CheckRetry: retryablehttp.DefaultRetryPolicy,
+		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
+		// We don't need Jitter here as we're the only client to the OM, so there's no risk
+		// of overwhelming it in a peek.
+		Backoff: retryablehttp.DefaultBackoff,
+	}
 }
 
 func applyOptions(client *Client, options ...func(*Client) error) (*Client, error) {
@@ -83,9 +102,9 @@ func OptionDebug(client *Client) error {
 func OptionSkipVerify(client *Client) error {
 	TLSClientConfig := &tls.Config{InsecureSkipVerify: true}
 
-	transport := client.Transport.(*http.Transport)
+	transport := client.HTTPClient.Transport.(*http.Transport)
 	transport.TLSClientConfig = TLSClientConfig
-	client.Transport = transport
+	client.HTTPClient.Transport = transport
 
 	return nil
 }
@@ -101,9 +120,9 @@ func OptionCAValidate(ca string) func(client *Client) error {
 	}
 
 	return func(client *Client) error {
-		transport := client.Transport.(*http.Transport)
+		transport := client.HTTPClient.Transport.(*http.Transport)
 		transport.TLSClientConfig = TLSClientConfig
-		client.Transport = transport
+		client.HTTPClient.Transport = transport
 
 		return nil
 	}
@@ -129,7 +148,7 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 	}
 
 	if client.debug {
-		dumpRequest, _ := httputil.DumpRequest(req, false)
+		dumpRequest, _ := httputil.DumpRequest(req.Request, false)
 		zap.S().Debugf("Ops Manager request: \n %s", dumpRequest)
 	} else {
 		zap.S().Debugf("Ops Manager request: %s %s", method, url)
@@ -159,10 +178,10 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 // authorizeRequest executes one request that's meant to be challenged by the
 // server in order to build the next one. The `request` parameter is aggregated
 // with the required `Authorization` header.
-func (client *Client) authorizeRequest(method, hostname, path string, request *http.Request) error {
+func (client *Client) authorizeRequest(method, hostname, path string, request *retryablehttp.Request) error {
 	url := hostname + path
 
-	digestRequest, err := http.NewRequest(method, url, nil)
+	digestRequest, err := retryablehttp.NewRequest(method, url, nil)
 	if err != nil {
 		return err
 	}
@@ -198,8 +217,8 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *h
 }
 
 // createHTTPRequest
-func createHTTPRequest(method string, url string, reader io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, reader)
+func createHTTPRequest(method string, url string, reader io.Reader) (*retryablehttp.Request, error) {
+	req, err := retryablehttp.NewRequest(method, url, reader)
 	if err != nil {
 		return nil, err
 	}
