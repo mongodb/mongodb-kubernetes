@@ -53,20 +53,32 @@ def version_id() -> str:
 
 
 @fixture(scope="module")
-def operator_installation_config(namespace: str) -> Dict[str, str]:
+def operator_installation_config(namespace: str, version_id: str) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+
+    # if running on evergreen don't use the default image tag
+    if version_id != "latest":
+        config["database.version"] = version_id
+        config["initAppDb.version"] = version_id
+        config["initDatabase.version"] = version_id
+        config["initOpsManager.version"] = version_id
+
     return config
 
 
 @fixture(scope="module")
-def monitored_appdb_operator_installation_config(namespace: str) -> Dict[str, str]:
+def monitored_appdb_operator_installation_config(
+    operator_installation_config: Dict[str, str]
+) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created
     and for the AppDB to be monitored.
     Created in the single_e2e.sh"""
-    return KubernetesTester.read_configmap(namespace, "operator-installation-config")
+    config = operator_installation_config
+    config["customEnvVars"] = "OPS_MANAGER_MONITOR_APPDB=true"
+    return config
 
 
 @fixture(scope="module")

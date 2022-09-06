@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
