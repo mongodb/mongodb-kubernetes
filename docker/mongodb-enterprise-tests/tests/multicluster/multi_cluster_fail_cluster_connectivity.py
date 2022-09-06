@@ -111,7 +111,7 @@ def test_update_mongodb_multi_to_failed_state(
     # not being able to talk to cluster3, so we patch the CR a couple of times.
     n = 0
     while n < 10:
-        mongodb_multi.reload()
+        mongodb_multi.load()
         phase = mongodb_multi.get_status_phase()
 
         if phase == Phase.Pending or phase == Phase.Reconciling:
@@ -119,12 +119,16 @@ def test_update_mongodb_multi_to_failed_state(
 
         elif phase == Phase.Running:
             mongodb_multi["metadata"]["labels"] = {"foo": str(n)}
-            mongodb_multi.update()
+            try:
+                mongodb_multi.update()
+            except client.rest.ApiException as e:
+                if e.status == 409:
+                    continue
             n += 1
 
         elif phase == Phase.Failed:
             break
-        time.sleep(3)
+        time.sleep(4)
 
     mongodb_multi.assert_reaches_phase(
         Phase.Failed,
@@ -171,3 +175,23 @@ def test_unblock_traffic_cluster3(service_entry: CustomObject):
 @mark.e2e_multi_cluster_fail_cluster_connectivity
 def test_mdbm_reaches_running_state(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_block_traffic_cluster3(service_entry: CustomObject):
+    service_entry.load()
+    service_entry["spec"]["hosts"] = [
+        "cloud-qa.mongodb.com",
+        "api.e2e.cluster1.mongokubernetes.com",
+        "api.e2e.cluster2.mongokubernetes.com",
+    ]
+    service_entry.update()
+
+
+@mark.e2e_multi_cluster_fail_cluster_connectivity
+def test_failover_annotation_present(mongodb_multi: MongoDBMulti):
+    mongodb_multi.load()
+    assert (
+        mongodb_multi["metadata"]["annotations"]["failedCluster"]
+        == "e2e.cluster3.mongokubernetes.com"
+    )
