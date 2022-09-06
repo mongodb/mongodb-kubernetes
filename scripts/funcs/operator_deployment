@@ -12,16 +12,6 @@ prepare_operator_config_map() {
     # shellcheck disable=SC2153
     local database_registry=${DATABASE_REGISTRY}
     local database_name=${DATABASE_NAME:=mongodb-enterprise-database}
-    if [[ ${IMAGE_TYPE} == "usaf" ]]; then
-      # shellcheck disable=SC2154
-      operator_version="${usaf_operator_version}"
-      # in 1.7.1, the MONGODB_ENTERPRISE_DATABASE_IMAGE is the registry and tag
-      # and is created from ${DATABASE_REGISTRY}/${DATABASE_NAME}
-      # shellcheck disable=SC2154
-      database_registry="${ecr_registry}/dev/usaf"
-      # shellcheck disable=SC2154
-      database_name="mongodb-enterprise-database:${usaf_database_version}"
-    fi
 
     config=(
       "--from-literal" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"

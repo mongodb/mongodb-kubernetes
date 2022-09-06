@@ -6,12 +6,13 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"github.com/hashicorp/go-retryablehttp"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 
