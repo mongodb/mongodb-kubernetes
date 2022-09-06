@@ -89,7 +89,7 @@ registry:
 multiCluster:
   clusters: []
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
-
+  performFailOver: true
 
 # Set this to false to disable subresource utilization
 # It might be required on some versions of Openshift

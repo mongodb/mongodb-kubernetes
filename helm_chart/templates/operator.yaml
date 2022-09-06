@@ -123,7 +123,10 @@ spec:
           value: {{ .Values.mongodb.name }}
         - name: MONGODB_REPO_URL
           value: {{ .Values.mongodb.repo }}
-
+{{- if eq .Values.multiCluster.performFailOver true }}
+        - name: PERFORM_FAILOVER
+          value: 'true'
+{{- end }}
 {{- if .Values.registry.imagePullSecrets }}
         - name: IMAGE_PULL_SECRETS
           value: {{ .Values.registry.imagePullSecrets }}

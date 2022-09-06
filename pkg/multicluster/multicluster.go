@@ -22,6 +22,14 @@ type KubeConfig struct {
 	Reader io.Reader
 }
 
+func NewKubeConfigFile() (KubeConfig, error) {
+	file, err := os.Open(KubeConfigPath)
+	if err != nil {
+		return KubeConfig{}, err
+	}
+	return KubeConfig{Reader: file}, nil
+}
+
 // LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
 func (k KubeConfig) LoadKubeConfigFile() (KubeConfigFile, error) {
 	kubeConfigBytes, err := ioutil.ReadAll(k.Reader)
@@ -89,6 +97,25 @@ func ShouldPerformFailover() bool {
 // KubeConfigFile represents the contents of a KubeConfig file.
 type KubeConfigFile struct {
 	Contexts []KubeConfigContextItem `json:"contexts"`
+	Clusters []KubeConfigClusterItem `json:"clusters"`
+	Users    []KubeConfigUserItem    `json:"users"`
+}
+
+type KubeConfigClusterItem struct {
+	Cluster KubeConfigCluster `json:"cluster"`
+}
+
+type KubeConfigCluster struct {
+	CertificateAuthority string `json:"certificate-authority-data"`
+	Server               string `json:"server"`
+}
+
+type KubeConfigUserItem struct {
+	User KubeConfigUser `json:"user"`
+}
+
+type KubeConfigUser struct {
+	Token string `json:"token"`
 }
 type KubeConfigContextItem struct {
 	Name    string            `json:"name"`

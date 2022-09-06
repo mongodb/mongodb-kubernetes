@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -812,7 +813,16 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	// API servers to determine whether the clsters are healthy or not
 	if multicluster.ShouldPerformFailover() {
 		eventChannel := make(chan event.GenericEvent)
-		go memberwatch.WatchMemeberClusterHealth(zap.S(), eventChannel, reconciler.memberClusterClientsMap, reconciler.client)
+		memberClusterMap := memberwatch.MemberClusterMap{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+		go memberClusterMap.WatchMemberClusterHealth(zap.S(), eventChannel, reconciler.memberClusterClientsMap, reconciler.client)
+
+		err = c.Watch(
+			&source.Channel{Source: eventChannel},
+			&handler.EnqueueRequestForObject{},
+		)
+		if err != nil {
+			zap.S().Errorf("failed to watch for member cluster healthcheck: %w", err)
+		}
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
