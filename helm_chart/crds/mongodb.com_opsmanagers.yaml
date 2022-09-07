@@ -659,6 +659,8 @@ spec:
                           type: string
                         s3BucketName:
                           type: string
+                        s3RegionOverride:
+                          type: string
                         s3SecretRef:
                           properties:
                             name:
@@ -709,6 +711,8 @@ spec:
                         s3BucketEndpoint:
                           type: string
                         s3BucketName:
+                          type: string
+                        s3RegionOverride:
                           type: string
                         s3SecretRef:
                           properties:

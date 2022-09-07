@@ -119,6 +119,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri 
 		EncryptedCredentials:   false,
 		PathStyleAccessEnabled: true,
 		AuthMethod:             string(authMode),
+		S3RegionOverride:       &s3Config.S3RegionOverride,
 	}
 
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
@@ -126,7 +127,6 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri 
 		// Attributes that are only available in 4.4+ version of Ops Manager.
 		if version.GTE(semver.MustParse("4.4.0")) {
 			config.DisableProxyS3 = util.BooleanRef(false)
-			config.S3RegionOverride = new(string)
 		}
 
 		// Attributes that are only available in 5.0+ version of Ops Manager.
@@ -155,6 +155,7 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.S3Bucket = s.S3Bucket
 	opsManagerS3Config.PathStyleAccessEnabled = s.PathStyleAccessEnabled
 	opsManagerS3Config.Uri = s.Uri
+	opsManagerS3Config.S3RegionOverride = s.S3RegionOverride
 	return opsManagerS3Config
 }
 

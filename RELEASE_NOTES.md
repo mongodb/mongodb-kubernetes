@@ -1,7 +1,13 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 
-# MongoDB Enterprise Kubernetes Operator 1.16.5
+# MongoDB Enterprise Kubernetes Operator 1.17.0
 
+## MongoDBOpsManager Resource
+
+* For custom S3 compatible backends for the Oplog and Snapshot stores, it is now possible to specify the
+`spec.backup.s3OpLogStores[n].s3RegionOverride` and the `spec.backup.s3Stores[n].s3RegionOverride` parameter.
+
+## Security fixes
 * Improved security by introducing `readOnlyRootFilesystem` property to all deployed containers. This change also introduces a few additional volumes and volume mounts.
 * Improved security by introducing `allowPrivilegeEscalation` set to `false` for all containers.
 
