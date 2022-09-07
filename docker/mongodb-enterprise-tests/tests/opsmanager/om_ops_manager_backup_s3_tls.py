@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict
 
 from pytest import mark, fixture
 
@@ -68,6 +68,7 @@ def ops_manager(
         AWS_REGION
     )
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket_blockstore
+    resource["spec"]["backup"]["s3Stores"][0]["s3RegionOverride"] = AWS_REGION
     resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = S3_OPLOG_NAME
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = (
         S3_OPLOG_NAME + "-secret"
@@ -76,7 +77,7 @@ def ops_manager(
         AWS_REGION
     )
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog
-
+    resource["spec"]["backup"]["s3OpLogStores"][0]["s3RegionOverride"] = AWS_REGION
     return resource.create()
 
 
@@ -100,3 +101,15 @@ class TestOpsManagerCreation:
         )
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
+
+    def test_om_s3_stores(
+        self,
+        ops_manager: MongoDBOpsManager,
+    ):
+        om_tester = ops_manager.get_om_tester()
+        om_tester.assert_s3_stores(
+            [{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}]
+        )
+        om_tester.assert_oplog_s3_stores(
+            [{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}]
+        )

@@ -272,6 +272,12 @@ class OMTester(object):
             expected_oplog_stores, "/admin/backup/oplog/mongoConfigs", "oplog"
         )
 
+    def assert_oplog_s3_stores(self, expected_oplog_s3_stores: List):
+        """verifies that the list of oplog s3 store configs in OM is equal to the expected one"""
+        self._assert_stores(
+            expected_oplog_s3_stores, "/admin/backup/oplog/s3Configs", "s3"
+        )
+
     def assert_block_stores(self, expected_block_stores: List):
         """verifies that the list of oplog store configs in OM is equal to the expected one"""
         self._assert_stores(

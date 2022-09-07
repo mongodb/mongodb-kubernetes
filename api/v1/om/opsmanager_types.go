@@ -312,6 +312,8 @@ type S3Config struct {
 	PathStyleAccessEnabled bool                       `json:"pathStyleAccessEnabled"`
 	S3BucketEndpoint       string                     `json:"s3BucketEndpoint"`
 	S3BucketName           string                     `json:"s3BucketName"`
+	// +optional
+	S3RegionOverride string `json:"s3RegionOverride"`
 	// Set this to "true" when you have custom certificates for your S3 buckets
 	// +optional
 	CustomCertificate bool `json:"customCertificate"`
