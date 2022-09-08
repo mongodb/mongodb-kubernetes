@@ -890,9 +890,7 @@ type ConfigMapStatefulSetSecretGetter interface {
 // reach goal state.
 func needToPublishStateFirst(getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.MongoDB, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
-	if opts.OldMemberCertSecret != "" {
-		return false
-	}
+
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.Name)
 	currentSts, err := getter.GetStatefulSet(namespacedName)
 	if err != nil {
@@ -1002,50 +1000,4 @@ func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
 
 	}
 	return finalAnnotations, nil
-}
-
-func oldTLSCertsAnnotations(oldTLSMemberCertSecret string) map[string]string {
-	annotation := make(map[string]string)
-	if oldTLSMemberCertSecret != "" {
-		annotation[util.OldMemberCerts] = oldTLSMemberCertSecret
-	}
-	return annotation
-}
-
-func (r *ReconcileCommonController) getOldMemberCertSecret(rs *mdbv1.MongoDB, resourceName string) (string, error) {
-	lastSpec, err := rs.GetLastSpec()
-	if err != nil || lastSpec == nil {
-		return "", err
-	}
-
-	oldSts, err := r.client.GetStatefulSet(types.NamespacedName{Name: resourceName, Namespace: rs.GetNamespace()})
-	if err != nil {
-		return "", err
-	}
-	resourceMemberCertSecret := lastSpec.GetSecurity().MemberCertificateSecretName(resourceName)
-	if annotatedMemberCert, ok := rs.Annotations[util.OldMemberCerts]; ok {
-		return annotatedMemberCert, nil
-	} else if isSecretMounted(resourceMemberCertSecret, oldSts) {
-		return resourceMemberCertSecret, nil
-	}
-
-	return "", nil
-}
-
-func isSecretMounted(secretName string, sts appsv1.StatefulSet) bool {
-	for _, volume := range sts.Spec.Template.Spec.Volumes {
-		if volume.Secret != nil {
-			if volume.Secret.SecretName == secretName {
-				return true
-			}
-		}
-		if volume.Projected != nil {
-			for _, source := range volume.Projected.Sources {
-				if source.Secret != nil && source.Secret.Name == secretName {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }

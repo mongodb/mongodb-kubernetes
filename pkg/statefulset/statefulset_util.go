@@ -5,7 +5,6 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -136,35 +135,4 @@ func GetFilePathFromAnnotationOrDefault(sts appsv1.StatefulSet, key string, path
 	}
 
 	return defaultValue
-}
-
-func CreateProjectedVolumeFromSecrets(name, sourceName, oldSourceName string) corev1.Volume {
-	permission := int32(416)
-	volume := &corev1.Volume{
-		Name: name,
-		VolumeSource: corev1.VolumeSource{
-			Projected: &corev1.ProjectedVolumeSource{
-				DefaultMode: &permission,
-				Sources: []corev1.VolumeProjection{
-					{
-						Secret: &corev1.SecretProjection{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: sourceName,
-							},
-							Optional: util.BooleanRef(true),
-						},
-					},
-					{
-						Secret: &corev1.SecretProjection{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: oldSourceName,
-							},
-							Optional: util.BooleanRef(true),
-						},
-					},
-				},
-			},
-		},
-	}
-	return *volume
 }

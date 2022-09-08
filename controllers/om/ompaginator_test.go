@@ -51,17 +51,18 @@ var numberOfPagesTraversed = 0
 var multipleOrganizationsPage = func(pageNum int) (Paginated, error) {
 	numberOfPagesTraversed++
 	// page 1
-	if pageNum == 1 {
+	switch pageNum {
+	case 1:
 		return &OrganizationsResponse{
 			OMPaginated:   OMPaginated{TotalCount: 1300, Links: []*Link{{Rel: "next"}}},
 			Organizations: generateOrganizations(0, 500),
 		}, nil
-	} else if pageNum == 2 {
+	case 2:
 		return &OrganizationsResponse{
 			OMPaginated:   OMPaginated{TotalCount: 1300, Links: []*Link{{Rel: "next"}}},
 			Organizations: generateOrganizations(500, 500),
 		}, nil
-	} else if pageNum == 3 {
+	case 3:
 		return &OrganizationsResponse{
 			OMPaginated:   OMPaginated{TotalCount: 1300},
 			Organizations: generateOrganizations(1000, 300),
