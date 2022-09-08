@@ -173,14 +173,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		vaultConfig = r.VaultClient.VaultConfig
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
-	var oldTLSMemberSecret string
-	if newTLSDesignMemberCert {
-		oldTLSMemberSecret, err = r.getOldMemberCertSecret(rs, rs.Name)
-		if err != nil {
-			log.Warnf("Failed retrieving old TLS certificates: %e", err)
-			oldTLSMemberSecret = ""
-		}
-	}
 
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
@@ -192,7 +184,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		NewTLSDesignMap(newTLSDesignForCerts),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
-		WithOldMemberCertSecret(oldTLSMemberSecret),
 	)
 
 	caFilePath := util.CAFilePathInContainer
@@ -225,9 +216,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		func() workflow.Status {
 			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
 				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
-			}
-			if err := annotations.SetAnnotations(rs.DeepCopy(), oldTLSCertsAnnotations(rsStsOption.OldMemberCertSecret), r.client); err != nil {
-				return workflow.Failed("Failed to set old TLS secrets annotations: %s", err.Error())
 			}
 
 			if status := getStatefulSetStatus(rs.Namespace, rs.Name, r.client); !status.IsOK() {

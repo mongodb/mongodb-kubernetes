@@ -239,9 +239,6 @@ const (
 	LastAchievedMongodAdditionalMongosOptions       = "mongodb.com/v1.lastMongodAdditionalMongosOptionsConfiguration"
 	LastAchievedMongodAdditionalConfigServerOptions = "mongodb.com/v1.lastMongodAdditionalConfigServerOptionsConfiguration"
 
-	// Legacy certificate annotation keys
-	OldMemberCerts = "mongodb.com/v1.OldMemberCerts"
-
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 

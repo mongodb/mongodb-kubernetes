@@ -451,30 +451,3 @@ def generic_replicaset(
         rs.configure(ops_manager, KubernetesTester.random_k8s_name("project-"))
 
     return rs
-
-
-def generic_shardedcluster(
-    namespace: str,
-    version: str,
-    name: Optional[str] = None,
-    ops_manager: Optional[MongoDBOpsManager] = None,
-) -> MongoDB:
-    if name is None:
-        name = KubernetesTester.random_k8s_name("sc-")
-    sc = MongoDB(namespace=namespace, name=name)
-    sc["spec"] = {
-        "shardCount": 1,
-        "mongodsPerShardCount": 3,
-        "mongosCount": 2,
-        "configServerCount": 3,
-        "type": "ShardedCluster",
-        "persistent": False,
-        "version": version,
-    }
-    if ops_manager is None:
-        sc["spec"]["credentials"] = "my-credentials"
-        sc["spec"]["opsManager"] = {"configMapRef": {"name": "my-project"}}
-    else:
-        sc.configure(ops_manager, KubernetesTester.random_k8s_name("project-"))
-
-    return sc

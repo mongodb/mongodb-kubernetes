@@ -189,14 +189,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	appdbOpts.CertSecretType = certSecretType
 	appdbOpts.MonitoringAgentVersion = monitoringAgentVersion
 
-	oldTLSMemberSecret, err := r.getOldMemberCertSecret(opsManager)
-	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log, omStatusOption)
-	}
-	if certSecretType == corev1.SecretTypeTLS {
-		appdbOpts.OldMemberCertSecret = oldTLSMemberSecret
-	}
-
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
@@ -249,9 +241,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, appDbOpts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) workflow.Status {
 	automationConfigFirst := true
 
-	if appDbOpts.OldMemberCertSecret != "" {
-		automationConfigFirst = false
-	}
 	currentAc, err := automationconfig.ReadFromSecret(r.SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
@@ -303,10 +292,6 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 			// in the case of an upgrade from the 1 to 3 container architecture, when the stateful set is updated before the agent automation config
 			// the monitoring agent automation config needs to exist for the volumes to mount correctly.
 			if err := r.deployMonitoringAgentAutomationConfig(opsManager, appDbSts, log); err != nil {
-				return workflow.Failed(err.Error())
-			}
-			oldTLSAnnotations := oldTLSCertsAnnotations(appDbOpts.OldMemberCertSecret)
-			if err := annotations.SetAnnotations(opsManager.DeepCopy(), oldTLSAnnotations, r.client); err != nil {
 				return workflow.Failed(err.Error())
 			}
 
@@ -1013,22 +998,4 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 		return err
 	}
 	return nil
-}
-
-func (r *ReconcileAppDbReplicaSet) getOldMemberCertSecret(manager *omv1.MongoDBOpsManager) (string, error) {
-	lastSpec, err := manager.GetLastSpec()
-	if err != nil || lastSpec == nil {
-		return "", err
-	}
-	oldSts, err := r.client.GetStatefulSet(manager.AppDBStatefulSetObjectKey())
-	if err != nil {
-		return "", err
-	}
-	resourceMemberCertSecret := lastSpec.AppDB.GetSecurity().MemberCertificateSecretName(manager.Spec.AppDB.Name())
-	if annotatedMemberCertSecret, ok := manager.Annotations[util.OldMemberCerts]; ok {
-		return annotatedMemberCertSecret, nil
-	} else if isSecretMounted(resourceMemberCertSecret, oldSts) {
-		return resourceMemberCertSecret, nil
-	}
-	return "", nil
 }

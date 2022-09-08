@@ -602,19 +602,6 @@ func (m *MongoDBOpsManager) BackupStatefulSetName() string {
 	return fmt.Sprintf("%s-backup-daemon", m.GetName())
 }
 
-// GetLastSpec returns the last spec that was successfully applied.
-func (m *MongoDBOpsManager) GetLastSpec() (*MongoDBOpsManagerSpec, error) {
-	lastSpecStr := annotations.GetAnnotation(m, util.LastAchievedSpec)
-	if lastSpecStr == "" {
-		return nil, nil
-	}
-	lastSpec := MongoDBOpsManagerSpec{}
-	if err := json.Unmarshal([]byte(lastSpecStr), &lastSpec); err != nil {
-		return nil, err
-	}
-	return &lastSpec, nil
-}
-
 func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
 	if m.IsTLSEnabled() {
 		return SchemePortFromAnnotation("https")

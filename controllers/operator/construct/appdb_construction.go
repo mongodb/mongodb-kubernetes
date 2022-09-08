@@ -16,7 +16,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	construct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
@@ -50,9 +49,6 @@ type AppDBStatefulSetOptions struct {
 	MonitoringAgentVersion string
 
 	PrometheusTLSCertHash string
-
-	// This is only used for the automated migration from the old to the new TLS structure
-	OldMemberCertSecret string
 }
 
 func WithAppDBVaultConfig(config vault.VaultConfiguration) func(opts *AppDBStatefulSetOptions) {
@@ -186,12 +182,8 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, o
 		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
 	}
 	if !vault.IsVaultSecretBackend() {
-		var secretVolume corev1.Volume
-		if opts.OldMemberCertSecret != "" {
-			secretVolume = enterprisests.CreateProjectedVolumeFromSecrets(util.SecretVolumeName, secretName, opts.OldMemberCertSecret)
-		} else {
-			secretVolume = statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
-		}
+		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
+
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.SecretVolumeMountPath + "/certs",
 			Name:      secretVolume.Name,

@@ -84,9 +84,6 @@ type DatabaseStatefulSetOptions struct {
 	ExtraEnvs               []corev1.EnvVar
 	Labels                  map[string]string
 	CertSecretTypes         CertSecretTypesMapping
-
-	// This is only used for the automated migration from the old to the new TLS structure
-	OldMemberCertSecret string
 }
 
 type CertSecretTypesMapping struct {
