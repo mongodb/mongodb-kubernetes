@@ -4,12 +4,12 @@ metadata:
   name: om-scram
 spec:
   replicas: 1
-  version: 4.2.0
+  version: 5.0.1
   adminCredentials: ops-manager-admin-secret
 
   applicationDatabase:
     members: 3
-    version: "4.2.0-ent"
+    version: "4.2.1-ent"
 
   backup:
     enabled: false

@@ -4,6 +4,8 @@
 
 ## MongoDBOpsManager Resource
 
+* Ops Manager 4.4 is no longer supported by the operator.
+
 * For custom S3 compatible backends for the Oplog and Snapshot stores, it is now possible to specify the
 `spec.backup.s3OpLogStores[n].s3RegionOverride` and the `spec.backup.s3Stores[n].s3RegionOverride` parameter.
 

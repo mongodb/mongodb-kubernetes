@@ -4,11 +4,11 @@ metadata:
   name: om-scale
 spec:
   replicas: 1
-  version: 4.2.0
+  version: 5.0.1
   adminCredentials: ops-manager-admin-secret
 
   applicationDatabase:
-    version: "4.2.0-ent"
+    version: "4.2.1-ent"
     members: 3
     podSpec:
       cpu: '0.25'

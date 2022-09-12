@@ -24,7 +24,6 @@ AWS_REGION = "eu-west-1"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 USER_PASSWORD = "/qwerty@!#:"
-MDB_3_6_VERSION = "3.6.20"
 
 """
 Current test focuses on backup capabilities. It creates an explicit MDBs for S3 snapshot metadata, and Oplog
@@ -115,10 +114,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    if ops_manager.get_version().startswith("4.2"):
-        resource["spec"]["version"] = MDB_3_6_VERSION
-    else:
-        resource["spec"]["version"] = custom_mdb_version
+    resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["security"] = {
         "authentication": {"enabled": True, "modes": ["SCRAM"]}
     }

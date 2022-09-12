@@ -250,40 +250,6 @@ tasks:
     vars:
       image_name: database-daily
 
-- name: periodic_build_ops_manager_4_4_0
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-  - func: configure_rh_docker_auth
-    vars:
-      project_id: ${rhc_om_pid}
-  - func: pipeline
-    vars:
-      image_name: ops-manager-4-4-0-daily
-
-- name: periodic_build_ops_manager_4_4_10
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-  - func: configure_rh_docker_auth
-    vars:
-      project_id: ${rhc_om_pid}
-  - func: pipeline
-    vars:
-      image_name: ops-manager-4-4-10-daily
-
-- name: periodic_build_ops_manager_4_4_20
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-  - func: configure_rh_docker_auth
-    vars:
-      project_id: ${rhc_om_pid}
-  - func: pipeline
-    vars:
-      image_name: ops-manager-4-4-20-daily
-
-
 - name: periodic_build_ops_manager_5
   commands:
   - func: clone
@@ -346,9 +312,6 @@ task_groups:
     - periodic_build_init_appdb
     - periodic_build_init_database
     - periodic_build_init_opsmanager
-    - periodic_build_ops_manager_4_4_0
-    - periodic_build_ops_manager_4_4_10
-    - periodic_build_ops_manager_4_4_20
     - periodic_build_ops_manager_5
     - periodic_build_ops_manager_6
     - periodic_build_appdb
@@ -382,12 +345,6 @@ buildvariants:
     - name: periodic_build_init_database
       variant: periodic_build
     - name: periodic_build_init_opsmanager
-      variant: periodic_build
-    - name: periodic_build_ops_manager_4_4_0
-      variant: periodic_build
-    - name: periodic_build_ops_manager_4_4_10
-      variant: periodic_build
-    - name: periodic_build_ops_manager_4_4_20
       variant: periodic_build
     - name: periodic_build_ops_manager_5
       variant: periodic_build

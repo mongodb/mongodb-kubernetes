@@ -25,7 +25,6 @@ OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
-MDB_3_6_VERSION = "3.6.20"
 
 
 @fixture(scope="module")
@@ -63,10 +62,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    if ops_manager.get_version().startswith("4.2"):
-        resource["spec"]["version"] = MDB_3_6_VERSION
-    else:
-        resource["spec"]["version"] = custom_mdb_version
+    resource["spec"]["version"] = custom_mdb_version
 
     #  TODO: Remove when CLOUDP-60443 is fixed
     # This test will update oplog to have SCRAM enabled
@@ -97,11 +93,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
-    if ops_manager.get_version().startswith("4.2"):
-        # enabling 3.6.20 to let enable scram-sha (OM until 4.4 understands scram-sha-1 only)
-        resource["spec"]["version"] = MDB_3_6_VERSION
-    else:
-        resource["spec"]["version"] = custom_mdb_version
+    resource["spec"]["version"] = custom_mdb_version
     yield resource.create()
 
 

@@ -12,7 +12,6 @@ from pytest import fixture
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-OM4_CURRENT_VERSION = "4.4.10"
 OM5_CURRENT_VERSION = "5.0.9"
 
 # Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
@@ -20,7 +19,6 @@ OM5_CURRENT_VERSION = "5.0.9"
 # updates in one test
 
 # Current test should contain all kinds of scale operations to Ops Manager as a sequence of tests
-
 
 @fixture(scope="module")
 def ops_manager(
@@ -31,8 +29,6 @@ def ops_manager(
     )
     if custom_version.startswith("6"):
         resource.set_version(OM5_CURRENT_VERSION)
-    else:
-        resource.set_version(OM4_CURRENT_VERSION)
     resource.set_appdb_version(custom_appdb_version)
     return resource.create()
 
@@ -128,8 +124,6 @@ class TestOpsManagerVersionUpgrade:
         _ = background_tester
         ops_manager.load()
 
-        # If running OM5 tests, this will update from 4.4.10 to OM5 one
-        # If running OM4 tests, this will update from 4.4.10 to latest OM4
         # If running OM6 tests, this will update from 5.0.9 to latest OM6
         ops_manager.set_version(custom_version)
 

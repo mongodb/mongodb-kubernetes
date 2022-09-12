@@ -12,9 +12,6 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
-MDB_3_6_VERSION = "3.6.20"
-
-
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     """ creates a s3 bucket and a s3 config"""
@@ -58,10 +55,7 @@ def oplog_replica_set(ops_manager, custom_mdb_version: str) -> MongoDB:
         namespace=ops_manager.namespace,
         name="my-mongodb-oplog",
     ).configure(ops_manager, "development")
-    if ops_manager.get_version().startswith("4.2"):
-        resource["spec"]["version"] = MDB_3_6_VERSION
-    else:
-        resource["spec"]["version"] = custom_mdb_version
+    resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 1
     resource["spec"]["persistent"] = True
 
@@ -75,10 +69,8 @@ def s3_replica_set(ops_manager: MongoDBOpsManager, custom_mdb_version: str) -> M
         namespace=ops_manager.namespace,
         name="my-mongodb-s3",
     ).configure(ops_manager, "s3metadata")
-    if ops_manager.get_version().startswith("4.2"):
-        resource["spec"]["version"] = MDB_3_6_VERSION
-    else:
-        resource["spec"]["version"] = custom_mdb_version
+
+    resource["spec"]["version"] = custom_mdb_version
     resource["spec"]["members"] = 1
     resource["spec"]["persistent"] = True
 

@@ -364,6 +364,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 	opsManager := DefaultOpsManagerBuilder().
 		SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
 		SetAppDbMembers(1).
+		SetVersion("5.0.0").
 		Build()
 	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
 
