@@ -1,7 +1,6 @@
 from pytest import fixture, mark
 from kubetester.kubetester import KubernetesTester
 
-# TODO change 3.6 -> 4.0 upgrade to 4.0 -> 4.2 when mongodb is released
 from kubetester.mongotester import ReplicaSetTester
 
 

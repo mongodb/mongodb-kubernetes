@@ -25,8 +25,8 @@ def custom_om_prev_version() -> str:
 def custom_mdb_prev_version() -> str:
     """Returns a CUSTOM_MDB_PREV_VERSION for Mongodb to be created/upgraded to for testing.
     Used for backup mainly (to test backup for different mdb versions).
-    Defaults to 4.2.8 (simplifies testing locally)"""
-    return os.getenv("CUSTOM_MDB_PREV_VERSION", "4.4.11")
+    Defaults to 4.4.24 (simplifies testing locally)"""
+    return os.getenv("CUSTOM_MDB_PREV_VERSION", "4.4.24")
 
 
 def ensure_ent_version(mdb_version: str) -> str:

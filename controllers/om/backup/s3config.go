@@ -124,11 +124,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri 
 
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
 	if err == nil {
-		// Attributes that are only available in 4.4+ version of Ops Manager.
-		if version.GTE(semver.MustParse("4.4.0")) {
-			config.DisableProxyS3 = util.BooleanRef(false)
-		}
-
+		config.DisableProxyS3 = util.BooleanRef(false)
 		// Attributes that are only available in 5.0+ version of Ops Manager.
 		if s3Config.CustomCertificate && version.GTE(semver.MustParse("5.0.0")) {
 			// both filename and path need to be provided.

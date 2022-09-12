@@ -46,7 +46,6 @@ def ops_manager(
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
-    # TODO we need to use 4.2.13 OM in order to check PIT restore - so far the test is run in OM 4.4+ only
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )

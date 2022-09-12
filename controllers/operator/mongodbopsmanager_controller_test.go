@@ -849,7 +849,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 	spec := omv1.MongoDBOpsManagerSpec{
-		Version:     "4.4.0",
+		Version:     "5.0.0",
 		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}

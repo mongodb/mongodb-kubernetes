@@ -67,7 +67,7 @@ import (
 )
 
 const (
-	oldestSupportedOpsManagerVersion       = "4.4.0"
+	oldestSupportedOpsManagerVersion       = "5.0.0"
 	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json"
 	programmaticKeyVersion                 = "5.0.0"
 )
@@ -397,6 +397,7 @@ func (r *OpsManagerReconciler) ensureGlobalProgrammaticApiKey(opsManager omv1.Mo
 	// If there is no OM running is fine, we don't have anything to update
 	// This can happen in the reconciliation step after deploying AppDB.
 	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.Name, r.client); !status.IsOK() {
+		// This check might need refactoring as mentioned in https://jira.mongodb.org/browse/CLOUDP-135773
 		return workflow.OK()
 	}
 

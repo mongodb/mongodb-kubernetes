@@ -7,22 +7,21 @@ stepback: true
 # Ops Manager image building & pushing takes a long time
 exec_timeout_secs: 4500
 variables:
-  - &ops_manager_44_current
-    ops_manager_version: "4.4.15"
-    ops_manager_namespace: "operator-testing-44-current"
-    node_port: 30044
-  - &cloud_manager_qa
-    ops_manager_version: "cloud_qa"
-
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
-  - &ops_manager_44_prev 4.4.15
-  - &ops_manager_44_latest 4.4.24
+  - &ops_manager_50_prev 5.0.1
 
   - &ops_manager_50_latest 5.0.14
   - &ops_manager_50_appdb_version 4.4.11-ent
 
   - &ops_manager_60_latest 6.0.3
   - &ops_manager_60_appdb_version 5.0.5-ent
+
+  - &ops_manager_50_current
+    ops_manager_version: *ops_manager_50_latest
+    ops_manager_namespace: "operator-testing-50-current"
+    node_port: 30044
+  - &cloud_manager_qa
+    ops_manager_version: "cloud_qa"
 
   # Latest MDB release as of today. Update this to latest `rc`s or GA version when
   # it is released.
@@ -31,18 +30,18 @@ variables:
   - &mdb_50_prev 5.0.1
 
   - &mdb_44_latest 4.4.11
-  - &mdb_42_latest 4.2.8
 
   # Latest available version of Kubernetes
   # https://kubernetes.io/releases/
   - &kubernetes_kind_version 1.22.0
 
     # This is the automation agent version used for the AppDB
-  - &agent_version 10.29.0.6830-1
     # Agent version used in OM50
   - &agent_version50 11.0.11.7036-1
-
+    # Agent version used in OM60
   - &agent_version60 12.0.4.7554-1
+    # Fallback option as some targets rely on expending this
+  - &agent_version 11.0.11.7036-1
 
     # Openshift v4 Testing Environment
   - &kubernetes_environment_openshift_4
@@ -983,7 +982,7 @@ tasks:
         <<: [ *kubernetes_environment_vanilla ]
     - func: prepare_test_env
       vars:
-        <<: *ops_manager_44_current
+        <<: *ops_manager_50_current
 
 - name: prepare_multi_cluster
   exec_timeout_secs: 1800
@@ -2193,7 +2192,6 @@ task_groups:
     - e2e_tls_rs_intermediate_ca
     - e2e_tls_sharded_cluster_certs_prefix
     - e2e_standalone_no_tls_no_status_is_set
-    # e2e_om_4_4_plus_only_task_group
     - e2e_feature_controls_authentication
     - e2e_replica_set
     - e2e_replica_set_liveness_probe
@@ -2302,101 +2300,6 @@ task_groups:
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
     - e2e_sharded_cluster_scram_sha_1_user_connectivity
     - e2e_sharded_cluster_scram_x509_ic_manual_certs
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-# This is the task group that contains all the tests run in the e2e_mdb_vanilla_ubuntu_om44 build variant
-- name: e2e_mdb_vanilla_ubuntu_om44_task_group
-  max_hosts: 12
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
-    # e2e_kube_only_task_group
-    - e2e_crd_validation
-    - e2e_sharded_cluster_long_name
-    - e2e_replica_set_long_name
-    - e2e_replica_set_config_map
-    - e2e_replica_set_exposed_externally
-    - e2e_replica_set_project_whitespaces
-    - e2e_replica_set_pv
-    - e2e_replica_set_pv_multiple
-    - e2e_replica_set_schema_validation
-    - e2e_replica_set_statefulset_status
-    - e2e_replication_state_awareness
-    - e2e_sharded_cluster_pv
-    - e2e_sharded_cluster_recovery
-    - e2e_sharded_cluster_schema_validation
-    - e2e_sharded_cluster_statefulset_status
-    - e2e_standalone_config_map
-    - e2e_standalone_recovery
-    - e2e_standalone_recovery_k8s
-    - e2e_standalone_schema_validation
-    - e2e_users_schema_validation
-    - e2e_replica_set_tls_default
-    - e2e_replica_set_tls_override
-    # e2e_om_4_4_plus_only_task_group
-    - e2e_feature_controls_authentication
-    - e2e_replica_set
-    - e2e_replica_set_liveness_probe
-    - e2e_replica_set_mongod_options
-    - e2e_replica_set_readiness_probe
-    - e2e_replica_set_update_delete_parallel
-    - e2e_sharded_cluster_scale_shards
-    - e2e_sharded_cluster_mongod_options
-    - e2e_tls_rs_external_access
-    - e2e_replica_set_tls_require
-    - e2e_replica_set_tls_certs_secret_prefix
-    - e2e_sharded_cluster_tls_certs_top_level_prefix
-    - e2e_disable_tls_scale_up
-    - e2e_replica_set_tls_require_and_disable
-    # e2e_tls_task_group
-    - e2e_replica_set_tls_allow
-    - e2e_replica_set_tls_prefer
-    - e2e_replica_set_tls_require_upgrade
-    - e2e_tls_rs_additional_certs
-    - e2e_tls_sc_additional_certs
-    - e2e_standalone_no_tls_no_status_is_set
-    # e2e_scram_sha_task_group
-    - e2e_replica_set_scram_sha_256_user_connectivity
-    - e2e_replica_set_scram_sha_256_user_first
-    - e2e_replica_set_scram_sha_1_user_connectivity
-    - e2e_replica_set_scram_sha_1_upgrade
-    - e2e_replica_set_scram_x509_internal_cluster
-    - e2e_sharded_cluster_scram_sha_1_upgrade
-    - e2e_sharded_cluster_scram_sha_256_user_connectivity
-    - e2e_sharded_cluster_scram_sha_1_user_connectivity
-    - e2e_sharded_cluster_scram_x509_internal_cluster
-    # e2e_ldap_task_group
-    - e2e_replica_set_ldap
-    - e2e_sharded_cluster_ldap
-    - e2e_replica_set_ldap_tls
-    - e2e_replica_set_ldap_user_to_dn_mapping
-    - e2e_replica_set_ldap_agent_auth
-    - e2e_replica_set_ldap_agent_client_certs
-    - e2e_replica_set_custom_roles
-    - e2e_replica_set_update_roles_no_privileges
-    - e2e_replica_set_ldap_group_dn
-    - e2e_replica_set_ldap_group_dn_with_x509_agent
-    # e2e_auth_transitions_task_group
-    - e2e_replica_set_scram_sha_and_x509
-    - e2e_replica_set_x509_to_scram_transition
-    - e2e_sharded_cluster_scram_sha_and_x509
-    - e2e_sharded_cluster_x509_to_scram_transition
-    - e2e_sharded_cluster_internal_cluster_transition
-    # e2e_tls_custom_ca_task_group
-    - e2e_replica_set_tls_require_custom_ca
-    - e2e_replica_set_tls_require_to_allow
-    - e2e_sharded_cluster_tls_require_custom_ca
-    # e2e_mongodb_non_cloudqa_task_group
-    - e2e_standalone_groups
-    - e2e_replica_set_groups
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2543,9 +2446,7 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
-# The following group of tasks are also used for OM5. So far there are not
-# substantial changes to justify the creation of a new task_group.
-- name: e2e_ops_manager_kind_4_4_only_task_group
+- name: e2e_ops_manager_kind_5_0_only_task_group
   max_hosts: 3
   setup_group:
     - func: clone
@@ -2558,8 +2459,6 @@ task_groups:
     - e2e_om_remotemode
     - e2e_om_ops_manager_backup_restore
     - e2e_om_ops_manager_queryable_backup
-    # The task has problems running in e2e_kind_ops_manager_ubi build variant - so running only on e2e_kind_ops_manager_4_4
-    # (it's ubuntu based)
     - e2e_om_ops_manager_backup
   teardown_task:
     - func: upload_e2e_logs
@@ -2569,7 +2468,7 @@ task_groups:
     - func: run_retry_script
 
 # Tests features only supported on OM60
-- name: e2e_ops_manager60_kind_only_task_group
+- name: e2e_ops_manager_kind_6_0_only_task_group
   max_hosts: 3
   setup_group:
     - func: clone
@@ -2636,7 +2535,7 @@ buildvariants:
 # where <type> is any of mdb|om<version>|operator
 # where <cluster> is any of kind|vanilla|openshift
 # where <distro> is any of ubuntu|ubi
-# where <om_version> denotes the OM version tested (e.g. om40, om44, cloudqa) - used only for MDB tests
+# where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
 ## MongoDB build variants
 
@@ -2656,55 +2555,10 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
     custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version
+    agent_version: *agent_version50
     image_type: ubuntu
   tasks:
     - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
-
-
-# Run with evergreen patch -p ops-manager-kubernetes -v e2e_mdb_kind_usaf_cloudqa -t all -f -y -u -d "Usaf CloudQA Run"
-#- name: e2e_mdb_kind_usaf_cloudqa
-#  patch_only: true
-#  display_name: e2e_mdb_kind_usaf_cloudqa
-#  run_on:
-#    - ubuntu1804-large
-#  depends_on:
-#    # Note: no images are built, they are expected to be there already
-#    # we should have
-#    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-operator:${usaf_operator_version}
-#    # * 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/usaf/mongodb-enterprise-database:${usaf_database_version}
-#    - name: build_test_image
-#      variant: init_test_run
-#  expansions:
-#    <<: [ *cloud_manager_qa, *kubernetes_environment_kind, *usaf ]
-#    custom_mdb_version: *mdb_44_latest
-#    image_type: usaf
-#  tasks:
-#    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
-
-- name: e2e_mdb_vanilla_ubuntu_om44
-  display_name: "e2e_mdb_vanilla_ubuntu_om44"
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
-    - name: build_database_image_ubuntu
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: prepare_cluster_vanilla
-      variant: init_test_run
-  run_on:
-  - ubuntu1804-small
-  stepback: false
-  expansions:
-    <<: [ *ops_manager_44_current, *kubernetes_environment_vanilla ]
-    custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version
-    image_type: ubuntu
-  tasks:
-  - name: e2e_mdb_vanilla_ubuntu_om44_task_group
 
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
@@ -2723,90 +2577,12 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_openshift_4 ]
     custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version
+    agent_version: *agent_version50
     image_type: ubi
   tasks:
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
 ## Ops Manager build variants
-
-# Isolated Ops Manager Tests for 4.4 version
-- name: e2e_om44_kind_ubuntu
-  display_name: e2e_om44_kind_ubuntu
-  run_on:
-  - ubuntu1804-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om44_images
-  - name: build_operator_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_database_image_ubuntu
-    variant: init_test_run
-  - name: build_init_appdb_images_ubuntu
-    variant: init_test_run
-  expansions:
-    <<: [ *kubernetes_environment_kind ]
-    image_type: ubuntu
-    test_mode: opsmanager
-
-    custom_om_version: *ops_manager_44_latest
-    custom_om_prev_version: *ops_manager_44_prev
-    custom_mdb_version: *mdb_44_latest
-    custom_mdb_prev_version: *mdb_42_latest
-    agent_version: *agent_version60
-
-    # TODO using expansion here results in "'${ecr_registry}/images/ubuntu' contains an unclosed expansion"
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
-
-- name: e2e_om44_kind_ubi
-  display_name: e2e_om44_kind_ubi
-  run_on:
-  - ubuntu1804-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om44_images
-  - name: build_operator_ubi
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  - name: build_init_database_image_ubi
-    variant: init_test_run
-  - name: build_database_image_ubi
-    variant: init_test_run
-  - name: build_init_appdb_images_ubi
-    variant: init_test_run
-  expansions:
-    # The ubi checks also run on kind because of memory problems on Openshift!
-    # A few tests of these at any given time and the Nodes in the Openshift cluster
-    # will run out of mem.
-    <<: [ *kubernetes_environment_kind ]
-    image_type: ubi
-    test_mode: opsmanager
-
-    custom_om_version: *ops_manager_44_latest
-    custom_om_prev_version: *ops_manager_44_prev
-    custom_mdb_version: *mdb_44_latest
-    custom_mdb_prev_version: *mdb_42_latest
-    agent_version: *agent_version60
-
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
-
 
 # Isolated Ops Manager Tests for 5.0 version
 - name: e2e_om50_kind_ubuntu
@@ -2834,7 +2610,7 @@ buildvariants:
     test_mode: opsmanager
 
     custom_om_version: *ops_manager_50_latest
-    custom_om_prev_version: *ops_manager_44_latest
+    custom_om_prev_version: *ops_manager_50_prev
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
     agent_version: *agent_version60
@@ -2845,7 +2621,7 @@ buildvariants:
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
+  - name: e2e_ops_manager_kind_5_0_only_task_group
 
 - name: e2e_om50_kind_ubi
   display_name: e2e_om50_kind_ubi
@@ -2872,7 +2648,7 @@ buildvariants:
     test_mode: opsmanager
 
     custom_om_version: *ops_manager_50_latest
-    custom_om_prev_version: *ops_manager_44_latest
+    custom_om_prev_version: *ops_manager_50_prev
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
     agent_version: *agent_version60
@@ -2883,7 +2659,7 @@ buildvariants:
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
+  - name: e2e_ops_manager_kind_5_0_only_task_group
 
 # Isolated Ops Manager Tests for 6.0 version
 - name: e2e_om60_kind_ubuntu
@@ -2922,8 +2698,8 @@ buildvariants:
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
-  - name: e2e_ops_manager60_kind_only_task_group
+  - name: e2e_ops_manager_kind_5_0_only_task_group
+  - name: e2e_ops_manager_kind_6_0_only_task_group
 
 - name: e2e_om60_kind_ubi
   display_name: e2e_om60_kind_ubi
@@ -2961,8 +2737,8 @@ buildvariants:
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_4_4_only_task_group
-  - name: e2e_ops_manager60_kind_only_task_group
+  - name: e2e_ops_manager_kind_5_0_only_task_group
+  - name: e2e_ops_manager_kind_6_0_only_task_group
 
 
 # Multi Cluster build variants
@@ -3033,9 +2809,9 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
     image_type: ubuntu
-    custom_om_version: *ops_manager_44_latest
-    custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version
+    custom_om_version: *ops_manager_50_latest
+    custom_mdb_version: *mdb_50_latest
+    agent_version: *agent_version50
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
   tasks:
   - name: e2e_operator_task_group
@@ -3060,9 +2836,9 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
     image_type: ubi
-    custom_om_version: *ops_manager_44_latest
+    custom_om_version: *ops_manager_50_latest
     custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version
+    agent_version: *agent_version50
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
     - name: e2e_operator_task_group
@@ -3229,15 +3005,6 @@ buildvariants:
   tasks:
   - name: release_appdb
 
-- name: build_om44_images
-  display_name: build_om44_images
-  run_on:
-  - ubuntu1804-small
-  expansions:
-    om_version: *ops_manager_44_latest
-  tasks:
-  - name: build_om_images
-
 - name: build_om50_images
   display_name: build_om50_images
   run_on:
@@ -3255,36 +3022,6 @@ buildvariants:
     om_version: *ops_manager_60_latest
   tasks:
   - name: build_om_images
-
-# To publish OM4.4 images:
-#
-# 1) Modify `variables.ops_manager_44_latest` to the version to be released
-# 2) Run
-#    evergreen patch -v publish_om44_images -t all -y -f -d "Releasing OM 4.4" -u --browse
-#
-- name: publish_om44_images
-  display_name: publish_om44_images
-  run_on:
-  - ubuntu1804-small
-  depends_on:
-  - variant: e2e_om44_kind_ubuntu
-    name: '*'
-  - variant: e2e_om44_kind_ubi
-    name: '*'
-  expansions:
-    om_version: *ops_manager_44_latest
-  tasks:
-  - name: publish_ops_manager
-
-- name: preflight_om44_images
-  display_name: preflight_om44_images
-  run_on:
-  - rhel90-small
-  expansions:
-    image_version: *ops_manager_44_latest
-    preflight_submit: true
-  tasks:
-  - name: preflight_om_image
 
 - name: publish_om50_images
   display_name: publish_om50_images
