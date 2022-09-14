@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -139,12 +140,12 @@ func TestCreateReplicaSet_TLS(t *testing.T) {
 	for _, v := range processes {
 		assert.NotNil(t, v.TLSConfig())
 		assert.Len(t, v.TLSConfig(), 2)
-		assert.Equal(t, util.PEMKeyFilePathInContainer, v.TLSConfig()["certificateKeyFile"])
+		assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCertMountPath, pem.ReadHashFromSecret(reconciler.SecretClient, rs.Namespace, fmt.Sprintf("%s-cert", rs.Name), "", zap.S())), v.TLSConfig()["certificateKeyFile"])
 		assert.Equal(t, "requireTLS", v.TLSConfig()["mode"])
 	}
 
 	sslConfig := om.CurrMockedConnection.GetTLS()
-	assert.Equal(t, util.CAFilePathInContainer, sslConfig["CAFilePath"])
+	assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCaMountPath, "ca-pem"), sslConfig["CAFilePath"])
 	assert.Equal(t, "OPTIONAL", sslConfig["clientCertificateMode"])
 }
 
@@ -220,8 +221,6 @@ func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 	}
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client, 3)
-
 	checkReconcileFailed(t, reconciler, rs, true, "unable to configure X509 with this version of Ops Manager", client)
 }
 

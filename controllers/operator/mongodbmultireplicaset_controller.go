@@ -311,7 +311,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		// Ensure TLS for multi-cluster statefulset in each cluster
 		mrsConfig := certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation)
-		if status, _ := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
+		if status := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
 			return status
 		}
 
@@ -326,7 +326,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			SecretReadClient:  r.SecretClient,
 			SecretWriteClient: secretMemberClient,
 		}
-		if status, _ := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log); !status.IsOK() {
+		if status := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log); !status.IsOK() {
 			return status
 		}
 

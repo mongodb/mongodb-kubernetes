@@ -196,7 +196,6 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	createMongoDBForUserWithAuth(client, *user, util.X509)
 
 	createUserControllerConfigMap(client)
-	approveAgentCSRs(client, 1) // pre-approved agent CSRs for x509 authentication
 
 	// No password has been created
 
@@ -340,7 +339,6 @@ func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption s
 
 	err := client.Update(context.TODO(), builder.Build())
 	assert.NoError(t, err)
-	approveAgentCSRs(client, numAgents)
 	createUserControllerConfigMap(client)
 	_, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	assert.NoError(t, err)

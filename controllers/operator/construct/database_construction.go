@@ -83,31 +83,6 @@ type DatabaseStatefulSetOptions struct {
 	VaultConfig             vault.VaultConfiguration
 	ExtraEnvs               []corev1.EnvVar
 	Labels                  map[string]string
-	CertSecretTypes         CertSecretTypesMapping
-}
-
-type CertSecretTypesMapping struct {
-	// CertSecretIsTLSType is a map between certificate names and booleans that tell us
-	// whether the given certificate is formatted with the new design (tls.crt and tls.key entries)
-	// rather than the old one (concatenated PEM file)
-	certSecretIsTLSType map[string]bool
-}
-
-func (c *CertSecretTypesMapping) SetCertType(certName string, isTLS bool) {
-	if c.certSecretIsTLSType == nil {
-		c.certSecretIsTLSType = map[string]bool{}
-	}
-	c.certSecretIsTLSType[certName] = isTLS
-}
-
-func (c CertSecretTypesMapping) IsCertTLSType(certName string) bool {
-	isTLS, ok := c.certSecretIsTLSType[certName]
-	return ok && isTLS
-}
-
-func (c CertSecretTypesMapping) IsTLSTypeOrUndefined(certName string) bool {
-	isTLS, ok := c.certSecretIsTLSType[certName]
-	return !ok || isTLS
 }
 
 func GetpodEnvOptions() func(options *DatabaseStatefulSetOptions) {
@@ -312,17 +287,13 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
 	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
 		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName()).Name
-		if opts.CertSecretTypes.IsCertTLSType(secretName) {
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-		}
+		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.AgentCerts = secretName
 	}
 
 	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
 		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)
-		if opts.CertSecretTypes.IsCertTLSType(secretName) {
-			secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-		}
+		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.InternalClusterAuth = secretName
 		secretsToInject.InternalClusterHash = opts.InternalClusterHash
 	}
@@ -405,20 +376,13 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		appLabelKey: opts.ServiceName,
 	}
 
-	annotationFunc := statefulset.NOOP()
-	podTemplateAnnotationFunc := podtemplatespec.WithAnnotations(defaultPodAnnotations(opts.CertificateHash))
+	annotationFunc := statefulset.WithAnnotations(defaultPodAnnotations(opts.CertificateHash))
+	podTemplateAnnotationFunc := podtemplatespec.NOOP()
 
-	if opts.CertSecretTypes.IsCertTLSType(mdb.GetSecurity().MemberCertificateSecretName(opts.Name)) {
-		annotationFunc = statefulset.WithAnnotations(defaultPodAnnotations(opts.CertificateHash))
-		podTemplateAnnotationFunc = podtemplatespec.NOOP()
-	}
-
-	if opts.CertSecretTypes.IsCertTLSType(mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)) {
-		annotationFunc = statefulset.Apply(
-			annotationFunc,
-			statefulset.WithAnnotations(map[string]string{util.InternalCertAnnotationKey: opts.InternalClusterHash}),
-		)
-	}
+	annotationFunc = statefulset.Apply(
+		annotationFunc,
+		statefulset.WithAnnotations(map[string]string{util.InternalCertAnnotationKey: opts.InternalClusterHash}),
+	)
 
 	if vault.IsVaultSecretBackend() {
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
