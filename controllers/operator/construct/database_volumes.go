@@ -68,17 +68,11 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 
 	// We default each value to the the "old-design"
 	tlsConfig := security.TLSConfig
-
-	newTlsDesign := databaseOpts.CertSecretTypes.IsTLSTypeOrUndefined(security.MemberCertificateSecretName(databaseOpts.Name))
-	if !newTlsDesign && !security.IsTLSEnabled() {
+	if !security.IsTLSEnabled() {
 		return volumes, volumeMounts
 	}
 
 	secretName := security.MemberCertificateSecretName(databaseOpts.Name)
-
-	optionalSecretFunc := func(v *corev1.Volume) {}
-	optionalConfigMapFunc := func(v *corev1.Volume) {}
-
 	secretMountPath := util.SecretVolumeMountPath + "/certs"
 	configmapMountPath := util.ConfigMapVolumeCAMountPath
 
@@ -89,17 +83,14 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 		caName = tlsConfig.CA
 	}
 
-	// Then we overwrite them if the sts has to be constructed with the new design
-	if newTlsDesign {
-		// This two functions modify the volumes to be optional (the absence of the referenced
-		// secret/configMap do not prevent the pods from starting)
-		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
-		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
+	// This two functions modify the volumes to be optional (the absence of the referenced
+	// secret/configMap do not prevent the pods from starting)
+	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
+	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
 
-		secretMountPath = util.TLSCertMountPath
-		configmapMountPath = util.TLSCaMountPath
-		volumeSecretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-	}
+	secretMountPath = util.TLSCertMountPath
+	configmapMountPath = util.TLSCaMountPath
+	volumeSecretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 
 	if !vault.IsVaultSecretBackend() {
 		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)
@@ -133,10 +124,7 @@ func (c *tlsVolumeSource) GetVolumeMounts() []corev1.VolumeMount {
 func (c *tlsVolumeSource) GetEnvs() []corev1.EnvVar {
 	return []corev1.EnvVar{}
 }
+
 func (c *tlsVolumeSource) ShouldBeAdded() bool {
-	newTlsDesign := c.databaseOpts.CertSecretTypes.IsTLSTypeOrUndefined(c.security.MemberCertificateSecretName(c.databaseOpts.Name))
-	if !newTlsDesign && !c.security.IsTLSEnabled() {
-		return false
-	}
-	return true
+	return c.security.IsTLSEnabled()
 }

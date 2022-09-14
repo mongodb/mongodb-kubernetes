@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
+	certsv1 "k8s.io/api/certificates/v1beta1"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
@@ -35,7 +36,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -56,9 +56,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA("custom-ca").Build()
 	manager := mock.NewManager(rs)
 	addKubernetesTlsResources(manager.Client, rs)
-	approveCSRs(manager.Client, rs)
 	createConfigMap(t, manager.Client)
-	createAgentCSRs(3, manager.Client, certsv1.CertificateApproved)
 
 	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	checkReconcileSuccessful(t, reconciler, rs, manager.Client)
@@ -68,7 +66,6 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Sh
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 	reconciler, client := defaultClusterReconciler(scWithTls)
 	addKubernetesTlsResources(client, scWithTls)
-	createAgentCSRs(3, client, certsv1.CertificateApproved)
 
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
 }
@@ -77,7 +74,6 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
 	reconciler, client := defaultClusterReconciler(scWithTls)
-	createAgentCSRs(3, client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(client, scWithTls)
 
 	checkReconcileSuccessful(t, reconciler, scWithTls, client)
@@ -158,7 +154,6 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 
 	addKubernetesTlsResources(client, rs)
-	createAgentCSRs(3, client, certsv1.CertificateApproved)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 
@@ -197,7 +192,6 @@ func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
 	reconciler, client := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
 
 	addKubernetesTlsResources(client, rs)
-	approveAgentCSRs(client, 1)
 
 	checkReconcileSuccessful(t, reconciler, rs, client)
 }
@@ -208,8 +202,8 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
 	r := newReplicaSetReconciler(mock.NewManager(rs), om.NewEmptyMockedOmConnection)
 	createAgentCSRs(1, r.client, certsv1.CertificateApproved)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", zap.S())
 
+	status, isMultiStageReconciliation := r.updateOmAuthentication(conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", zap.S())
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
@@ -312,7 +306,6 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 	manager := mock.NewManager(rs)
 	r := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
 	createConfigMap(t, r.client)
-	createAgentCSRs(1, r.client, certsv1.CertificateApproved)
 	addKubernetesTlsResources(r.client, rs)
 
 	checkReconcileSuccessful(t, r, rs, manager.Client)
@@ -334,7 +327,6 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 	r, manager := newShardedClusterReconcilerFromResource(*sc, om.NewEmptyMockedOmConnection)
 	addKubernetesTlsResources(r.client, sc)
 	createConfigMap(t, manager.Client)
-	createAgentCSRs(1, manager.Client, certsv1.CertificateApproved)
 	checkReconcileSuccessful(t, r, sc, manager.Client)
 
 	currConn := om.CurrMockedConnection
@@ -498,88 +490,6 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 	assert.Equal(t, userMapping, ac.Ldap.UserToDnMapping)
 }
 
-/*
-// TODO: Design a strategy for this particular case. These tests are going to be reworked as part of the
-// SCRAM-SHA epic.
-//
-// https://jira.mongodb.org/browse/CLOUDP-49894
-//
-func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ReplicaSet(t *testing.T) {
-	rsWithoutTls := DefaultReplicaSetBuilder().SetName("rs-without-tls").Build()
-	rsWithTls := DefaultReplicaSetBuilder().EnableTLS().SetName("rs-with-tls").Build()
-	// we need to re-use the same connection between different controllers
-	connectionFunc := func(omContext *om.OMContext) om.Connection {
-		return om.CurrMockedConnection
-	}
-	// create a MongoDB resource with TLS enabled
-	manager := mock.NewManager(rsWithTls)
-	client := manager.Client
-	addKubernetesTlsResources(client, rsWithTls)
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-	checkReconcileSuccessful(t, reconciler, rsWithTls, client)
-	// create a MongoDB resource with TLS disabled
-	_ = client.Create(context.TODO(), rsWithoutTls)
-	checkReconcileSuccessful(t, reconciler, rsWithoutTls, client)
-	// enable x509 authentication at the project level
-	cMap := enableProjectLevelX509Authentication(client)
-	// our project controller needs to use the same connection so it shares the underlying deployment
-	projectController := newProjectReconciler(manager, connectionFunc)
-	projectResult, projectErr := projectController.Reconcile(context.TODO(), requestFromObject(cMap))
-	expected := reconcileAppDB.Result{RequeueAfter: time.Second * 10}
-	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
-	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
-}
-func TestX509CannotBeEnabled_WhenThereAreBothTlsAndNonTlsDeployments_ShardedCluster(t *testing.T) {
-	scWithoutTls := DefaultClusterBuilder().SetName("sc-without-tls").Build()
-	scWithTls := DefaultClusterBuilder().WithTLS().SetName("sc-with-tls").Build()
-	// we need to re-use the same connection between different controllers
-	connectionFunc := func(omContext *om.OMContext) om.Connection {
-		return om.CurrMockedConnection
-	}
-	// create a MongoDB resource with TLS enabled
-	manager := mock.NewManager(scWithTls)
-	client := manager.Client
-	addKubernetesTlsResources(client, scWithTls)
-	reconciler := newShardedClusterReconciler(manager, om.NewEmptyMockedOmConnection)
-	checkReconcileSuccessful(t, reconciler, scWithTls, client)
-	// create a MongoDB resource with TLS disabled
-	_ = client.Create(context.TODO(), scWithoutTls)
-	checkReconcileSuccessful(t, reconciler, scWithoutTls, client)
-	// enable x509 authentication at the project level
-	cMap := enableProjectLevelX509Authentication(client)
-	// our project controller needs to use the same connection so it shares the underlying deployment
-	projectController := newProjectReconciler(manager, connectionFunc)
-	projectResult, projectErr := projectController.Reconcile(context.TODO(), requestFromObject(cMap))
-	expected := reconcileAppDB.Result{RequeueAfter: time.Second * 10}
-	assert.Nil(t, projectErr, "it should not be possible to enable x509 at the project level when not all deployments are tls enabled")
-	assert.Equal(t, expectedResult, projectResult, "the request should have been requeued")
-}
-*/
-
-// createCSR creates a CSR object which can be set to either CertificateApproved or CertificateDenied
-func createCSR(name, ns string, conditionType certsv1.RequestConditionType) certsv1.CertificateSigningRequest {
-	return certsv1.CertificateSigningRequest{
-		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s.%s", name, ns)},
-		Spec: certsv1.CertificateSigningRequestSpec{
-			Request: createMockCSRBytes(),
-		},
-		Status: certsv1.CertificateSigningRequestStatus{
-			Conditions: []certsv1.CertificateSigningRequestCondition{
-				{Type: conditionType}}}}
-}
-
-// TODO: Add this function instead of having all the client/server Secret with certs
-// generated in the same function
-// func addClientx509Certificates(client *MockedClient, mdb *v1.MongoDB) {
-// 	switch mdb.Spec.ResourceType {
-// 	case v1.ReplicaSet:
-// 		createReplicaSetTLSData(client, mdb)
-// 		// TODO: Add Sharded Cluster
-// 		// case v1.ShardedCluster:
-// 		// 	createShardedClusterTLSData(client, mdb)
-// 	}
-// }
-
 // addKubernetesTlsResources ensures all the required TLS secrets exist for the given MongoDB resource
 func addKubernetesTlsResources(client kubernetesClient.Client, mdb *mdbv1.MongoDB) {
 	secret := &corev1.Secret{
@@ -588,7 +498,9 @@ func addKubernetesTlsResources(client kubernetesClient.Client, mdb *mdbv1.MongoD
 			"publicApiKey": []byte("someapi"),
 			"user":         []byte("someuser"),
 		},
+		Type: corev1.SecretTypeTLS,
 	}
+
 	_ = client.Update(context.TODO(), secret)
 	switch mdb.Spec.ResourceType {
 	case mdbv1.ReplicaSet:
@@ -596,34 +508,6 @@ func addKubernetesTlsResources(client kubernetesClient.Client, mdb *mdbv1.MongoD
 	case mdbv1.ShardedCluster:
 		createShardedClusterTLSData(client, mdb)
 	}
-}
-
-// createMockCSRBytes creates a new Certificate Signing Request, signed with a
-// fresh private key
-func createMockCSRBytes() []byte {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-
-	template := x509.CertificateRequest{
-		Subject: pkix.Name{
-			Organization: []string{"MongoDB"},
-		},
-		DNSNames: []string{"somehost.com"},
-	}
-	certRequestBytes, err := x509.CreateCertificateRequest(rand.Reader, &template, priv)
-	if err != nil {
-		panic(err)
-	}
-
-	certRequestPemBytes := &bytes.Buffer{}
-	pemBlock := pem.Block{Type: "CERTIFICATE REQUEST", Bytes: certRequestBytes}
-	if err := pem.Encode(certRequestPemBytes, &pemBlock); err != nil {
-		panic(err)
-	}
-
-	return certRequestPemBytes.Bytes()
 }
 
 // createMockCertAndKeyBytesMulti generates a random key and certificate and returns
@@ -681,7 +565,7 @@ func createMockCertAndKeyBytesWithDNSName(dnsName string) []byte {
 
 // createMockCertAndKeyBytes generates a random key and certificate and returns
 // them as bytes
-func createMockCertAndKeyBytes(certOpts ...func(cert *x509.Certificate)) []byte {
+func createMockCertAndKeyBytes(certOpts ...func(cert *x509.Certificate)) (cert, key []byte) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		panic(err)
@@ -730,7 +614,7 @@ func createMockCertAndKeyBytes(certOpts ...func(cert *x509.Certificate)) []byte 
 		panic(err)
 	}
 
-	return append(certPemBytes.Bytes(), privPemBytes.Bytes()...)
+	return certPemBytes.Bytes(), privPemBytes.Bytes()
 }
 
 // createReplicaSetTLSData creates and populates secrets required for a TLS enabled ReplicaSet
@@ -741,21 +625,22 @@ func createReplicaSetTLSData(client kubernetesClient.Client, mdb *mdbv1.MongoDB)
 			Name:      fmt.Sprintf("%s-cert", mdb.Name),
 			Namespace: mock.TestNamespace,
 		},
+		Type: corev1.SecretTypeTLS,
 	}
 
 	certs := map[string][]byte{}
 	clientCerts := map[string][]byte{}
-	for i := 0; i < mdb.Spec.Members; i++ {
-		pemFile := createMockCertAndKeyBytes()
-		certs[fmt.Sprintf("%s-%d-pem", mdb.Name, i)] = pemFile
-		clientCerts[fmt.Sprintf("%s-%d-pem", mdb.Name, i)] = pemFile
-	}
+
+	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
+	clientCerts["tls.crt"], clientCerts["tls.key"] = createMockCertAndKeyBytes()
 	secret.Data = certs
+
 	_ = client.Create(context.TODO(), secret)
 
 	_ = client.Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-clusterfile", mdb.Name), Namespace: mock.TestNamespace},
 		Data:       clientCerts,
+		Type:       corev1.SecretTypeTLS,
 	})
 
 	agentCerts := &corev1.Secret{
@@ -763,6 +648,7 @@ func createReplicaSetTLSData(client kubernetesClient.Client, mdb *mdbv1.MongoDB)
 			Name:      "agent-certs",
 			Namespace: mock.TestNamespace,
 		},
+		Type: corev1.SecretTypeTLS,
 	}
 
 	subjectModifier := func(cert *x509.Certificate) {
@@ -772,11 +658,8 @@ func createReplicaSetTLSData(client kubernetesClient.Client, mdb *mdbv1.MongoDB)
 		cert.Subject.Country = []string{"US"}
 	}
 
-	agentCerts.Data = map[string][]byte{
-		"mms-automation-agent-pem": createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = "mms-automation-agent" }),
-		"mms-monitoring-agent-pem": createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = "mms-automation-agent" }),
-		"mms-backup-agent-pem":     createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = "mms-automation-agent" }),
-	}
+	agentCerts.Data = make(map[string][]byte)
+	agentCerts.Data["tls.crt"], agentCerts.Data["tls.key"] = createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = "mms-automation-agent" })
 	_ = client.Create(context.TODO(), agentCerts)
 }
 
@@ -787,52 +670,71 @@ func createShardedClusterTLSData(client kubernetesClient.Client, mdb *mdbv1.Mong
 	for i := 0; i < mdb.Spec.ShardCount; i++ {
 		secretName := fmt.Sprintf("%s-%d-cert", mdb.Name, i)
 		shardData := make(map[string][]byte)
-		for j := 0; j <= mdb.Spec.MongodsPerShardCount; j++ {
-			shardData[fmt.Sprintf("%s-%d-%d-pem", mdb.Name, i, j)] = createMockCertAndKeyBytes()
-		}
+		shardData["tls.crt"], shardData["tls.key"] = createMockCertAndKeyBytes()
+
 		_ = client.Create(context.TODO(), &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: mock.TestNamespace},
 			Data:       shardData,
+			Type:       corev1.SecretTypeTLS,
 		})
 		_ = client.Create(context.TODO(), &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%d-clusterfile", mdb.Name, i), Namespace: mock.TestNamespace},
 			Data:       shardData,
+			Type:       corev1.SecretTypeTLS,
 		})
 	}
 
 	// populate with the expected cert and key fields
 	mongosData := make(map[string][]byte)
-	for i := 0; i < mdb.Spec.MongosCount; i++ {
-		mongosData[fmt.Sprintf("%s-mongos-%d-pem", mdb.Name, i)] = createMockCertAndKeyBytes()
-	}
+	mongosData["tls.crt"], mongosData["tls.key"] = createMockCertAndKeyBytes()
 
 	// create the mongos secret
 	mongosSecretName := fmt.Sprintf("%s-mongos-cert", mdb.Name)
 	_ = client.Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: mongosSecretName, Namespace: mock.TestNamespace},
 		Data:       mongosData,
+		Type:       corev1.SecretTypeTLS,
 	})
 
 	_ = client.Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-mongos-clusterfile", mdb.Name), Namespace: mock.TestNamespace},
 		Data:       mongosData,
+		Type:       corev1.SecretTypeTLS,
 	})
 
 	// create secret for config server
 	configData := make(map[string][]byte)
-	for i := 0; i < mdb.Spec.ConfigServerCount; i++ {
-		configData[fmt.Sprintf("%s-config-%d-pem", mdb.Name, i)] = createMockCertAndKeyBytes()
-	}
+	configData["tls.crt"], configData["tls.key"] = createMockCertAndKeyBytes()
 
 	_ = client.Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-config-cert", mdb.Name), Namespace: mock.TestNamespace},
 		Data:       configData,
+		Type:       corev1.SecretTypeTLS,
 	})
 
 	_ = client.Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-config-clusterfile", mdb.Name), Namespace: mock.TestNamespace},
 		Data:       configData,
+		Type:       corev1.SecretTypeTLS,
 	})
+	agentCerts := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "agent-certs",
+			Namespace: mock.TestNamespace,
+		},
+		Type: corev1.SecretTypeTLS,
+	}
+
+	subjectModifier := func(cert *x509.Certificate) {
+		cert.Subject.OrganizationalUnit = []string{"cloud"}
+		cert.Subject.Locality = []string{"New York"}
+		cert.Subject.Province = []string{"New York"}
+		cert.Subject.Country = []string{"US"}
+	}
+
+	agentCerts.Data = make(map[string][]byte)
+	agentCerts.Data["tls.crt"], agentCerts.Data["tls.key"] = createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = "mms-automation-agent" })
+	_ = client.Create(context.TODO(), agentCerts)
 
 }
 
@@ -885,75 +787,6 @@ func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmul
 	client.Create(context.TODO(), secret)
 }
 
-// approveAgentCSRs approves all the agent certs needed for x509 authentication
-func approveAgentCSRs(client *mock.MockedClient, howMany int) {
-	// create the secret the agent certs will exist in
-	createAgentCSRs(howMany, client, certsv1.CertificateApproved)
-}
-
-// createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
-func createAgentCSRs(numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
-	if numAgents != 1 && numAgents != 3 {
-		return
-	}
-	// create the secret the agent certs will exist in
-	certAuto, _ := ioutil.ReadFile("testdata/certificates/cert_auto")
-
-	builder := secret.Builder().
-		SetNamespace(mock.TestNamespace).
-		SetName(util.AgentSecretName).
-		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
-
-	client.CreateSecret(builder.Build())
-
-	addCsrs(client, createCSR("mms-automation-agent", mock.TestNamespace, conditionType))
-}
-
-// approveCSRs approves all CSRs related to the given MongoDB resource, this includes TLS and x509 internal cluster authentication CSRs
-func approveCSRs(client *mock.MockedClient, mdb *mdbv1.MongoDB) {
-	if mdb != nil && mdb.Spec.Security.TLSConfig.Enabled {
-		switch mdb.Spec.ResourceType {
-		case mdbv1.ReplicaSet:
-			for i := 0; i < mdb.Spec.Members; i++ {
-				addCsrs(client,
-					createCSR(fmt.Sprintf("%s-%d.%s", mdb.Name, i, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-					createCSR(fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, i, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-				)
-			}
-		case mdbv1.ShardedCluster:
-			// mongos
-			for i := 0; i < mdb.Spec.MongosCount; i++ {
-				addCsrs(client,
-					createCSR(fmt.Sprintf("%s-mongos-0.%s", mdb.Name, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-					createCSR(fmt.Sprintf("%s-mongos-0.%s-clusterfile", mdb.Name, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-				)
-			}
-
-			// config server
-			for i := 0; i < mdb.Spec.ConfigServerCount; i++ {
-				addCsrs(client,
-					createCSR(fmt.Sprintf("%s-config-0.%s", mdb.Name, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-					createCSR(fmt.Sprintf("%s-config-0.%s-clusterfile", mdb.Name, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-				)
-			}
-
-			// shards
-			for shardNum := 0; shardNum < mdb.Spec.ShardCount; shardNum++ {
-				addCsrs(client,
-					createCSR(fmt.Sprintf("%s-%d.%s", mdb.Name, shardNum, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-					createCSR(fmt.Sprintf("%s-%d.%s-clusterfile", mdb.Name, shardNum, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-				)
-				for mongodNum := 0; mongodNum < mdb.Spec.MongodsPerShardCount; mongodNum++ {
-					addCsrs(client,
-						createCSR(fmt.Sprintf("%s-%d-%d.%s", mdb.Name, shardNum, mongodNum, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-						createCSR(fmt.Sprintf("%s-%d-%d.%s-clusterfile", mdb.Name, shardNum, mongodNum, mock.TestNamespace), mock.TestNamespace, certsv1.CertificateApproved),
-					)
-				}
-			}
-		}
-	}
-}
-
 func createConfigMap(t *testing.T, client kubernetesClient.Client) {
 
 	err := client.CreateConfigMap(configMap())
@@ -980,41 +813,14 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 			Name:      fmt.Sprintf("%s-cert", rs.Name),
 			Namespace: mock.TestNamespace,
 		},
+		Type: corev1.SecretTypeTLS,
 	}
 
 	_ = client.Update(context.TODO(), secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
-	for i := 0; i < rs.Spec.Members; i++ {
-		expectedErrorMessage := fmt.Sprintf("the secret %s-cert does not contain the expected key %s-%d-pem", rs.Name, rs.Name, i)
-		assert.Contains(t, err.Error(), expectedErrorMessage)
-	}
-}
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	assert.Equal(t, err.Error(), "the certificate is not complete\n")
 
-func TestInvalidPEM_CertificateIsNotComplete(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().
-		EnableTLS().
-		EnableAuth().
-		EnableX509().
-		Build()
-
-	manager := mock.NewManager(rs)
-	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
-	client := manager.Client
-
-	addKubernetesTlsResources(client, rs)
-
-	secret := &corev1.Secret{}
-
-	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
-
-	// Delete certificate for member 0 so that certificate is not complete
-	secret.Data["temple-0-pem"] = []byte{}
-
-	_ = client.Update(context.TODO(), secret)
-
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
-	assert.Contains(t, err.Error(), "the certificate is not complete")
 }
 
 func Test_NoAdditionalDomainsPresent(t *testing.T) {
@@ -1037,9 +843,73 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 
 	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
 
-	err, _ := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
 	for i := 0; i < rs.Spec.Members; i++ {
 		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
 	}
+}
+
+// createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
+func createAgentCSRs(numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
+	if numAgents != 1 && numAgents != 3 {
+		return
+	}
+	// create the secret the agent certs will exist in
+	certAuto, _ := ioutil.ReadFile("testdata/certificates/cert_auto")
+
+	builder := secret.Builder().
+		SetNamespace(mock.TestNamespace).
+		SetName(util.AgentSecretName).
+		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
+
+	client.CreateSecret(builder.Build())
+
+	addCsrs(client, createCSR("mms-automation-agent", mock.TestNamespace, conditionType))
+}
+
+func addCsrs(client kubernetesClient.Client, csrs ...certsv1.CertificateSigningRequest) {
+	for _, csr := range csrs {
+		_ = client.Update(context.TODO(), &csr)
+	}
+}
+
+// createCSR creates a CSR object which can be set to either CertificateApproved or CertificateDenied
+func createCSR(name, ns string, conditionType certsv1.RequestConditionType) certsv1.CertificateSigningRequest {
+	return certsv1.CertificateSigningRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s.%s", name, ns)},
+		Spec: certsv1.CertificateSigningRequestSpec{
+			Request: createMockCSRBytes(),
+		},
+		Status: certsv1.CertificateSigningRequestStatus{
+			Conditions: []certsv1.CertificateSigningRequestCondition{
+				{Type: conditionType}}}}
+}
+
+// createMockCSRBytes creates a new Certificate Signing Request, signed with a
+// fresh private key
+func createMockCSRBytes() []byte {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	template := x509.CertificateRequest{
+		Subject: pkix.Name{
+			Organization: []string{"MongoDB"},
+		},
+		DNSNames: []string{"somehost.com"},
+	}
+	certRequestBytes, err := x509.CreateCertificateRequest(rand.Reader, &template, priv)
+	if err != nil {
+		panic(err)
+	}
+
+	certRequestPemBytes := &bytes.Buffer{}
+	pemBlock := pem.Block{Type: "CERTIFICATE REQUEST", Bytes: certRequestBytes}
+	if err := pem.Encode(certRequestPemBytes, &pemBlock); err != nil {
+		panic(err)
+	}
+
+	return certRequestPemBytes.Bytes()
 }

@@ -74,25 +74,6 @@ class TestReplicaSetEnterpriseCreation(KubernetesTester):
                 name="database-scripts",
             )
         ]
-
-        assert (
-            V1Volume(
-                name="secret-certs",
-                secret=V1SecretVolumeSource(
-                    default_mode=416, secret_name="rs001-ent-cert-pem", optional=True
-                ),
-            )
-            in tmpl.volumes
-        )
-        assert (
-            V1Volume(
-                name="secret-ca",
-                config_map=V1ConfigMapVolumeSource(
-                    default_mode=420, name="rs001-ent-ca", optional=True
-                ),
-            )
-            in tmpl.volumes
-        )
         assert (
             V1Volume(name="database-scripts", empty_dir=V1EmptyDirVolumeSource())
             in tmpl.volumes

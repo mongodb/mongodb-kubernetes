@@ -173,7 +173,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Failed("Error reading monitoring agent version: %s", err), log, appDbStatusOption)
 	}
 
-	workflowStatus, certSecretType := r.ensureTLSSecretAndCreatePEMIfNeeded(*opsManager, log)
+	workflowStatus := r.ensureTLSSecretAndCreatePEMIfNeeded(*opsManager, log)
 	if !workflowStatus.IsOK() {
 		return r.updateStatus(opsManager, workflowStatus, log, appDbStatusOption)
 	}
@@ -186,7 +186,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 
 	appdbOpts := construct.AppDBStatefulSetOptions{}
 	appdbOpts.CertHash = certHash
-	appdbOpts.CertSecretType = certSecretType
 	appdbOpts.MonitoringAgentVersion = monitoringAgentVersion
 
 	var vaultConfig vault.VaultConfiguration
@@ -311,10 +310,10 @@ func getDomain(service, namespace, clusterName string) string {
 // This means that the secret referenced can either already contain a concatenation of certificate and private key
 // or it can be of type kubernetes.io/tls. In this case the operator will read the tls.crt and tls.key entries and it will
 // generate a new secret containing their concatenation
-func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, corev1.SecretType) {
+func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
 	rs := om.Spec.AppDB
 	if !rs.IsSecurityTLSConfigEnabled() {
-		return workflow.OK(), corev1.SecretTypeTLS
+		return workflow.OK()
 	}
 	secretName := rs.Security.MemberCertificateSecretName(rs.Name())
 
@@ -328,12 +327,12 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretPath(), om.Namespace, secretName)
 		secretData, err = r.VaultClient.ReadSecretBytes(path)
 		if err != nil {
-			return workflow.Failed(fmt.Sprintf("can't read current certificate secret from vault: %s", err)), corev1.SecretTypeOpaque
+			return workflow.Failed(fmt.Sprintf("can't read current certificate secret from vault: %s", err))
 		}
 	} else {
 		s, err = r.KubeClient.GetSecret(kube.ObjectKey(om.Namespace, secretName))
 		if err != nil {
-			return workflow.Failed(fmt.Sprintf("can't read current certificate secret: %s", err)), corev1.SecretTypeOpaque
+			return workflow.Failed(fmt.Sprintf("can't read current certificate secret: %s", err))
 		}
 
 		// SecretTypeTLS is kubernetes.io/tls
@@ -349,7 +348,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 	if needToCreatePEM {
 		data, err := certs.VerifyTLSSecretForStatefulSet(secretData, certs.AppDBReplicaSetConfig(om))
 		if err != nil {
-			return workflow.Failed(fmt.Sprintf("certificate for appdb is not valid: %s", err)), corev1.SecretTypeOpaque
+			return workflow.Failed(fmt.Sprintf("certificate for appdb is not valid: %s", err))
 		}
 
 		var appdbSecretPath string
@@ -360,11 +359,11 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 		secretHash := enterprisepem.ReadHashFromSecret(r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
 		err = certs.CreatePEMSecretClient(r.SecretClient, kube.ObjectKey(om.Namespace, secretName), map[string]string{secretHash: data}, om.GetOwnerReferences(), certs.AppDB, log)
 		if err != nil {
-			return workflow.Failed(fmt.Sprintf("can't create concatenated PEM certificate: %s", err)), corev1.SecretTypeOpaque
+			return workflow.Failed(fmt.Sprintf("can't create concatenated PEM certificate: %s", err))
 		}
 	}
 
-	return workflow.OK(), s.Type
+	return workflow.OK()
 }
 
 // publishAutomationConfig publishes the automation config to the Secret if necessary. Note that it's done only

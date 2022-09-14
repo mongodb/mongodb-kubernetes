@@ -54,24 +54,6 @@ func WithLabels(labels map[string]string) func(options *construct.DatabaseStatef
 	}
 }
 
-// NewTLSDesignKey sets, for a specific key, whether or not the corresponding certificate
-// uses the new tls design (tls.crt and tls.key instead of concatenated PEM file )
-func NewTLSDesignKey(key string, newDesign bool) func(options *construct.DatabaseStatefulSetOptions) {
-	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.CertSecretTypes.SetCertType(key, newDesign)
-	}
-}
-
-// NewTLSDesignMap sets, for a number of keys, whether or not the corresponding certificate
-// uses the new tls design (tls.crt and tls.key instead of concatenated PEM file )
-func NewTLSDesignMap(newDesign map[string]bool) func(options *construct.DatabaseStatefulSetOptions) {
-	return func(options *construct.DatabaseStatefulSetOptions) {
-		for k, v := range newDesign {
-			options.CertSecretTypes.SetCertType(k, v)
-		}
-	}
-}
-
 // WithVaultConfig sets the vault configuration to extract annotations for the statefulset.
 func WithVaultConfig(config vault.VaultConfiguration) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

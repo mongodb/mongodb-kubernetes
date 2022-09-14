@@ -96,7 +96,7 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (
 
 // VerifyAndEnsureCertificatesForStatefulSet ensures that the provided certificates are correct.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) (error, bool) {
+func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) error {
 
 	needToCreatePEM := false
 	var err error
@@ -109,13 +109,13 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", databaseSecretPath, opts.Namespace, secretName))
 		if err != nil {
-			return err, false
+			return err
 		}
 
 	} else {
 		s, err = secretReadClient.KubeClient.GetSecret(kube.ObjectKey(opts.Namespace, secretName))
 		if err != nil {
-			return err, true
+			return err
 		}
 
 		// SecretTypeTLS is kubernetes.io/tls
@@ -131,21 +131,18 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 	if needToCreatePEM {
 		data, err := VerifyTLSSecretForStatefulSet(secretData, opts)
 		if err != nil {
-			return err, true
+			return err
 		}
 
 		secretHash := enterprisepem.ReadHashFromSecret(secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
-		return CreatePEMSecretClient(secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database, log), true
-
+		return CreatePEMSecretClient(secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database, log)
 	}
-
 	var errs error
 
 	if opts.ClusterMode == multi {
 		// get the pod names and get the service FQDN for each of the service hostnames
 		mdbmName, clusterNum := multicluster.GetRsNamefromMultiStsName(opts.ResourceName),
 			multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)
-
 		for podNum := 0; podNum < opts.Replicas; podNum++ {
 			podName, serviceFQDN := dns.GetMultiPodName(mdbmName, clusterNum, podNum), dns.GetMultiServiceFQDN(mdbmName, opts.Namespace, clusterNum, podNum)
 			pem := fmt.Sprintf("%s-pem", podName)
@@ -153,8 +150,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 				errs = multierror.Append(errs, err)
 			}
 		}
-
-		return errs, false
+		return errs
 	}
 
 	for i, pod := range getPodNames(opts) {
@@ -164,8 +160,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 			errs = multierror.Append(errs, err)
 		}
 	}
-
-	return errs, false
+	return errs
 }
 
 // getPodNames returns the pod names based on the Cert Options provided.
@@ -208,25 +203,25 @@ func validatePemData(data []byte, additionalDomains []string) error {
 		return fmt.Errorf("can't parse certificate: %s\n", err)
 	}
 
-	var lastError error
+	var errs error
 	// in case of using an intermediate certificate authority, the certificate
 	// data might contain all the certificate chain excluding the root-ca (in case of cert-manager).
 	// We need to iterate through the certificates in the chain and find the one at the bottom of the chain
 	// containing the additionalDomains which we're validating for.
 	for _, cert := range certs {
-		var certError error
+		var err error
 		for _, domain := range additionalDomains {
 			if !stringutil.CheckCertificateAddresses(cert.DNSNames, domain) {
-				certError = fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
-				lastError = certError
+				err = fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
+				errs = multierror.Append(errs, err)
 			}
 		}
-		if certError == nil {
+		if err == nil {
 			return nil
 		}
 	}
 
-	return lastError
+	return errs
 }
 
 // validatePemSecret returns true if the given Secret contains a parsable certificate and contains all required domains.
@@ -256,8 +251,7 @@ func ValidateCertificates(secretGetter secret.Getter, name, namespace string) er
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether or not they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) (error, bool) {
-
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
 	needToCreatePEM := false
 	var secretData map[string][]byte
 	var s corev1.Secret
@@ -268,12 +262,12 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secr
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 
 		if err != nil {
-			return err, false
+			return err
 		}
 	} else {
 		s, err = secretReadClient.KubeClient.GetSecret(secret)
 		if err != nil {
-			return err, true
+			return err
 		}
 
 		if s.Type == corev1.SecretTypeTLS {
@@ -284,32 +278,27 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secr
 	if needToCreatePEM {
 		data, err := VerifyTLSSecretForStatefulSet(secretData, Options{Replicas: 0})
 		if err != nil {
-			return err, false
+			return err
 		}
 		dataMap := map[string]string{
 			util.AutomationAgentPemSecretKey: data,
 		}
-		return CreatePEMSecretClient(secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database, log), true
+		return CreatePEMSecretClient(secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database, log)
 	}
 
 	additionalDomains := []string{} // agents have no additional domains
-	return validatePemSecret(s, util.AutomationAgentPemSecretKey, additionalDomains), false
+	return validatePemSecret(s, util.AutomationAgentPemSecretKey, additionalDomains)
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
-// It also returns a boolean value indicating whether or no the new tls design must be used
-func EnsureSSLCertsForStatefulSet(secretReadClient, secretWriteClient secrets.SecretClient, ms mdbv1.Security, opts Options, log *zap.SugaredLogger) (workflow.Status, bool) {
+func EnsureSSLCertsForStatefulSet(secretReadClient, secretWriteClient secrets.SecretClient, ms mdbv1.Security, opts Options, log *zap.SugaredLogger) workflow.Status {
 	if !ms.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
-		// Note that we return true, so that enabling TLS later won't cause restarts
-		return workflow.OK(), true
+		return workflow.OK()
 	}
 
 	secretName := opts.CertSecretName
-	if !ms.TLSConfig.IsSelfManaged() {
-		return workflow.Failed("Operator-generated certs are not supported. You must create your own certificates."), true
-	}
 	return ValidateSelfManagedSSLCertsForStatefulSet(secretReadClient, secretWriteClient, secretName, opts, log)
 
 }
@@ -384,24 +373,22 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace st
 
 // ValidateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
 // user-provided certificates has all of the relevant certificates in place.
-// It also returns a boolean value indicating whether or no the new tls design must be used
-func ValidateSelfManagedSSLCertsForStatefulSet(secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) (workflow.Status, bool) {
+func ValidateSelfManagedSSLCertsForStatefulSet(secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) workflow.Status {
 	// A "Certs" attribute has been provided
 	// This means that the customer has provided with a secret name they have
 	// already populated with the certs and keys for this deployment.
 	// Because of the async nature of Kubernetes, this object might not be ready yet,
 	// in which case, we'll keep reconciling until the object is created and is correct.
-	err, newTlsDesign := VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClient, secretName, opts, log)
+	err := VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClient, secretName, opts, log)
 	if err != nil {
-		return workflow.Failed("The secret object '%s' does not contain all the valid certificates needed: %s", secretName, err), true
+		return workflow.Failed("The secret object '%s' does not contain all the valid certificates needed: %s", secretName, err)
 	}
 
-	if newTlsDesign {
-		secretName = fmt.Sprintf("%s-pem", secretName)
-	}
+	secretName = fmt.Sprintf("%s-pem", secretName)
+
 	if err := ValidateCertificates(secretReadClient.KubeClient, secretName, opts.Namespace); err != nil {
-		return workflow.Failed(err.Error()), true
+		return workflow.Failed(err.Error())
 	}
 
-	return workflow.OK(), newTlsDesign
+	return workflow.OK()
 }

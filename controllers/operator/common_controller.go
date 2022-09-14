@@ -30,7 +30,6 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
@@ -294,27 +293,25 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {
 
 	secretName := opts.InternalClusterSecretName
 
-	err, newTLSDesign := certs.VerifyAndEnsureCertificatesForStatefulSet(
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(
 		configurator.GetSecretReadClient(),
 		configurator.GetSecretWriteClient(),
 		secretName, opts, log)
 	if err != nil {
-		return true, fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err)
+		return fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err)
 	}
 
-	if newTLSDesign {
-		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
-	}
+	secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 
 	// Validates that the secret is valid
 	if err := certs.ValidateCertificates(r.client, secretName, opts.Namespace); err != nil {
-		return false, err
+		return err
 	}
-	return newTLSDesign, nil
+	return nil
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
@@ -646,43 +643,50 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.C
 }
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
-func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator certs.X509CertConfigurator, currentAuthMechanism string, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
-	newTLSDesignMapping := map[string]bool{}
+func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator certs.X509CertConfigurator, currentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
 	authSpec := configurator.GetSecurity().Authentication
 	if authSpec == nil || !configurator.GetSecurity().Authentication.Enabled {
-		return workflow.OK(), newTLSDesignMapping
+		return workflow.OK()
 	}
+
 	if configurator.GetSecurity().ShouldUseX509(currentAuthMechanism) {
 		if !configurator.GetSecurity().IsTLSEnabled() {
-			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled"), newTLSDesignMapping
+			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
 		}
 		agentSecretName := configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name
-		err, tlsFormat := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
 			configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(),
 			kube.ObjectKey(configurator.GetNamespace(), agentSecretName),
 			log)
 		if err != nil {
-			return workflow.Failed(err.Error()), newTLSDesignMapping
+			return workflow.Failed(err.Error())
 		}
-
-		newTLSDesignMapping[configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name] = tlsFormat
-
 	}
 
 	if configurator.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		for _, certOption := range configurator.GetCertOptions() {
-			newDesign, err := r.validateInternalClusterCertsAndCheckTLSType(configurator, certOption, log)
+			err := r.validateInternalClusterCertsAndCheckTLSType(configurator, certOption, log)
 			if err != nil {
 				errors = append(errors, err)
 			}
-			newTLSDesignMapping[certOption.InternalClusterSecretName] = newDesign
 		}
 		if len(errors) > 0 {
-			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0]), newTLSDesignMapping
+			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
 		}
 	}
-	return workflow.OK(), newTLSDesignMapping
+
+	// if client certificate is configured for the agent, create corresponding concatenated pem certs
+	if configurator.GetSecurity().ShouldUseClientCertificates() {
+		agentSecretName := configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName())
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(),
+			kube.ObjectKey(configurator.GetNamespace(), agentSecretName.Name), log)
+		if err != nil {
+			return workflow.Failed(err.Error())
+		}
+	}
+
+	return workflow.OK()
 }
 
 // isPrometheusSupported checks if Prometheus integration can be enabled.
@@ -791,35 +795,9 @@ func getVolumeFromStatefulSet(sts appsv1.StatefulSet, name string) (corev1.Volum
 	return corev1.Volume{}, fmt.Errorf("can't find volume %s in list of volumes: %v", name, sts.Spec.Template.Spec.Volumes)
 }
 
-func getVolumeMountFromMountLists(volumeMountsList []corev1.VolumeMount, name string) (corev1.VolumeMount, error) {
-	for _, v := range volumeMountsList {
-		if v.Name == name {
-			return v, nil
-		}
-	}
-	return corev1.VolumeMount{}, fmt.Errorf("can't find volumeMount %s in list of volumeMounts: %v", name, volumeMountsList)
-}
-
-func hasOldTLSDesign(volumeMounts []corev1.VolumeMount, volumeName string) bool {
-
-	vMount, err := getVolumeMountFromMountLists(volumeMounts, volumeName)
-	if err != nil {
-		return false
-	}
-
-	return vMount.MountPath == util.SecretVolumeMountPath+"/certs" || vMount.MountPath == util.ConfigMapVolumeCAMountPath
-
-}
-
 // wasTLSSecretMounted checks whether or not TLS was previously enabled by looking at the state of the volumeMounts of the pod.
 func wasTLSSecretMounted(secretGetter secret.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
 
-	// If the volume has the "old-design" mount path, it means
-	// that it was mounted when TLS was enabled
-	if hasOldTLSDesign(volumeMounts, util.SecretVolumeName) {
-		log.Debugf("Old design volume mount exists: TLS was enabled")
-		return true
-	}
 	tlsVolume, err := getVolumeFromStatefulSet(currentSts, util.SecretVolumeName)
 	if err != nil {
 		return false
@@ -848,12 +826,6 @@ func wasTLSSecretMounted(secretGetter secret.Getter, currentSts appsv1.StatefulS
 // wasCAConfigMapMounted checks whether or not the CA ConfigMap  by looking at the state of the volumeMounts of the pod.
 func wasCAConfigMapMounted(configMapGetter configmap.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
 
-	// If the volume has the "old-design" mount path, it means
-	// that it was mounted when TLS was enabled
-	if hasOldTLSDesign(volumeMounts, tls.ConfigMapVolumeCAName) {
-		log.Debugf("Old design volume mount exists: TLS ConfigMap was mounted ")
-		return true
-	}
 	caVolume, err := getVolumeFromStatefulSet(currentSts, util.ConfigMapVolumeCAMountPath)
 	if err != nil {
 		return false

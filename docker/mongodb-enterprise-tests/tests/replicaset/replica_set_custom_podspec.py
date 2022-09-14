@@ -83,22 +83,6 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "read_only": None,
                 },
                 {
-                    "name": "secret-certs",
-                    "mount_path": "/mongodb-automation/tls",
-                    "sub_path": None,
-                    "sub_path_expr": None,
-                    "mount_propagation": None,
-                    "read_only": None,
-                },
-                {
-                    "name": "secret-ca",
-                    "mount_path": "/mongodb-automation/tls/ca",
-                    "sub_path": None,
-                    "sub_path_expr": None,
-                    "mount_propagation": None,
-                    "read_only": True,
-                },
-                {
                     "name": "agent",
                     "mount_path": "/tmp",
                     "sub_path": "tmp",
@@ -141,6 +125,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
             "args": ["-c", "echo ok > /somewhere/busybox_file && sleep infinity"],
         },
     ]
+
     assert_stateful_set_podspec(
         sts.spec.template.spec,
         weight=50,

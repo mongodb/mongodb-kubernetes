@@ -240,11 +240,6 @@ type AgentSSL struct {
 	ClientCertificateMode string `json:"clientCertificateMode,omitempty"`
 }
 
-func (a AgentSSL) SSLEnabled() bool {
-	return a.CAFilePath != "" && a.AutoPEMKeyFilePath != "" &&
-		(a.ClientCertificateMode == util.OptionalClientCertficates || a.ClientCertificateMode == util.RequireClientCertificates)
-}
-
 type MongoDBUser struct {
 	Mechanisms                 []string `json:"mechanisms"`
 	Roles                      []*Role  `json:"roles"`

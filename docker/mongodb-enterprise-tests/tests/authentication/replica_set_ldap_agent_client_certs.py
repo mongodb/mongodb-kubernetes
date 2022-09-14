@@ -7,7 +7,7 @@ from kubetester import create_secret, read_secret, delete_secret, find_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.ldap import OpenLDAP, LDAPUser
-from kubetester.certs import generate_cert
+from kubetester.certs import generate_cert, create_mongodb_tls_certs, ISSUER_CA_NAME
 
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
@@ -15,27 +15,14 @@ PASSWORD = "my-password"
 
 @fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    # TODO: move into a `replica_set` fixture that initializes with TLS and
-    # no need to worry about the tls things on every test.
     resource_name = "ldap-replica-set"
-    pod_fqdn_fstring = "{resource_name}-{index}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name,
-        namespace=namespace,
-        index="{}",
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME,
+        namespace,
+        resource_name,
+        f"{resource_name}-cert",
+        replicas=5,
     )
-    data = {}
-    for i in range(3):
-        pod_dns = pod_fqdn_fstring.format(i)
-        pod_name = f"{resource_name}-{i}"
-        cert = generate_cert(namespace, pod_name, pod_dns, issuer)
-        secret = read_secret(namespace, cert)
-        data[pod_name + "-pem"] = secret["tls.key"] + secret["tls.crt"]
-
-    create_secret(namespace, f"{resource_name}-cert", data)
-
-    yield f"{resource_name}-cert"
-
-    delete_secret(namespace, f"{resource_name}-cert")
 
 
 @fixture(scope="module")
@@ -77,20 +64,15 @@ def agent_client_cert(issuer: str, namespace: str) -> str:
         spec=spec,
     )
     automation_agent_cert = read_secret(namespace, client_certificate_secret)
-
-    # creates a secret that combines key and crt
-    create_secret(
-        namespace,
-        "agent-client-cert",
-        {
-            "mms-automation-agent-pem": automation_agent_cert["tls.key"]
-            + automation_agent_cert["tls.crt"],
-        },
+    data = {}
+    data["tls.crt"], data["tls.key"] = (
+        automation_agent_cert["tls.crt"],
+        automation_agent_cert["tls.key"],
     )
+    # creates a secret that combines key and crt
+    create_secret(namespace, "agent-client-cert", data, type="kubernetes.io/tls")
 
     yield "agent-client-cert"
-
-    delete_secret(namespace, "agent-client-cert")
 
 
 @fixture(scope="module")

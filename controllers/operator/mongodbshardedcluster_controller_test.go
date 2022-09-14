@@ -43,7 +43,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
-	certsv1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -320,19 +319,11 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	reconciler, client := defaultClusterReconciler(sc)
 	addKubernetesTlsResources(client, sc)
 
-	createAgentCSRs(3, client, certsv1.CertificateApproved)
-
 	actualResult, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 	expectedResult := reconcile.Result{}
 
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
-}
-
-func addCsrs(client kubernetesClient.Client, csrs ...certsv1.CertificateSigningRequest) {
-	for _, csr := range csrs {
-		_ = client.Update(context.TODO(), &csr)
-	}
 }
 
 func TestShardedCluster_NeedToPublishState(t *testing.T) {
@@ -858,12 +849,10 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 func createShardedClusterTLSSecretsFromCustomCerts(sc *mdbv1.MongoDB, prefix string, client kubernetesClient.Client) {
 	mongosSecret := secret.Builder().
 		SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.MongosRsName())).
-		SetNamespace(sc.Namespace).
+		SetNamespace(sc.Namespace).SetDataType(corev1.SecretTypeTLS).
 		Build()
 
-	for i := 0; i < sc.Spec.MongosCount; i++ {
-		mongosSecret.Data[fmt.Sprintf("%s-%d-pem", sc.MongosRsName(), i)] = createMockCertAndKeyBytes()
-	}
+	mongosSecret.Data["tls.crt"], mongosSecret.Data["tls.key"] = createMockCertAndKeyBytes()
 
 	err := client.CreateSecret(mongosSecret)
 	if err != nil {
@@ -872,12 +861,10 @@ func createShardedClusterTLSSecretsFromCustomCerts(sc *mdbv1.MongoDB, prefix str
 
 	configSrvSecret := secret.Builder().
 		SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.ConfigRsName())).
-		SetNamespace(sc.Namespace).
+		SetNamespace(sc.Namespace).SetDataType(corev1.SecretTypeTLS).
 		Build()
 
-	for i := 0; i < sc.Spec.ConfigServerCount; i++ {
-		configSrvSecret.Data[fmt.Sprintf("%s-%d-pem", sc.ConfigRsName(), i)] = createMockCertAndKeyBytes()
-	}
+	configSrvSecret.Data["tls.crt"], configSrvSecret.Data["tls.key"] = createMockCertAndKeyBytes()
 
 	err = client.CreateSecret(configSrvSecret)
 	if err != nil {
@@ -887,12 +874,10 @@ func createShardedClusterTLSSecretsFromCustomCerts(sc *mdbv1.MongoDB, prefix str
 	for i := 0; i < sc.Spec.ShardCount; i++ {
 		shardSecret := secret.Builder().
 			SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.ShardRsName(i))).
-			SetNamespace(sc.Namespace).
+			SetNamespace(sc.Namespace).SetDataType(corev1.SecretTypeTLS).
 			Build()
 
-		for j := 0; j < sc.Spec.MongodsPerShardCount; j++ {
-			shardSecret.Data[fmt.Sprintf("%s-%d-pem", sc.ShardRsName(i), j)] = createMockCertAndKeyBytes()
-		}
+		shardSecret.Data["tls.crt"], shardSecret.Data["tls.key"] = createMockCertAndKeyBytes()
 
 		err = client.CreateSecret(shardSecret)
 		if err != nil {

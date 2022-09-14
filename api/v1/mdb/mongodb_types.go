@@ -724,11 +724,6 @@ type TLSConfig struct {
 	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
 }
 
-// IsSelfManaged returns true if the TLS is self-managed (cert provided by the customer), not Operator-managed
-func (t TLSConfig) IsSelfManaged() bool {
-	return t.CA != "" || t.SecretRef.Prefix != ""
-}
-
 // TLSSecretRef contains a reference to a Secret object that contains certificates to
 // be mounted. Defining this value will implicitly "enable" TLS on this resource.
 type TLSSecretRef struct {

@@ -896,10 +896,7 @@ func addAppDBTLSResources(client *mock.MockedClient, rs omv1.AppDBSpec, secretNa
 	}
 
 	certs := map[string][]byte{}
-	for i := 0; i < rs.Members; i++ {
-		pemFile := createMockCertAndKeyBytes()
-		certs[fmt.Sprintf("%s-%d-pem", rs.Name(), i)] = pemFile
-	}
+	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
 
 	secret.Data = certs
 	_ = client.Create(context.TODO(), secret)
@@ -914,9 +911,7 @@ func addOMTLSResources(client *mock.MockedClient, secretName string) {
 	}
 
 	certs := map[string][]byte{}
-
-	pemFile := createMockCertAndKeyBytes()
-	certs["server.pem"] = pemFile
+	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
 
 	secret.Data = certs
 	_ = client.Create(context.TODO(), secret)

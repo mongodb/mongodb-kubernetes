@@ -2,6 +2,9 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.17.0
 
+## MongoDB Operator
+### Breaking Change
+* The operator doesn't support old Style TLS(concatenated PEM format) certificate anymore. Make sure to upgrade to the `Kubernetes TLS` type certificate before upgrading to this version.
 ## MongoDBOpsManager Resource
 
 * Ops Manager 4.4 is no longer supported by the operator.

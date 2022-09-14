@@ -139,7 +139,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	status, newTLSDesignMemberCert := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+	status := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
 	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -160,7 +160,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
-	status, newTLSDesignForCerts := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
+	status = r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -180,19 +180,14 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(prometheusCertHash),
-		NewTLSDesignKey(rs.GetSecurity().MemberCertificateSecretName(rs.Name), newTLSDesignMemberCert),
-		NewTLSDesignMap(newTLSDesignForCerts),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
 	)
 
 	caFilePath := util.CAFilePathInContainer
-	if newTLSDesignMemberCert {
-		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	}
+	caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
-
 	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}
@@ -203,11 +198,8 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	rsStsOption := rsConfig(*rs)
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
-	if rsStsOption.CertSecretTypes.IsCertTLSType(agentCertSecretName) {
-		agentCertSecretName += certs.OperatorGeneratedCertSuffix
-	}
+	agentCertSecretName += certs.OperatorGeneratedCertSuffix
 
 	status = workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *rs, rsConfig, log),
 		func() workflow.Status {

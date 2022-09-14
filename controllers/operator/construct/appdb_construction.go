@@ -45,7 +45,6 @@ const (
 type AppDBStatefulSetOptions struct {
 	VaultConfig            vault.VaultConfiguration
 	CertHash               string
-	CertSecretType         corev1.SecretType
 	MonitoringAgentVersion string
 
 	PrometheusTLSCertHash string
@@ -167,20 +166,12 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, o
 	}
 
 	tlsConfig := appDb.GetSecurity().TLSConfig
-	tlsTypeCert := opts.CertSecretType == corev1.SecretTypeTLS
-
-	if !appDb.GetSecurity().IsTLSEnabled() && !tlsTypeCert {
-		return volumesToAdd, volumeMounts
-	}
-	optionalSecretFunc := func(v *corev1.Volume) {}
-	optionalConfigMapFunc := func(v *corev1.Volume) {}
-
 	secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
-	if tlsTypeCert {
-		secretName += certs.OperatorGeneratedCertSuffix
-		optionalSecretFunc = func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
-		optionalConfigMapFunc = func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
-	}
+
+	secretName += certs.OperatorGeneratedCertSuffix
+	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
+	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
+
 	if !vault.IsVaultSecretBackend() {
 		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
 

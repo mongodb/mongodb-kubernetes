@@ -238,6 +238,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		currentAgentAuthMode: currentAgentAuthMode,
 		certTLSType:          certSecretTypesForSTS,
 	}
+
 	if err = r.prepareScaleDownShardedCluster(conn, sc, opts, log); err != nil {
 		return workflow.Failed("failed to perform scale down preliminary actions: %s", err)
 	}
@@ -270,7 +271,8 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		ConfigSrvScaler:       r.configSrvScaler,
 		SecretClient:          r.SecretClient,
 	}
-	status, certSecretTypeForAgentAndInternal := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
+
+	status = r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return status
 	}
@@ -279,7 +281,6 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return status
 	}
 
-	certTLSMapping := merge.StringToBoolMap(certSecretTypesForSTS, certSecretTypeForAgentAndInternal)
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name).Name
 
 	opts = deploymentOptions{
@@ -287,15 +288,11 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		currentAgentAuthMode: currentAgentAuthMode,
 		caFilePath:           caFilePath,
 		agentCertSecretName:  agentCertSecretName,
-		certTLSType:          certTLSMapping,
 		prometheusCertHash:   prometheusCertHash,
 	}
 	allConfigs := r.getAllConfigs(*sc, opts, log)
 
-	shardConfig := allConfigs[0](*sc)
-	if shardConfig.CertSecretTypes.IsCertTLSType(agentCertSecretName) {
-		agentCertSecretName += certs.OperatorGeneratedCertSuffix
-	}
+	agentCertSecretName += certs.OperatorGeneratedCertSuffix
 
 	status = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishState(*sc, r.client, allConfigs, log),
 		func() workflow.Status {
@@ -383,19 +380,19 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 	var status workflow.Status
 	status = workflow.OK()
 	mongosCert := certs.MongosConfig(*s, r.mongosScaler)
-	tStatus, mongosCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, mongosCert, log)
-	certSecretTypes[mongosCert.CertSecretName] = mongosCertType
+	tStatus := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, mongosCert, log)
+	certSecretTypes[mongosCert.CertSecretName] = true
 	status = status.Merge(tStatus)
 
 	configSrvCert := certs.ConfigSrvConfig(*s, r.configSrvScaler)
-	tStatus, configCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, configSrvCert, log)
-	certSecretTypes[configSrvCert.CertSecretName] = configCertType
+	tStatus = certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, configSrvCert, log)
+	certSecretTypes[configSrvCert.CertSecretName] = true
 	status = status.Merge(tStatus)
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardCert := certs.ShardConfig(*s, i, r.mongodsPerShardScaler)
-		tStatus, shardCertType := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, shardCert, log)
-		certSecretTypes[shardCert.CertSecretName] = shardCertType
+		tStatus := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, shardCert, log)
+		certSecretTypes[shardCert.CertSecretName] = true
 		status = status.Merge(tStatus)
 	}
 
@@ -959,7 +956,6 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
-		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
 	)
 }
@@ -980,7 +976,6 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, opts
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
-		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
 	)
 }
@@ -1003,7 +998,6 @@ func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shard
 		CertificateHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
-		NewTLSDesignMap(opts.certTLSType),
 		WithVaultConfig(vaultConfig),
 	)
 }
