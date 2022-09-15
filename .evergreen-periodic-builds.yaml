@@ -173,10 +173,6 @@ tasks:
       project_id: ${rhc_init_om_pid}
   - func: preflight_image
     vars:
-      image_name: appdb
-      project_id: ${rhc_appdb_pid}
-  - func: preflight_image
-    vars:
       image_name: database
       project_id: ${rhc_database_pid}
   - func: preflight_image
@@ -227,17 +223,6 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-ops-manager-daily
-
-- name: periodic_build_appdb
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-  - func: configure_rh_docker_auth
-    vars:
-      project_id: ${rhc_appdb_pid}
-  - func: pipeline
-    vars:
-      image_name: appdb-daily
 
 - name: periodic_build_database
   commands:
@@ -314,7 +299,6 @@ task_groups:
     - periodic_build_init_opsmanager
     - periodic_build_ops_manager_5
     - periodic_build_ops_manager_6
-    - periodic_build_appdb
     - periodic_build_database
     - periodic_build_agent
     - periodic_build_community_operator

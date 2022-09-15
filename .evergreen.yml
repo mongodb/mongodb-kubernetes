@@ -2071,19 +2071,6 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: release_appdb
-  git_tag_only: true
-  commands:
-  - func: clone
-  - func: setup_building_host
-  - func: quay_login
-  - func: pipeline
-    vars:
-      image_name: appdb
-  - func: add_supported_release
-    vars:
-      image_name: appdb
-
 - name: release_database
   git_tag_only: true
   commands:
@@ -2999,15 +2986,6 @@ buildvariants:
   - ubuntu1804-small
   tasks:
   - name: operator-sdk-bundle-push
-
-# build AppDB: to be launched independently of the operator build process (evergreen patch)
-# evergreen patch --project ops-manager-kubernetes -v build_and_push_appdb_images -d "AppDB release" --finalize
-- name: build_and_push_appdb_images
-  display_name: build_and_push_appdb_images
-  run_on:
-  - ubuntu1804-small
-  tasks:
-  - name: release_appdb
 
 - name: build_om50_images
   display_name: build_om50_images
