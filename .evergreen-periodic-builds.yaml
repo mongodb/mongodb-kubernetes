@@ -334,8 +334,6 @@ buildvariants:
       variant: periodic_build
     - name: periodic_build_ops_manager_6
       variant: periodic_build
-    - name: periodic_build_appdb
-      variant: periodic_build
     - name: periodic_build_database
       variant: periodic_build
     - name: periodic_build_agent
