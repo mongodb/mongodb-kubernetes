@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"net/url"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -382,107 +379,12 @@ func createOrUpdateSecretIfNotFound(secretGetUpdaterCreator secret.GetUpdateCrea
 
 }
 
-// ensureGlobalProgrammaticApiKey ensures that the operator is using a Global programmatic API Key.
-// If not, it creates one and updates the secret used by the operator.
-func (r *OpsManagerReconciler) ensureGlobalProgrammaticApiKey(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
-	// For OM >= 5.0 we need to ensure we have Global Programmatic Key
-	semverVersion, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
-	if err != nil {
-		return workflow.Invalid("%s is not a valid version: %s", opsManager.Spec.Version, err)
-	}
-	if semverVersion.LT(r.programmaticKeyVersion) {
-		return workflow.OK()
-	}
-
-	// If there is no OM running is fine, we don't have anything to update
-	// This can happen in the reconciliation step after deploying AppDB.
-	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.Name, r.client); !status.IsOK() {
-		// This check might need refactoring as mentioned in https://jira.mongodb.org/browse/CLOUDP-135773
-		return workflow.OK()
-	}
-
-	admin, currentOpsManagerVersion, status := r.getOpsManagerVersionAndAdminProvider(opsManager, log)
-	if !status.IsOK() {
-		return status
-	} else if admin == nil {
-		// If we had no error but returned an empty admin,
-		// it means we don't have a configured APIKey yet, so we return and wait for the next loop
-		return workflow.OK()
-	}
-
-	currentOMSemver, err := currentOpsManagerVersion.Semver()
-	if err != nil {
-		// Note: this should never happen as the version is constructed thrgough
-		// versionutil.GetVersionFromOpsManagerApiHeader
-		// which constructs it in a way that is a valid semver
-		return workflow.Invalid("%s is not a valid semver version: %s", currentOpsManagerVersion.VersionString, err)
-	}
-
-	if currentOMSemver.GTE(r.programmaticKeyVersion) {
-		// The current OM is already >= 5.0.0, so we don't need to do anything
-		return workflow.OK()
-	}
-
-	// Get list of Global Programmatic API Key from OM
-	globalApiKeys, err := admin.ReadGlobalAPIKeys()
-	if err != nil {
-		return workflow.Failed("can't read global API Keys from Ops Manager: %s", err)
-	}
-
-	secretData, status := r.readApiKeySecret(opsManager)
-	if !status.IsOK() {
-		return status
-	}
-	// Loop through current API Keys and search for the one the operator is using.
-	for _, api := range globalApiKeys {
-		if api.PublicKey == secretData["user"] {
-			log.Debugf("The current API Key is already a Global API Key")
-			return workflow.OK()
-		}
-	}
-
-	log.Debug("The current API Key is not programmatic, creating a programmatic one")
-	APIKeySecretName, status := r.getOpsManagerAPIKeySecretName(opsManager)
-	if !status.IsOK() {
-		return status
-	}
-	adminKeySecretName := kube.ObjectKey(operatorNamespace(), APIKeySecretName)
-
-	// Create the key
-	key, err := admin.CreateGlobalAPIKey("Operator-generated Global Programmatic API Key")
-	if err != nil {
-		return workflow.Failed("can't create a global programmatic API Key: %s", err)
-	}
-	// Update the secret used by the operator
-	secretData = map[string]string{util.OmPublicApiKey: key.PublicKey, util.OmPrivateKey: key.PrivateKey}
-	newKeySecretBuilder := secret.Builder().
-		SetNamespace(adminKeySecretName.Namespace).
-		SetName(adminKeySecretName.Name).
-		SetStringData(secretData).
-		SetLabels(map[string]string{})
-
-	if opsManager.Namespace == operatorNamespace() {
-		newKeySecretBuilder.SetOwnerReferences(kube.BaseOwnerReference(&opsManager))
-	}
-	newKeySecret := newKeySecretBuilder.Build()
-	if err := secret.CreateOrUpdate(r.client, newKeySecret); err != nil {
-		return workflow.Failed("can't update the admin key secret: %s", err)
-	}
-
-	return workflow.OK()
-}
-
 func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, statusOptions...)
 	if err != nil {
 		return workflow.Failed(err.Error()), nil
-	}
-
-	// Ensures that Programmatic API Key are being used, if needed (Upgrade from older OM to OM >=5.0.0)
-	if status := r.ensureGlobalProgrammaticApiKey(*opsManager, log); !status.IsOK() {
-		return status, nil
 	}
 
 	// Prepare Ops Manager StatefulSet (create and wait)
@@ -993,93 +895,11 @@ func (r OpsManagerReconciler) getOpsManagerAPIKeySecretName(opsManager omv1.Mong
 	return APISecretName, workflow.OK()
 }
 
-// getAlternativeOpsManagerCentralUrl takes the current url at which we are trying to contact OM
-// and switch it to/from http from/to https.
-func getAlternativeOpsManagerCentralUrl(currentUrl string) (string, error) {
-	omUrl, err := url.Parse(currentUrl)
-	httpsScheme := strings.ToLower(string(corev1.URISchemeHTTPS))
-	httpScheme := strings.ToLower(string(corev1.URISchemeHTTP))
-	if err != nil {
-		return "", fmt.Errorf("can't convert Ops Manager URL %s to url.Url: %s", currentUrl, err)
-	}
-	if omUrl.Scheme == httpsScheme {
-		omUrl.Scheme = httpScheme
-		omUrl.Host = omUrl.Hostname() + ":" + strconv.Itoa(util.OpsManagerDefaultPortHTTP)
-	} else {
-		omUrl.Scheme = httpsScheme
-		omUrl.Host = omUrl.Hostname() + ":" + strconv.Itoa(util.OpsManagerDefaultPortHTTPS)
-	}
-	return omUrl.String(), nil
-}
-
-// getOpsManagerVersionAndAdminProvider returns the OM versin extracted from the API response header, and and admin using the correct baseUrl.
-func (r OpsManagerReconciler) getOpsManagerVersionAndAdminProvider(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) (api.OpsManagerAdmin, versionutil.OpsManagerVersion, workflow.Status) {
-	var currentOpsManagerVersion versionutil.OpsManagerVersion
-
-	APIKeySecretName, status := r.getOpsManagerAPIKeySecretName(opsManager)
-	if !status.IsOK() {
-		return nil, currentOpsManagerVersion, status
-	}
-
-	cred, err := project.ReadCredentials(r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
-	if err != nil {
-		if secrets.SecretNotExist(err) {
-			// We need to differentiate here, because it is ok it the secret does not exist:
-			// when we are deploying a new OM we can get here before we create it.
-			return nil, currentOpsManagerVersion, workflow.OK()
-		}
-		return nil, currentOpsManagerVersion, workflow.Failed(err.Error())
-	}
-
-	// We need to try both TLS and non-TLS, because at this step we don't know which one is running.
-	// In detail: we need to get the version of the RUNNING Ops Manager
-	// but we only have info, now, about the OpsManager in the spec.
-	// This means that when enabling/disabling TLS on Ops Manager the baseUrl for it will change
-	// and we can not know for sure which one is correct.
-	// We first try the one we can extract from the spec, and if it doesn't work we move to the opposite
-	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey)
-	currentOpsManagerVersion, err = admin.ReadOpsManagerVersion()
-	if err == nil {
-		return admin, currentOpsManagerVersion, workflow.OK()
-	}
-
-	log.Debugf("Can't contact OM at %s", opsManager.CentralURL())
-	newUrl, err := getAlternativeOpsManagerCentralUrl(opsManager.CentralURL())
-	if err != nil {
-		return nil, currentOpsManagerVersion, workflow.Failed("can't get alternative OpsManager url: %s", err)
-	}
-	log.Debugf("Trying to contact OM at %s", newUrl)
-	admin = r.omAdminProvider(newUrl, cred.PublicAPIKey, cred.PrivateAPIKey)
-	currentOpsManagerVersion, err = admin.ReadOpsManagerVersion()
-	if err != nil {
-		log.Debugf("can't get current Ops Manager version: %s", err)
-		// In case we reached here and were unable to connect, we retry again. It could be a temporary connection issue
-		// We saw that in EVG - Ubuntu based tests, were we were failing in resolving DNS for OM here at the first try.
-		return nil, currentOpsManagerVersion, workflow.Pending("can't get current Ops Manager version: %s", err).WithRetry(10)
-	}
-	return admin, currentOpsManagerVersion, workflow.OK()
-
-}
-
 func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 	return fmt.Sprintf("This is a fatal error, as the"+
 		" Operator requires public API key for the admin user to exist. Please create the GLOBAL_ADMIN user in "+
 		"Ops Manager manually and create a secret '%s' with fields '%s' and '%s'", adminKeySecretName, util.OmPublicApiKey,
 		util.OmPrivateKey)
-}
-
-func (r OpsManagerReconciler) readApiKeySecret(opsManager omv1.MongoDBOpsManager) (map[string]string, workflow.Status) {
-	APISecretName, status := r.getOpsManagerAPIKeySecretName(opsManager)
-	if !status.IsOK() {
-		return map[string]string{}, status
-	}
-	adminKeySecretName := kube.ObjectKey(operatorNamespace(), APISecretName)
-	secretData, err := secret.ReadStringData(r.client, adminKeySecretName)
-	if err != nil {
-		return map[string]string{}, workflow.Failed("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s",
-			detailedAPIErrorMsg(adminKeySecretName), err).WithRetry(30)
-	}
-	return secretData, workflow.OK()
 }
 
 // prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
