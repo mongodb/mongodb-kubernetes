@@ -34,7 +34,6 @@ spec:
         app: {{ template "openldap.name" . }}
         release: {{ .Release.Name }}
     spec:
-      serviceAccountName: operator-tests-service-account
       {{- if or .Values.customLdifFiles .Values.tls.enabled }}
       initContainers:
       {{- end }}
