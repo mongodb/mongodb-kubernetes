@@ -18,12 +18,9 @@ strategy: {}
   # rollingUpdate: null
 image:
   # From repository https://github.com/osixia/docker-openldap
-  # repository: osixia/openldap
+  repository: osixia/openldap
 
-  # We have vendored the openldap image as well.
-  repository: 268558157000.dkr.ecr.us-east-1.amazonaws.com/vendor/openldap
-
-  tag: 1.2.4
+  tag: 1.2.5
   pullPolicy: IfNotPresent
 
 # Spcifies an existing secret to be used for admin and config user passwords
