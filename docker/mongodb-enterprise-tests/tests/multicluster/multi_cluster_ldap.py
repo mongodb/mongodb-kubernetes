@@ -6,7 +6,11 @@ import kubernetes
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester import get_pod_when_ready, create_secret
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
+from kubetester.ldap import (
+    OpenLDAP,
+    LDAPUser,
+    LDAP_AUTHENTICATION_MECHANISM,
+)
 from kubetester.helm import helm_install
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -53,19 +57,19 @@ def mongodb_multi(
     namespace: str,
     multi_cluster_issuer_ca_configmap: str,
     server_certs: str,
-    multicluster_openldap: OpenLDAP,
+    multicluster_openldap_tls: OpenLDAP,
     ldap_mongodb_agent_user: LDAPUser,
+    issuer_ca_configmap: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
     )
-    member_cluster_one = member_cluster_clients[0]
 
     secret_name = "bind-query-password"
     create_secret(
         namespace,
         secret_name,
-        {"password": multicluster_openldap.admin_password},
+        {"password": multicluster_openldap_tls.admin_password},
         api_client=central_cluster_client,
     )
     ac_secret_name = "automation-config-password"
@@ -86,9 +90,12 @@ def mongodb_multi(
             "enabled": True,
             "modes": ["LDAP"],
             "ldap": {
-                "servers": [multicluster_openldap.servers],
+                "servers": [multicluster_openldap_tls.servers],
                 "bindQueryUser": "cn=admin,dc=example,dc=org",
                 "bindQueryPasswordSecretRef": {"name": secret_name},
+                "transportSecurity": "tls",
+                "validateLDAPServerConfig": True,
+                "caConfigMapRef": {"name": issuer_ca_configmap, "key": "ca-pem"},
             },
             "agents": {
                 "mode": "LDAP",
