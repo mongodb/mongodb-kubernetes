@@ -194,6 +194,45 @@ def issuer(cert_manager: str, namespace: str) -> str:
 
 
 @fixture(scope="module")
+def multi_cluster_ldap_issuer(
+    cert_manager: str,
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+
+    member_cluster_one = member_cluster_clients[0]
+    issuer_data = {
+        "tls.key": open(_fixture("ca-tls.key")).read(),
+        "tls.crt": open(_fixture("ca-tls.crt")).read(),
+    }
+
+    secret = client.V1Secret(
+        metadata=client.V1ObjectMeta(name="ca-key-pair"),
+        string_data=issuer_data,
+    )
+    try:
+        client.CoreV1Api(
+            api_client=member_cluster_one.api_client
+        ).create_namespaced_secret("openldap", secret)
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print("ca-key-pair already exists")
+
+    issuer = Issuer(name="ca-issuer", namespace="openldap")
+    issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
+    issuer.api = kubernetes.client.CustomObjectsApi(
+        api_client=member_cluster_one.api_client
+    )
+    try:
+        issuer.create().block_until_ready()
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print("issuer already exists")
+
+    return "ca-issuer"
+
+
+@fixture(scope="module")
 def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
     """
     This fixture creates an intermediate "Issuer" in the testing namespace
@@ -388,7 +427,7 @@ def default_operator(
     return Operator(
         namespace=namespace,
         helm_args=operator_installation_config,
-    ).upgrade(install=True)
+    ).upgrade()
 
 
 @fixture(scope="module")
@@ -400,7 +439,7 @@ def operator_with_monitored_appdb(
     return Operator(
         namespace=namespace,
         helm_args=monitored_appdb_operator_installation_config,
-    ).upgrade(install=True)
+    ).upgrade()
 
 
 @fixture(scope="module")
@@ -542,7 +581,7 @@ def _install_multi_cluster_operator(
         namespace=namespace,
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
-    ).upgrade(install=True, multi_cluster=True)
+    ).upgrade(multi_cluster=True)
 
 
 @fixture(scope="module")

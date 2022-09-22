@@ -88,12 +88,12 @@ class Operator(object):
 
         return self
 
-    def upgrade(self, install: bool = True, multi_cluster: bool = False) -> Operator:
+    def upgrade(self, multi_cluster: bool = False) -> Operator:
         """Upgrades the Operator in Kubernetes cluster using 'helm upgrade', waits until it's running"""
         helm_upgrade(
             self.name,
+            self.namespace,
             self.helm_arguments,
-            install,
             helm_chart_path=self.helm_chart_path,
             helm_options=self.helm_options,
         )

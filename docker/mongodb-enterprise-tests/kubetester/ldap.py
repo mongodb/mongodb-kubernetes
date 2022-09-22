@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import ldap
 import ldap.modlist
-
 from typing import Optional
 
 LDAP_BASE = "dc=example,dc=org"
@@ -49,7 +48,10 @@ def create_user(
     ldapmodlist = ldap.modlist.addModlist(modlist)
 
     dn = build_dn(uid=user.uid, ou=ou, o=o, base=server.ldap_base)
-    con.add_s(dn, ldapmodlist)
+    try:
+        con.add_s(dn, ldapmodlist)
+    except ldap.ALREADY_EXISTS as e:
+        pass
 
 
 def ensure_organization(server: OpenLDAP, o: str, ca_path: Optional[str] = None):
@@ -137,7 +139,10 @@ def add_user_to_group(
     ldapmodlist = ldap.modlist.modifyModlist({}, modlist)
 
     dn = build_dn(cn=group_cn, ou=ou, o=o, base=server.ldap_base)
-    con.modify_s(dn, ldapmodlist)
+    try:
+        con.modify_s(dn, ldapmodlist)
+    except ldap.TYPE_OR_VALUE_EXISTS as e:
+        pass
 
 
 def ldap_initialize(server: OpenLDAP, ca_path: Optional[str] = None):

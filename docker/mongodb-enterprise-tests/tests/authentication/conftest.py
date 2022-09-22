@@ -1,10 +1,10 @@
 import os
-from typing import List, Generator, Optional
+from typing import List, Generator, Optional, Dict
 
 from kubernetes import client
 from kubetester import get_pod_when_ready, read_secret
 from kubetester.certs import generate_cert
-from kubetester.helm import helm_install, helm_uninstall
+from kubetester.helm import helm_install, helm_uninstall, helm_upgrade
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.ldap import (
@@ -40,25 +40,62 @@ def openldap_install(
     name: str = LDAP_NAME,
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
+    helm_args: Dict[str, str] = None,
+    tls: bool = False,
 ) -> OpenLDAP:
     if cluster_name is not None:
         os.environ["HELM_KUBECONTEXT"] = cluster_name
-    helm_install(
-        name=name,
-        namespace=namespace,
-        helm_args={
-            "namespace": namespace,
-            "fullnameOverride": name,
-            "nameOverride": name,
-        },
-        helm_chart_path="vendor/openldap",
+
+    if helm_args is None:
+        helm_args = {}
+    helm_args.update(
+        {"namespace": namespace, "fullnameOverride": name, "nameOverride": name}
     )
-    get_pod_when_ready(namespace, f"app={name}", api_client=cluster_client)
+
+    # check if the openldap pod exists, if not do a helm upgrade
+    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
+        namespace, label_selector=f"app={name}"
+    )
+    if not pods.items:
+        helm_upgrade(
+            name=name,
+            namespace=namespace,
+            helm_args=helm_args,
+            helm_chart_path="vendor/openldap",
+        )
+        get_pod_when_ready(namespace, f"app={name}", api_client=cluster_client)
+
+    if tls:
+        return OpenLDAP(
+            ldap_url(namespace, name, LDAP_PROTO_TLS, LDAP_PORT_TLS),
+            ldap_admin_password(namespace, name, api_client=cluster_client),
+        )
 
     return OpenLDAP(
         ldap_url(namespace, name),
         ldap_admin_password(namespace, name, api_client=cluster_client),
     )
+
+
+@fixture(scope="module")
+def openldap_tls(
+    namespace: str,
+    openldap_cert: str,
+) -> Generator[OpenLDAP, None, None]:
+    """Installs an OpenLDAP server with TLS configured and returns a reference to it.
+
+    In order to do it, this fixture will install the vendored openldap Helm chart
+    located in `vendor/openldap` directory inside the `tests` container image.
+    """
+
+    helm_args = {
+        "tls.enabled": "true",
+        "tls.secret": openldap_cert,
+        # Do not require client certificates
+        "env.LDAP_TLS_VERIFY_CLIENT": "never",
+        "namespace": namespace,
+    }
+    return openldap_install(namespace, name=LDAP_NAME, helm_args=helm_args, tls=True)
 
 
 @fixture(scope="module")
@@ -85,37 +122,6 @@ def openldap_cert(namespace: str, issuer: str) -> str:
     """Returns a new secret to be used to enable TLS on LDAP."""
     host = ldap_host(namespace, LDAP_NAME)
     return generate_cert(namespace, "openldap", host, issuer)
-
-
-@fixture(scope="module")
-def openldap_tls(namespace: str, openldap_cert: str) -> Generator[OpenLDAP, None, None]:
-    """Installs an OpenLDAP server with TLS configured and returns a reference to it.
-
-    In order to do it, this fixture will install the vendored openldap Helm chart
-    located in `vendor/openldap` directory inside the `tests` container image.
-    """
-    helm_args = {
-        "tls.enabled": "true",
-        "tls.secret": openldap_cert,
-        # Do not require client certificates
-        "env.LDAP_TLS_VERIFY_CLIENT": "never",
-        "namespace": namespace,
-    }
-    helm_install(
-        name=LDAP_NAME,
-        namespace=namespace,
-        helm_chart_path="vendor/openldap",
-        helm_args=helm_args,
-    )
-
-    pod = get_pod_when_ready(namespace, LDAP_POD_LABEL)
-
-    yield OpenLDAP(
-        ldap_url(namespace, LDAP_NAME, LDAP_PROTO_TLS, LDAP_PORT_TLS),
-        ldap_admin_password(namespace, LDAP_NAME),
-    )
-
-    helm_uninstall(LDAP_NAME)
 
 
 @fixture(scope="module")
