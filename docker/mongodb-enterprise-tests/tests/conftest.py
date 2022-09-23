@@ -170,27 +170,7 @@ def multi_cluster_cert_manager(
 
 @fixture(scope="module")
 def issuer(cert_manager: str, namespace: str) -> str:
-    """
-    This fixture creates an "Issuer" in the testing namespace. This requires cert-manager
-    to be installed in the cluster.
-    The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
-    certificates. This is based on a Cert-Manager CA Issuer.
-    More info here: https://cert-manager.io/docs/configuration/ca/
-
-    Please note, this cert will expire on Dec 11 15:54:21 2022 GMT.
-    """
-    issuer_data = {
-        "tls.key": open(_fixture("ca-tls.key")).read(),
-        "tls.crt": open(_fixture("ca-tls.crt")).read(),
-    }
-    KubernetesTester.create_secret(namespace, "ca-key-pair", issuer_data)
-
-    # And then creates the Issuer
-    issuer = Issuer(name="ca-issuer", namespace=namespace)
-    issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
-    issuer.create().block_until_ready()
-
-    return "ca-issuer"
+    return create_issuer(cert_manager=cert_manager, namespace=namespace)
 
 
 @fixture(scope="module")
@@ -201,35 +181,7 @@ def multi_cluster_ldap_issuer(
 ):
 
     member_cluster_one = member_cluster_clients[0]
-    issuer_data = {
-        "tls.key": open(_fixture("ca-tls.key")).read(),
-        "tls.crt": open(_fixture("ca-tls.crt")).read(),
-    }
-
-    secret = client.V1Secret(
-        metadata=client.V1ObjectMeta(name="ca-key-pair"),
-        string_data=issuer_data,
-    )
-    try:
-        client.CoreV1Api(
-            api_client=member_cluster_one.api_client
-        ).create_namespaced_secret("openldap", secret)
-    except client.rest.ApiException as e:
-        if e.status == 409:
-            print("ca-key-pair already exists")
-
-    issuer = Issuer(name="ca-issuer", namespace="openldap")
-    issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
-    issuer.api = kubernetes.client.CustomObjectsApi(
-        api_client=member_cluster_one.api_client
-    )
-    try:
-        issuer.create().block_until_ready()
-    except client.rest.ApiException as e:
-        if e.status == 409:
-            print("issuer already exists")
-
-    return "ca-issuer"
+    return create_issuer(cert_manager, namespace, member_cluster_one.api_client)
 
 
 @fixture(scope="module")
@@ -264,32 +216,7 @@ def multi_cluster_issuer(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
-    """
-    This fixture creates an "Issuer" in the testing namespace. This requires cert-manager
-    to be installed in the cluster.
-    The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
-    certificates. This is based on a Cert-Manager CA Issuer.
-    More info here: https://cert-manager.io/docs/configuration/ca/
-    """
-    issuer_data = {
-        "tls.key": open(_fixture("ca-tls.key")).read(),
-        "tls.crt": open(_fixture("ca-tls.crt")).read(),
-    }
-
-    create_secret(
-        namespace=namespace,
-        name="ca-key-pair",
-        data=issuer_data,
-        api_client=central_cluster_client,
-    )
-
-    issuer = Issuer(name="ca-issuer", namespace=namespace)
-    issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
-    issuer.api = kubernetes.client.CustomObjectsApi(api_client=central_cluster_client)
-
-    issuer.create().block_until_ready()
-
-    return "ca-issuer"
+    return create_issuer(cert_manager, namespace, central_cluster_client)
 
 
 @fixture(scope="module")
@@ -850,3 +777,45 @@ def run_kube_config_creation_tool(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def create_issuer(
+    cert_manager: str, namespace: str, api_client: Optional[client.ApiClient] = None
+):
+    """
+    This fixture creates an "Issuer" in the testing namespace. This requires cert-manager to be installed in the cluster.
+    The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
+    certificates. This is based on a Cert-Manager CA Issuer.
+    More info here: https://cert-manager.io/docs/configuration/ca/
+
+    Please note, this cert will expire on Dec 11 15:54:21 2022 GMT.
+    """
+    issuer_data = {
+        "tls.key": open(_fixture("ca-tls.key")).read(),
+        "tls.crt": open(_fixture("ca-tls.crt")).read(),
+    }
+    secret = client.V1Secret(
+        metadata=client.V1ObjectMeta(name="ca-key-pair"),
+        string_data=issuer_data,
+    )
+
+    try:
+        client.CoreV1Api(api_client=api_client).create_namespaced_secret(
+            namespace, secret
+        )
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print("ca-key-pair already exists")
+
+    # And then creates the Issuer
+    issuer = Issuer(name="ca-issuer", namespace=namespace)
+    issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
+    issuer.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
+
+    try:
+        issuer.create().block_until_ready()
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            print("issuer already exists")
+
+    return "ca-issuer"
