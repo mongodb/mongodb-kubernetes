@@ -30,16 +30,6 @@ If this is a major-version release:
 that the docs team update our [Support Lifecycle
 page](https://docs.mongodb.com/kubernetes-operator/master/reference/support-lifecycle/#k8s-support-lifecycle)
 
-
-### 1.1. Update 3rd-party Licensese
-
-```
-go install github.com/google/go-licenses@latest
-./scripts/update_licenses.sh
-```
-
-File a DOCSP for a license page update and attach licenses.csv
-
 ## 2. Release ticket, branch and PR
 
 * Create a branch named after release ticket.
