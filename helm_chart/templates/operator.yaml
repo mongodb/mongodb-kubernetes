@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.operator.name }}
+  name: {{ .Values.operator.deployment_name }}
   namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: controller
-      app.kubernetes.io/name: {{ .Values.operator.name }}
-      app.kubernetes.io/instance: {{ .Values.operator.name }}
+      app.kubernetes.io/name: {{ .Values.operator.deployment_name }}
+      app.kubernetes.io/instance: {{ .Values.operator.deployment_name }}
   template:
     metadata:
       labels:
         app.kubernetes.io/component: controller
-        app.kubernetes.io/name: {{ .Values.operator.name }}
-        app.kubernetes.io/instance: {{ .Values.operator.name }}
+        app.kubernetes.io/name: {{ .Values.operator.deployment_name }}
+        app.kubernetes.io/instance: {{ .Values.operator.deployment_name }}
 {{- if .Values.operator.vaultSecretBackend }}
   {{- if .Values.operator.vaultSecretBackend.enabled }}
       annotations:
@@ -173,5 +173,5 @@ spec:
     port: 40000
     protocol: TCP
   selector:
-    app.kubernetes.io/name: {{ .Values.operator.name }}
+    app.kubernetes.io/name: {{ .Values.operator.deployment_name }}
 {{- end }}

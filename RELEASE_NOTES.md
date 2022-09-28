@@ -4,6 +4,12 @@
 
 ## MongoDB Operator
 
+* Operator deployment in Helm chart uses now `values.operator.deployment_name` instead of `values.operator.name`. 
+
+# MongoDB Enterprise Kubernetes Operator 1.17.0
+
+## MongoDB Operator
+
 * Ubuntu-based images are deprecated (in favor of only UBI-based images).
 
 ### Breaking Change
