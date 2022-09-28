@@ -39,8 +39,7 @@ docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator.tar
 docker/mongodb-enterprise-tests/helm_chart/
 .shellcheckrc
 
-bundle/metadata
-bundle/manifests
+bundle
 
 .DS_Store
 cover.out
@@ -64,3 +63,4 @@ config/manager/manager.yaml
 
 # ignore symlink to ~/.operator-dev
 .operator-dev
+tmp

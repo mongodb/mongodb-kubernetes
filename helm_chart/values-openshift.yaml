@@ -12,7 +12,7 @@ operator:
   name: mongodb-enterprise-operator
 
   # Name of the operator image
-  operator_image_name: enterprise-operator
+  operator_image_name: mongodb-enterprise-operator-ubi
 
   # Name of the deployment of the operator pod
   deployment_name: mongodb-enterprise-operator
@@ -34,31 +34,31 @@ operator:
 
 ## Database
 database:
-  name: enterprise-database
+  name: mongodb-enterprise-database-ubi
   version: 2.0.2
 
 initDatabase:
-  name: mongodb-enterprise-init-database
+  name: mongodb-enterprise-init-database-ubi
   version: 1.0.12
 
 ## Ops Manager
 opsManager:
-  name: mongodb-enterprise-ops-manager
+  name: mongodb-enterprise-ops-manager-ubi
 
 initOpsManager:
-  name: mongodb-enterprise-init-ops-manager
+  name: mongodb-enterprise-init-ops-manager-ubi
   version: 1.0.9
 
 initAppDb:
-  name: mongodb-enterprise-init-appdb
+  name: mongodb-enterprise-init-appdb-ubi
   version: 1.0.12
 
 agent:
-  name: mongodb-agent
+  name: mongodb-agent-ubi
   version: 11.12.0.7388-1
 
 mongodb:
-  name: mongodb-enterprise-appdb-database
+  name: mongodb-enterprise-appdb-database-ubi
   repo: quay.io/mongodb
 
 
@@ -67,16 +67,49 @@ registry:
   # The pull secret must be specified
   imagePullSecrets:
   pullPolicy: Always
-  database: registry.connect.redhat.com/mongodb
-  operator: registry.connect.redhat.com/mongodb
-  initDatabase: registry.connect.redhat.com/mongodb
-  initOpsManager: registry.connect.redhat.com/mongodb
-  opsManager: registry.connect.redhat.com/mongodb
-  initAppDb: registry.connect.redhat.com/mongodb
-  appDb: registry.connect.redhat.com/mongodb
-  agent: registry.connect.redhat.com/mongodb
+  database: quay.io/mongodb
+  operator: quay.io/mongodb
+  initDatabase: quay.io/mongodb
+  initOpsManager: quay.io/mongodb
+  opsManager: quay.io/mongodb
+  initAppDb: quay.io/mongodb
+  appDb: quay.io/mongodb
+  agent: quay.io/mongodb
 
-
-# Set this to false to disable subresource utilization
-# It might be required on some versions of Openshift
+# Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
+# Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
+# with sha256 digests pinning for certified operator bundle with disconnected environment feature enabled.
+# https://docs.openshift.com/container-platform/4.11/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
+relatedImages:
+  opsManager:
+  - 5.0.0
+  - 5.0.1
+  - 5.0.2
+  - 5.0.3
+  - 5.0.4
+  - 5.0.5
+  - 5.0.6
+  - 5.0.7
+  - 5.0.8
+  - 5.0.9
+  - 5.0.10
+  - 5.0.11
+  - 5.0.12
+  - 5.0.13
+  - 5.0.14
+  - 5.0.15
+  - 6.0.0
+  - 6.0.1
+  - 6.0.2
+  - 6.0.3
+  mongodb:
+  - 4.2.11-ent
+  - 4.2.2-ent
+  - 4.2.6-ent
+  - 4.2.8-ent
+  - 4.4.0-ent
+  - 4.4.11-ent
+  - 4.4.4-ent
+  - 5.0.1-ent
+  - 5.0.5-ent
 subresourceEnabled: true

@@ -15,6 +15,7 @@ from typing import Dict
 
 from helm_files_handler import (
     update_all_helm_values_files,
+    set_value_in_yaml_file,
 )
 
 RELEASE_JSON_TO_HELM_KEY = {
@@ -57,6 +58,17 @@ def main() -> int:
             update_all_helm_values_files(RELEASE_JSON_TO_HELM_KEY[k], release[k])
 
     set_community_operator_library_version(release["communityOperatorVersion"])
+
+    set_value_in_yaml_file(
+        "helm_chart/values-openshift.yaml",
+        "relatedImages.opsManager",
+        release["supportedOpsManagerVersions"],
+    )
+    set_value_in_yaml_file(
+        "helm_chart/values-openshift.yaml",
+        "relatedImages.mongodb",
+        release["supportedAppDBVersions"],
+    )
     return 0
 
 

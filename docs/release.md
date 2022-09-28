@@ -111,7 +111,6 @@ https://connect.redhat.com/project/850021/images and pass it as:
 
 This will be used when creating the PR against [redhat-openshift-ecosystem/certified-operators](https://github.com/redhat-openshift-ecosystem/certified-operators).
 
-
 ## Publish to public repo
 
 Because how our release process works, we'll have to wait until *next day*
@@ -122,8 +121,22 @@ that the relevant images have been pushed to Quay and then run:
 
 The next task for `pct` will be to create a release PR on the public repository
 ([Example](https://github.com/mongodb/mongodb-enterprise-kubernetes/pull/201)).
-Take a look at this PR, and correct anything that needs correction. Merge when
-it looks Ok.
+Take a look at this PR, and correct anything that needs correction. 
+
+### Run digest pinning for certified operator bundle
+Certified operator bundle needs to be pinned to the image digests. To do that, do the following steps:
+
+Prerequisites:
+* Install skopeo: `brew install skopeo`
+* Download latest [operator-manifest-tools binary](https://github.com/operator-framework/operator-manifest-tools/releases)
+* Log in to redhat registry: `make aws_login`
+
+Steps: 
+* Checkout newly published PR in [certified-operators repo](https://github.com/redhat-openshift-ecosystem/certified-operators/pulls?q=is%3Apr+is%3Aopen+mongodb-enterprise)
+* Run `operator-manifest-tools pinning pin -v -r skopeo -a ~/.docker/config.json <certified-operators-repo>/operators/mongodb-enterprise/bundle/<version>/manifests`
+* Check that CSV contains sha256 digests for all images in env variables and relatedImages section.
+* Commit changes and push to PR branch.
+* Merge branch when passed all checks.
 
 ## Publish release notes
 

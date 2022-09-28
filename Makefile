@@ -349,7 +349,7 @@ bundle-annotated: bundle
 # Build the bundle image.
 .PHONY: bundle-build
 bundle-build:
-	docker build $(EXPIRES) -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
+	docker build $(EXPIRES) --platform linux/amd64 -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 
 .PHONY: bundle-push
