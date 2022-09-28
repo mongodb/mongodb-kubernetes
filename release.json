@@ -11,5 +11,38 @@
   "readinessProbeVersion": "1.0.10",
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "11.12.0.7388-1",
-  "communityOperatorVersion": "0.7.6-0.20220824081808-dcf511714c0c"
+  "communityOperatorVersion": "0.7.6-0.20220824081808-dcf511714c0c",
+  "supportedOpsManagerVersions": [
+    "5.0.0",
+    "5.0.1",
+    "5.0.2",
+    "5.0.3",
+    "5.0.4",
+    "5.0.5",
+    "5.0.6",
+    "5.0.7",
+    "5.0.8",
+    "5.0.9",
+    "5.0.10",
+    "5.0.11",
+    "5.0.12",
+    "5.0.13",
+    "5.0.14",
+    "5.0.15",
+    "6.0.0",
+    "6.0.1",
+    "6.0.2",
+    "6.0.3"
+  ],
+  "supportedAppDBVersions": [
+    "4.2.11-ent",
+    "4.2.2-ent",
+    "4.2.6-ent",
+    "4.2.8-ent",
+    "4.4.0-ent",
+    "4.4.11-ent",
+    "4.4.4-ent",
+    "5.0.1-ent",
+    "5.0.5-ent"
+  ]
 }

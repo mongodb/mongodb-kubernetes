@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -Eou pipefail
 
-_40_versions="4.0.0 4.0.20"
-_42_versions="4.2.6 4.2.0 4.2.8 4.2.2 4.2.11"
 _44_versions="4.4.0 4.4.4 4.4.11"
 _50_versions="5.0.1 5.0.5"
 
