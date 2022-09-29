@@ -174,7 +174,7 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int,
-	conn om.Connection, projectConfig mdbv1.ProjectConfig, certHash string) (appsv1.StatefulSet, error) {
+	conn om.Connection, projectConfig mdbv1.ProjectConfig, stsOverride appsv1.StatefulSetSpec, certHash string) (appsv1.StatefulSet, error) {
 
 	configurePodSpecSecurityContext, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -273,12 +273,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 		authentication.ConfigureStatefulSetSecret(&sts, secretName)
 	}
 
-	items, err := mdbm.GetClusterSpecItems()
-	if err != nil {
-		return appsv1.StatefulSet{}, err
-	}
-
-	stsOverride := items[clusterNum].StatefulSetConfiguration.SpecWrapper.Spec
 	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, stsOverride)
 	sts.Spec = stsSpecFinal
 

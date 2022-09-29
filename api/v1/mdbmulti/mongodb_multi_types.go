@@ -33,9 +33,9 @@ func init() {
 type TransportSecurity string
 
 const (
-	LastClusterIndexMapping                   = "mongodb.com/v1.lastClusterIndexMapping"
-	TransportSecurityNone   TransportSecurity = "none"
-	TransportSecurityTLS    TransportSecurity = "tls"
+	LastClusterNumMapping                   = "mongodb.com/v1.lastClusterNumMapping"
+	TransportSecurityNone TransportSecurity = "none"
+	TransportSecurityTLS  TransportSecurity = "tls"
 )
 
 // The MongoDBMulti resource allows users to create MongoDB deployment spread over
@@ -84,7 +84,7 @@ func (m MongoDBMulti) GetMultiClusterAgentHostnames() ([]string, error) {
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterIndex(spec.ClusterName), spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members)...)
 	}
 	return hostnames, nil
 }
@@ -360,11 +360,11 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 
 		// can only scale one member at a time so we return early on each increment.
 		if item.Members > prevItem.Members {
-			specsForThisReconciliation[m.ClusterIndex(item.ClusterName)].Members += 1
+			specsForThisReconciliation[m.ClusterNum(item.ClusterName)].Members += 1
 			return specsForThisReconciliation, nil
 		}
 		if item.Members < prevItem.Members {
-			specsForThisReconciliation[m.ClusterIndex(item.ClusterName)].Members -= 1
+			specsForThisReconciliation[m.ClusterNum(item.ClusterName)].Members -= 1
 			return specsForThisReconciliation, nil
 		}
 	}
@@ -525,10 +525,10 @@ func (m *MongoDBMultiSpec) GetClusterSpecList() []ClusterSpecItem {
 	return m.ClusterSpecList.ClusterSpecs
 }
 
-// ClusterIndex returns the index associated with a given clusterName, it assigns a unique id to each
+// ClusterNum returns the index associated with a given clusterName, it assigns a unique id to each
 // clustername taking into account addition and removal of clusters. We don't reuse cluster indexes since
 // the clusters can be removed and then added back.
-func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
+func (m *MongoDBMulti) ClusterNum(clusterName string) int {
 	if m.Spec.Mapping == nil {
 		m.Spec.Mapping = make(map[string]int)
 	}
@@ -538,7 +538,7 @@ func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
 	}
 
 	// next check if the clusterName is present in the annotations
-	if bytes, ok := m.Annotations[LastClusterIndexMapping]; ok {
+	if bytes, ok := m.Annotations[LastClusterNumMapping]; ok {
 		json.Unmarshal([]byte(bytes), &m.Spec.Mapping)
 
 		if val, ok := m.Spec.Mapping[clusterName]; ok {
@@ -558,7 +558,7 @@ func (m *MongoDBMulti) ClusterIndex(clusterName string) int {
 func (m MongoDBMulti) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterIndex(spec.ClusterName), spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).

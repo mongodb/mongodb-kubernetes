@@ -10,8 +10,8 @@ FROM --platform=linux/amd64 python:3.9-slim as builder
 
 
 RUN apt-get -qq update \
-        && apt-get -y -qq install \
-        curl libldap2-dev libsasl2-dev build-essential
+    && apt-get -y -qq install \
+    curl libldap2-dev libsasl2-dev build-essential
 
 COPY requirements.txt requirements.txt
 
@@ -21,12 +21,12 @@ RUN python3 -m venv /venv && . /venv/bin/activate && python3 -m pip install -r r
 FROM --platform=linux/amd64 python:3.9-slim
 
 RUN apt-get -qq update \
-        && apt-get -y -qq install \
-        curl \
-        libldap2-dev \
-        libsasl2-dev \
-        git \
-        openssl
+    && apt-get -y -qq install \
+    curl \
+    libldap2-dev \
+    libsasl2-dev \
+    git \
+    openssl
 
 ENV HELM_NAME "helm-v3.6.3-linux-amd64.tar.gz"
 # install Helm

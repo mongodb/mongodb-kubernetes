@@ -775,9 +775,9 @@ func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmul
 
 	for _, item := range clusterSpecs {
 		for podNum := 0; podNum < item.Members; podNum++ {
-			pemFile := createMockCertAndKeyBytesMulti(*mdbm, mdbm.ClusterIndex(item.ClusterName), podNum)
-			certs[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, mdbm.ClusterIndex(item.ClusterName), podNum)] = pemFile
-			clientCerts[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, mdbm.ClusterIndex(item.ClusterName), podNum)] = pemFile
+			pemFile := createMockCertAndKeyBytesMulti(*mdbm, mdbm.ClusterNum(item.ClusterName), podNum)
+			certs[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, mdbm.ClusterNum(item.ClusterName), podNum)] = pemFile
+			clientCerts[fmt.Sprintf("%s-%d-%d-pem", mdbm.Name, mdbm.ClusterNum(item.ClusterName), podNum)] = pemFile
 		}
 	}
 

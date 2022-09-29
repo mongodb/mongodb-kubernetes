@@ -143,7 +143,7 @@ func TestResourceDeletion(t *testing.T) {
 			c := memberClients[item.ClusterName]
 			t.Run("Stateful Set in each member cluster has been created", func(t *testing.T) {
 				sts := appsv1.StatefulSet{}
-				err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(item.ClusterName))), &sts)
+				err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
 				assert.NoError(t, err)
 			})
 
@@ -180,7 +180,7 @@ func TestResourceDeletion(t *testing.T) {
 		c := memberClients[item.ClusterName]
 		t.Run("Stateful Set in each member cluster has been removed", func(t *testing.T) {
 			sts := appsv1.StatefulSet{}
-			err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(item.ClusterName))), &sts)
+			err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
 			assert.Error(t, err)
 		})
 
@@ -573,8 +573,8 @@ func TestClusterIndexing(t *testing.T) {
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
-		clusterIndexMap := getClusterIndexMapping(mrs)
-		assertClusterpresent(t, clusterIndexMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1, 2})
+		clusterNumMap := getClusterNumMapping(mrs)
+		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1, 2})
 	})
 
 	t.Run("Add Cluster", func(t *testing.T) {
@@ -584,8 +584,8 @@ func TestClusterIndexing(t *testing.T) {
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
-		clusterIndexMap := getClusterIndexMapping(mrs)
-		assertClusterpresent(t, clusterIndexMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1})
+		clusterNumMap := getClusterNumMapping(mrs)
+		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1})
 
 		// add cluster
 		mrs.Spec.ClusterSpecList.ClusterSpecs = append(mrs.Spec.ClusterSpecList.ClusterSpecs, mdbmulti.ClusterSpecItem{
@@ -597,9 +597,9 @@ func TestClusterIndexing(t *testing.T) {
 		assert.NoError(t, err)
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
-		clusterIndexMap = getClusterIndexMapping(mrs)
+		clusterNumMap = getClusterNumMapping(mrs)
 
-		assert.Equal(t, 2, clusterIndexMap[clusters[2]])
+		assert.Equal(t, 2, clusterNumMap[clusters[2]])
 	})
 
 	t.Run("Remove and Add back cluster", func(t *testing.T) {
@@ -612,9 +612,9 @@ func TestClusterIndexing(t *testing.T) {
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
-		clusterIndexMap := getClusterIndexMapping(mrs)
-		assertClusterpresent(t, clusterIndexMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1, 2})
-		clusterOneIndex := clusterIndexMap[clusters[1]]
+		clusterNumMap := getClusterNumMapping(mrs)
+		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1, 2})
+		clusterOneIndex := clusterNumMap[clusters[1]]
 
 		// Remove cluster index 1 from the specs
 		mrs.Spec.ClusterSpecList.ClusterSpecs = []mdbmulti.ClusterSpecItem{
@@ -643,14 +643,14 @@ func TestClusterIndexing(t *testing.T) {
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		// assert the index corresponsing to cluster 1 is still 1
-		clusterIndexMap = getClusterIndexMapping(mrs)
-		assert.Equal(t, clusterOneIndex, clusterIndexMap[clusters[1]])
+		clusterNumMap = getClusterNumMapping(mrs)
+		assert.Equal(t, clusterOneIndex, clusterNumMap[clusters[1]])
 	})
 }
 
-func getClusterIndexMapping(m *mdbmulti.MongoDBMulti) map[string]int {
+func getClusterNumMapping(m *mdbmulti.MongoDBMulti) map[string]int {
 	clusterMapping := make(map[string]int)
-	bytes := m.Annotations[mdbmulti.LastClusterIndexMapping]
+	bytes := m.Annotations[mdbmulti.LastClusterNumMapping]
 	json.Unmarshal([]byte(bytes), &clusterMapping)
 
 	return clusterMapping
@@ -769,7 +769,7 @@ func readStatefulSets(mrs *mdbmulti.MongoDBMulti, memberClusters map[string]clus
 	for _, item := range clusterSpecList {
 		memberClient := memberClusters[item.ClusterName]
 		sts := appsv1.StatefulSet{}
-		err := memberClient.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(item.ClusterName))), &sts)
+		err := memberClient.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts)
 		if err == nil {
 			allStatefulSets[item.ClusterName] = sts
 		}

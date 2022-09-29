@@ -219,25 +219,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mr
 		return true, nil
 	}
 
-	// We want to get an existing statefulset here, so we should fetch it from  "mrs.Spec.ClusterSpecList.ClusterSpecs"
-	// instead of mrs.GetClusterSpecItems(), since the later returns the effective clusterspecs, which might return
-	// clusters which have been removed and do not have a running statefulset.
-	items := mrs.Spec.ClusterSpecList.ClusterSpecs
-	if err != nil {
-		return false, err
-	}
-	// it doesn't matter which statefulset we pick, any one of them should have the tls volume if tls is enabled.
-	firstMemberClient := r.memberClusterClientsMap[items[0].ClusterName]
-
-	nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(items[0].ClusterName)))
-	firstStatefulSet, err := firstMemberClient.GetStatefulSet(nsName)
+	firstStatefulSet, err := r.firstStatefulSet(mrs)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// No need to publish state as this is a new StatefulSet
-			log.Debugf("New StatefulSet %s", nsName)
+			log.Debugf("New StatefulSet %s", firstStatefulSet.GetName())
 			return false, nil
 		}
-		return false, fmt.Errorf("error getting StatefulSet %s: %s", nsName, err)
+		return false, err
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, firstStatefulSet.Spec.Template.Spec.Containers)
@@ -279,16 +268,48 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 	return false, nil
 }
 
+func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(mrs *mdbmultiv1.MongoDBMulti) (appsv1.StatefulSet, error) {
+	// We want to get an existing statefulset, so we should fetch the client from "mrs.Spec.ClusterSpecList.ClusterSpecs"
+	// instead of mrs.GetClusterSpecItems(), since the later returns the effective clusterspecs, which might return
+	// clusters which have been removed and do not have a running statefulset.
+	items := mrs.Spec.ClusterSpecList.ClusterSpecs
+	var firstMemberClient kubernetesClient.Client
+	var firstMemberIdx int
+	for idx, item := range items {
+		client, ok := r.memberClusterClientsMap[item.ClusterName]
+		if ok {
+			firstMemberClient = client
+			firstMemberIdx = idx
+			break
+		}
+	}
+	stsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(items[firstMemberIdx].ClusterName)))
+
+	firstStatefulSet, err := firstMemberClient.GetStatefulSet(stsName)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return firstStatefulSet, err
+		}
+		return firstStatefulSet, fmt.Errorf("error getting StatefulSet %s: %s", stsName, err)
+	}
+	return firstStatefulSet, err
+}
+
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return workflow.Failed(fmt.Sprintf("failed to read cluster spec list: %s", err))
 	}
 
-	for i, item := range clusterSpecList {
-		memberClient := r.memberClusterClientsMap[item.ClusterName]
+	for _, item := range clusterSpecList {
+		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			log.Warnf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName)
+			continue
+		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(&mrs, item)
+		clusterNum := mrs.ClusterNum(item.ClusterName)
 		if err != nil {
 			return workflow.Failed(err.Error())
 		}
@@ -310,7 +331,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		}
 
 		// Ensure TLS for multi-cluster statefulset in each cluster
-		mrsConfig := certs.MultiReplicaSetConfig(mrs, i, replicasThisReconciliation)
+		mrsConfig := certs.MultiReplicaSetConfig(mrs, clusterNum, replicasThisReconciliation)
 		if status := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
 			return status
 		}
@@ -321,7 +342,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		}
 		certConfigurator := certs.MongoDBMultiX509CertConfigurator{
 			MongoDBMulti:      &mrs,
-			ClusterNum:        i,
+			ClusterNum:        clusterNum,
 			Replicas:          replicasThisReconciliation,
 			SecretReadClient:  r.SecretClient,
 			SecretWriteClient: secretMemberClient,
@@ -356,8 +377,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		// get cert hash of tls secret if it exists
 		certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
 
-		log.Debugf("Creating StatefulSet %s with %d replicas", mrs.MultiStatefulsetName(i), replicasThisReconciliation)
-		sts, err := mconstruct.MultiClusterStatefulSet(mrs, i, replicasThisReconciliation, conn, projectConfig, certHash)
+		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
+		stsOverride := item.StatefulSetConfiguration.SpecWrapper.Spec
+		sts, err := mconstruct.MultiClusterStatefulSet(mrs, clusterNum, replicasThisReconciliation, conn, projectConfig, stsOverride, certHash)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}
@@ -448,7 +470,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		mrs.Annotations = map[string]string{}
 	}
 
-	clusterIndexBytes, err := json.Marshal(mrs.Spec.Mapping)
+	clusterNumBytes, err := json.Marshal(mrs.Spec.Mapping)
 	if err != nil {
 		return err
 	}
@@ -456,7 +478,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 	annotationsToAdd := make(map[string]string)
 
 	annotationsToAdd[util.LastAchievedSpec] = string(achievedSpecBytes)
-	annotationsToAdd[mdbmultiv1.LastClusterIndexMapping] = string(clusterIndexBytes)
+	annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
 
 	return annotations.SetAnnotations(mrs.DeepCopy(), annotationsToAdd, r.client)
 }
@@ -472,7 +494,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterIndex(spec.ClusterName), spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members)...)
 	}
 
 	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
@@ -492,15 +514,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	// correct certFilePath, with the new tls design, this path has the certHash in it(so that cert can be rotated
 	//	without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
 	if mrs.Spec.Security.IsTLSEnabled() {
-		items := mrs.Spec.ClusterSpecList.ClusterSpecs
-		if err != nil {
-			return err
-		}
+		firstStatefulSet, err := r.firstStatefulSet(&mrs)
 
-		firstMemberClient := r.memberClusterClientsMap[items[0].ClusterName]
-		nsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterIndex(items[0].ClusterName)))
-
-		firstStatefulSet, err := firstMemberClient.GetStatefulSet(nsName)
 		if err != nil {
 			return err
 		}
@@ -595,18 +610,18 @@ func getSRVService(mrs *mdbmultiv1.MongoDBMulti) corev1.Service {
 
 func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) corev1.Service {
 	svcLabels := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterIndex(clusterName), podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
 		"controller":                         "mongodb-enterprise-operator",
 		"mongodbmulti":                       fmt.Sprintf("%s-%s", mrs.Namespace, mrs.Name),
 	}
 
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterIndex(clusterName), podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
 
 	svc := service.Builder().
-		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterIndex(clusterName), podNum)).
+		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterNum(clusterName), podNum)).
 		SetNamespace(mrs.Namespace).
 		SetSelector(labelSelectors).
 		SetLabels(svcLabels).
@@ -652,7 +667,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 	}
 
 	for _, e := range clusterSpecList {
-		client := r.memberClusterClientsMap[e.ClusterName]
+		client, ok := r.memberClusterClientsMap[e.ClusterName]
+		if !ok {
+			log.Warnf("failed to create service: cluster %s missing from client map", e.ClusterName)
+			continue
+		}
 
 		svc := getSRVService(mrs)
 		err := service.CreateOrUpdateService(client, svc)
@@ -701,7 +720,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 	}
 
 	for i, e := range clusterSpecList {
-		client := r.memberClusterClientsMap[e.ClusterName]
+		client, ok := r.memberClusterClientsMap[e.ClusterName]
+		if !ok {
+			log.Warnf("failed to create configmap: cluster %s is missing from client map", e.ClusterName)
+			continue
+		}
 		cm := getHostnameOverrideConfigMap(mrs, i, e.Members)
 
 		err := configmap.CreateOrUpdate(client, cm)
