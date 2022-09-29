@@ -8,7 +8,7 @@ source scripts/funcs/printing
 remove_element() {
   config_option="${1}"
   tmpfile=$(mktemp)
-  jq 'del(.'"${config_option}"')' ~/.docker/config.json > "${tmpfile}"
+  jq 'del(.'"${config_option}"')' ~/.docker/config.json >"${tmpfile}"
   cp "${tmpfile}" ~/.docker/config.json
   rm "${tmpfile}"
 }
@@ -18,8 +18,8 @@ remove_element() {
 
 if [[ -n "${LOCAL_RUN-}" ]]; then
   # when running locally we don't need to docker login all the time - we can do it once in 11 hours (ECR tokens expire each 12 hours)
-  if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] && \
-        grep "268558157000" -q ~/.docker/config.json && grep "registry.connect.redhat.com" -q ~/.docker/config.json; then
+  if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] &&
+    grep "268558157000" -q ~/.docker/config.json && grep "registry.connect.redhat.com" -q ~/.docker/config.json; then
     echo "Docker credentials are up to date - not performing the new login!"
     exit
   fi

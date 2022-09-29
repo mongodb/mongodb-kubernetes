@@ -763,6 +763,7 @@ def run_kube_config_creation_tool(
     member_clusters_str = ",".join(member_clusters)
     args = [
         "multi-cluster-kube-config-creator",
+        "setup",
         "-member-clusters",
         member_clusters_str,
         "-central-cluster",
@@ -776,6 +777,44 @@ def run_kube_config_creation_tool(
         args.extend(["-cluster-scoped", "true"])
 
     subprocess.call(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def run_multi_cluster_recovery_tool(
+    member_clusters: List[str],
+    central_namespace: str,
+    member_namespace: str,
+    cluster_scoped: Optional[bool] = False,
+) -> int:
+    central_cluster = _read_multi_cluster_config_value("central_cluster")
+    member_clusters_str = ",".join(member_clusters)
+    args = [
+        "multi-cluster-kube-config-creator",
+        "recover",
+        "-member-clusters",
+        member_clusters_str,
+        "-central-cluster",
+        central_cluster,
+        "-member-cluster-namespace",
+        member_namespace,
+        "-central-cluster-namespace",
+        central_namespace,
+        "-operator-name",
+        MULTI_CLUSTER_OPERATOR_NAME,
+        "-source-cluster",
+        member_clusters[0],
+    ]
+    if cluster_scoped:
+        args.extend(["-cluster-scoped", "true"])
+
+    try:
+        subprocess.check_output(args, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as exc:
+        print("Status: FAIL", exc.returncode, exc.output)
+    return subprocess.call(
         args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
