@@ -1,30 +1,39 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
-
-# MongoDB Enterprise Kubernetes Operator 1.17.0
-
-## MongoDB Operator
-
-* Operator deployment in Helm chart uses now `values.operator.deployment_name` instead of `values.operator.name`. 
-
-# MongoDB Enterprise Kubernetes Operator 1.17.0
+<!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.17.1
 
 ## MongoDB Operator
 
-* Ubuntu-based images are deprecated (in favor of only UBI-based images).
+## Improvements
 
-### Breaking Change
-* The operator doesn't support old Style TLS(concatenated PEM format) certificate anymore. Make sure to upgrade to the `Kubernetes TLS` type certificate before upgrading to this version.
+* The Red Hat certified operator now uses Quay as an image registry. New images will be automatically pulled upon the operator upgrade and no user action is required as a result of this change.
 
-## MongoDBOpsManager Resource
+## Breaking changes
 
-* Ops Manager 4.4 is no longer supported by the operator.
+* Removed `operator.deployment_name` from the Helm chart. Parameter was used in an incorrect way and only for customising the name of the operator container. The name of the container is now set to `operator.name`. This is a breaking change only if `operator.deployment_name` was set to a different value than `operator.name` and if there is external tooling relying on this. Otherwise this change will be unnoticeable.
 
+<!-- Past Releases -->
+# MongoDB Enterprise Kubernetes Operator 1.17.0
+
+## Improvements
+
+* Introduced support for Ops Manager 6.0.
 * For custom S3 compatible backends for the Oplog and Snapshot stores, it is now possible to specify the
-`spec.backup.s3OpLogStores[n].s3RegionOverride` and the `spec.backup.s3Stores[n].s3RegionOverride` parameter.
-
-## Security fixes
+  `spec.backup.s3OpLogStores[n].s3RegionOverride` and the `spec.backup.s3Stores[n].s3RegionOverride` parameter.
 * Improved security by introducing `readOnlyRootFilesystem` property to all deployed containers. This change also introduces a few additional volumes and volume mounts.
 * Improved security by introducing `allowPrivilegeEscalation` set to `false` for all containers.
+
+## Breaking changes and deprecations
+
+* Ubuntu-based images are being deprecated in favor of the UBI-based images for new users, a migration guide for existing users will be published soon. 
+  The Ubuntu-based images will no longer be made available as of version 1.19. All existing Ubuntu-based images will continue to be 
+  supported until their version [End Of Life](https://www.mongodb.com/docs/kubernetes-operator/master/reference/support-lifecycle/). 
+  It is highly recommended to switch into UBI-based images as soon as possible.
+* Concatenated PEM format TLS certificates are not supported in Operator 1.17.0 and above. They were deprecated in 
+  1.13.0. Before upgrading to Operator 1.17.0, please confirm you have upgraded to the `Kubernetes TLS`. Please refer to the 
+  Migration [Migration Guide](https://www.mongodb.com/docs/kubernetes-operator/v1.16/tutorial/migrate-to-new-tls-format/) before upgrading the Operator.
+* Ops Manager 4.4 is [End of Life](https://www.mongodb.com/support-policy/lifecycles) and is no longer supported by the operator. If you're
+  using Ops Manager 4.4, please upgrade to a newer version prior to the operator upgrade.
 
 # MongoDB Enterprise Kubernetes Operator 1.16.4
 
