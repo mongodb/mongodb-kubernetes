@@ -3,7 +3,7 @@ kind: MongoDBOpsManager
 metadata:
   name: ops-manager
 spec:
-  version: 4.4.1
+  version: 6.0.3
   adminCredentials: ops-manager-admin
   configuration:
     mms.fromEmailAddr: admin@thecompany.com
