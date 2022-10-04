@@ -112,4 +112,8 @@ relatedImages:
   - 4.4.4-ent
   - 5.0.1-ent
   - 5.0.5-ent
+  agent:
+  - 11.0.5.6963-1
+  - 11.12.0.7388-1
+  - 12.0.4.7554-1
 subresourceEnabled: true

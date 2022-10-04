@@ -393,7 +393,7 @@ spec:
 
     * In order to deploy resources of type MongoDB OpsManager, you will need to
     create a secret containing the [credentials](https://docs.mongodb.com/kubernetes-operator/stable/tutorial/plan-om-resource/#om-rsrc-prereqs)
-    for the Global Onwer user
+    for the Global Owner user
 
     ## Security ##
 
@@ -401,7 +401,7 @@ spec:
     clients and servers. Before enabling `security.tls.enabled` to `true` you
     should create your certificates.  or you can leave the operator to create all
     the certificates for you. The operator ability to create certs is been
-    depricted due to Kuberentes API changes.
+    deprecated due to Kubernetes API changes.
 
     For more information, please read the official MongoDB
     Kubernetes Operator  [docs](https://docs.mongodb.com/kubernetes-operator/stable/).

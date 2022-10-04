@@ -69,6 +69,12 @@ def main() -> int:
         "relatedImages.mongodb",
         release["supportedAppDBVersions"],
     )
+    set_value_in_yaml_file(
+        "helm_chart/values-openshift.yaml",
+        "relatedImages.agent",
+        release["supportedAgentVersions"],
+    )
+
     return 0
 
 
