@@ -53,6 +53,11 @@ function update_values_yaml_files() {
     git add go.sum
 }
 
+# We need to generate the values files first
+update_values_yaml_files
+# The values files are used for generating the standalone yaml
+generate_standalone_yaml
+
 black_formatting
 
 # pre-commit hook will go vet all the files being committed
@@ -154,10 +159,5 @@ if [ ${#packages_to_analyze[@]} -ne 0 ]; then
         fi
     done
 fi
-
-# We need to generate the values files first
-update_values_yaml_files
-# The values files are used for generating the standalone yaml
-generate_standalone_yaml
 
 exit $exitcode

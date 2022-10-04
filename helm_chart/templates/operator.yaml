@@ -92,34 +92,46 @@ spec:
         - name: MANAGED_SECURITY_CONTEXT
           value: 'true'
 {{- end }}
+{{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
+{{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
+{{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
+{{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
+{{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
+{{- $agentImageEnv := "AGENT_IMAGE" -}}
+{{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
+{{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
+{{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
+{{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
+{{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
+{{- $agentVersion := .Values.agent.version }}
         - name: IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
         # Database
-        - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
+        - name: {{ $mongodbEnterpriseDatabaseImageEnv }}
           value: {{ .Values.registry.database }}/{{ .Values.database.name }}
-        - name: INIT_DATABASE_IMAGE_REPOSITORY
+        - name: {{ $initDatabaseImageRepositoryEnv }}
           value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
         - name: INIT_DATABASE_VERSION
-          value: {{ .Values.initDatabase.version }}{{ .Values.build }}
+          value: {{ $initDatabaseVersion }}
         - name: DATABASE_VERSION
-          value: {{ .Values.database.version }}{{ .Values.build }}
+          value: {{ $databaseVersion }}
         # Ops Manager
-        - name: OPS_MANAGER_IMAGE_REPOSITORY
+        - name: {{ $opsManagerImageRepositoryEnv }}
           value: {{ .Values.registry.opsManager }}/{{ .Values.opsManager.name }}
-        - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
+        - name: {{ $initOpsManagerImageRepositoryEnv }}
           value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
         - name: INIT_OPS_MANAGER_VERSION
-          value: {{ .Values.initOpsManager.version }}{{ .Values.build }}
+          value: {{ $initOpsManagerVersion }}
         # AppDB
-        - name: INIT_APPDB_IMAGE_REPOSITORY
+        - name: {{ $initAppDbImageRepositoryEnv }}
           value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
         - name: INIT_APPDB_VERSION
-          value: {{ .Values.initAppDb.version }}{{ .Values.build }}
+          value: {{ $initAppDbVersion }}
         - name: OPS_MANAGER_IMAGE_PULL_POLICY
           value: {{ .Values.registry.pullPolicy }}
-        - name: AGENT_IMAGE
-          value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ .Values.agent.version }}"
-        - name: MONGODB_IMAGE
+        - name: {{ $agentImageEnv }}
+          value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ $agentVersion }}"
+        - name: {{ $mongodbImageEnv }}
           value: {{ .Values.mongodb.name }}
         - name: MONGODB_REPO_URL
           value: {{ .Values.mongodb.repo }}
@@ -132,22 +144,24 @@ spec:
           value: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
 {{- if .Values.relatedImages }}
-        - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE
-          value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ .Values.database.version }}{{ .Values.build }}"
-        - name: RELATED_IMAGE_INIT_DATABASE
-          value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ .Values.initDatabase.version }}{{ .Values.build }}"
-        - name: RELATED_IMAGE_INIT_OPS_MANAGER
-          value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ .Values.initOpsManager.version }}{{ .Values.build }}"
-        - name: RELATED_IMAGE_INIT_APPDB
-          value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ .Values.initAppDb.version }}{{ .Values.build }}"
-        - name: RELATED_IMAGE_AGENT
-          value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ .Values.agent.version }}"
+        - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
+          value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"
+        - name: RELATED_IMAGE_{{ $initDatabaseImageRepositoryEnv }}_{{ $initDatabaseVersion | replace "." "_" | replace "-" "_" }}
+          value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
+        - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
+          value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
+        - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
+          value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
+  {{- range $version := .Values.relatedImages.agent }}
+        - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+          value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
+  {{- end }}
   {{- range $version := .Values.relatedImages.opsManager }}
-        - name: RELATED_IMAGE_OPS_MANAGER_{{ $version | replace "." "_" }}
+        - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
           value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
   {{- end }}
   {{- range $version := .Values.relatedImages.mongodb }}
-        - name: RELATED_IMAGE_MONGODB_{{ $version | replace "." "_" }}
+        - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
           value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
   {{- end }}
 {{- end }}

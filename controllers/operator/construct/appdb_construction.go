@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	construct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
+	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -131,7 +132,7 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 // buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image.
 func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modification {
 	version := env.ReadOrDefault(initAppdbVersionEnv, "latest")
-	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitAppdbImageUrlEnv), version)
+	initContainerImageURL := ContainerImage(util.InitAppdbImageUrlEnv, version)
 
 	return container.Apply(
 		container.WithName(InitAppDbContainerName),
@@ -355,7 +356,14 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	sts := statefulset.New(
+		// create appdb statefulset from the community code
 		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, &opsManager),
+		// If run in certified openshift bundle in disconnected environment with digest pinning we need to update
+		// mongod image as it is constructed from 2 env variables and version from spec, and it will not be replaced to sha256 digest properly.
+		containerImageModification(construct.MongodbName, getMongoDBImage(opsManager.Spec.AppDB.Version)),
+		// we don't need to update here the automation agent image for digest pinning, because it is defined in AGENT_IMAGE env var as full url with version
+		// if we run in certified bundle with digest pinning it will be properly updated to digest
+
 		customPersistenceConfig(opsManager),
 		statefulset.WithUpdateStrategyType(opsManager.GetAppDBUpdateStrategyType()),
 		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
@@ -386,6 +394,31 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	return sts, nil
 }
 
+func getMongoDBImage(version string) string {
+	repoUrl := os.Getenv(construct.MongodbRepoUrl)
+	if strings.HasSuffix(repoUrl, "/") {
+		repoUrl = strings.TrimRight(repoUrl, "/")
+	}
+	mongoImageName := ContainerImage(construct.MongodbImageEnv, version)
+	if strings.Contains(mongoImageName, "@sha256:") {
+		return mongoImageName
+	}
+
+	return fmt.Sprintf("%s/%s", repoUrl, mongoImageName)
+}
+
+func containerImageModification(containerName string, image string) statefulset.Modification {
+	return func(sts *appsv1.StatefulSet) {
+		for i, c := range sts.Spec.Template.Spec.Containers {
+			if c.Name == containerName {
+				c.Image = image
+				sts.Spec.Template.Spec.Containers[i] = c
+				break
+			}
+		}
+	}
+}
+
 // getVolumeMountIndexByName returns the volume mount with the given name from the inut slice.
 // It returns -1 if this doesn't exist
 func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
@@ -395,13 +428,6 @@ func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
 		}
 	}
 	return -1
-}
-
-// replaceImageTag returns the image with the tag replaced.
-func replaceImageTag(image string, newTag string) string {
-	imageSplit := strings.Split(image, ":")
-	imageSplit[len(imageSplit)-1] = newTag
-	return strings.Join(imageSplit, ":")
 }
 
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
@@ -486,7 +512,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 
 			// we ensure that the monitoring agent image is compatible with the version of Ops Manager we're using.
 			if opts.MonitoringAgentVersion != "" {
-				monitoringContainer.Image = replaceImageTag(monitoringContainer.Image, opts.MonitoringAgentVersion)
+				monitoringContainer.Image = ContainerImage(construct.AgentImageEnv, opts.MonitoringAgentVersion)
 			}
 
 			// Replace the automation config volume

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -14,7 +16,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -180,11 +181,11 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 
 	// create image for init database container
 	version := env.ReadOrDefault(construct.InitDatabaseVersionEnv, "latest")
-	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
+	initContainerImageURL := construct.ContainerImage(util.InitDatabaseImageUrlEnv, version)
 
 	// create image for database container
 	databaseImageVersion := env.ReadOrDefault(construct.DatabaseVersionEnv, "latest")
-	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
+	databaseImageUrl := construct.ContainerImage(util.AutomationAgentImage, databaseImageVersion)
 
 	pvcVolume := statefulset.NOOP()
 	if mdbm.Spec.GetPersistence() {

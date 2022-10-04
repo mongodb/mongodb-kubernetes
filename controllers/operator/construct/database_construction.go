@@ -2,13 +2,14 @@ package construct
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -547,7 +548,8 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
 	// Database image version, should be a specific version to avoid using stale 'non-empty' versions (before versioning)
 	databaseImageVersion := env.ReadOrDefault(DatabaseVersionEnv, "latest")
-	databaseImageUrl := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.AutomationAgentImage), databaseImageVersion)
+	databaseImageUrl := ContainerImage(util.AutomationAgentImage, databaseImageVersion)
+
 	// scripts volume is shared by the init container and the AppDB so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
@@ -663,7 +665,7 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 // buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
 func buildDatabaseInitContainer() container.Modification {
 	version := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
-	initContainerImageURL := fmt.Sprintf("%s:%s", env.ReadOrPanic(util.InitDatabaseImageUrlEnv), version)
+	initContainerImageURL := ContainerImage(util.InitDatabaseImageUrlEnv, version)
 
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
@@ -785,4 +787,46 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
 	return volumes, volumeMounts
+}
+
+// replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to given version
+func replaceImageTagOrDigestToTag(image string, newVersion string) string {
+	if strings.Contains(image, "sha256:") {
+		imageSplit := strings.Split(image, "@")
+		imageSplit[len(imageSplit)-1] = newVersion
+		return strings.Join(imageSplit, ":")
+	} else {
+		imageSplit := strings.Split(image, ":")
+		imageSplit[len(imageSplit)-1] = newVersion
+		return strings.Join(imageSplit, ":")
+	}
+}
+
+// ContainerImage builds container image using image environment variable imageURLEnv and version.
+// It handles image digests when running in disconnected environment in OpenShift, where images
+// are referenced by sha256 digest instead of tags.
+// It works by convention by looking up RELATED_IMAGE_{imageURLEnv}_{version_underscored}.
+// RELATED_IMAGE_* env variables are set in Helm chart for OpenShift.
+// In case there is no RELATED_IMAGE defined it replaces digest or tag to version.
+func ContainerImage(imageURLEnv string, version string) string {
+	versionUnderscored := strings.ReplaceAll(version, ".", "_")
+	versionUnderscored = strings.ReplaceAll(versionUnderscored, "-", "_")
+	relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_%s", imageURLEnv, versionUnderscored)
+
+	if relatedImage := os.Getenv(relatedImageEnv); relatedImage != "" {
+		return relatedImage
+	}
+
+	imageURL := os.Getenv(imageURLEnv)
+	if strings.Contains(imageURL, ":") {
+		// here imageURL is not a host only but also with version or digest
+		// in that case we need to replace the version/digest.
+		// This is case with AGENT_IMAGE env variable which is provided as a full URL with version
+		// and not as a pair of host and version.
+		// In case AGENT_IMAGE is full URL with digest it will be replaced to given tag version,
+		// but most probably if it has digest, there is also RELATED_IMAGE defined, which will be picked up first.
+		return replaceImageTagOrDigestToTag(imageURL, version)
+	}
+
+	return fmt.Sprintf("%s:%s", os.Getenv(imageURLEnv), version)
 }
