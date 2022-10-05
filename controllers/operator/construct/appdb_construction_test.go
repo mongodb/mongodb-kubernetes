@@ -74,20 +74,11 @@ func TestResourceRequirements(t *testing.T) {
 	}
 }
 
-func revertEnvVariables(envVars ...string) func() {
-	originalEnvVars := make(map[string]string)
-	for _, envVar := range envVars {
-		originalEnvVars[envVar] = os.Getenv(envVar)
-	}
-	return func() {
-		for envVar, value := range originalEnvVars {
-			_ = os.Setenv(envVar, value)
-		}
-	}
-}
-
 func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
-	defer revertEnvVariables(construct.MongodbImageEnv, construct.MongodbRepoUrl, construct.AgentImageEnv, util.InitAppdbImageUrlEnv, initAppdbVersionEnv)()
+	agentRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_10_26_0_6851_1", construct.AgentImageEnv)
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3_ent", construct.MongodbImageEnv)
+	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
+	defer env.RevertEnvVariables(agentRelatedImageEnv, mongodbRelatedImageEnv, initAppdbRelatedImageEnv, construct.MongodbImageEnv, construct.MongodbRepoUrl, construct.AgentImageEnv, util.InitAppdbImageUrlEnv, initAppdbVersionEnv)()
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 
@@ -106,9 +97,9 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:3.4.5", sts.Spec.Template.Spec.InitContainers[0].Image)
 
 	// sts should be configured with related images when they are defined
-	_ = os.Setenv(fmt.Sprintf("RELATED_IMAGE_%s_10_26_0_6851_1", construct.AgentImageEnv), "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA")
-	_ = os.Setenv(fmt.Sprintf("RELATED_IMAGE_%s_1_2_3_ent", construct.MongodbImageEnv), "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
-	_ = os.Setenv(fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv), "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
+	_ = os.Setenv(agentRelatedImageEnv, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA")
+	_ = os.Setenv(mongodbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
+	_ = os.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
 
 	om.Spec.AppDB.Version = "1.2.3-ent"
 	sts, err = AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{})

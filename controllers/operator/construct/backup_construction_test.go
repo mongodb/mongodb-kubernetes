@@ -1,6 +1,9 @@
 package construct
 
 import (
+	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"os"
 	"testing"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
@@ -70,4 +73,27 @@ func TestMultipleBackupDaemons(t *testing.T) {
 	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").SetBackupMembers(3).Build(), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, 3, int(*sts.Spec.Replicas))
+}
+
+func Test_BackupDaemonStatefulSetWithRelatedImages(t *testing.T) {
+	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
+	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0", util.OpsManagerImageUrl)
+
+	defer env.RevertEnvVariables(initOpsManagerRelatedImageEnv, opsManagerRelatedImageEnv, util.InitOpsManagerImageUrl, util.InitOpsManagerVersion, util.OpsManagerImageUrl)()
+
+	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-appdb")
+	_ = os.Setenv(util.InitOpsManagerVersion, "1.2.3")
+	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
+	_ = os.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
+	_ = os.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
+
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  mock.NewClient(),
+	}
+
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("5.0.0").Build(), zap.S())
+	assert.NoError(t, err)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)
 }

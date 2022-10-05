@@ -1,6 +1,8 @@
 package multicluster
 
 import (
+	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"os"
 	"testing"
 
@@ -171,4 +173,25 @@ func TestPVCOverride(t *testing.T) {
 		storage, _ := sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().AsInt64()
 		assert.Equal(t, tt.out.Storage, storage)
 	}
+}
+
+func Test_MultiClusterStatefulSetWithRelatedImages(t *testing.T) {
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.AutomationAgentImage)
+	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
+
+	defer env.RevertEnvVariables(databaseRelatedImageEnv, initDatabaseRelatedImageEnv, util.AutomationAgentImage, construct.DatabaseVersionEnv, util.InitDatabaseImageUrlEnv, construct.InitDatabaseVersionEnv)()
+
+	_ = os.Setenv(util.AutomationAgentImage, "quay.io/mongodb/mongodb-enterprise-database")
+	_ = os.Setenv(construct.DatabaseVersionEnv, "1.0.0")
+	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
+	_ = os.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
+	_ = os.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
+	_ = os.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
+
+	mdbm := getMultiClusterMongoDB()
+	sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}), mdbv1.ProjectConfig{}, appsv1.StatefulSetSpec{}, "")
+	assert.NoError(t, err)
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
 }
