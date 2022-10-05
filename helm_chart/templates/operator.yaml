@@ -157,7 +157,7 @@ spec:
           value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
   {{- end }}
   {{- range $version := .Values.relatedImages.opsManager }}
-        - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+        - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
           value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
   {{- end }}
   {{- range $version := .Values.relatedImages.mongodb }}
