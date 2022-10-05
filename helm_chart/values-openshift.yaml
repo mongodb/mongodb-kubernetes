@@ -14,9 +14,6 @@ operator:
   # Name of the operator image
   operator_image_name: mongodb-enterprise-operator-ubi
 
-  # Name of the deployment of the operator pod
-  deployment_name: mongodb-enterprise-operator
-
   # Version of mongodb-enterprise-operator
   version: 1.17.0
 
