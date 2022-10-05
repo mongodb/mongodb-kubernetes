@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.operator.deployment_name }}
+  name: {{ .Values.operator.name }}
   namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: controller
-      app.kubernetes.io/name: {{ .Values.operator.deployment_name }}
-      app.kubernetes.io/instance: {{ .Values.operator.deployment_name }}
+      app.kubernetes.io/name: {{ .Values.operator.name }}
+      app.kubernetes.io/instance: {{ .Values.operator.name }}
   template:
     metadata:
       labels:
         app.kubernetes.io/component: controller
-        app.kubernetes.io/name: {{ .Values.operator.deployment_name }}
-        app.kubernetes.io/instance: {{ .Values.operator.deployment_name }}
+        app.kubernetes.io/name: {{ .Values.operator.name }}
+        app.kubernetes.io/instance: {{ .Values.operator.name }}
 {{- if .Values.operator.vaultSecretBackend }}
   {{- if .Values.operator.vaultSecretBackend.enabled }}
       annotations:
@@ -40,7 +40,7 @@ spec:
       - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
       containers:
-      - name: {{ .Values.operator.deployment_name }}
+      - name: {{ .Values.operator.name }}
         image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.build }}"
         imagePullPolicy: {{ .Values.registry.pullPolicy }}
         {{- if .Values.operator.watchedResources }}
@@ -207,5 +207,5 @@ spec:
     port: 40000
     protocol: TCP
   selector:
-    app.kubernetes.io/name: {{ .Values.operator.deployment_name }}
+    app.kubernetes.io/name: {{ .Values.operator.name }}
 {{- end }}

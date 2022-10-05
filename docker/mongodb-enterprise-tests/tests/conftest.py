@@ -426,7 +426,6 @@ def multi_cluster_operator(
         central_cluster_client,
         member_cluster_clients,
         {
-            "operator.deployment_name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             # override the serviceAccountName for the operator deployment
             "operator.createOperatorServiceAccount": "false",
@@ -452,7 +451,6 @@ def multi_cluster_operator_clustermode(
         central_cluster_client,
         member_cluster_clients,
         {
-            "operator.deployment_name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             # override the serviceAccountName for the operator deployment
             "operator.createOperatorServiceAccount": "false",
@@ -478,7 +476,6 @@ def install_multi_cluster_operator_set_members_fn(
             central_cluster_client,
             member_cluster_clients,
             {
-                "operator.deployment_name": MULTI_CLUSTER_OPERATOR_NAME,
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
@@ -512,17 +509,6 @@ def _install_multi_cluster_operator(
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
     ).upgrade(multi_cluster=True)
-
-
-@fixture(scope="module")
-def operator_deployment_name(image_type: str, is_multi: bool = False) -> str:
-    if is_multi:
-        return MULTI_CLUSTER_OPERATOR_NAME
-
-    if image_type == "ubi":
-        return "enterprise-operator"
-
-    return "mongodb-enterprise-operator"
 
 
 @fixture(scope="module")

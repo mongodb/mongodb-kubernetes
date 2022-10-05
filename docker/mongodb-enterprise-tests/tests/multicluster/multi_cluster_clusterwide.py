@@ -108,7 +108,6 @@ def install_operator(
         central_cluster_client,
         member_cluster_clients,
         {
-            "operator.deployment_name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
