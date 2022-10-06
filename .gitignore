@@ -64,3 +64,6 @@ config/manager/manager.yaml
 # ignore symlink to ~/.operator-dev
 .operator-dev
 tmp
+
+licenses_full.csv
+licenses_stderr

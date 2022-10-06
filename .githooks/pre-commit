@@ -60,14 +60,15 @@ generate_standalone_yaml
 
 black_formatting
 
-# pre-commit hook will go vet all the files being committed
-# and also format them with go imports
-
-export GO111MODULE=on
-
 if [[ $(git diff --cached --name-only --diff-filter=ACM | grep -c '^go.*') == "1" ]]; then
   echo 'ERROR: Should change both or neither of go.mod and go.sum'
   exit 1
+fi
+
+if git diff --cached --name-only --diff-filter=ACM | grep -q 'go.mod'; then
+  echo 'regenerating licenses.csv'
+  scripts/update_licenses.sh
+  git add licenses.csv
 fi
 
 if find . -name "Makefile"|grep -v vendor|xargs grep "\${"
