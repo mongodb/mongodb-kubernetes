@@ -126,6 +126,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	// filter clusterSpecList
 	clusterErr := r.validateClusterSpecList(&mrs, log)
+	if clusterErr != nil {
+		// user might over-provision clusters and set up the cluster to watch more clusters than
+		// actually specified in the cluster-spec list. It's not a "hard" error per see.
+		log.Errorf("Failed to reconcile on few clusters, err: %s", err)
+	}
 
 	err = r.reconcileServices(log, &mrs)
 	if err != nil {
@@ -173,18 +178,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(&mrs, status, log)
 	}
 
-	desiredSpecList := mrs.Spec.GetClusterSpecList()
-	actualSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
-	}
-
 	if err := r.saveLastAchievedSpec(mrs); err != nil {
 		return r.updateStatus(&mrs, workflow.Failed("Failed to set annotation: %s", err), log)
 	}
 
 	// for purposes of comparison, we don't want to compare entries with 0 members since they will not be present
 	// as a desired entry.
+	desiredSpecList := mrs.GetDesiredSpecList()
+	actualSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
+	}
+
 	effectiveSpecList := filterClusterSpecItem(actualSpecList, func(item mdbmultiv1.ClusterSpecItem) bool {
 		return item.Members > 0
 	})
@@ -196,10 +201,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	needToRequeue := !reflect.DeepEqual(desiredSpecList, effectiveSpecList)
 	if needToRequeue {
 		return r.updateStatus(&mrs, workflow.Pending("MongoDBMulti deployment is not yet ready, requeing reconciliation."), log)
-	}
-
-	if clusterErr != nil {
-		log.Errorf("Failed to reconcile on few clusters, err: %s", err)
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
@@ -474,7 +475,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 	if err != nil {
 		return err
 	}
-
 	annotationsToAdd := make(map[string]string)
 
 	annotationsToAdd[util.LastAchievedSpec] = string(achievedSpecBytes)

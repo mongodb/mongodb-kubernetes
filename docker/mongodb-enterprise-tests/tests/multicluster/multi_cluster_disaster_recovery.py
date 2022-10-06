@@ -5,12 +5,13 @@ import kubernetes
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from kubernetes import client
 from kubeobject import CustomObject
 import time
 
 from kubetester import delete_pod, get_pod_when_ready
+from kubetester.automation_config_tester import AutomationConfigTester
 
 
 @fixture(scope="module")
@@ -61,7 +62,7 @@ def service_entry(
     return service_entry
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_label_namespace(
     namespace: str, central_cluster_client: kubernetes.client.ApiClient
 ):
@@ -75,23 +76,23 @@ def test_label_namespace(
     api.replace_namespace(name=namespace, body=ns)
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_create_service_entry(service_entry: CustomObject):
     service_entry.create()
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.create()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject):
     service_entry.load()
     service_entry["spec"]["hosts"] = [
@@ -102,7 +103,7 @@ def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject
     service_entry.update()
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_update_mongodb_multi_to_failed_state(
     mongodb_multi: MongoDBMulti,
     multi_cluster_operator: Operator,
@@ -140,24 +141,30 @@ def test_update_mongodb_multi_to_failed_state(
     )
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
+@mark.e2e_multi_cluster_disaster_recovery
 def test_operator_pod_restart(multi_cluster_operator: Operator):
+    """TODO: figure out if this can be done without an operator restart"""
     multi_cluster_operator.restart_operator_deployment()
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
-def test_mongodb_multi_is_in_failed_state(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Failed)
+@mark.e2e_multi_cluster_disaster_recovery
+def test_replica_reaches_running(mongodb_multi: MongoDBMulti):
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
-@mark.e2e_multi_cluster_fail_cluster_connectivity
-def test_replica_set_is_reachable_after_operator_restart(mongodb_multi: MongoDBMulti):
-    tester = mongodb_multi.tester()
-    tester.assert_connectivity()
+@mark.e2e_multi_cluster_disaster_recovery
+def test_number_numbers_in_ac(mongodb_multi: MongoDBMulti):
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    desiredmembers = 0
+    for c in mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"]:
+        desiredmembers += c["members"]
+
+    processes = tester.get_replica_set_processes(mongodb_multi.name)
+    assert len(processes) == desiredmembers

@@ -3,10 +3,12 @@ package memberwatch
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"go.uber.org/zap"
@@ -74,13 +76,16 @@ func (m MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watch
 			}
 			// re-enqueue all the MDBMultis the operator is watching into the reconcile loop
 			for _, mdbm := range mdbmList.Items {
-				log.Infof("Enqueuing resource: %s, because cluster %s has failed healthcheck", mdbm.Name, k)
 
-				err := addFailoverAnnotation(mdbm, k, centralClient)
-				if err != nil {
-					log.Errorf("Failed to add failover annotation to the mdbm resource: %s, error: %s", mdbm.Name, err)
+				if shouldAddFailedClusterAnnotation(mdbm.Annotations, k) {
+					log.Infof("Enqueuing resource: %s, because cluster %s has failed healthcheck", mdbm.Name, k)
+					err := addFailoverAnnotation(mdbm, k, centralClient)
+					if err != nil {
+						log.Errorf("Failed to add failover annotation to the mdbm resource: %s, error: %s", mdbm.Name, err)
+					}
+					watchChannel <- event.GenericEvent{Object: &mdbm}
 				}
-				watchChannel <- event.GenericEvent{Object: &mdbm}
+
 			}
 
 		}
@@ -89,11 +94,71 @@ func (m MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watch
 
 }
 
+// shouldAddFailedClusterAnnotation checks if we should add this cluster in the failedCluster annotation,
+// if it's already not present.
+func shouldAddFailedClusterAnnotation(annotations map[string]string, clusterName string) bool {
+	if val, ok := annotations[failedcluster.FailedClusterAnnotation]; ok {
+		var failedClusters []failedcluster.FailedCluster
+
+		err := json.Unmarshal([]byte(val), &failedClusters)
+		if err != nil {
+			return true
+		}
+
+		for _, c := range failedClusters {
+			if c.ClusterName == clusterName {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func addFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}
 
-	// TODO: add a dummy annotation for now and fix it later with something more sane
-	return annotations.SetAnnotations(mrs.DeepCopy(), map[string]string{"failedCluster": clustername}, client)
+	clusterData := []failedcluster.FailedCluster{{ClusterName: clustername, Members: getClusterMembers(mrs.Spec.ClusterSpecList, clustername)}}
+	clusterDataBytes, err := json.Marshal(clusterData)
+	if err != nil {
+		return err
+	}
+	err = annotations.SetAnnotations(mrs.DeepCopy(), map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
+	if err != nil {
+		return err
+	}
+	// add the cluster override annotations. Get the current clusterspec list from the CR and
+	// increase the members of the first cluster by the number of failed nodes
+	// TODO: make this distribution more even
+	currentClusterSpecs := mrs.Spec.ClusterSpecList
+	for _, c := range currentClusterSpecs.ClusterSpecs {
+		if c.ClusterName == clustername {
+			currentClusterSpecs.ClusterSpecs[0].Members += c.Members
+		}
+	}
+
+	// remove the failed cluster from the slice as well for the override cluster spec
+	for n, c := range currentClusterSpecs.ClusterSpecs {
+		if c.ClusterName == clustername {
+			currentClusterSpecs.ClusterSpecs = append(currentClusterSpecs.ClusterSpecs[:n], currentClusterSpecs.ClusterSpecs[n+1:]...)
+		}
+	}
+
+	updatedClusterSpec, err := json.Marshal(currentClusterSpecs)
+	if err != nil {
+		return err
+	}
+
+	return annotations.SetAnnotations(mrs.DeepCopy(), map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)}, client)
+
+}
+
+func getClusterMembers(clusterSpecList mdbmulti.ClusterSpecList, clusterName string) int {
+	for _, e := range clusterSpecList.ClusterSpecs {
+		if e.ClusterName == clusterName {
+			return e.Members
+		}
+	}
+	return 0
 }

@@ -566,7 +566,7 @@ func TestScaling(t *testing.T) {
 	})
 }
 
-func TestClusterIndexing(t *testing.T) {
+func TestClusterNumbering(t *testing.T) {
 
 	t.Run("Create MDB CR first time", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()

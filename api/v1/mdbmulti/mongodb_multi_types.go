@@ -7,6 +7,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -292,8 +293,12 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 }
 
 // GetClusterSpecItems returns the cluster spec items that should be used for reconciliation.
-// These may not be the values specified in the spec directly, scaling of both clusters and replica set members taken
-// into account. The return value should be used in the reconciliation loop when determining which processes
+// These may not be the values specified in the spec directly, this takes into account the following three conditions:
+// 1. Adding/Removing cluster from the clusterSpecList.
+// 2. Scaling the number of nodes of each cluster.
+// 3. When there is a cluster outage, there is an annotation put in the CR to orchestrate workloads out
+// of the impacted cluster to the remaining clusters.
+// The return value should be used in the reconciliation loop when determining which processes
 // should be added to the automation config and which services need to be created and how many replicas
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
@@ -314,9 +319,20 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	var specsForThisReconciliation []ClusterSpecItem
 	specsForThisReconciliation = append(specsForThisReconciliation, prevSpecs...)
 
+	// Handle the case of cluster failure and auto scheduling
+	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
+		var clusterSpecOverride ClusterSpecList
+
+		err := json.Unmarshal([]byte(val), &clusterSpecOverride)
+		if err != nil {
+			return specsForThisReconciliation, err
+		}
+		clusterSpecs = clusterSpecOverride.ClusterSpecs
+	}
+
 	// When we remove a cluster, this means that there will be an entry in the resource annotation (the previous spec)
 	// but not in the current spec. In order to make scaling work, we add an entry for the removed cluster that has
-	// 0 members. This allows the following scaling logic to handle the transition from n -> 0 members, with a
+	// 0 members. This allows the following scaling down logic to handle the transition from n -> 0 members, with a
 	// decrementing value of one with each reconciliation. After this, we delete the StatefulSet if the spec item
 	// was removed.
 
@@ -378,8 +394,27 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 			}
 		}
 	}
-
 	return specsForThisReconciliation, nil
+}
+
+// HasClustersToFailOver checks if the MongoDBMulti CR has ""clusterSpecOverride" annotation which is put when one or more clusters
+// are not reachable.
+func HasClustersToFailOver(annotations map[string]string) (string, bool) {
+	if annotations == nil {
+		return "", false
+	}
+	val, ok := annotations[failedcluster.ClusterSpecOverrideAnnotation]
+	return val, ok
+}
+
+// GetFailedClusters returns the current set of failed clusters for the MongoDBMulti CR.
+func GetFailedClusters(val string) ([]failedcluster.FailedCluster, error) {
+	var failedClusters []failedcluster.FailedCluster
+	err := json.Unmarshal([]byte(val), &failedClusters)
+	if err != nil {
+		return nil, err
+	}
+	return failedClusters, err
 }
 
 // clusterSpecItemListToMap converts a slice of cluster spec items into a map using the name as the key.
@@ -389,6 +424,16 @@ func clusterSpecItemListToMap(clusterSpecItems []ClusterSpecItem) map[string]Clu
 		m[c.ClusterName] = c
 	}
 	return m
+}
+
+// GetClusterToFailOver returns the first cluster which is about to be failed over
+func GetClusterToFailOver(clusters []failedcluster.FailedCluster) failedcluster.FailedCluster {
+	for _, c := range clusters {
+		for c.Members > 0 {
+			return c
+		}
+	}
+	return failedcluster.FailedCluster{}
 }
 
 // ReadLastAchievedSpec fetches the previously achieved spec.
@@ -523,6 +568,23 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 // GetClusterSpecList returns the cluster spec items.
 func (m *MongoDBMultiSpec) GetClusterSpecList() []ClusterSpecItem {
 	return m.ClusterSpecList.ClusterSpecs
+}
+
+// GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.
+// Returns the failerOver annotation if present else reads the cluster spec list from the CR.
+func (m *MongoDBMulti) GetDesiredSpecList() []ClusterSpecItem {
+	clusterSpecList := m.Spec.ClusterSpecList.ClusterSpecs
+
+	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
+		var clusterSpecOverride ClusterSpecList
+
+		err := json.Unmarshal([]byte(val), &clusterSpecOverride)
+		if err != nil {
+			return clusterSpecList
+		}
+		clusterSpecList = clusterSpecOverride.ClusterSpecs
+	}
+	return clusterSpecList
 }
 
 // ClusterNum returns the index associated with a given clusterName, it assigns a unique id to each

@@ -41,7 +41,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string) *MemberHeathCh
 func (m *MemberHeathCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 	statusCode, err := check(m.Client, m.Server, m.Token)
 	if err != nil {
-		log.Error("error running healthcheck for server: %s, error: %w", m.Server, err)
+		log.Errorf("Error running healthcheck for server: %s, error: %w", m.Server, err)
 	}
 
 	if err != nil || statusCode != http.StatusOK {
