@@ -64,6 +64,13 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @pytest.mark.e2e_replica_set
 class TestReplicaSetCreation(KubernetesTester):
+
+    def __init__(self):
+        # In order to avoid false-positives, we need to pull the initial config version
+        # This is just in case we're not running in a fresh namespace/project.
+        config = self.get_automation_config()
+        self.initial_config_version = config["version"]
+
     def test_mdb_created(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
@@ -303,7 +310,7 @@ class TestReplicaSetCreation(KubernetesTester):
         config = self.get_automation_config()
         # We create 3 members of the replicaset here, so there will be 3 changes only
         # Anything more would indicate that we're sending more things to the Ops/Cloud Manager than we should
-        assert config["version"] == 3
+        assert (config["version"] - self.initial_config_version) == 3
 
     @skip_if_local
     def test_replica_set_was_configured(self):
