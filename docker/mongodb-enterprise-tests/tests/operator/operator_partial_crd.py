@@ -11,15 +11,12 @@ from typing import Dict
 
 @fixture(scope="module")
 def ops_manager_and_mongodb_crds():
-    """ Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
+    """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(
         client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml"
     )
     create_or_replace_from_yaml(
         client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_opsmanagers.yaml"
-    )
-    create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/webhook-cluster-role.yaml"
     )
 
 
@@ -41,7 +38,7 @@ def operator_only_ops_manager_and_mongodb(
 
 @fixture(scope="module")
 def mongodb_crds():
-    """ Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
+    """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
     create_or_replace_from_yaml(
         client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml"
     )
