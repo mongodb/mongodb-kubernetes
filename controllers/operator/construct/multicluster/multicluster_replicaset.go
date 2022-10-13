@@ -231,6 +231,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 					container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort, Protocol: "TCP"}}),
 					container.WithLivenessProbe(construct.DatabaseLivenessProbe()),
 					container.WithReadinessProbe(construct.DatabaseReadinessProbe()),
+					container.WithStartupProbe(construct.DatabaseStartupProbe()),
 					container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 					container.WithVolumeMounts(volumeMounts),
 					container.WithEnvs(mongodbEnv(conn, projectConfig)...),

@@ -47,6 +47,8 @@ spec:
                 runAsGroup: 1001
               readinessProbe:
                 failureThreshold: 20
+              startupProbe:
+                periodSeconds: 25
               volumeMounts:
                 - mountPath: /somewhere
                   name: test-volume
@@ -103,6 +105,8 @@ spec:
                 runAsUser: 1001
                 runAsGroup: 1001
               resources:
+                requests:
+                  memory: 200M
                 limits:
                   cpu: '0.25'
                   memory: 350M

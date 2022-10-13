@@ -240,6 +240,8 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 						container.WithLifecycle(postStart),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
+						container.WithLivenessProbe(opsManagerLivenessProbe()),
+						container.WithStartupProbe(opsManagerStartupProbe()),
 						container.WithReadinessProbe(opsManagerReadinessProbe()),
 						container.WithLifecycle(buildOpsManagerLifecycle()),
 						container.WithEnvs(corev1.EnvVar{Name: "ENABLE_IRP", Value: "true"}),
@@ -397,11 +399,39 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 // Note on 'PeriodSeconds': /monitor/health is a super lightweight method not doing any IO so we can make it more often.
 func opsManagerReadinessProbe() probes.Modification {
 	return probes.Apply(
-		probes.WithInitialDelaySeconds(60),
+		probes.WithInitialDelaySeconds(5),
 		probes.WithTimeoutSeconds(5),
 		probes.WithPeriodSeconds(5),
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(12),
+		probes.WithHandler(corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{Scheme: corev1.URISchemeHTTP, Port: intstr.FromInt(8080), Path: "/monitor/health"},
+		}),
+	)
+}
+
+// opsManagerLivenessProbe creates the liveness probe.
+func opsManagerLivenessProbe() probes.Modification {
+	return probes.Apply(
+		probes.WithInitialDelaySeconds(10),
+		probes.WithTimeoutSeconds(10),
+		probes.WithPeriodSeconds(30),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(24),
+		probes.WithHandler(corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{Scheme: corev1.URISchemeHTTP, Port: intstr.FromInt(8080), Path: "/monitor/health"},
+		}),
+	)
+}
+
+// opsManagerStartupProbe creates the startup probe.
+func opsManagerStartupProbe() probes.Modification {
+	return probes.Apply(
+		probes.WithInitialDelaySeconds(1),
+		probes.WithTimeoutSeconds(10),
+		probes.WithPeriodSeconds(20),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(30),
 		probes.WithHandler(corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{Scheme: corev1.URISchemeHTTP, Port: intstr.FromInt(8080), Path: "/monitor/health"},
 		}),

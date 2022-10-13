@@ -447,6 +447,7 @@ func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMoun
 		container.WithVolumeMounts(volumeMounts),
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithReadinessProbe(DatabaseReadinessProbe()),
+		container.WithStartupProbe(DatabaseStartupProbe()),
 		configureContainerSecurityContext,
 	)
 }
@@ -718,19 +719,31 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 func DatabaseLivenessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
-		probes.WithInitialDelaySeconds(60),
+		probes.WithInitialDelaySeconds(10),
 		probes.WithTimeoutSeconds(30),
 		probes.WithPeriodSeconds(30),
 		probes.WithSuccessThreshold(1),
 		probes.WithFailureThreshold(6),
 	)
 }
+
 func DatabaseReadinessProbe() probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
 		probes.WithFailureThreshold(4),
 		probes.WithInitialDelaySeconds(5),
 		probes.WithPeriodSeconds(5),
+	)
+}
+
+func DatabaseStartupProbe() probes.Modification {
+	return probes.Apply(
+		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
+		probes.WithInitialDelaySeconds(1),
+		probes.WithTimeoutSeconds(30),
+		probes.WithPeriodSeconds(20),
+		probes.WithSuccessThreshold(1),
+		probes.WithFailureThreshold(10),
 	)
 }
 

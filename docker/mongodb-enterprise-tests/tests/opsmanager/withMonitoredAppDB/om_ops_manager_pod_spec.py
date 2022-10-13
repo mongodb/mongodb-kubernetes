@@ -154,7 +154,23 @@ class TestOpsManagerCreation:
                 "timeout_seconds": 5,
                 "period_seconds": 5,
                 "success_threshold": 1,
-                "initial_delay_seconds": 60,
+                "initial_delay_seconds": 5,
+                "_exec": None,
+                "tcp_socket": None,
+            },
+            "startup_probe": {
+                "http_get": {
+                    "host": None,
+                    "http_headers": None,
+                    "path": "/monitor/health",
+                    "port": 8080,
+                    "scheme": "HTTP",
+                },
+                "failure_threshold": 30,
+                "timeout_seconds": 10,
+                "period_seconds": 25,
+                "success_threshold": 1,
+                "initial_delay_seconds": 1,
                 "_exec": None,
                 "tcp_socket": None,
             },
@@ -238,7 +254,7 @@ class TestOpsManagerCreation:
                     "sub_path_expr": None,
                     "mount_propagation": None,
                     "read_only": None,
-                }
+                },
             ],
         }
 

@@ -60,6 +60,12 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 	expectedProbe := probes.New(buildBackupDaemonReadinessProbe())
 	assert.Equal(t, &expectedProbe, container.ReadinessProbe)
 
+	expectedProbe = probes.New(buildBackupDaemonLivenessProbe())
+	assert.Equal(t, &expectedProbe, container.LivenessProbe)
+
+	expectedProbe = probes.New(buildBackupDaemonStartupProbe())
+	assert.Equal(t, &expectedProbe, container.StartupProbe)
+
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_backup_daemon"},
 		container.Lifecycle.PreStop.Exec.Command)
 }

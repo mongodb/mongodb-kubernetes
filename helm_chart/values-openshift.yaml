@@ -36,7 +36,7 @@ database:
 
 initDatabase:
   name: mongodb-enterprise-init-database-ubi
-  version: 1.0.12
+  version: 1.0.13
 
 ## Ops Manager
 opsManager:
@@ -48,7 +48,7 @@ initOpsManager:
 
 initAppDb:
   name: mongodb-enterprise-init-appdb-ubi
-  version: 1.0.12
+  version: 1.0.13
 
 agent:
   name: mongodb-agent-ubi
