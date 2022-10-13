@@ -145,6 +145,7 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 						container.WithVolumeMounts(volumeMounts),
 						container.WithLivenessProbe(buildBackupDaemonLivenessProbe()),
 						container.WithReadinessProbe(buildBackupDaemonReadinessProbe()),
+						container.WithStartupProbe(buildBackupDaemonStartupProbe()),
 						caVolumeMountFunc,
 						configureContainerSecurityContext,
 					),
@@ -199,6 +200,19 @@ func buildBackupDaemonLivenessProbe() probes.Modification {
 		probes.WithExecCommand([]string{backupDaemonLivenessProbeCommand}),
 		probes.WithFailureThreshold(10),
 		probes.WithInitialDelaySeconds(10),
+		probes.WithSuccessThreshold(1),
+		probes.WithPeriodSeconds(30),
+		probes.WithTimeoutSeconds(5),
+	)
+}
+
+// buildBackupDaemonStartupProbe returns a probe modification which will add
+// the startup probe.
+func buildBackupDaemonStartupProbe() probes.Modification {
+	return probes.Apply(
+		probes.WithExecCommand([]string{backupDaemonLivenessProbeCommand}),
+		probes.WithFailureThreshold(20),
+		probes.WithInitialDelaySeconds(1),
 		probes.WithSuccessThreshold(1),
 		probes.WithPeriodSeconds(30),
 		probes.WithTimeoutSeconds(5),
