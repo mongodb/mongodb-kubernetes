@@ -1,6 +1,45 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+
+# MongoDB Enterprise Kubernetes Operator 1.17.2
+
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.17.1
+
+## Important OpenShift Warning
+For OpenShift customers, we recommend that you do NOT upgrade to this release (version 1.17.1), and instead upgrade to version 1.17.2, which is due the week commencing 17th October 2022, or upgrade to later versions.
+
+This release has invalid `quay.io/mongodb/mongodb-agent-ubi` digests referenced in certified bundle's CSV. Installing it could result in ImagePullBackOff errors in AppDB pods (OpsManager's database). Errors will look similar to: 
+```
+  Failed to pull image "quay.io/mongodb/mongodb-agent-ubi@sha256:a4cadf209ab87eb7d121ccd8b1503fa5d88be8866b5c3cb7897d14c36869abf6": rpc error: code = Unknown desc = reading manifest sha256:a4cadf209ab87eb7d121ccd8b1503fa5d88be8866b5c3cb7897d14c36869abf6 in quay.io/mongodb/mongodb-agent-ubi: manifest unknown: manifest unknown
+```
+This affects only OpenShift deployments when installing/upgrading the Operator version 1.17.1 from the certified bundle (OperatorHub).
+
+The following workaround fixes the issue by replacing the invalid sha256 digests.
+
+### Workaround
+
+If you proceed to use the Operator version 1.17.1 in OpenShift, you must make the following changes. Update the Operator's Subscription with the following `spec.config.env`:
+```yaml
+spec:
+  config:
+    env:
+      - name: AGENT_IMAGE
+        value: >-
+          quay.io/mongodb/mongodb-agent-ubi@sha256:ffa842168cc0865bba022b414d49e66ae314bf2fd87288814903d5a430162620
+      - name: RELATED_IMAGE_AGENT_IMAGE_11_0_5_6963_1
+        value: >-
+          quay.io/mongodb/mongodb-agent-ubi@sha256:e7176c627ef5669be56e007a57a81ef5673e9161033a6966c6e13022d241ec9e
+      - name: RELATED_IMAGE_AGENT_IMAGE_11_12_0_7388_1
+        value: >-
+          quay.io/mongodb/mongodb-agent-ubi@sha256:ffa842168cc0865bba022b414d49e66ae314bf2fd87288814903d5a430162620
+      - name: RELATED_IMAGE_AGENT_IMAGE_12_0_4_7554_1
+        value: >-
+          quay.io/mongodb/mongodb-agent-ubi@sha256:3e07e8164421a6736b86619d9d72f721d4212acb5f178ec20ffec045a7a8f855
+```
+
+**This workaround should be removed as soon as the new Operator version (>=1.17.2) is installed.**
 
 ## MongoDB Operator
 
@@ -12,7 +51,6 @@
 
 * Removed `operator.deployment_name` from the Helm chart. Parameter was used in an incorrect way and only for customising the name of the operator container. The name of the container is now set to `operator.name`. This is a breaking change only if `operator.deployment_name` was set to a different value than `operator.name` and if there is external tooling relying on this. Otherwise this change will be unnoticeable.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.17.0
 
 ## Improvements
