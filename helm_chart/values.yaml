@@ -32,6 +32,15 @@ operator:
 
   affinity: {}
 
+  # operator cpu requests and limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 200Mi
+    limits:
+      cpu: 1100m
+      memory: 1Gi
+
   # Create operator-service account
   createOperatorServiceAccount: true
 
