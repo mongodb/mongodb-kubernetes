@@ -196,7 +196,6 @@ functions:
       - ${workdir}/bin
       include_expansions_in_env:
       - image_version
-      - project_id
       - rh_pyxis
       command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit ${preflight_submit}"
 
@@ -285,12 +284,6 @@ functions:
     type: setup
     params:
       command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
-
-  rh_login:
-  - command: subprocess.exec
-    type: setup
-    params:
-      command: "sh -c 'docker login scan.connect.redhat.com -u unused -p ${project_id} || true'"
 
   # Logs into all used registries
   configure_docker_auth: &configure_docker_auth
@@ -627,44 +620,6 @@ functions:
       - workdir
       command: scripts/evergreen/operator-sdk/make-bundle.sh
 
-  operator-sdk-run-bundle:
-  - command: subprocess.exec
-    type: test
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-      - ${workdir}/bin
-      env:
-        KUBECONFIG: ${workdir}/${kube_environment_name}_config
-      command: scripts/evergreen/operator-sdk/run-bundle.sh
-
-  operator-sdk-scorecard-test:
-  - command: subprocess.exec
-    type: test
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-      - ${workdir}/bin
-      env:
-        KUBECONFIG: ${workdir}/${kube_environment_name}_config
-      command: scripts/evergreen/operator-sdk/scorecard-test.sh
-
-  operator-sdk-bundle-push:
-  - command: subprocess.exec
-    type: test
-    params:
-      command: scripts/evergreen/operator-sdk/bundle-push.sh
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-
-      add_to_path:
-      - *go_bin
-      - ${workdir}/bin
-      include_expansions_in_env:
-      - workdir
-      env:
-        <<: [ *go_options ]
-
-
 tasks:
 - name: preflight_release_images
   commands:
@@ -673,31 +628,21 @@ tasks:
   - func: preflight_image
     vars:
       image_name: operator
-      project_id: ${rhc_operator_pid}
   - func: preflight_image
     vars:
       image_name: init-appdb
-      project_id: ${rhc_init_appdb_pid}
   - func: preflight_image
     vars:
       image_name: init-database
-      project_id: ${rhc_init_database_pid}
   - func: preflight_image
     vars:
       image_name: init-ops-manager
-      project_id: ${rhc_init_om_pid}
-  - func: preflight_image
-    vars:
-      image_name: appdb
-      project_id: ${rhc_appdb_pid}
   - func: preflight_image
     vars:
       image_name: database
-      project_id: ${rhc_database_pid}
   - func: preflight_image
     vars:
       image_name: mongodb-agent
-      project_id: ${rhc_agent_pid}
 
 - name: preflight_om_image
   commands:
@@ -706,7 +651,6 @@ tasks:
   - func: preflight_image
     vars:
       image_name: ops-manager
-      project_id: ${rhc_om_pid}
 
 - name: unit_tests
   tags: ["unit_tests"]
@@ -717,32 +661,6 @@ tasks:
   tags: ["unit_tests"]
   commands:
     - func: "golint"
-
-- name: operator-sdk-run-bundle
-  tags: ["patch-run"]
-  commands:
-  - func: clone
-  - func: download_kube_tools
-  - func: operator-sdk-make-bundle
-  - func: operator-sdk-run-bundle
-
-- name: operator-sdk-scorecard-test
-  disable: true
-  tags: ["patch-run"]
-  commands:
-  - func: clone
-  - func: download_kube_tools
-  - func: operator-sdk-make-bundle
-  - func: operator-sdk-scorecard-test
-
-- name: operator-sdk-bundle-push
-  patch_only: true
-  commands:
-  - func: clone
-  - func: rh_login
-    vars:
-      project_id: ${rhc_operator_bundle_pid}
-  - func: operator-sdk-bundle-push
 
 - name: release_blocker
   git_tag_only: true
@@ -2975,30 +2893,7 @@ buildvariants:
   tasks:
     - name: "unit_task_group"
 
-- name: operator-sdk-tests
-  display_name: operator-sdk-tests
-  depends_on:
-  - name: build_operator_ubi
-    variant: init_test_run
-  run_on:
-  - ubuntu1804-small
-  expansions:
-    <<: [ *kubernetes_environment_kind ]
-  tasks:
-  # TODO: Fix and re-enable as part of CLOUDP-112507
-  # - name: operator-sdk-run-bundle
-  - name: operator-sdk-scorecard-test
-
 ### Build variants for manual patch only
-
-# Release Operator Bundle to Openshift Marketplace.
-# This variant should be called by PCT and not manually.
-- name: marketplace-release
-  display_name: marketplace-release
-  run_on:
-  - ubuntu1804-small
-  tasks:
-  - name: operator-sdk-bundle-push
 
 - name: build_om50_images
   display_name: build_om50_images

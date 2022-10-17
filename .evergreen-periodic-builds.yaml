@@ -343,6 +343,6 @@ buildvariants:
   run_on:
   - rhel90-small
   expansions:
-    preflight_submit: false
+    preflight_submit: true
   tasks:
     - name: preflight_images_task_group
