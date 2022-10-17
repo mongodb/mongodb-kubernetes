@@ -3,6 +3,8 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.17.2
 
+* Fixed the OpenShift installation problem mentioned in the Enterprise Operator 1.7.1 release notes. The OLM (Operator Lifecycle Manager)
+  upgrade graph will automatically skip the 1.7.1 release and perform an upgrade from 1.7.0 directly to this release.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.17.1
