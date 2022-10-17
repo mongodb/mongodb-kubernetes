@@ -16,68 +16,46 @@ logging.basicConfig(level=LOGLEVEL)
 
 def image_config(
     image: str,
-    rh_ospid: str,
     rh_cert_project_id: str,
     name_prefix: str = "mongodb-enterprise-",
+    name_suffix: str = "-ubi"
 ) -> Tuple[str, Dict[str, str]]:
-
-    if image == "operator":
-        prefix = "mongodb-enterprise-"
-        args = {
-            "rh_registry": f"scan.connect.redhat.com/ospid-{rh_ospid}/{prefix}{image}",
-            "public_rh_registry": f"registry.connect.redhat.com/mongodb/{name_prefix}{image}",
-            "rh_cert_project_id": rh_cert_project_id,
-        }
-    else:
-        args = {
-            "rh_registry": f"scan.connect.redhat.com/ospid-{rh_ospid}/{name_prefix}{image}",
-            "public_rh_registry": f"registry.connect.redhat.com/mongodb/{name_prefix}{image}",
-            "rh_cert_project_id": rh_cert_project_id,
-        }
+    args = {
+        "registry": f"quay.io/mongodb/{name_prefix}{image}{name_suffix}",
+        "rh_cert_project_id": rh_cert_project_id,
+    }
     return image, args
 
 
 def args_for_image(image: str) -> Dict[str, str]:
     image_configs = [
         image_config(
-            "appdb", "31c2f102-af15-4e15-87b9-30710586d9ad", "60b8fedf2937381643cffb88"
-        ),
-        image_config(
             "database",
-            "239de277-d8bb-44b4-8593-73753752317f",
-            "5e6231eb02235d3f505f60c4",
-            name_prefix="enterprise-",
+            "633fc9e582f7934b1ad3be45",
         ),
         image_config(
             "init-appdb",
-            "053baed4-c625-44bb-a9bf-a3a5585a17e8",
-            "5ebbbcf9794b2c602c8a9f70",
+            "633fcb576f43719c9df9349f",
         ),
         image_config(
             "init-database",
-            "cf1063a9-6391-4dd7-b995-a4614483e6a1",
-            "5f58e4d322f81af950128b57",
+            "633fcc2982f7934b1ad3be46",
         ),
         image_config(
             "init-ops-manager",
-            "7da92b80-396f-4298-9de5-909165ba0c9e",
-            "5ebbbcfcc697cb6ae43265d6",
+            "633fccb16f43719c9df934a0",
         ),
         image_config(
             "operator",
-            "5558a531-617e-46d7-9320-e84d3458768a",
-            "5e622f9d02235d3f505f60c3",
-            name_prefix="enterprise-",
+            "633fcdfaade0e891294196ac",
         ),
         image_config(
             "ops-manager",
-            "b419ca35-17b4-4655-adee-a34e704a6835",
-            "5e60b1d32f3c1acdd05f609d",
+            "633fcd36c4ee7ff29edff589",
         ),
         image_config(
             "mongodb-agent",
-            "b2beced3-e4db-46e1-9850-4b85ab4ff8d6",
-            "6098ffd856933b164fe21129",
+            "633fcfd482f7934b1ad3be47",
             name_prefix="",
         ),
     ]
@@ -88,12 +66,6 @@ def args_for_image(image: str) -> Dict[str, str]:
 def get_api_token():
     token = os.environ.get("rh_pyxis", "")
     return token
-
-
-def get_project_id():
-    project_id = os.environ.get("project_id", "")
-    return project_id
-
 
 def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     supported_versions = (
@@ -107,27 +79,27 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
 
 
 def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
-    login_command = [
-        "podman",
-        "login",
-        "--username",
-        "unused",
-        "--password",
-        f"{get_project_id()}",
-        "--authfile",
-        "./temp-authfile.json",
-        "scan.connect.redhat.com",
-    ]
-    logging.info(f"Logging in to scan.connect.redhat.com")
-    login = subprocess.run(login_command)
-    if login.returncode != 0:
-        return login.returncode
+    # In theory, we could remove this as our container images reside in public repo
+    # However, due to https://github.com/redhat-openshift-ecosystem/openshift-preflight/issues/685
+    # we need to supply a non-empty --docker-config
+    public_auth = """
+    {
+        "auths": {
+            "quay.io": {
+                "auth": ""
+            }
+        }
+    }
+    """
+    logging.info(f"Creating auth file: {public_auth}")
+    with open("./temp-authfile.json", "w") as file:
+        file.write(public_auth)
 
     preflight_command = [
         "preflight",
         "check",
         "container",
-        f"{args_for_image(image)['rh_registry']}:{version}",
+        f"{args_for_image(image)['registry']}:{version}",
     ]
     if submit:
         preflight_command.extend(
@@ -138,7 +110,7 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
             ]
         )
     preflight_command.append("--docker-config=./temp-authfile.json")
-    logging.info(f"Submitting image {args_for_image(image)['rh_registry']}:{version}")
+    logging.info(f"Submitting image {args_for_image(image)['registry']}:{version}")
     logging.info(f'Running command: {" ".join(preflight_command)}')
     submit = subprocess.run(preflight_command)
     return submit.returncode
@@ -146,11 +118,13 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
 
 def get_available_versions_for_image(image: str):
     image_args = args_for_image(image)
+    logging.info(f'Searching for available tags for: {image}')
+    logging.info(f'Image args: {image_args}')
     output = subprocess.check_output(
         [
             "podman",
             "search",
-            image_args["public_rh_registry"],
+            image_args["registry"],
             "--list-tags",
             "--format",
             "json",
@@ -188,10 +162,6 @@ def main() -> int:
                 f"Version {image_version} for image {args.image} is not supported. Supported versions: {supported_versions}"
             )
             return 1
-        elif image_version in available_versions:
-            logging.warn(
-                f"Version {image_version} for image {args.image} is already published."
-            )
         else:
             return_code = run_preflight_check(
                 args.image, image_version, submit=submit
