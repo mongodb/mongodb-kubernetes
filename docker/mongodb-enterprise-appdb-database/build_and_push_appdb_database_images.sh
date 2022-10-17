@@ -15,64 +15,6 @@ append_missing_version() {
     fi
 }
 
-for version in $_40_versions; do
-    echo "Building version ${version} -- Ubuntu"
-    docker build \
-        -f 4.0/ubuntu/Dockerfile \
-        --build-arg MONGO_PACKAGE=mongodb-enterprise \
-        --build-arg "MONGO_VERSION=${version}" \
-        --build-arg MONGO_REPO=repo.mongodb.com \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}" \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent" .
-    append_missing_version "${version}" "ubuntu"
-
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}"
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent"
-
-    echo "Building version ${version} -- UBI"
-    docker build \
-        -f 4.0/ubi/Dockerfile \
-        --build-arg MONGO_PACKAGE=mongodb-enterprise \
-        --build-arg "MONGO_VERSION=${version}" \
-        --build-arg MONGO_REPO=repo.mongodb.com \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}" \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent" .
-
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}"
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"
-    append_missing_version "${version}" "ubi"
-
-done
-
-for version in $_42_versions; do
-    echo "Building version ${version} -- Ubuntu"
-    docker build \
-        -f 4.2/ubuntu/Dockerfile \
-        --build-arg MONGO_PACKAGE=mongodb-enterprise \
-        --build-arg "MONGO_VERSION=${version}" \
-        --build-arg MONGO_REPO=repo.mongodb.com \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}" \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent" .
-    append_missing_version "${version}" "ubuntu"
-
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent-${build_id}"
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database:${version}-ent"
-
-    echo "Building version ${version} -- UBI"
-    docker build \
-        -f 4.2/ubi/Dockerfile \
-        --build-arg MONGO_PACKAGE=mongodb-enterprise \
-        --build-arg "MONGO_VERSION=${version}" \
-        --build-arg MONGO_REPO=repo.mongodb.com \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}" \
-        -t "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent" .
-    append_missing_version "${version}" "ubi"
-
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent-${build_id}"
-    docker push "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:${version}-ent"
-
-done
-
 for version in $_44_versions; do
     echo "Building version ${version}"
     docker build \
