@@ -5,14 +5,14 @@
 
 * Fixed the OpenShift installation problem mentioned in the Enterprise Operator 1.7.1 release notes. The OLM (Operator Lifecycle Manager)
   upgrade graph will automatically skip the 1.7.1 release and perform an upgrade from 1.7.0 directly to this release.
-
+* Adds startup probes for database and OpsManager resources with some defaults. This improves the reliability of upgrades by ensuring things occur in the correct order. Customers can also override probe configurations with `podTemplateSpec`.
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.17.1
 
 ## Important OpenShift Warning
 For OpenShift customers, we recommend that you do NOT upgrade to this release (version 1.17.1), and instead upgrade to version 1.17.2, which is due the week commencing 17th October 2022, or upgrade to later versions.
 
-This release has invalid `quay.io/mongodb/mongodb-agent-ubi` digests referenced in certified bundle's CSV. Installing it could result in ImagePullBackOff errors in AppDB pods (OpsManager's database). Errors will look similar to: 
+This release has invalid `quay.io/mongodb/mongodb-agent-ubi` digests referenced in certified bundle's CSV. Installing it could result in ImagePullBackOff errors in AppDB pods (OpsManager's database). Errors will look similar to:
 ```
   Failed to pull image "quay.io/mongodb/mongodb-agent-ubi@sha256:a4cadf209ab87eb7d121ccd8b1503fa5d88be8866b5c3cb7897d14c36869abf6": rpc error: code = Unknown desc = reading manifest sha256:a4cadf209ab87eb7d121ccd8b1503fa5d88be8866b5c3cb7897d14c36869abf6 in quay.io/mongodb/mongodb-agent-ubi: manifest unknown: manifest unknown
 ```
@@ -65,12 +65,12 @@ spec:
 
 ## Breaking changes and deprecations
 
-* Ubuntu-based images are being deprecated in favor of the UBI-based images for new users, a migration guide for existing users will be published soon. 
-  The Ubuntu-based images will no longer be made available as of version 1.19. All existing Ubuntu-based images will continue to be 
-  supported until their version [End Of Life](https://www.mongodb.com/docs/kubernetes-operator/master/reference/support-lifecycle/). 
+* Ubuntu-based images are being deprecated in favor of the UBI-based images for new users, a migration guide for existing users will be published soon.
+  The Ubuntu-based images will no longer be made available as of version 1.19. All existing Ubuntu-based images will continue to be
+  supported until their version [End Of Life](https://www.mongodb.com/docs/kubernetes-operator/master/reference/support-lifecycle/).
   It is highly recommended to switch into UBI-based images as soon as possible.
-* Concatenated PEM format TLS certificates are not supported in Operator 1.17.0 and above. They were deprecated in 
-  1.13.0. Before upgrading to Operator 1.17.0, please confirm you have upgraded to the `Kubernetes TLS`. Please refer to the 
+* Concatenated PEM format TLS certificates are not supported in Operator 1.17.0 and above. They were deprecated in
+  1.13.0. Before upgrading to Operator 1.17.0, please confirm you have upgraded to the `Kubernetes TLS`. Please refer to the
   Migration [Migration Guide](https://www.mongodb.com/docs/kubernetes-operator/v1.16/tutorial/migrate-to-new-tls-format/) before upgrading the Operator.
 * Ops Manager 4.4 is [End of Life](https://www.mongodb.com/support-policy/lifecycles) and is no longer supported by the operator. If you're
   using Ops Manager 4.4, please upgrade to a newer version prior to the operator upgrade.
