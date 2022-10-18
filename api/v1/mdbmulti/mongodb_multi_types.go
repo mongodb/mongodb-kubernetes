@@ -426,16 +426,6 @@ func clusterSpecItemListToMap(clusterSpecItems []ClusterSpecItem) map[string]Clu
 	return m
 }
 
-// GetClusterToFailOver returns the first cluster which is about to be failed over
-func GetClusterToFailOver(clusters []failedcluster.FailedCluster) failedcluster.FailedCluster {
-	for _, c := range clusters {
-		for c.Members > 0 {
-			return c
-		}
-	}
-	return failedcluster.FailedCluster{}
-}
-
 // ReadLastAchievedSpec fetches the previously achieved spec.
 func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
 	if m.Annotations == nil {

@@ -168,3 +168,19 @@ def test_number_numbers_in_ac(mongodb_multi: MongoDBMulti):
 
     processes = tester.get_replica_set_processes(mongodb_multi.name)
     assert len(processes) == desiredmembers
+
+
+@mark.e2e_multi_cluster_disaster_recovery
+def test_sts_count_in_member_cluster(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    # assert the distribution of member cluster3 nodes.
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    cluster_one_client = member_cluster_clients[0]
+    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
+    assert cluster_one_sts.status.ready_replicas == 3
+
+    cluster_two_client = member_cluster_clients[1]
+    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
+    assert cluster_two_sts.status.ready_replicas == 2
