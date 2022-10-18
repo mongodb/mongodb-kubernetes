@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
@@ -114,6 +115,43 @@ func shouldAddFailedClusterAnnotation(annotations map[string]string, clusterName
 	return true
 }
 
+// clusterWithMinimumMembers returns the index of the cluster with the minimum number of nodes.
+func clusterWithMinimumMembers(clusters []mdbmulti.ClusterSpecItem) int {
+	mini, index := math.MaxInt64, -1
+
+	for nn, c := range clusters {
+		if c.Members < mini {
+			mini = c.Members
+			index = nn
+		}
+	}
+	return index
+}
+
+// distributeFailedMemebers evenly distributes the failed cluster's members amongst the remaining healthy clusters.
+func distributeFailedMemebers(clusters []mdbmulti.ClusterSpecItem, clustername string) []mdbmulti.ClusterSpecItem {
+	// add the cluster override annotations. Get the current clusterspec list from the CR and
+	// increase the members of the first cluster by the number of failed nodes
+	membersToFailOver := 0
+	for n, c := range clusters {
+		if c.ClusterName == clustername {
+			membersToFailOver = c.Members
+			clusters = append(clusters[:n], clusters[n+1:]...)
+		}
+
+	}
+
+	for membersToFailOver > 0 {
+		// pick the cluster with the minumum number of nodes currently and increament
+		// its count by 1.
+		nn := clusterWithMinimumMembers(clusters)
+		clusters[nn].Members += 1
+		membersToFailOver -= 1
+	}
+
+	return clusters
+}
+
 func addFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
@@ -128,22 +166,9 @@ func addFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client
 	if err != nil {
 		return err
 	}
-	// add the cluster override annotations. Get the current clusterspec list from the CR and
-	// increase the members of the first cluster by the number of failed nodes
-	// TODO: make this distribution more even
-	currentClusterSpecs := mrs.Spec.ClusterSpecList
-	for _, c := range currentClusterSpecs.ClusterSpecs {
-		if c.ClusterName == clustername {
-			currentClusterSpecs.ClusterSpecs[0].Members += c.Members
-		}
-	}
 
-	// remove the failed cluster from the slice as well for the override cluster spec
-	for n, c := range currentClusterSpecs.ClusterSpecs {
-		if c.ClusterName == clustername {
-			currentClusterSpecs.ClusterSpecs = append(currentClusterSpecs.ClusterSpecs[:n], currentClusterSpecs.ClusterSpecs[n+1:]...)
-		}
-	}
+	currentClusterSpecs := mrs.Spec.ClusterSpecList
+	currentClusterSpecs.ClusterSpecs = distributeFailedMemebers(currentClusterSpecs.ClusterSpecs, clustername)
 
 	updatedClusterSpec, err := json.Marshal(currentClusterSpecs)
 	if err != nil {
