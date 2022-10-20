@@ -27,46 +27,11 @@ def mongodb_multi(
     return resource
 
 
-# more details https://istio.io/latest/docs/tasks/traffic-management/egress/egress-control/
-@fixture(scope="module")
-def service_entry(
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-):
-    service_entry = CustomObject(
-        name="cluster-block",
-        namespace=namespace,
-        kind="ServiceEntry",
-        plural="serviceentries",
-        group="networking.istio.io",
-        version="v1beta1",
-        api_client=central_cluster_client,
-    )
-
-    service_entry["spec"] = {
-        # by default the access mode is set to "REGISTRY_ONLY" which means only the hosts specified
-        # here would be accessible from the operator pod
-        "hosts": [
-            "cloud-qa.mongodb.com",
-            "api.e2e.cluster1.mongokubernetes.com",
-            "api.e2e.cluster2.mongokubernetes.com",
-            "api.e2e.cluster3.mongokubernetes.com",
-        ],
-        "location": "MESH_EXTERNAL",
-        "ports": [{"name": "https", "number": 443, "protocol": "HTTPS"}],
-        "resolution": "DNS",
-    }
-    service_entry.api = kubernetes.client.CustomObjectsApi(
-        api_client=central_cluster_client
-    )
-    return service_entry
-
-
 @mark.e2e_multi_cluster_disaster_recovery
+@mark.e2e_multi_cluster_multi_disaster_recovery
 def test_label_namespace(
     namespace: str, central_cluster_client: kubernetes.client.ApiClient
 ):
-
     api = client.CoreV1Api(api_client=central_cluster_client)
 
     labels = {"istio-injection": "enabled"}
@@ -77,22 +42,26 @@ def test_label_namespace(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
+@mark.e2e_multi_cluster_multi_disaster_recovery
 def test_create_service_entry(service_entry: CustomObject):
     service_entry.create()
 
 
 @mark.e2e_multi_cluster_disaster_recovery
+@mark.e2e_multi_cluster_multi_disaster_recovery
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
 @mark.e2e_multi_cluster_disaster_recovery
+@mark.e2e_multi_cluster_multi_disaster_recovery
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.create()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
 @mark.e2e_multi_cluster_disaster_recovery
+@mark.e2e_multi_cluster_multi_disaster_recovery
 def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject):
     service_entry.load()
     service_entry["spec"]["hosts"] = [
