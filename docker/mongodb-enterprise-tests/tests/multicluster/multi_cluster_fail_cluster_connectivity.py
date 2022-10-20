@@ -26,41 +26,6 @@ def mongodb_multi(
     return resource
 
 
-# more details https://istio.io/latest/docs/tasks/traffic-management/egress/egress-control/
-@fixture(scope="module")
-def service_entry(
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-):
-    service_entry = CustomObject(
-        name="cluster-block",
-        namespace=namespace,
-        kind="ServiceEntry",
-        plural="serviceentries",
-        group="networking.istio.io",
-        version="v1beta1",
-        api_client=central_cluster_client,
-    )
-
-    service_entry["spec"] = {
-        # by default the access mode is set to "REGISTRY_ONLY" which means only the hosts specified
-        # here would be accessible from the operator pod
-        "hosts": [
-            "cloud-qa.mongodb.com",
-            "api.e2e.cluster1.mongokubernetes.com",
-            "api.e2e.cluster2.mongokubernetes.com",
-            "api.e2e.cluster3.mongokubernetes.com",
-        ],
-        "location": "MESH_EXTERNAL",
-        "ports": [{"name": "https", "number": 443, "protocol": "HTTPS"}],
-        "resolution": "DNS",
-    }
-    service_entry.api = kubernetes.client.CustomObjectsApi(
-        api_client=central_cluster_client
-    )
-    return service_entry
-
-
 @mark.e2e_multi_cluster_fail_cluster_connectivity
 def test_label_namespace(
     namespace: str, central_cluster_client: kubernetes.client.ApiClient
