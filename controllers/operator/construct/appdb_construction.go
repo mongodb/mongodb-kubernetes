@@ -400,7 +400,7 @@ func getMongoDBImage(version string) string {
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := ContainerImage(construct.MongodbImageEnv, version)
-	if strings.Contains(mongoImageName, "@sha256:") {
+	if strings.Contains(mongoImageName, "@sha256:") || strings.HasPrefix(mongoImageName, repoUrl) {
 		return mongoImageName
 	}
 

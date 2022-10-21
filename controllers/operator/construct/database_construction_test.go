@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 	"os"
 	"path"
 	"testing"
@@ -212,4 +213,17 @@ func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
 
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
+}
+
+func TestGettingMongoDBImageWithRelatedImages(t *testing.T) {
+	mongodbRelatedImageEnvUnpinned := "RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent"
+	repoUrlEnv := "MONGODB_REPO_URL"
+
+	defer env.RevertEnvVariables(repoUrlEnv, mongodbRelatedImageEnvUnpinned, construct.MongodbImageEnv)()
+
+	_ = os.Setenv(mongodbRelatedImageEnvUnpinned, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent")
+	_ = os.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-appdb-database-ubi")
+	_ = os.Setenv(repoUrlEnv, "quay.io/mongodb")
+
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent", getMongoDBImage("4.2.11-ent"))
 }
