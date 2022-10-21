@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+import time
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import (
@@ -132,8 +133,8 @@ def clusterfile_certs(
 @fixture(scope="module")
 def sharded_cluster_configmap(namespace: str) -> str:
     cm = KubernetesTester.read_configmap(namespace, "my-project")
-
-    project_name = "sharded-om-project" + uuid.uuid4().hex
+    epoch_time = int(time.time())
+    project_name = "sharded-" + str(epoch_time) + "-" + uuid.uuid4().hex[0:10]
     data = {
         "baseUrl": cm["baseUrl"],
         "projectName": project_name,
