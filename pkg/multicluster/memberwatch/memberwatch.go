@@ -98,21 +98,32 @@ func (m MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watch
 // shouldAddFailedClusterAnnotation checks if we should add this cluster in the failedCluster annotation,
 // if it's already not present.
 func shouldAddFailedClusterAnnotation(annotations map[string]string, clusterName string) bool {
+	failedclusters := readFailedClusterAnnotation(annotations)
+	if failedclusters == nil {
+		return true
+	}
+
+	for _, c := range failedclusters {
+		if c.ClusterName == clusterName {
+			return false
+		}
+	}
+	return true
+}
+
+// readFailedClusterAnnotation reads the current failed clusters from the annotation.
+func readFailedClusterAnnotation(annotations map[string]string) []failedcluster.FailedCluster {
 	if val, ok := annotations[failedcluster.FailedClusterAnnotation]; ok {
 		var failedClusters []failedcluster.FailedCluster
 
 		err := json.Unmarshal([]byte(val), &failedClusters)
 		if err != nil {
-			return true
+			return nil
 		}
 
-		for _, c := range failedClusters {
-			if c.ClusterName == clusterName {
-				return false
-			}
-		}
+		return failedClusters
 	}
-	return true
+	return nil
 }
 
 // clusterWithMinimumMembers returns the index of the cluster with the minimum number of nodes.
@@ -152,12 +163,22 @@ func distributeFailedMemebers(clusters []mdbmulti.ClusterSpecItem, clustername s
 	return clusters
 }
 
+// TODO: add unit tests for this
 func addFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}
 
-	clusterData := []failedcluster.FailedCluster{{ClusterName: clustername, Members: getClusterMembers(mrs.Spec.ClusterSpecList, clustername)}}
+	// read the existing failed cliuster annotations
+	var clusterData []failedcluster.FailedCluster
+	failedclusters := readFailedClusterAnnotation(mrs.Annotations)
+	if failedclusters != nil {
+		clusterData = failedclusters
+	}
+
+	clusterData = append(clusterData, failedcluster.FailedCluster{ClusterName: clustername,
+		Members: getClusterMembers(mrs.Spec.ClusterSpecList, clustername)})
+
 	clusterDataBytes, err := json.Marshal(clusterData)
 	if err != nil {
 		return err

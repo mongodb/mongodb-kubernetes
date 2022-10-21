@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -31,6 +32,8 @@ func NewMemberHealthCheck(server string, ca []byte, token string) *MemberHeathCh
 					RootCAs: certpool,
 				},
 			},
+			// TODO: make this timeout user configurable
+			Timeout: 10 * time.Second,
 		},
 		Token: token,
 	}

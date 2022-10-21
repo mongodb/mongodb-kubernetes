@@ -817,16 +817,3 @@ func getFakeMultiClusterMap() map[string]cluster.Cluster {
 	}
 	return clusterMap
 }
-
-func TestValidateClusterSpecList(t *testing.T) {
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, _, _ := defaultMultiReplicaSetReconciler(mrs, t)
-
-	// delete one of the clusters from the map
-	delete(reconciler.memberClusterClientsMap, clusters[2])
-
-	err := reconciler.validateClusterSpecList(mrs, nil)
-	assert.Error(t, err)
-	assert.EqualError(t, err, fmt.Sprintf("cluster %s is not configured in operator deployment", clusters[2]))
-
-}

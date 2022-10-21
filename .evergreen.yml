@@ -1958,6 +1958,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_multi_disaster_recovery
+  tags: ["patch-run"]
+  exec_timeout_secs: 2000
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_2_clusters_replica_set
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2291,6 +2297,7 @@ task_groups:
     - e2e_multi_cluster_specific_namespaces
     - e2e_multi_cluster_fail_cluster_connectivity
     - e2e_multi_cluster_disaster_recovery
+    - e2e_multi_cluster_multi_disaster_recovery
     - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_network_partition
   teardown_task:

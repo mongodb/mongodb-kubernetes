@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
@@ -123,14 +122,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
-
-	// filter clusterSpecList
-	clusterErr := r.validateClusterSpecList(&mrs, log)
-	if clusterErr != nil {
-		// user might over-provision clusters and set up the cluster to watch more clusters than
-		// actually specified in the cluster-spec list. It's not a "hard" error per see.
-		log.Errorf("Failed to reconcile on few clusters, err: %s", err)
-	}
 
 	err = r.reconcileServices(log, &mrs)
 	if err != nil {
@@ -756,35 +747,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.Sugare
 		log.Infof("Sucessfully ensured configmap: %s in cluster: %s", cm.Name, cluster.ClusterName)
 	}
 	return nil
-}
-
-// validateClusterSpecList validates the clusters present in the ClusterSpecList of the CR and ensures
-// that it is a subset of the cluster present in the clusterClientMap.
-func (r *ReconcileMongoDbMultiReplicaSet) validateClusterSpecList(mrs *mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger) error {
-
-	var errors []string
-	var clusterError error
-	specItems, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		r.updateStatus(mrs, workflow.Failed(err.Error()), log)
-	}
-
-	if len(r.memberClusterClientsMap) < len(specItems) {
-		for n, e := range specItems {
-			if _, ok := r.memberClusterClientsMap[e.ClusterName]; !ok {
-				// add to the error array to propagate to the status and make remove the element from the cluster spec list
-				specItems[n].Discard = true
-				errors = append(errors, fmt.Errorf("cluster %s is not configured in operator deployment", e.ClusterName).Error())
-			}
-		}
-	}
-
-	if len(errors) > 0 {
-		clusterError = fmt.Errorf(strings.Join(errors, "\n"))
-		mrs.Spec.ClusterSpecList.ClusterSpecs = specItems
-	}
-
-	return clusterError
 }
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
