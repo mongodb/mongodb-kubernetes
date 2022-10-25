@@ -151,6 +151,7 @@ def service_entry(
             "api.e2e.cluster2.mongokubernetes.com",
             "api.e2e.cluster3.mongokubernetes.com",
         ],
+        "exportTo": ["."],
         "location": "MESH_EXTERNAL",
         "ports": [{"name": "https", "number": 443, "protocol": "HTTPS"}],
         "resolution": "DNS",
