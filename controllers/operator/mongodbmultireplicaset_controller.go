@@ -241,6 +241,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mr
 // isScalingDown returns true if the MongoDBMulti is attempting to scale down.
 func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 	desiredSpec := mrs.Spec.GetClusterSpecList()
+
 	specThisReconciliation, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return false, err
@@ -253,10 +254,18 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMulti) (bool, error) {
 	for i := 0; i < len(specThisReconciliation); i++ {
 		specItem := desiredSpec[i]
 		reconciliationItem := specThisReconciliation[i]
+
 		if specItem.Members < reconciliationItem.Members {
+			// when failover is happening, the clusterspec list will alaways have fewer members
+			// than the specs for the reoconcile.
+			if _, ok := mdbmultiv1.HasClustersToFailOver(mrs.Annotations); ok {
+				return false, nil
+			}
 			return true, nil
 		}
+
 	}
+
 	return false, nil
 }
 

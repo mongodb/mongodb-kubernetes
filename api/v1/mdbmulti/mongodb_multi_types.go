@@ -303,7 +303,7 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
 func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
-	clusterSpecs := m.Spec.GetClusterSpecList()
+	clusterSpecs := m.GetDesiredSpecList()
 
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
@@ -318,17 +318,6 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 
 	var specsForThisReconciliation []ClusterSpecItem
 	specsForThisReconciliation = append(specsForThisReconciliation, prevSpecs...)
-
-	// Handle the case of cluster failure and auto scheduling
-	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
-		var clusterSpecOverride ClusterSpecList
-
-		err := json.Unmarshal([]byte(val), &clusterSpecOverride)
-		if err != nil {
-			return specsForThisReconciliation, err
-		}
-		clusterSpecs = clusterSpecOverride.ClusterSpecs
-	}
 
 	// When we remove a cluster, this means that there will be an entry in the resource annotation (the previous spec)
 	// but not in the current spec. In order to make scaling work, we add an entry for the removed cluster that has

@@ -84,6 +84,17 @@ def test_block_cluster2_traffic(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
+def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject):
+    service_entry.load()
+    service_entry["spec"]["hosts"] = [
+        "cloud-qa.mongodb.com",
+        "api.e2e.cluster1.mongokubernetes.com",
+        "api.e2e.cluster2.mongokubernetes.com",
+    ]
+    service_entry.update()
+
+
+@mark.e2e_multi_cluster_disaster_recovery
 def test_update_mongodb_multi_to_failed_state(
     mongodb_multi: MongoDBMulti,
     multi_cluster_operator: Operator,
@@ -143,6 +154,7 @@ def test_replica_abandons_running(mongodb_multi: MongoDBMulti):
 @mark.e2e_multi_cluster_disaster_recovery
 @mark.e2e_multi_cluster_multi_disaster_recovery
 def test_replica_reaches_running(mongodb_multi: MongoDBMulti):
+    mongodb_multi.load()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
@@ -206,5 +218,5 @@ def test_replica_abandons_running(mongodb_multi: MongoDBMulti):
 
 
 @mark.e2e_multi_cluster_multi_disaster_recovery
-def test_replica_reaches_running(mongodb_multi: MongoDBMulti):
+def test_replica_set_reaches_running(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)

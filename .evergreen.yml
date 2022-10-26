@@ -1844,12 +1844,6 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: e2e_multi_cluster_validation
-  tags: ["patch-run"]
-  exec_timeout_secs: 1000
-  commands:
-    - func: e2e_test
-
 - name: e2e_multi_cluster_scale_up_cluster
   tags: ["patch-run"]
   exec_timeout_secs: 2800
@@ -2293,7 +2287,6 @@ task_groups:
     - e2e_multi_cluster_backup_restore
     - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_with_ldap
-    - e2e_multi_cluster_validation
     - e2e_multi_cluster_specific_namespaces
     - e2e_multi_cluster_fail_cluster_connectivity
     - e2e_multi_cluster_disaster_recovery
