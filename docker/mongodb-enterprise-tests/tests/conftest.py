@@ -435,6 +435,32 @@ def multi_cluster_operator(
 
 
 @fixture(scope="module")
+def multi_cluster_operator_manual_remediation(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
+    return _install_multi_cluster_operator(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            # override the serviceAccountName for the operator deployment
+            "operator.createOperatorServiceAccount": "false",
+            "multiCluster.performFailOver": "false",
+        },
+        central_cluster_name,
+    )
+
+
+@fixture(scope="module")
 def multi_cluster_operator_clustermode(
     namespace: str,
     central_cluster_name: str,
