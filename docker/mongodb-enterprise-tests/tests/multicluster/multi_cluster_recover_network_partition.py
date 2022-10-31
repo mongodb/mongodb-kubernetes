@@ -46,8 +46,8 @@ def test_create_service_entry(service_entry: CustomObject):
 
 
 @mark.e2e_multi_cluster_recover_network_partition
-def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+def test_deploy_operator(multi_cluster_operator_manual_remediation: Operator):
+    multi_cluster_operator_manual_remediation.assert_is_running()
 
 
 @mark.e2e_multi_cluster_recover_network_partition
@@ -70,7 +70,6 @@ def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject
 @mark.e2e_multi_cluster_recover_network_partition
 def test_update_mongodb_multi_to_failed_state(
     mongodb_multi: MongoDBMulti,
-    multi_cluster_operator: Operator,
     namespace: str,
     central_cluster_client: client.ApiClient,
 ):
