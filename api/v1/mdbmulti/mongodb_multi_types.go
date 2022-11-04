@@ -195,7 +195,7 @@ type ClusterSpecItem struct {
 	// ExposedExternally determines whether a NodePort service should be created for the resource
 	ExposedExternally bool `json:"exposedExternally,omitempty"`
 	// Amount of members for this MongoDB Replica Set
-	Members int `json:"members,omitempty"`
+	Members int `json:"members"`
 	// +optional
 	StatefulSetConfiguration mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
@@ -397,13 +397,33 @@ func HasClustersToFailOver(annotations map[string]string) (string, bool) {
 }
 
 // GetFailedClusters returns the current set of failed clusters for the MongoDBMulti CR.
-func GetFailedClusters(val string) ([]failedcluster.FailedCluster, error) {
+func (m *MongoDBMulti) GetFailedClusters() ([]failedcluster.FailedCluster, error) {
+	if m.Annotations == nil {
+		return nil, nil
+	}
+	failedClusterBytes, ok := m.Annotations[failedcluster.FailedClusterAnnotation]
+	if !ok {
+		return []failedcluster.FailedCluster{}, nil
+	}
 	var failedClusters []failedcluster.FailedCluster
-	err := json.Unmarshal([]byte(val), &failedClusters)
+	err := json.Unmarshal([]byte(failedClusterBytes), &failedClusters)
 	if err != nil {
 		return nil, err
 	}
 	return failedClusters, err
+}
+
+// GetFailedClusterNames returns the current set of failed cluster names for the MongoDBMulti CR.
+func (m *MongoDBMulti) GetFailedClusterNames() ([]string, error) {
+	failedClusters, err := m.GetFailedClusters()
+	if err != nil {
+		return nil, err
+	}
+	clusterNames := []string{}
+	for _, c := range failedClusters {
+		clusterNames = append(clusterNames, c.ClusterName)
+	}
+	return clusterNames, nil
 }
 
 // clusterSpecItemListToMap converts a slice of cluster spec items into a map using the name as the key.
