@@ -95,41 +95,11 @@ def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_update_mongodb_multi_to_failed_state(
+def test_mongodb_multi_leaves_running_state(
     mongodb_multi: MongoDBMulti,
-    multi_cluster_operator: Operator,
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
 ):
-
-    # it takes couple of secs here for the Istio configuration to take effect, i.e the operator
-    # not being able to talk to cluster3, so we patch the CR a couple of times.
-    n = 0
-    while n < 10:
-        mongodb_multi.load()
-        phase = mongodb_multi.get_status_phase()
-
-        if phase == Phase.Pending or phase == Phase.Reconciling:
-            continue
-
-        elif phase == Phase.Running:
-            mongodb_multi["metadata"]["labels"] = {"foo": str(n)}
-            try:
-                mongodb_multi.update()
-            except client.rest.ApiException as e:
-                if e.status == 409:
-                    continue
-            n += 1
-
-        elif phase == Phase.Failed:
-            break
-        time.sleep(4)
-
-    mongodb_multi.assert_reaches_phase(
-        Phase.Failed,
-        msg_regexp="Failed to create service: multi-replica-set-svc in cluster: e2e.cluster3.mongokubernetes.com",
-        timeout=500,
-    )
+    mongodb_multi.load()
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=100)
 
 
 @mark.e2e_multi_cluster_disaster_recovery
@@ -140,19 +110,6 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_operator_pod_restart(multi_cluster_operator: Operator):
-    """TODO: figure out if this can be done without an operator restart"""
-    multi_cluster_operator.restart_operator_deployment()
-    multi_cluster_operator.assert_is_running()
-
-
-@mark.e2e_multi_cluster_multi_disaster_recovery
-def test_replica_abandons_running(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=500)
-
-
-@mark.e2e_multi_cluster_disaster_recovery
-@mark.e2e_multi_cluster_multi_disaster_recovery
 def test_replica_reaches_running(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)

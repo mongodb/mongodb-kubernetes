@@ -1940,12 +1940,6 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: e2e_multi_cluster_fail_cluster_connectivity
-  tags: ["patch-run"]
-  exec_timeout_secs: 2000
-  commands:
-    - func: e2e_test
-
 - name: e2e_multi_cluster_disaster_recovery
   tags: ["patch-run"]
   exec_timeout_secs: 2000
@@ -2288,7 +2282,6 @@ task_groups:
     - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_with_ldap
     - e2e_multi_cluster_specific_namespaces
-    - e2e_multi_cluster_fail_cluster_connectivity
     - e2e_multi_cluster_disaster_recovery
     - e2e_multi_cluster_multi_disaster_recovery
     - e2e_multi_cluster_recover

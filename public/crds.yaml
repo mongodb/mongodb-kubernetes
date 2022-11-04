@@ -885,6 +885,8 @@ spec:
                           required:
                           - spec
                           type: object
+                      required:
+                      - members
                       type: object
                     type: array
                 type: object

@@ -10,6 +10,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -301,11 +302,19 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 	if err != nil {
 		return workflow.Failed(fmt.Sprintf("failed to read cluster spec list: %s", err))
 	}
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
+	}
 
 	for _, item := range clusterSpecList {
 		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
 		if !ok {
 			log.Warnf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName)
+			continue
+		}
+		if stringutil.Contains(failedClusterNames, item.ClusterName) {
+			log.Infof("skipping statetful set reconciliation: cluster %s is marked as failed", item.ClusterName)
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
@@ -406,7 +415,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return status
 		}
 
-		log.Infof("Successfully ensure StatefulSet in cluster: %s", item.ClusterName)
+		log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
 	}
 	return workflow.OK()
 }
@@ -494,7 +503,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members)...)
+		hostnamesToAdd := dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members)
+		hostnames = append(hostnames, hostnamesToAdd...)
 	}
 
 	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
@@ -633,20 +643,28 @@ func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) co
 	return svc
 }
 
-// reconcileServices make sure that we have a service object corresponding to each statefulset pod
+// reconcileServices makes sure that we have a service object corresponding to each statefulset pod
 // in the member clusters
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogger, mrs *mdbmultiv1.MongoDBMulti) error {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return err
+	}
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
+	}
+
 	// by default we would create the duplicate services
 	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
 	if shouldCreateDuplicates {
 		// iterate over each cluster and create service object corresponding to each of the pods in the multi-cluster RS.
 		for k, v := range r.memberClusterClientsMap {
-			clusterSpecList, err := mrs.GetClusterSpecItems()
-			if err != nil {
-				return err
-			}
-
 			for _, e := range clusterSpecList {
+				if stringutil.Contains(failedClusterNames, e.ClusterName) {
+					log.Infof("skiping duplicate service creation: cluster %s is marked as failed", e.ClusterName)
+					continue
+				}
 				for podNum := 0; podNum < e.Members; podNum++ {
 					svc := getService(mrs, e.ClusterName, podNum)
 					err := service.CreateOrUpdateService(v, svc)
@@ -661,20 +679,23 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		return nil
 	}
 
-	clusterSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		return err
-	}
-
 	for _, e := range clusterSpecList {
 		client, ok := r.memberClusterClientsMap[e.ClusterName]
 		if !ok {
 			log.Warnf("failed to create service: cluster %s missing from client map", e.ClusterName)
 			continue
 		}
+		if e.Members == 0 {
+			log.Warnf("skipping service creation: no members assigned to cluster %s", e.ClusterName)
+			continue
+		}
+		if stringutil.Contains(failedClusterNames, e.ClusterName) {
+			log.Warnf("skipping service creation: cluster %s is marked as failed", e.ClusterName)
+			continue
+		}
 
 		svc := getSRVService(mrs)
-		err := service.CreateOrUpdateService(client, svc)
+		err = service.CreateOrUpdateService(client, svc)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create service: %s in cluster: %s, err :%v", svc.Name, e.ClusterName, err)
 		}
@@ -718,6 +739,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 	if err != nil {
 		return err
 	}
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		log.Warnf("failed retrieving list of failed clusters: %s", err.Error())
+	}
 
 	for i, e := range clusterSpecList {
 		client, ok := r.memberClusterClientsMap[e.ClusterName]
@@ -725,9 +750,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 			log.Warnf("failed to create configmap: cluster %s is missing from client map", e.ClusterName)
 			continue
 		}
+		if stringutil.Contains(failedClusterNames, e.ClusterName) {
+			log.Warnf("skipping configmap creation: cluster %s is marked as failed", e.ClusterName)
+			continue
+		}
 		cm := getHostnameOverrideConfigMap(mrs, i, e.Members)
 
-		err := configmap.CreateOrUpdate(client, cm)
+		err = configmap.CreateOrUpdate(client, cm)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create configmap: %s in cluster: %s, err: %v", cm.Name, e.ClusterName, err)
 		}
