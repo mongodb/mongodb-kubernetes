@@ -163,7 +163,8 @@ func distributeFailedMemebers(clusters []mdbmulti.ClusterSpecItem, clustername s
 	return clusters
 }
 
-// TODO: add unit tests for this
+// addFailoverAnnotation adds the failed cluster spec to the annotation of the MongoDBMulti CR for it to be used
+// while performing the reconcilliation
 func addFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
