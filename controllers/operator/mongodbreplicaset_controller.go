@@ -261,7 +261,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 func AddReplicaSetController(mgr manager.Manager) error {
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(mgr, om.NewOpsManagerConnection)
-	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler})
+	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: 3})
 	if err != nil {
 		return err
 	}

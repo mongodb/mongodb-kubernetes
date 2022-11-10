@@ -247,7 +247,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDB
 
 func AddMongoDBUserController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newMongoDBUserReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
-	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler})
+	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: 3})
 	if err != nil {
 		return err
 	}
