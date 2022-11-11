@@ -3,17 +3,12 @@
 ## Publishing new OM images
 1. In `evergreen.yml` change one of:
 
-   * `ops_manager_44_latest`
    * `ops_manager_50_latest`
    * `ops_manager_60_latest`
-   
+
    to the new version you want to publish.
-   
+
 2. Run a patch with the relevant variant for publishing the images:
-   * OM44
-   ```
-   evergreen patch -v publish_om44_images -t all -y -f -d "Releasing OM 4.4" -u --browse
-   ```
    * OM50
    ```
    evergreen patch -v publish_om50_images -t all -y -f -d "Releasing OM 5.0" -u --browse
@@ -22,15 +17,11 @@
    ```
    evergreen patch -v publish_om60_images -t all -y -f -d "Releasing OM 6.0" -u --browse
    ```
-   
+
 3. The `evergreen` patch will build, test and publish the images.
 
 4. To run a `preflight` check pre-publishing the image to registry.connect.redhat.com, run the following patch for the version you're releasing:
 
-   * OM44
-   ```
-   evergreen patch -p ops-manager-kubernetes -v preflight_om44_images -t all -y -f -d "Pre-flight OM 4.4 images" -u --browse
-   ```
    * OM50
    ```
    evergreen patch -p ops-manager-kubernetes -v preflight_om50_images -t all -y -f -d "Pre-flight OM 5.0 images" -u --browse
@@ -39,10 +30,6 @@
    ```
    evergreen patch -p ops-manager-kubernetes -v preflight_om60_images -t all -y -f -d "Pre-flight OM 6.0 images" -u --browse
    ```
-
-# Add new version to `RELEASE_NOTES.md`
-
-Remember to add the new supported Ops Manager version to the `RELEASE_NOTES.md`.
 
 # Create a PR
 
