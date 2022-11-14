@@ -11,8 +11,14 @@ export VERSION=1.12.8
 curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -
 
 cd istio-${VERSION}
+# perform cleanup prior to install
+bin/istioctl x uninstall --context="${CTX_CLUSTER1}" --purge
+bin/istioctl x uninstall --context="${CTX_CLUSTER2}" --purge
+bin/istioctl x uninstall --context="${CTX_CLUSTER3}" --purge
+
 mkdir -p certs
 pushd certs
+
 
 # create root trust for the clusters
 make -f ../tools/certs/Makefile.selfsigned.mk root-ca
