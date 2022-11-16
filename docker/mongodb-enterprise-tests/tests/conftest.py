@@ -520,6 +520,7 @@ def _install_multi_cluster_operator(
     member_cluster_clients: List[MultiClusterClient],
     helm_opts: Dict[str, str],
     central_cluster_name: str,
+    operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
 ) -> Operator:
     prepare_multi_cluster_namespaces(
         namespace,
@@ -530,7 +531,7 @@ def _install_multi_cluster_operator(
     multi_cluster_operator_installation_config.update(helm_opts)
 
     return Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
+        name=operator_name,
         namespace=namespace,
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
@@ -768,6 +769,7 @@ def run_kube_config_creation_tool(
     central_namespace: str,
     member_namespace: str,
     cluster_scoped: Optional[bool] = False,
+    service_account_name: Optional[str] = "mongodb-enterprise-operator-multi-cluster",
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -782,6 +784,8 @@ def run_kube_config_creation_tool(
         member_namespace,
         "-central-cluster-namespace",
         central_namespace,
+        "-service-account",
+        service_account_name,
     ]
     if cluster_scoped:
         args.extend(["-cluster-scoped", "true"])

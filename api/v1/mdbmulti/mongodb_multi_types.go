@@ -362,7 +362,6 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 			}
 			return append(specsForThisReconciliation, item), nil
 		}
-
 		// can only scale one member at a time so we return early on each increment.
 		if item.Members > prevItem.Members {
 			specsForThisReconciliation[m.ClusterNum(item.ClusterName)].Members += 1
@@ -374,15 +373,6 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 		}
 	}
 
-	// remove the clusters from the spec which shouldn't be reconciled because we don't have
-	// a corresponsing client for them in the clusterClientMap
-	for n, currentSpec := range specsForThisReconciliation {
-		for _, clusterSpec := range clusterSpecs {
-			if clusterSpec.ClusterName == currentSpec.ClusterName && clusterSpec.Discard {
-				specsForThisReconciliation = removeFromSlice(specsForThisReconciliation, n)
-			}
-		}
-	}
 	return specsForThisReconciliation, nil
 }
 
