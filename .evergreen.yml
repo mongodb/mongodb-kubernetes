@@ -1970,6 +1970,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_recover_clusterwide
+  tags: ["patch-run"]
+  exec_timeout_secs: 3000
+  commands:
+    - func: e2e_test
+
 
 - name: e2e_om_update_before_reconciliation
   tags: ["patch-run"]
@@ -2286,6 +2292,7 @@ task_groups:
     - e2e_multi_cluster_multi_disaster_recovery
     - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_network_partition
+    - e2e_multi_cluster_recover_clusterwide
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

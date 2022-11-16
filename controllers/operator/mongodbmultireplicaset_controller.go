@@ -124,23 +124,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
 
-	err = r.reconcileServices(log, &mrs)
+	// check if resource has failedCluster annotation and mark it as failed if automated failover is not enabled
+	failedClusterNames, err := mrs.GetFailedClusterNames()
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
 	}
-
-	// create configmap with the hostnameoverride
-	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
-	if err != nil {
-		return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
-	}
-
-	// Copy over OM CustomCA if specified in project config
-	if projectConfig.SSLMMSCAConfigMap != "" {
-		err = r.reconcileOMCAConfigMap(log, mrs, projectConfig.SSLMMSCAConfigMap)
-		if err != nil {
-			return r.updateStatus(&mrs, workflow.Failed(err.Error()), log)
-		}
+	if len(failedClusterNames) > 0 && !multicluster.ShouldPerformFailover() {
+		return r.updateStatus(&mrs, workflow.Failed("resource has failed clusters in the annotation: %+v", failedClusterNames), log)
 	}
 
 	// register for the cert secrets and configmap to be watched
@@ -162,8 +152,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileStatefulSets(mrs, log, conn, projectConfig)
-
+			return r.reconcileMemberResources(mrs, log, conn, projectConfig)
 		})
 
 	if !status.IsOK() {
@@ -297,6 +286,32 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(mrs *mdbmultiv1.Mongo
 	return firstStatefulSet, err
 }
 
+// reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
+// All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
+// should be reconciled in this method.
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig) workflow.Status {
+	err := r.reconcileServices(log, &mrs)
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	// create configmap with the hostnameoverride
+	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	// Copy over OM CustomCA if specified in project config
+	if projectConfig.SSLMMSCAConfigMap != "" {
+		err = r.reconcileOMCAConfigMap(log, mrs, projectConfig.SSLMMSCAConfigMap)
+		if err != nil {
+			return workflow.Failed(err.Error())
+		}
+	}
+
+	return r.reconcileStatefulSets(mrs, log, conn, projectConfig)
+}
+
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMulti, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -308,13 +323,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 	}
 
 	for _, item := range clusterSpecList {
-		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
-		if !ok {
-			log.Warnf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName)
+		if stringutil.Contains(failedClusterNames, item.ClusterName) {
+			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s is marked as failed", item.ClusterName))
 			continue
 		}
-		if stringutil.Contains(failedClusterNames, item.ClusterName) {
-			log.Infof("skipping statetful set reconciliation: cluster %s is marked as failed", item.ClusterName)
+
+		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName))
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
@@ -480,6 +496,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		mrs.Annotations = map[string]string{}
 	}
 
+	// TODO Find a way to avoid using the spec for this field as we're not writing the information
+	// back in the resource and the user does not set it.
 	clusterNumBytes, err := json.Marshal(mrs.Spec.Mapping)
 	if err != nil {
 		return err
@@ -487,7 +505,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 	annotationsToAdd := make(map[string]string)
 
 	annotationsToAdd[util.LastAchievedSpec] = string(achievedSpecBytes)
-	annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
+	if string(clusterNumBytes) != "null" {
+		annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
+	}
 
 	return annotations.SetAnnotations(mrs.DeepCopy(), annotationsToAdd, r.client)
 }
@@ -662,7 +682,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		for k, v := range r.memberClusterClientsMap {
 			for _, e := range clusterSpecList {
 				if stringutil.Contains(failedClusterNames, e.ClusterName) {
-					log.Infof("skiping duplicate service creation: cluster %s is marked as failed", e.ClusterName)
+					log.Warnf("failed to create duplicate service: cluster %s is marked as failed", e.ClusterName)
 					continue
 				}
 				for podNum := 0; podNum < e.Members; podNum++ {
@@ -680,17 +700,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 	}
 
 	for _, e := range clusterSpecList {
+		if stringutil.Contains(failedClusterNames, e.ClusterName) {
+			log.Warnf(fmt.Sprintf("failed to create service: cluster %s is marked as failed", e.ClusterName))
+			continue
+		}
+
 		client, ok := r.memberClusterClientsMap[e.ClusterName]
 		if !ok {
-			log.Warnf("failed to create service: cluster %s missing from client map", e.ClusterName)
+			log.Warnf(fmt.Sprintf("failed to create service: cluster %s missing from client map", e.ClusterName))
 			continue
 		}
 		if e.Members == 0 {
 			log.Warnf("skipping service creation: no members assigned to cluster %s", e.ClusterName)
-			continue
-		}
-		if stringutil.Contains(failedClusterNames, e.ClusterName) {
-			log.Warnf("skipping service creation: cluster %s is marked as failed", e.ClusterName)
 			continue
 		}
 
@@ -745,13 +766,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 	}
 
 	for i, e := range clusterSpecList {
-		client, ok := r.memberClusterClientsMap[e.ClusterName]
-		if !ok {
-			log.Warnf("failed to create configmap: cluster %s is missing from client map", e.ClusterName)
+		if stringutil.Contains(failedClusterNames, e.ClusterName) {
+			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is marked as failed", e.ClusterName))
 			continue
 		}
-		if stringutil.Contains(failedClusterNames, e.ClusterName) {
-			log.Warnf("skipping configmap creation: cluster %s is marked as failed", e.ClusterName)
+
+		client, ok := r.memberClusterClientsMap[e.ClusterName]
+		if !ok {
+			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is missing from client map", e.ClusterName))
 			continue
 		}
 		cm := getHostnameOverrideConfigMap(mrs, i, e.Members)
@@ -771,11 +793,20 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.Sugare
 	if err != nil {
 		return err
 	}
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		log.Warnf("failed retrieving list of failed clusters: %s", err.Error())
+	}
+
 	cm, err := r.client.GetConfigMap(kube.ObjectKey(mrs.Namespace, configMapName))
 	if err != nil {
 		return err
 	}
 	for _, cluster := range clusterSpecList {
+		if stringutil.Contains(failedClusterNames, cluster.ClusterName) {
+			log.Warnf("failed to create configmap %s: cluster %s is marked as failed", configMapName, cluster.ClusterName)
+			continue
+		}
 		client := r.memberClusterClientsMap[cluster.ClusterName]
 		memberCm := configmap.Builder().SetName(configMapName).SetNamespace(mrs.Namespace).SetData(cm.Data).Build()
 		err := configmap.CreateOrUpdate(client, memberCm)
@@ -832,20 +863,17 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 		}
 	}
 
-	// if the operator should perform auto remediation it should keep watching the member clusters'
-	// API servers to determine whether the clsters are healthy or not
-	if multicluster.ShouldPerformFailover() {
-		eventChannel := make(chan event.GenericEvent)
-		memberClusterMap := memberwatch.MemberClusterMap{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
-		go memberClusterMap.WatchMemberClusterHealth(zap.S(), eventChannel, reconciler.memberClusterClientsMap, reconciler.client)
+	// the operator watches the member clusters' API servers to determine whether the clsters are healthy or not
+	eventChannel := make(chan event.GenericEvent)
+	memberClusterMap := memberwatch.MemberClusterMap{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+	go memberClusterMap.WatchMemberClusterHealth(zap.S(), eventChannel, reconciler.memberClusterClientsMap, reconciler.client)
 
-		err = c.Watch(
-			&source.Channel{Source: eventChannel},
-			&handler.EnqueueRequestForObject{},
-		)
-		if err != nil {
-			zap.S().Errorf("failed to watch for member cluster healthcheck: %w", err)
-		}
+	err = c.Watch(
+		&source.Channel{Source: eventChannel},
+		&handler.EnqueueRequestForObject{},
+	)
+	if err != nil {
+		zap.S().Errorf("failed to watch for member cluster healthcheck: %w", err)
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)

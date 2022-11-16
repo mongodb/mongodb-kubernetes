@@ -7,9 +7,7 @@ from kubetester.operator import Operator
 from kubetester.kubetester import fixture as yaml_fixture
 from kubernetes import client
 from kubeobject import CustomObject
-import time
 
-from kubetester import delete_pod, get_pod_when_ready
 from tests.conftest import run_multi_cluster_recovery_tool, MULTI_CLUSTER_OPERATOR_NAME
 
 RESOURCE_NAME = "multi-replica-set"
@@ -68,40 +66,14 @@ def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject
 
 
 @mark.e2e_multi_cluster_recover_network_partition
-def test_update_mongodb_multi_to_failed_state(
+def test_mongodb_multi_enters_failed_state(
     mongodb_multi: MongoDBMulti,
     namespace: str,
     central_cluster_client: client.ApiClient,
 ):
-
-    # it takes couple of secs here for the Istio configuration to take effect, i.e the operator
-    # not being able to talk to cluster3, so we patch the CR a couple of times.
-    n = 0
-    while n < 10:
-        mongodb_multi.load()
-        phase = mongodb_multi.get_status_phase()
-
-        if phase == Phase.Pending or phase == Phase.Reconciling:
-            continue
-
-        elif phase == Phase.Running:
-            mongodb_multi["metadata"]["labels"] = {"foo": str(n)}
-            try:
-                mongodb_multi.update()
-            except client.rest.ApiException as e:
-                if e.status == 409:
-                    continue
-            n += 1
-
-        elif phase == Phase.Failed:
-            break
-        time.sleep(4)
-
-    mongodb_multi.assert_reaches_phase(
-        Phase.Failed,
-        msg_regexp="Failed to create service: multi-replica-set-svc in cluster: e2e.cluster3.mongokubernetes.com",
-        timeout=500,
-    )
+    mongodb_multi.load()
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
+    mongodb_multi.assert_reaches_phase(Phase.Failed, timeout=100)
 
 
 @mark.e2e_multi_cluster_recover_network_partition
@@ -129,8 +101,9 @@ def test_mongodb_multi_recovers_removing_cluster(
 ):
     mongodb_multi.load()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
-
+    mongodb_multi["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"].pop()
     mongodb_multi.update()
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
+
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
