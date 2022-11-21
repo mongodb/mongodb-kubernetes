@@ -53,7 +53,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-enterprise-init-ops-manager-ubi
-  version: 1.0.9
+  version: 1.0.10
 
 initAppDb:
   name: mongodb-enterprise-init-appdb-ubi

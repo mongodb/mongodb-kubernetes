@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
   name: opsmanagers.mongodb.com
 spec:
@@ -319,6 +318,7 @@ spec:
                                 required:
                                 - key
                                 type: object
+                                x-kubernetes-map-type: atomic
                               automationUserName:
                                 type: string
                               clientCertificateSecretRef:
@@ -373,6 +373,7 @@ spec:
                                 required:
                                 - key
                                 type: object
+                                x-kubernetes-map-type: atomic
                               servers:
                                 items:
                                   type: string
@@ -1008,9 +1009,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

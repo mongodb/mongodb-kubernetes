@@ -26,10 +26,10 @@ require (
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.22.0
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
-	k8s.io/api v0.24.3
-	k8s.io/apimachinery v0.24.3
-	k8s.io/client-go v0.24.3
-	k8s.io/code-generator v0.24.3
+	k8s.io/api v0.24.8
+	k8s.io/apimachinery v0.24.8
+	k8s.io/client-go v0.24.8
+	k8s.io/code-generator v0.24.8
 	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
 	sigs.k8s.io/controller-runtime v0.12.3
 )
@@ -122,6 +122,6 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-go 1.18
+go 1.19
 
 //replace github.com/mongodb/mongodb-kubernetes-operator => ../repos/mongodb-kubernetes-operator

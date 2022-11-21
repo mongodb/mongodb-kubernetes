@@ -86,11 +86,11 @@ gopkg.in/square/go-jose.v2,v2.5.1,https://github.com/square/go-jose/blob/v2.5.1/
 gopkg.in/square/go-jose.v2/json,v2.5.1,https://github.com/square/go-jose/blob/v2.5.1/json/LICENSE,BSD-3-Clause
 gopkg.in/yaml.v2,v2.4.0,https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE,Apache-2.0
 gopkg.in/yaml.v3,v3.0.1,https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE,MIT
-k8s.io/api,v0.24.3,https://github.com/kubernetes/api/blob/v0.24.3/LICENSE,Apache-2.0
+k8s.io/api,v0.24.8,https://github.com/kubernetes/api/blob/v0.24.8/LICENSE,Apache-2.0
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions,v0.24.2,https://github.com/kubernetes/apiextensions-apiserver/blob/v0.24.2/LICENSE,Apache-2.0
-k8s.io/apimachinery/pkg,v0.24.3,https://github.com/kubernetes/apimachinery/blob/v0.24.3/LICENSE,Apache-2.0
-k8s.io/apimachinery/third_party/forked/golang,v0.24.3,https://github.com/kubernetes/apimachinery/blob/v0.24.3/third_party/forked/golang/LICENSE,BSD-3-Clause
-k8s.io/client-go,v0.24.3,https://github.com/kubernetes/client-go/blob/v0.24.3/LICENSE,Apache-2.0
+k8s.io/apimachinery/pkg,v0.24.8,https://github.com/kubernetes/apimachinery/blob/v0.24.8/LICENSE,Apache-2.0
+k8s.io/apimachinery/third_party/forked/golang,v0.24.8,https://github.com/kubernetes/apimachinery/blob/v0.24.8/third_party/forked/golang/LICENSE,BSD-3-Clause
+k8s.io/client-go,v0.24.8,https://github.com/kubernetes/client-go/blob/v0.24.8/LICENSE,Apache-2.0
 k8s.io/component-base/config,v0.24.2,https://github.com/kubernetes/component-base/blob/v0.24.2/LICENSE,Apache-2.0
 k8s.io/klog/v2,v2.60.1,https://github.com/kubernetes/klog/blob/v2.60.1/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg,v0.0.0-20220328201542-3ee0da9b0b42,https://github.com/kubernetes/kube-openapi/blob/3ee0da9b0b42/LICENSE,Apache-2.0

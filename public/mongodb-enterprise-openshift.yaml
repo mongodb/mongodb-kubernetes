@@ -262,7 +262,7 @@ spec:
         - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi
         - name: INIT_OPS_MANAGER_VERSION
-          value: 1.0.9
+          value: 1.0.10
         # AppDB
         - name: INIT_APPDB_IMAGE_REPOSITORY
           value: quay.io/mongodb/mongodb-enterprise-init-appdb-ubi
@@ -282,8 +282,8 @@ spec:
           value: "quay.io/mongodb/mongodb-enterprise-database-ubi:2.0.2"
         - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_0_13
           value: "quay.io/mongodb/mongodb-enterprise-init-database-ubi:1.0.13"
-        - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_0_9
-          value: "quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi:1.0.9"
+        - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_0_10
+          value: "quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi:1.0.10"
         - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_0_13
           value: "quay.io/mongodb/mongodb-enterprise-init-appdb-ubi:1.0.13"
         - name: RELATED_IMAGE_AGENT_IMAGE_11_0_5_6963_1
