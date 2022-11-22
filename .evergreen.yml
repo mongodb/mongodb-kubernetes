@@ -4,8 +4,9 @@ ignore:
 
 stepback: true
 
-# Ops Manager image building & pushing takes a long time
-exec_timeout_secs: 4500
+# 2h timeout for all the tasks
+exec_timeout_secs: 7200
+
 variables:
     # These are OM/MDB versions used in OM e2e tests (build variants for 4.4/5.0 OM) - change them occasionally
   - &ops_manager_50_prev 5.0.1
@@ -775,7 +776,6 @@ tasks:
         docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
-  exec_timeout_secs: 600
   priority: 60
   commands:
   - func: clone
@@ -786,7 +786,6 @@ tasks:
       image_name: test
 
 - name: build_operator_ubi
-  exec_timeout_secs: 600
   priority: 60
   commands:
   - func: clone
@@ -799,7 +798,6 @@ tasks:
 
 - name: build_operator_ubuntu
   priority: 60
-  exec_timeout_secs: 600
   commands:
   - func: clone
   - func: setup_building_host
@@ -885,7 +883,6 @@ tasks:
       skip_tags: ubi,release
 
 - name: prepare_cluster_vanilla
-  exec_timeout_secs: 1800
   priority: 59
   depends_on:
   - name: build_operator_ubuntu
@@ -902,7 +899,6 @@ tasks:
         <<: *ops_manager_50_current
 
 - name: prepare_multi_cluster
-  exec_timeout_secs: 1800
   priority: 59
   commands:
     - func: clone
@@ -913,7 +909,6 @@ tasks:
     - func: prepare_test_env
 
 - name: prepare_multi_cluster_2_clusters
-  exec_timeout_secs: 1800
   priority: 59
   commands:
     - func: clone
@@ -924,7 +919,6 @@ tasks:
     - func: prepare_test_env
 
 - name: prepare_aws
-  exec_timeout_secs: 600
   priority: 59
   commands:
     - func: clone
@@ -944,31 +938,26 @@ tasks:
 
 - name: e2e_standalone_custom_podspec
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_schema_validation
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_schema_validation
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_schema_validation
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_users_schema_validation
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -979,536 +968,447 @@ tasks:
 
 - name: e2e_standalone_config_map
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_groups
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_recovery_k8s
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_operator_partial_crd
   tags: ["patch-run"]
-  exec_timeout_secs: 300
   commands:
     - func: "e2e_test"
 
 - name: e2e_operator_clusterwide
   tags: ["patch-run"]
-  exec_timeout_secs: 1500
   commands:
     - func: "e2e_test"
 
 - name: e2e_operator_multi_namespaces
   tags: ["patch-run"]
-  exec_timeout_secs: 1500
   commands:
     - func: "e2e_test"
 
 - name: e2e_operator_upgrade_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_operator_upgrade_ops_manager
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_operator_upgrade_appdb_tls
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_backup_delete_sts
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_liveness_probe
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 2700
   commands:
     - func: "e2e_test"
 
 - name: e2e_mongodb_validation_webhook
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_mongodb_roles_validation_webhook
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_recovery
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_long_name
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_long_name
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_config_map
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_ent
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_groups
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
      - func: "e2e_test"
 
 - name: e2e_replica_set_pv
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_pv_multiple
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_8_members
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_exposed_externally
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_readiness_probe
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replication_state_awareness
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_statefulset_status
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_update_delete_parallel
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_sc_additional_certs
   tags: ["patch-run"]
-  exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_sharded_cluster_certs_prefix
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_rs_additional_certs
   tags: ["patch-run"]
-  exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_rs_intermediate_ca
   tags: ["patch-run"]
-  exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_rs_external_access
   tags: ["patch-run"]
-  exec_timeout_secs: 900
   commands:
     - func: "e2e_test"
 
 
 - name: e2e_sharded_cluster
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_pv
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_recovery
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_secret
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scale_shards
   tags: ["patch-run"]
-  exec_timeout_secs: 720
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_statefulset_status
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_agent_flags
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_agent_flags
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_agent_flags
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_type_change_recovery
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_all_mongodb_resources_parallel
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_upgrade_downgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_upgrade_downgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_custom_podspec
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_custom_sa
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_report_pending_pods
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_project_whitespaces
   tags: ["patch-run"]
-  exec_timeout_secs: 300
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_mongod_options
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_mongod_options
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_custom_podspec
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_upgrade_downgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_standalone_no_tls_no_status_is_set
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_default
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_override
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 
 - name: e2e_replica_set_ignore_unknown_users
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_allow
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_prefer
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_certs_secret_prefix
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_sharded_cluster_tls_certs_top_level_prefix
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_disable_tls_scale_up
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_to_allow
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_custom_ca
-  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_sharded_cluster_tls_require_custom_ca
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_and_disable
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_multiple_different_ssl_configs
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_replica_set_tls_require_upgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_rs
   tags: ["patch-run"]
   # longer timeout than usual as this test tests recovery from bad states which can take some time
-  exec_timeout_secs: 1800
   commands:
   - func: "e2e_test"
 
 - name: e2e_tls_x509_sc
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_users_addition_removal
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_user_connectivity
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_rs
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_tls_x509_configure_all_options_sc
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_sha_256_user_connectivity
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_sha_256_user_first
   tags: ["patch-run"]
-  exec_timeout_secs: 900
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_sha_1_user_connectivity
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_256_user_connectivity
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_1_user_connectivity
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_sha_1_upgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_1_upgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_x509_to_scram_transition
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_x509_to_scram_transition
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_internal_cluster_transition
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_ldap
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_ldap
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -1554,218 +1454,182 @@ tasks:
 
 - name: e2e_feature_controls_authentication
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_sha_and_x509
-  exec_timeout_secs: 1200
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_sha_and_x509
-  exec_timeout_secs: 1200
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_x509_internal_cluster
-  exec_timeout_secs: 1320
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
 
 - name: e2e_replica_set_scram_x509_ic_manual_certs
-  exec_timeout_secs: 1320
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_x509_ic_manual_certs
-  exec_timeout_secs: 1320
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
 
 - name: e2e_sharded_cluster_scram_x509_internal_cluster
   tags: ["patch-run"]
-  exec_timeout_secs: 1320
   commands:
     - func: "e2e_test"
 
 - name: e2e_configure_tls_and_x509_simultaneously_rs
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_configure_tls_and_x509_simultaneously_sc
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_configure_tls_and_x509_simultaneously_st
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 # E2E tests for Ops Manager (sorted alphabetically):
 - name: e2e_om_appdb_agent_flags
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_appdb_monitoring_tls
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_appdb_multi_change
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_appdb_scale_up_down
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_appdb_scram
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_appdb_upgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
   - func: "e2e_test"
 
 - name: e2e_om_appdb_validation
   tags: ["patch-run"]
-  exec_timeout_secs: 600
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_external_connectivity
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_weak_password
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_multiple
   tags: ["patch-run"]
-  exec_timeout_secs: 2000
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_appdb_configure_all_images
   tags: ["patch-run"]
-  exec_timeout_secs: 2000
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_backup
   tags: ["patch-run"]
-  exec_timeout_secs: 3600
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_backup_sharded_cluster
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_backup_liveness_probe
   tags: ["patch-run"]
-  exec_timeout_secs: 4000
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_backup_light
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_backup_tls
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_backup_s3_tls
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_backup_tls_custom_ca
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_backup_restore
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_queryable_backup
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: e2e_test
 
 - name: e2e_om_feature_controls
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_scale
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_upgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_prometheus
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: "e2e_test"
 
 - name: e2e_om_ops_manager_pod_spec
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_om_validation_webhook
   tags: ["patch-run"]
-  exec_timeout_secs: 1200
   commands:
     - func: "e2e_test"
 
@@ -1791,218 +1655,182 @@ tasks:
 
 - name: e2e_om_jvm_params
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_om_localmode
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_enable_local_mode_running_om
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_om_remotemode
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_om_localmode_multiple_pv
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_secure_config
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_member_cluster_watch
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_replica_set_scale_up
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_scale_up_cluster
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_scale_up_cluster_new_cluster
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_scale_down_cluster
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_replica_set_scale_down
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_replica_set_deletion
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_mtls_test
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_scram
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_sts_override
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_tls_with_scram
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_enable_tls
   tags: ["patch-run"]
-  exec_timeout_secs: 3200
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_upgrade_downgrade
   tags: ["patch-run"]
-  exec_timeout_secs: 2400
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_tls_cert_rotation
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_backup_restore
   tags: ["patch-run"]
-  exec_timeout_secs: 3300
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_tls_with_x509
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_with_ldap
   tags: ["patch-run"]
-  exec_timeout_secs: 1800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_specific_namespaces
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_disaster_recovery
   tags: ["patch-run"]
-  exec_timeout_secs: 2000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_multi_disaster_recovery
   tags: ["patch-run"]
-  exec_timeout_secs: 2000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_2_clusters_replica_set
   tags: ["patch-run"]
-  exec_timeout_secs: 2800
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_recover
   tags: ["patch-run"]
-  exec_timeout_secs: 2000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_recover_network_partition
   tags: ["patch-run"]
-  exec_timeout_secs: 2000
   commands:
     - func: e2e_test
 
 - name: e2e_multi_cluster_recover_clusterwide
   tags: ["patch-run"]
-  exec_timeout_secs: 3000
   commands:
     - func: e2e_test
 
 
 - name: e2e_om_update_before_reconciliation
   tags: ["patch-run"]
-  exec_timeout_secs: 900
   commands:
     - func: e2e_test
 
 - name: e2e_vault_setup
   tags: ["patch-run"]
-  exec_timeout_secs: 1300
   commands:
     - func: e2e_test
 
 - name: e2e_vault_setup_tls
   tags: ["patch-run"]
-  exec_timeout_secs: 1300
   commands:
     - func: e2e_test
 
 - name: e2e_vault_setup_om
   tags: ["patch-run"]
-  exec_timeout_secs: 1500
   commands:
     - func: e2e_test
 
 - name: e2e_vault_setup_om_backup
   tags: ["patch-run"]
-  exec_timeout_secs: 1500
   commands:
     - func: e2e_test
 
