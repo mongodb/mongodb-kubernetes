@@ -822,7 +822,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.Sugare
 // and Start it when the Manager is Started.
 func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newMultiClusterReplicaSetReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
-	c, err := controller.New(util.MongoDbMultiController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: 3})
+	c, err := controller.New(util.MongoDbMultiController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
 	}
