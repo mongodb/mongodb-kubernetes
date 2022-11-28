@@ -524,7 +524,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 
 func AddShardedClusterController(mgr manager.Manager) error {
 	reconciler := newShardedClusterReconciler(mgr, om.NewOpsManagerConnection)
-	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: 3}
+	options := controller.Options{Reconciler: reconciler}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
 		return err

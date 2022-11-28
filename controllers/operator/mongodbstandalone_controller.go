@@ -54,7 +54,7 @@ import (
 func AddStandaloneController(mgr manager.Manager) error {
 	// Create a new controller
 	reconciler := newStandaloneReconciler(mgr, om.NewOpsManagerConnection)
-	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: 3})
+	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
 	}
