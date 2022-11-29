@@ -92,6 +92,10 @@ spec:
         - name: MANAGED_SECURITY_CONTEXT
           value: 'true'
 {{- end }}
+{{- if .Values.multiCluster.clusterClientTimeout }}
+        - name: CLUSTER_CLIENT_TIMEOUT
+          value: "{{ .Values.multiCluster.clusterClientTimeout }}"
+{{- end }}
 {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
 {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
 {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/ghodss/yaml"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -16,7 +17,8 @@ import (
 
 const (
 	// kubeconfig path holding the credentials for different member clusters
-	KubeConfigPath = "/etc/config/kubeconfig/kubeconfig"
+	KubeConfigPath          = "/etc/config/kubeconfig/kubeconfig"
+	ClusterClientTimeoutEnv = "CLUSTER_CLIENT_TIMEOUT"
 )
 
 type KubeConfig struct {
@@ -57,8 +59,7 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 		if clientset == nil {
 			return nil, fmt.Errorf("failed to get clientset for cluster: %s", c)
 		}
-		// TODO: make the timeout configurable
-		clientset.Timeout = 10 * time.Second
+		clientset.Timeout = time.Duration(env.ReadIntOrDefault(ClusterClientTimeoutEnv, 10)) * time.Second
 		clusterClientsMap[c] = clientset
 	}
 	return clusterClientsMap, nil
