@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"go.uber.org/zap"
 )
 
@@ -32,8 +34,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string) *MemberHeathCh
 					RootCAs: certpool,
 				},
 			},
-			// TODO: make this timeout user configurable
-			Timeout: 10 * time.Second,
+			Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second,
 		},
 		Token: token,
 	}

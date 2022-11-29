@@ -245,6 +245,8 @@ spec:
               fieldPath: metadata.namespace
         - name: MANAGED_SECURITY_CONTEXT
           value: 'true'
+        - name: CLUSTER_CLIENT_TIMEOUT
+          value: 10
         - name: IMAGE_PULL_POLICY
           value: Always
         # Database
