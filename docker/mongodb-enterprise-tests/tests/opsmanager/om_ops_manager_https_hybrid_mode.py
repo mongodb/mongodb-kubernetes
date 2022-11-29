@@ -57,7 +57,10 @@ def ops_manager(
     }
     om["spec"]["configuration"]["automation.versions.source"] = "hybrid"
     om["spec"]["applicationDatabase"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
+        "tls": {
+            "ca": issuer_ca_configmap,
+        },
+        "certsSecretPrefix": appdb_certs,
     }
     return om.create()
 

@@ -568,18 +568,6 @@ spec:
                           used when enabling TLS on a MongoDB resource, and not on
                           the AppDB, where TLS is configured by setting `secretRef.Name`.
                         type: boolean
-                      secretRef:
-                        description: DEPRECATED please use security.certsSecretPrefix
-                          instead SecretRef points to a Secret object containing the
-                          certificates to use when enabling TLS.
-                        properties:
-                          prefix:
-                            description: DEPRECATED please use security.certsSecretPrefix
-                              instead
-                            type: string
-                        required:
-                        - prefix
-                        type: object
                     type: object
                 type: object
               service:
@@ -1126,18 +1114,6 @@ spec:
                           used when enabling TLS on a MongoDB resource, and not on
                           the AppDB, where TLS is configured by setting `secretRef.Name`.
                         type: boolean
-                      secretRef:
-                        description: DEPRECATED please use security.certsSecretPrefix
-                          instead SecretRef points to a Secret object containing the
-                          certificates to use when enabling TLS.
-                        properties:
-                          prefix:
-                            description: DEPRECATED please use security.certsSecretPrefix
-                              instead
-                            type: string
-                        required:
-                        - prefix
-                        type: object
                     type: object
                 type: object
               type:
@@ -1924,18 +1900,6 @@ spec:
                               and not on the AppDB, where TLS is configured by setting
                               `secretRef.Name`.
                             type: boolean
-                          secretRef:
-                            description: DEPRECATED please use security.certsSecretPrefix
-                              instead SecretRef points to a Secret object containing
-                              the certificates to use when enabling TLS.
-                            properties:
-                              prefix:
-                                description: DEPRECATED please use security.certsSecretPrefix
-                                  instead
-                                type: string
-                            required:
-                            - prefix
-                            type: object
                         type: object
                     type: object
                   service:

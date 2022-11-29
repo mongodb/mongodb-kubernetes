@@ -83,9 +83,6 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	}).SetAppDBTLSConfig(mdbv1.TLSConfig{
 		Enabled: true,
 		CA:      "custom-ca-appdb",
-		SecretRef: mdbv1.TLSSecretRef{
-			Prefix: "prefix",
-		},
 	}).SetTLSConfig(omv1.MongoDBOpsManagerTLS{
 		SecretRef: omv1.TLSSecretRef{
 			Name: "om-tls-secret",
@@ -145,7 +142,6 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NotContains(t, reconciler.WatchedResources, omCAKey)
 
 	testOm.Spec.AppDB.Security.TLSConfig.Enabled = false
-	testOm.Spec.AppDB.Security.TLSConfig.SecretRef.Prefix = ""
 
 	err = client.Update(context.TODO(), &testOm)
 	assert.NoError(t, err)

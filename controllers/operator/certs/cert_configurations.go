@@ -253,12 +253,6 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 // GetCertNameWithPrefixOrDefault returns the name of the cert that will store certificates for the given resource.
 // this takes into account the tlsConfig.prefix option.
 func GetCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
-	tlsConfig := ms.TLSConfig
-	if tlsConfig != nil {
-		if tlsConfig.SecretRef.Prefix != "" {
-			return fmt.Sprintf("%s-%s-cert", tlsConfig.SecretRef.Prefix, defaultName)
-		}
-	}
 	if ms.CertificatesSecretsPrefix != "" {
 		return fmt.Sprintf("%s-%s-cert", ms.CertificatesSecretsPrefix, defaultName)
 	}

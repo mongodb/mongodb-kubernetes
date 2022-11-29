@@ -51,8 +51,8 @@ def replica_set(
         "tls": {
             "enabled": True,
             "ca": issuer_ca_configmap,
-            "secretRef": {"prefix": server_certs},
         },
+        "certsSecretPrefix": server_certs,
         "authentication": {
             "enabled": True,
             "modes": ["LDAP", "SCRAM", "X509"],

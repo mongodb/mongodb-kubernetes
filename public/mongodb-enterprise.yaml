@@ -247,7 +247,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: CLUSTER_CLIENT_TIMEOUT
-          value: 10
+          value: "10"
         - name: IMAGE_PULL_POLICY
           value: Always
         # Database
