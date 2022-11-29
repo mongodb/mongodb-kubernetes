@@ -1,6 +1,13 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
+# MongoDB Enterprise Kubernetes Operator 1.18.0
+
+## Breaking changes
+
+* The field `spec.security.tls.secretRef.prefix` has been removed from MongoDB and OpsManager resources. It was deprecated in operator version `1.15.2`. Before upgrading the
+operator to this version, please specify the certificate prefix under `spec.security.certsSecretPrefix`.
+
 # MongoDB Enterprise Kubernetes Operator 1.17.2
 
 * Fixed the OpenShift installation problem mentioned in the Enterprise Operator 1.7.1 release notes. The OLM (Operator Lifecycle Manager)

@@ -457,13 +457,6 @@ type Security struct {
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
 func (s Security) MemberCertificateSecretName(defaultName string) string {
-	// If one of the old fields tlsConfig.secretRef.name or tlsConfig.secretRef.prefix
-	// are specified, they take precedence.
-	if s.TLSConfig != nil {
-		if s.TLSConfig.SecretRef.Prefix != "" {
-			return fmt.Sprintf("%s-%s-cert", s.TLSConfig.SecretRef.Prefix, defaultName)
-		}
-	}
 	if s.CertificatesSecretsPrefix != "" {
 		return fmt.Sprintf("%s-%s-cert", s.CertificatesSecretsPrefix, defaultName)
 	}
@@ -481,7 +474,7 @@ func (s *Security) IsTLSEnabled() bool {
 		return false
 	}
 	if s.TLSConfig != nil {
-		if s.TLSConfig.Enabled || s.TLSConfig.SecretRef.Prefix != "" {
+		if s.TLSConfig.Enabled {
 			return true
 		}
 	}
@@ -718,19 +711,6 @@ type TLSConfig struct {
 	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
 	// used to validate the certificates created already.
 	CA string `json:"ca,omitempty"`
-	// DEPRECATED please use security.certsSecretPrefix instead
-	// SecretRef points to a Secret object containing the certificates to use when enabling TLS.
-	// +optional
-	SecretRef TLSSecretRef `json:"secretRef,omitempty"`
-}
-
-// TLSSecretRef contains a reference to a Secret object that contains certificates to
-// be mounted. Defining this value will implicitly "enable" TLS on this resource.
-type TLSSecretRef struct {
-	// TODO: make prefix required once name has been removed.
-
-	// DEPRECATED please use security.certsSecretPrefix instead
-	Prefix string `json:"prefix"`
 }
 
 func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {

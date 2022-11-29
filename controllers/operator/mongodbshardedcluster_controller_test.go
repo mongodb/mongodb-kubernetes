@@ -890,9 +890,6 @@ func TestTlsConfigPrefix_ForShardedCluster(t *testing.T) {
 	sc := DefaultClusterBuilder().
 		SetTLSConfig(mdbv1.TLSConfig{
 			Enabled: false,
-			SecretRef: mdbv1.TLSSecretRef{
-				Prefix: "my-prefix",
-			},
 		}).
 		Build()
 

@@ -208,13 +208,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         self,
         issuer_ca_configmap_name: str,
         tls_cert_secret_name: str,
-        secret_ref_key: str = "prefix",
     ):
         ensure_nested_objects(self, ["spec", "security", "tls"])
-        self["spec"]["security"]["tls"]["enabled"] = True
-        self["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap_name
-        self["spec"]["security"]["tls"]["secretRef"] = {
-            secret_ref_key: tls_cert_secret_name
+        self["spec"]["security"] = {
+            "certsSecretPrefix": tls_cert_secret_name,
+            "tls": {"enabled": True, "ca": issuer_ca_configmap_name},
         }
 
     def build_list_of_hosts(self):

@@ -49,10 +49,12 @@ def sharded_cluster(
         name=MDB_RESOURCE,
         namespace=namespace,
     )
-    mdb["spec"]["security"]["tls"] = {
-        "enabled": True,
-        "ca": issuer_ca_configmap,
-        "secretRef": {"prefix": "prefix"},
+    mdb["spec"]["security"] = {
+        "tls": {
+            "enabled": True,
+            "ca": issuer_ca_configmap,
+        },
+        "certsSecretPrefix": "prefix",
     }
     return mdb.create()
 

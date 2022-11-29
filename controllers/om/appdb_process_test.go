@@ -43,11 +43,7 @@ func TestCreateProcessWithNoTLSEnabled(t *testing.T) {
 func TestCreateProcessWithTLSEnabled(t *testing.T) {
 	appdb := defaultMongoDBAppDBVersioned("4.0.5")
 	appdb.Security = &mdbv1.Security{
-		TLSConfig: &mdbv1.TLSConfig{
-			SecretRef: mdbv1.TLSSecretRef{
-				Prefix: "some-cert",
-			},
-		},
+		TLSConfig: &mdbv1.TLSConfig{Enabled: true},
 	}
 
 	process := NewMongodProcessAppDB("tls-process-1", "tls-process-1.cluster.local", appdb)

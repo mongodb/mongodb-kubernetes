@@ -26,8 +26,13 @@ OM_NAME = "om-basic"
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
+    prefix = "prefix"
     return create_ops_manager_tls_certs(
-        issuer, namespace, OM_NAME, secret_backend="Vault"
+        issuer,
+        namespace,
+        om_name=OM_NAME,
+        secret_name=f"{prefix}-{OM_NAME}-cert",
+        secret_backend="Vault",
     )
 
 
@@ -57,13 +62,14 @@ def ops_manager(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
     om["spec"]["security"] = {
-        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+        "tls": {"ca": issuer_ca_configmap},
+        "certsSecretPrefix": "prefix",
     }
     om["spec"]["applicationDatabase"]["security"] = {
         "tls": {
             "ca": issuer_ca_configmap,
-            "secretRef": {"prefix": "appdb"},
         },
+        "certsSecretPrefix": "appdb",
     }
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
@@ -73,7 +79,6 @@ def ops_manager(
 
 @mark.e2e_vault_setup_om
 def test_vault_creation(vault: str, vault_name: str, vault_namespace: str):
-    vault
     sts = get_statefulset(namespace=vault_namespace, name=vault_name)
     assert sts.status.ready_replicas == 1
 
