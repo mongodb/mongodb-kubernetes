@@ -14,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func init() {
@@ -105,6 +106,9 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 
 	port0 := externalService.Spec.Ports[0]
 	assert.Equal(t, externalConnectivityPortName, port0.Name)
+	assert.Equal(t, int32(5000), port0.Port)
+	assert.Equal(t, intstr.FromInt(8080), port0.TargetPort)
+	assert.Equal(t, int32(5000), port0.NodePort)
 
 	port1 := externalService.Spec.Ports[1]
 	assert.Equal(t, backupPortName, port1.Name)

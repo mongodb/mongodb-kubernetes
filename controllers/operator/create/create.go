@@ -17,6 +17,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var (
@@ -210,7 +211,14 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 	switch serviceType {
 	case corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer:
 		// Service will have a NodePort
-		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port), NodePort: mongoServiceDefinition.Port}).SetClusterIP("")
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port))}
+		svcPort.NodePort = mongoServiceDefinition.Port
+		if mongoServiceDefinition.Port != 0 {
+			svcPort.Port = mongoServiceDefinition.Port
+		} else {
+			svcPort.Port = port
+		}
+		svcBuilder.AddPort(&svcPort).SetClusterIP("")
 	case corev1.ServiceTypeClusterIP:
 		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None")
 		// Service will have a named Port

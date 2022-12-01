@@ -105,9 +105,12 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
     assert internal.spec.type == "ClusterIP"
     assert external.spec.type == "NodePort"
     assert external.spec.ports[0].node_port == node_port
+    assert external.spec.ports[0].port == node_port
+    assert external.spec.ports[0].target_port == 8080
 
     opsmanager["spec"]["externalConnectivity"] = {
         "type": "LoadBalancer",
+        "port": node_port,
     }
     opsmanager.update()
 
@@ -116,6 +119,8 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
     _, external = opsmanager.services()
     assert external.spec.type == "LoadBalancer"
     assert external.spec.ports[0].node_port == node_port
+    assert external.spec.ports[0].port == node_port
+    assert external.spec.ports[0].target_port == 8080
 
 
 def service_is_changed_to_nodeport(om: MongoDBOpsManager) -> bool:
