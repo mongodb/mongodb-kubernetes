@@ -1,138 +1,176 @@
+# ----------------------------------------------------------------------------
+# This file contains the implementation of the KMIP Server (PyKMIP) deployment
+#
+# The deployment has been outlined in the outdated Enterprise Kubernetes Operator
+# guide, that might be found here:
+# https://docs.google.com/document/d/12Y5h7XDFedcgpSIWRxMgcjZClL6kZdIwdxPRotkuKck/edit#
+# -----------------------------------------------------------
+
 from typing import Optional, Dict
 from kubetester import (
     create_secret,
     read_secret,
+    read_configmap,
     create_service,
     create_statefulset,
     create_configmap,
 )
+from kubetester.kubetester import KubernetesTester
 from kubetester.certs import create_tls_certs
 from kubernetes import client
 
 
-def create_kmip_server(issuer: str, namespace: str) -> str:
+class KMIPDeployment(object):
     """
-    Creates a KMIP server as outlined in this doc https://docs.google.com/document/d/12Y5h7XDFedcgpSIWRxMgcjZClL6kZdIwdxPRotkuKck/edit#
+    A KMIP Server deployment class. Deploys PyKMIP in the cluster.
     """
-    statefulset_name = "kmip"
-    service_name = f"{statefulset_name}-svc"
+    def __init__(self, namespace, issuer, root_cert_secret, ca_configmap: str):
+        self.namespace = namespace
+        self.issuer = issuer
+        self.root_cert_secret = root_cert_secret
+        self.ca_configmap = ca_configmap
+        self.statefulset_name = "kmip"
+        self.labels = {
+            "app": "kmip",
+        }
 
-    cert_secret_name = _create_tls_certs_kmip(
-        issuer, namespace, statefulset_name, "kmip-certs", replicas=1
-    )
+    def deploy(self):
+        """
+        Deploys a PyKMIP Server and returns the name of the deployed StatefulSet.
+        """
+        service_name = f"{self.statefulset_name}-svc"
 
-    create_service(
-        namespace,
-        service_name,
-        cluster_ip=None,
-        ports=[client.V1ServicePort(name="kmip", port=5696)],
-    )
+        cert_secret_name = self._create_tls_certs_kmip(
+            self.issuer, self.namespace, self.statefulset_name, "kmip-certs", 1, service_name
+        )
 
-    _create_kmip_config_map(namespace, "kmip-config", _default_configuration())
+        create_service(
+            self.namespace,
+            service_name,
+            cluster_ip=None,
+            ports=[client.V1ServicePort(name="kmip", port=5696)],
+            selector=self.labels
+        )
 
-    labels = {
-        "app": "kmip",
-    }
+        self._create_kmip_config_map(self.namespace, "kmip-config", self._default_configuration())
 
-    create_statefulset(
-        namespace,
-        statefulset_name,
-        service_name,
-        labels,
-        containers=[
-            client.V1Container(
-                name="kmip",
-                image="beergeek1679/pykmip:0.4.0",
-                image_pull_policy="IfNotPresent",
-                ports=[
-                    client.V1ContainerPort(
-                        container_port=5696,
-                        name="kmip",
-                    )
-                ],
-                volume_mounts=[
-                    client.V1VolumeMount(
-                        name="certs",
-                        mount_path="/data/pki",
-                        read_only=True,
+        create_statefulset(
+            self.namespace,
+            self.statefulset_name,
+            service_name,
+            self.labels,
+            containers=[
+                client.V1Container(
+                    # We need this awkward copy step as PyKMIP uses /etc/pykmip as a tmp directory. When booting up
+                    # it stores there some intermediate configuration files. So it must have write access to the whole
+                    # /etc/pykmip directory. Very awkward...
+                    args=["bash", "-c", "cp /etc/pykmip-conf/server.conf /etc/pykmip/server.conf & /tmp/configure.sh & mkdir -p /var/log/pykmip & touch /var/log/pykmip/server.log & tail -f /var/log/pykmip/server.log"],
+                    name="kmip",
+                    image="beergeek1679/pykmip:0.6.0",
+                    image_pull_policy="IfNotPresent",
+                    ports=[
+                        client.V1ContainerPort(
+                            container_port=5696,
+                            name="kmip",
+                        )
+                    ],
+                    volume_mounts=[
+                        client.V1VolumeMount(
+                            name="certs",
+                            mount_path="/data/pki",
+                            read_only=True,
+                        ),
+                        client.V1VolumeMount(
+                            name="config",
+                            mount_path="/etc/pykmip-conf",
+                            read_only=True,
+                        ),
+                    ],
+                )
+            ],
+            volumes=[
+                client.V1Volume(
+                    name="certs",
+                    secret=client.V1SecretVolumeSource(
+                        secret_name=cert_secret_name,
                     ),
-                    client.V1VolumeMount(
-                        name="config",
-                        mount_path="/etc/pykmip",
-                        read_only=True,
-                    ),
-                ],
-            )
-        ],
-        volumes=[
-            client.V1Volume(
-                name="certs",
-                secret=client.V1SecretVolumeSource(
-                    secret_name=cert_secret_name,
                 ),
-            ),
-            client.V1Volume(
-                name="config",
-                config_map=client.V1ConfigMapVolumeSource(name="kmip-config"),
-            ),
-        ],
-    )
-    return statefulset_name
+                client.V1Volume(
+                    name="config",
+                    config_map=client.V1ConfigMapVolumeSource(name="kmip-config"),
+                ),
+            ],
+        )
+        return self
+
+    def status(self):
+        return KMIPDeploymentStatus(self)
+
+    def _create_tls_certs_kmip(
+        self,
+        issuer: str,
+        namespace: str,
+        resource_name: str,
+        bundle_secret_name: str,
+        replicas: int = 3,
+        service_name: str = None,
+        spec: Optional[Dict] = None,
+    ) -> str:
+        ca = read_configmap(namespace, self.ca_configmap)
+        cert_secret_name = create_tls_certs(issuer, namespace, resource_name, replicas, service_name, spec, additional_domains=[service_name])
+        secret = read_secret(namespace, cert_secret_name)
+        create_secret(
+            namespace,
+            bundle_secret_name,
+            {
+                "server.key": secret["tls.key"],
+                "server.cert": secret["tls.crt"],
+                "ca.cert": ca["ca-pem"],
+            },
+        )
+
+        return bundle_secret_name
+
+    def _default_configuration(self) -> Dict:
+        return {
+            "hostname": "kmip-0",
+            "port": 5696,
+            "certificate_path": "/data/pki/server.cert",
+            "key_path": "/data/pki/server.key",
+            "ca_path": "/data/pki/ca.cert",
+            "auth_suite": "TLS1.2",
+            "enable_tls_client_auth": True,
+            "policy_path": "/data/policies",
+            "logging_level": "DEBUG",
+            "database_path": "/data/db/pykmip.db",
+        }
+
+    def _create_kmip_config_map(self, namespace: str, name: str, config_dict: Dict) -> None:
+        """
+        _create_configuration_config_map converts a dictionary of options into the server.conf
+        file that the kmip server uses to start.
+        """
+        equals_separated = [k + "=" + str(v) for (k, v) in config_dict.items()]
+        config_file_contents = "[server]\n" + "\n".join(equals_separated)
+        create_configmap(
+            namespace,
+            name,
+            {
+                "server.conf": config_file_contents,
+            },
+        )
 
 
-def _create_tls_certs_kmip(
-    issuer: str,
-    namespace: str,
-    resource_name: str,
-    bundle_secret_name: str,
-    replicas: int = 3,
-    service_name: str = None,
-    spec: Optional[Dict] = None,
-) -> str:
-    cert_and_pod_names = create_tls_certs(
-        issuer, namespace, resource_name, replicas, service_name, spec
-    )
-
-    _, cert_secret_name = cert_and_pod_names.items()[0]
-    secret = read_secret(namespace, cert_secret_name)
-    ca_secret = read_secret(namespace, "ca-key-pair")
-    create_secret(
-        namespace,
-        bundle_secret_name,
-        {
-            "server.key": secret["tls.key"],
-            "server.cert": secret["tls.crt"],
-            "ca.cert": ca_secret["tls.crt"],
-        },
-    )
-    return bundle_secret_name
-
-
-def _default_configuration() -> Dict:
-    return {
-        "hostname": "kmip-0",
-        "port": 5696,
-        "certificate_path": "/data/pki/server.cert",
-        "key_path": "/data/pki/server.key",
-        "ca_path": "/data/pki/ca.cert",
-        "auth_suite": "TLS1.2",
-        "enable_tls_client_auth": True,
-        "logging_level": "DEBUG",
-        "database_path": "database_path=/data/db/pykmip.db",
-    }
-
-
-def _create_kmip_config_map(namespace: str, name: str, config_dict: Dict) -> None:
+class KMIPDeploymentStatus:
     """
-    _create_configuration_config_map converts a dictionary of options into the server.conf
-    file that the kmip server uses to start.
+    A class designed to check the KMIP Server deployment status.
     """
-    equals_separated = [k + "=" + str(v) for (k, v) in config_dict.items()]
-    config_file_contents = "[server]\n" + "\n".join(equals_separated)
-    create_configmap(
-        namespace,
-        name,
-        {
-            "server.conf": config_file_contents,
-        },
-    )
+    def __init__(self, deployment: KMIPDeployment):
+        self.deployment = deployment
+
+    def assert_is_running(self):
+        """
+        Waits and assert if the KMIP server is running.
+        :return: raises an error if the server is not running within the timeout.
+        """
+        KubernetesTester.wait_for_condition_stateful_set(self.deployment.namespace, self.deployment.statefulset_name, "status.current_replicas", 1)

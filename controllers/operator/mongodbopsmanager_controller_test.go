@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -58,8 +61,8 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "oplog1"}}}
 
 	reconciler, _, _ := defaultTestOmReconciler(t, testOm)
-	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
-	reconciler.watchMongoDBResourcesReferencedByBackup(otherTestOm)
+	reconciler.watchMongoDBResourcesReferencedByBackup(testOm, zap.S())
+	reconciler.watchMongoDBResourcesReferencedByBackup(otherTestOm, zap.S())
 
 	key := watch.Object{
 		ResourceType: watch.MongoDB,
@@ -79,7 +82,7 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 // map that allows to watch them for changes
 func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
-		Enabled: false,
+		Enabled: true,
 	}).SetAppDBTLSConfig(mdbv1.TLSConfig{
 		Enabled: true,
 		CA:      "custom-ca-appdb",
@@ -88,13 +91,48 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 			Name: "om-tls-secret",
 		},
 		CA: "custom-ca",
-	}).Build()
+	}).
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	testOm.Spec.Backup.Encryption = &omv1.Encryption{
+		Kmip: &omv1.KmipConfig{
+			Server: v1.KmipServerConfig{
+				CA:  "custom-kmip-ca",
+				URL: "kmip:8080",
+			},
+		},
+	}
 
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 	addOMTLSResources(client, "om-tls-secret")
 	addAppDBTLSResources(client, testOm.Spec.AppDB, testOm.Spec.AppDB.GetTlsCertificatesSecretName())
+	addKMIPTestResources(client, testOm, "test-mdb", "test-prefix")
+	configureBackupResources(client, testOm)
 	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
+	KmipMongoDBKey := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "test-prefix-test-mdb-kmip-client",
+		},
+	}
+	KmipMongoDBPasswordKey := watch.Object{
+		ResourceType: watch.Secret,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "test-prefix-test-mdb-kmip-client-password",
+		},
+	}
+	KmipCaKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Namespace: testOm.Namespace,
+			Name:      "custom-kmip-ca",
+		},
+	}
 	appDBCAKey := watch.Object{
 		ResourceType: watch.ConfigMap,
 		Resource: types.NamespacedName{
@@ -128,8 +166,12 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.Contains(t, reconciler.WatchedResources, omCAKey)
 	assert.Contains(t, reconciler.WatchedResources, appdbTLSSecretKey)
 	assert.Contains(t, reconciler.WatchedResources, omTLSSecretKey)
+	assert.Contains(t, reconciler.WatchedResources, KmipMongoDBKey)
+	assert.Contains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
+	assert.Contains(t, reconciler.WatchedResources, KmipCaKey)
 
 	testOm.Spec.Security.TLS.SecretRef.Name = ""
+	testOm.Spec.Backup.Enabled = false
 
 	err := client.Update(context.TODO(), &testOm)
 	assert.NoError(t, err)
@@ -140,8 +182,13 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 
 	assert.NotContains(t, reconciler.WatchedResources, omTLSSecretKey)
 	assert.NotContains(t, reconciler.WatchedResources, omCAKey)
+	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBKey)
+	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
+	assert.NotContains(t, reconciler.WatchedResources, KmipCaKey)
 
 	testOm.Spec.AppDB.Security.TLSConfig.Enabled = false
+	testOm.Spec.Backup.Enabled = true
+	testOm.Spec.Backup.Encryption.Kmip = nil
 
 	err = client.Update(context.TODO(), &testOm)
 	assert.NoError(t, err)
@@ -152,6 +199,9 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 
 	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
 	assert.NotContains(t, reconciler.WatchedResources, appdbTLSSecretKey)
+	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBKey)
+	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
+	assert.NotContains(t, reconciler.WatchedResources, KmipCaKey)
 }
 
 func TestOpsManagerPrefixForTLSSecret(t *testing.T) {
@@ -175,7 +225,7 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	testOm.Spec.Backup.OplogStoreConfigs = []omv1.DataStoreConfig{{MongoDBResourceRef: userv1.MongoDBResourceRef{Name: resourceName}}}
 
 	reconciler, _, _ := defaultTestOmReconciler(t, testOm)
-	reconciler.watchMongoDBResourcesReferencedByBackup(testOm)
+	reconciler.watchMongoDBResourcesReferencedByBackup(testOm, zap.S())
 
 	key := watch.Object{
 		ResourceType: watch.MongoDB,
@@ -398,6 +448,71 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	assert.NotNil(t, uriVol.VolumeSource)
 	assert.NotNil(t, uriVol.VolumeSource.Secret)
 	assert.Equal(t, uriVol.VolumeSource.Secret.SecretName, testOm.AppDBMongoConnectionStringSecretName())
+}
+
+func TestOpsManagerWithKMIP(t *testing.T) {
+	//given
+	kmipURL := "kmip.mongodb.com:5696"
+	kmipCAConfigMapName := "kmip-ca"
+	mdbName := "test-mdb"
+
+	clientCertificatePrefix := "test-prefix"
+	expectedClientCertificateSecretName := clientCertificatePrefix + "-" + mdbName + "-kmip-client"
+
+	testOm := DefaultOpsManagerBuilder().
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	testOm.Spec.Backup.Encryption = &omv1.Encryption{
+		Kmip: &omv1.KmipConfig{
+			Server: v1.KmipServerConfig{
+				CA:  kmipCAConfigMapName,
+				URL: kmipURL,
+			},
+		},
+	}
+
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
+	addKMIPTestResources(client, testOm, mdbName, clientCertificatePrefix)
+	configureBackupResources(client, testOm)
+
+	//when
+	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
+	sts := appsv1.StatefulSet{}
+	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
+	envs := sts.Spec.Template.Spec.Containers[0].Env
+	volumes := sts.Spec.Template.Spec.Volumes
+	volumeMounts := sts.Spec.Template.Spec.Containers[0].VolumeMounts
+
+	//then
+	assert.NoError(t, err)
+	host, port, _ := net.SplitHostPort(kmipURL)
+
+	expectedVars := []corev1.EnvVar{
+		{Name: "OM_PROP_backup_kmip_server_host", Value: host},
+		{Name: "OM_PROP_backup_kmip_server_port", Value: port},
+		{Name: "OM_PROP_backup_kmip_server_ca_file", Value: util.KMIPCAFileInContainer},
+	}
+	assert.Subset(t, envs, expectedVars)
+
+	expectedCAMount := corev1.VolumeMount{
+		Name:      util.KMIPServerCAName,
+		MountPath: util.KMIPServerCAHome,
+		ReadOnly:  true,
+	}
+	assert.Contains(t, volumeMounts, expectedCAMount)
+	expectedClientCertMount := corev1.VolumeMount{
+		Name:      util.KMIPClientSecretNamePrefix + expectedClientCertificateSecretName,
+		MountPath: util.KMIPClientSecretsHome + "/" + expectedClientCertificateSecretName,
+		ReadOnly:  true,
+	}
+	assert.Contains(t, volumeMounts, expectedClientCertMount)
+
+	expectedCAVolume := statefulset.CreateVolumeFromConfigMap(util.KMIPServerCAName, kmipCAConfigMapName)
+	assert.Contains(t, volumes, expectedCAVolume)
+	expectedClientCertVolume := statefulset.CreateVolumeFromSecret(util.KMIPClientSecretNamePrefix+expectedClientCertificateSecretName, expectedClientCertificateSecretName)
+	assert.Contains(t, volumes, expectedClientCertVolume)
 }
 
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
@@ -880,6 +995,54 @@ func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user a
 		PublicKey:  user.Username,
 		PrivateKey: user.Username + "-key",
 	}, nil
+}
+
+func addKMIPTestResources(client *mock.MockedClient, om omv1.MongoDBOpsManager, mdbName, clientCertificatePrefixName string) {
+	mdb := mdbv1.NewReplicaSetBuilder().SetBackup(mdbv1.Backup{
+		Mode: "enabled",
+		Encryption: &mdbv1.Encryption{
+			Kmip: &mdbv1.KmipConfig{
+				Client: v1.KmipClientConfig{
+					ClientCertificatePrefix: clientCertificatePrefixName,
+				},
+			},
+		},
+	}).SetName(mdbName).Build()
+	_ = client.Create(context.TODO(), mdb)
+
+	mockCert, mockKey := createMockCertAndKeyBytes()
+
+	ca := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      om.Spec.Backup.Encryption.Kmip.Server.CA,
+			Namespace: om.ObjectMeta.Namespace,
+		},
+	}
+	ca.Data = map[string]string{}
+	ca.Data["ca.pem"] = string(mockCert)
+	_ = client.Create(context.TODO(), ca)
+
+	clientCertificate := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mdb.GetBackupSpec().Encryption.Kmip.Client.ClientCertificateSecretName(mdb.GetName()),
+			Namespace: om.ObjectMeta.Namespace,
+		},
+	}
+	clientCertificate.Data = map[string][]byte{}
+	clientCertificate.Data["tls.key"] = mockKey
+	clientCertificate.Data["tls.crt"] = mockCert
+	_ = client.Create(context.TODO(), clientCertificate)
+
+	clientCertificatePassword := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mdb.GetBackupSpec().Encryption.Kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
+			Namespace: om.ObjectMeta.Namespace,
+		},
+	}
+	clientCertificatePassword.Data = map[string]string{
+		mdb.GetBackupSpec().Encryption.Kmip.Client.ClientCertificatePasswordKeyName(): "test",
+	}
+	_ = client.Create(context.TODO(), clientCertificatePassword)
 }
 
 func addAppDBTLSResources(client *mock.MockedClient, rs omv1.AppDBSpec, secretName string) {

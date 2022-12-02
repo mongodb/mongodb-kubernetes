@@ -405,7 +405,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		return workflow.Failed(err.Error())
 	}
 
-	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, rs, log); !status.IsOK() {
+	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, rs, r.SecretClient, log); !status.IsOK() {
 		return status
 	}
 

@@ -1,32 +1,34 @@
 package construct
 
 import (
+	"context"
 	"fmt"
-
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
-	"go.uber.org/zap"
-
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
-	appsv1 "k8s.io/api/apps/v1"
-
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
-	enterprisepem "github.com/10gen/ops-manager-kubernetes/controllers/operator/pem"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"net"
 )
 
 const (
@@ -61,8 +63,20 @@ type OpsManagerStatefulSetOptions struct {
 	StatefulSetSpecOverride      *appsv1.StatefulSetSpec
 	VaultConfig                  vault.VaultConfiguration
 	Labels                       map[string]string
+	kmip                         *KmipConfiguration
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
+}
+
+type KmipClientConfiguration struct {
+	ClientCertificateSecretName            string
+	ClientCertificatePasswordSecretName    *string
+	ClientCertificatePasswordSecretKeyName *string
+}
+
+type KmipConfiguration struct {
+	ServerConfiguration  v1.KmipServerConfig
+	ClientConfigurations []KmipClientConfiguration
 }
 
 func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptions) {
@@ -74,6 +88,51 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.VaultConfig = config
+	}
+}
+
+func WithKmipConfig(opsManager omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		if !opsManager.Spec.IsKmipEnabled() {
+			return
+		}
+		opts.kmip = &KmipConfiguration{
+			ServerConfiguration:  opsManager.Spec.Backup.Encryption.Kmip.Server,
+			ClientConfigurations: make([]KmipClientConfiguration, 0),
+		}
+
+		mdbList := &mdbv1.MongoDBList{}
+		err := client.List(context.TODO(), mdbList)
+		if err != nil {
+			log.Warnf("failed to fetch MongoDBList from Kubernetes: %v", err)
+		}
+
+		for _, m := range mdbList.Items {
+			// Since KMIP integration requires the secret to be mounted into the backup daemon
+			// we might not be able to do any encrypted backups across namespaces. Such a backup
+			// would require syncing secrets across namespaces.
+			// I'm not adding any namespace validation, and we'll let the user handle such synchronization as
+			// the backup Daemon will hang in Pending until the secret is provided.
+			if m.Spec.IsKmipEnabled() {
+				c := m.Spec.Backup.Encryption.Kmip.Client
+				config := KmipClientConfiguration{
+					ClientCertificateSecretName: c.ClientCertificateSecretName(m.GetName()),
+				}
+
+				clientCertificatePasswordSecret := &corev1.Secret{}
+				err := client.Get(context.TODO(), kube.ObjectKey(m.GetNamespace(), c.ClientCertificatePasswordSecretName(m.GetName())), clientCertificatePasswordSecret)
+				if !apiErrors.IsNotFound(err) {
+					log.Warnf("failed to fetch the %s Secret from Kubernetes: %v", c.ClientCertificateSecretName(m.GetName()), err)
+				} else if err == nil {
+					clientCertificateSecretName := c.ClientCertificatePasswordSecretName(m.GetName())
+					clientCertificatePasswordKey := c.ClientCertificatePasswordKeyName()
+					config.ClientCertificatePasswordSecretKeyName = &clientCertificateSecretName
+					config.ClientCertificatePasswordSecretName = &clientCertificatePasswordKey
+				}
+
+				opts.kmip.ClientConfigurations = append(opts.kmip.ClientConfigurations, config)
+			}
+		}
 	}
 }
 
@@ -167,7 +226,6 @@ func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
-
 	return OpsManagerStatefulSetOptions{
 		OwnerReference:          kube.BaseOwnerReference(&opsManager),
 		OwnerName:               opsManager.Name,
@@ -209,8 +267,6 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 // opsManagerStatefulSetFunc constructs the default Ops Manager StatefulSet modification function.
 func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
 	postStart := func(lc *corev1.Lifecycle) {}
-	caVolumeFunc := podtemplatespec.NOOP()
-	caVolumeMountFunc := container.NOOP()
 	if opts.AppDBTlsCAConfigMapName != "" {
 		// It will add each X.509 public key certificate into JVM's trust store
 		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
@@ -230,12 +286,10 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 		backupAndOpsManagerSharedConfiguration(opts),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
-				caVolumeFunc,
 				// 5 minutes for Ops Manager just in case (its internal timeout is 20 seconds anyway)
 				podtemplatespec.WithTerminationGracePeriodSeconds(300),
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
-						caVolumeMountFunc,
 						configureContainerSecurityContext,
 						container.WithLifecycle(postStart),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
@@ -354,6 +408,9 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	omVolumes, omVolumeMounts = getNonPersistentOpsManagerVolumeMounts(omVolumes, omVolumeMounts, opts)
 
+	opts.EnvVars = append(opts.EnvVars, kmipEnvVars(opts)...)
+	omVolumes, omVolumeMounts = appendKmipVolumes(omVolumes, omVolumeMounts, opts)
+
 	return statefulset.Apply(
 		statefulset.WithLabels(stsLabels),
 		statefulset.WithMatchLabels(labels),
@@ -393,6 +450,43 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 			),
 		),
 	)
+}
+
+func appendKmipVolumes(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, opts OpsManagerStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+	if opts.kmip != nil {
+		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.KMIPServerCAName, opts.kmip.ServerConfiguration.CA))
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.KMIPServerCAName, util.KMIPServerCAHome, statefulset.WithReadOnly(true)))
+
+		for _, cc := range opts.kmip.ClientConfigurations {
+			clientSecretName := util.KMIPClientSecretNamePrefix + cc.ClientCertificateSecretName
+			clientSecretPath := util.KMIPClientSecretsHome + "/" + cc.ClientCertificateSecretName
+			volumes = append(volumes, statefulset.CreateVolumeFromSecret(clientSecretName, cc.ClientCertificateSecretName))
+			volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(clientSecretName, clientSecretPath, statefulset.WithReadOnly(true)))
+		}
+	}
+	return volumes, volumeMounts
+}
+
+func kmipEnvVars(opts OpsManagerStatefulSetOptions) []corev1.EnvVar {
+	if opts.kmip != nil {
+		// At this point we are certain, this is correct. We checked it in kmipValidation
+		host, port, _ := net.SplitHostPort(opts.kmip.ServerConfiguration.URL)
+		return []corev1.EnvVar{
+			{
+				Name:  util.OmPropertyPrefix + "backup_kmip_server_host",
+				Value: host,
+			},
+			{
+				Name:  util.OmPropertyPrefix + "backup_kmip_server_port",
+				Value: port,
+			},
+			{
+				Name:  util.OmPropertyPrefix + "backup_kmip_server_ca_file",
+				Value: util.KMIPCAFileInContainer,
+			},
+		}
+	}
+	return nil
 }
 
 // opsManagerReadinessProbe creates the readiness probe.

@@ -4,8 +4,12 @@ import (
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type ConfigReaderUpdater interface {
@@ -17,7 +21,7 @@ type ConfigReaderUpdater interface {
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, projectId string, configReadUpdater ConfigHostReadUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -35,7 +39,56 @@ func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, projectId st
 		return workflow.Pending("Waiting for backup configuration to be created in Ops Manager").WithRetry(10), nil
 	}
 
+	err = ensureGroupConfig(mdb, secretsReader, groupConfigReader, groupConfigUpdater)
+	if err != nil {
+		return workflow.Failed(err.Error()), nil
+	}
+
 	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater)
+}
+
+func ensureGroupConfig(mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
+	if mdb.GetBackupSpec() == nil || mdb.GetBackupSpec().Encryption == nil {
+		return nil
+	}
+
+	kmip := mdb.GetBackupSpec().Encryption.Kmip
+	if kmip == nil {
+		return nil
+	}
+
+	config, err := reader.ReadGroupBackupConfig()
+	if err != nil {
+		return err
+	}
+
+	requiresUpdate := false
+
+	desiredPath := util.KMIPClientSecretsHome + "/" + kmip.Client.ClientCertificateSecretName(mdb.GetName()) + kmip.Client.ClientCertificateSecretKeyName()
+	if config.KmipClientCertPath == nil || desiredPath != *config.KmipClientCertPath {
+		config.KmipClientCertPath = &desiredPath
+		requiresUpdate = true
+	}
+
+	// The password is optional, so we propagate the error only if something abnormal happens
+	kmipPasswordSecret, err := secretsReader.GetSecret(types.NamespacedName{
+		Namespace: kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
+		Name:      mdb.GetNamespace(),
+	})
+	if err == nil {
+		desiredPassword := string(kmipPasswordSecret.Data[kmip.Client.ClientCertificatePasswordKeyName()])
+		if config.KmipClientCertPassword == nil || desiredPassword != *config.KmipClientCertPassword {
+			config.KmipClientCertPassword = &desiredPassword
+			requiresUpdate = true
+		}
+	} else if !apiErrors.IsNotFound(err) {
+		return err
+	}
+
+	if requiresUpdate {
+		_, err = updater.UpdateGroupBackupConfig(config)
+	}
+	return err
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.

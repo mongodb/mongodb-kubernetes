@@ -75,6 +75,30 @@ spec:
                       should stop and terminate the Backup before the cleanup, when
                       the MongoDB CR is deleted
                     type: boolean
+                  encryption:
+                    description: Encryption settings
+                    properties:
+                      kmip:
+                        description: Kmip corresponds to the KMIP configuration assigned
+                          to the Ops Manager Project's configuration.
+                        properties:
+                          client:
+                            description: KMIP Client configuration
+                            properties:
+                              clientCertificatePrefix:
+                                description: 'A prefix used to construct KMIP client
+                                  certificate (and corresponsind password) Secret
+                                  names. The names are generated using the following
+                                  pattern: KMIP Client Certificate: <clientCertificatePrefix>-<CR
+                                  Name>-kmip-client KMIP Client Certificate Password:
+                                  <clientCertificatePrefix>-<CR Name>-kmip-client-password
+                                  The expected key inside is called "password".'
+                                type: string
+                            type: object
+                        required:
+                        - client
+                        type: object
+                    type: object
                   mode:
                     enum:
                     - enabled
@@ -810,6 +834,30 @@ spec:
                       should stop and terminate the Backup before the cleanup, when
                       the MongoDB CR is deleted
                     type: boolean
+                  encryption:
+                    description: Encryption settings
+                    properties:
+                      kmip:
+                        description: Kmip corresponds to the KMIP configuration assigned
+                          to the Ops Manager Project's configuration.
+                        properties:
+                          client:
+                            description: KMIP Client configuration
+                            properties:
+                              clientCertificatePrefix:
+                                description: 'A prefix used to construct KMIP client
+                                  certificate (and corresponsind password) Secret
+                                  names. The names are generated using the following
+                                  pattern: KMIP Client Certificate: <clientCertificatePrefix>-<CR
+                                  Name>-kmip-client KMIP Client Certificate Password:
+                                  <clientCertificatePrefix>-<CR Name>-kmip-client-password
+                                  The expected key inside is called "password".'
+                                type: string
+                            type: object
+                        required:
+                        - client
+                        type: object
+                    type: object
                   mode:
                     enum:
                     - enabled
@@ -1955,6 +2003,36 @@ spec:
                     description: Enabled indicates if Backups will be enabled for
                       this Ops Manager.
                     type: boolean
+                  encryption:
+                    description: Encryption settings
+                    properties:
+                      kmip:
+                        description: Kmip corresponds to the KMIP configuration assigned
+                          to the Ops Manager Project's configuration.
+                        properties:
+                          server:
+                            description: KMIP Server configuration
+                            properties:
+                              ca:
+                                description: CA corresponds to a ConfigMap containing
+                                  an entry for the CA certificate (ca.pem) used for
+                                  KMIP authentication
+                                type: string
+                              url:
+                                description: 'KMIP Server url in the following format:
+                                  hostname:port Valid examples are: 10.10.10.3:5696
+                                  my-kmip-server.mycorp.com:5696 my-kmip-server.mycorp.com
+                                  kmip-svc.svc.cluster.local'
+                                pattern: '[^\:]+(:[0-9]{0,5})?'
+                                type: string
+                            required:
+                            - ca
+                            - url
+                            type: object
+                        required:
+                        - server
+                        type: object
+                    type: object
                   externalServiceEnabled:
                     type: boolean
                   fileSystemStores:

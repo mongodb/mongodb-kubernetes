@@ -3,6 +3,7 @@ package om
 import (
 	"errors"
 	"fmt"
+	"net"
 
 	"github.com/blang/semver"
 
@@ -139,6 +140,22 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.Val
 	return v1.ValidationSuccess()
 }
 
+func kmipValidation(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if os.Backup == nil || os.Backup.Enabled == false || os.Backup.Encryption == nil || os.Backup.Encryption.Kmip == nil {
+		return v1.ValidationSuccess()
+	}
+
+	if _, _, err := net.SplitHostPort(os.Backup.Encryption.Kmip.Server.URL); err != nil {
+		return v1.OpsManagerResourceValidationError(fmt.Sprintf("kmip url can not be splitted into host and port, see %v", err), status.OpsManager)
+	}
+
+	if len(os.Backup.Encryption.Kmip.Server.CA) == 0 {
+		return v1.OpsManagerResourceValidationError("kmip CA ConfigMap name can not be empty", status.OpsManager)
+	}
+
+	return v1.ValidationSuccess()
+}
+
 func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
@@ -149,6 +166,7 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		opsManagerConfigIsNotConfigurable,
 		credentialsIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
+		kmipValidation,
 	}
 	var validationResults []v1.ValidationResult
 

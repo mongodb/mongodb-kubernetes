@@ -1,7 +1,7 @@
 package om
 
 import (
-	"errors"
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -11,97 +11,207 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestOpsManager_RunValidations_OpsManager(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.None)
-	assert.Nil(t, err)
-	assert.Equal(t, 0, len(om.Status.OpsManagerStatus.Warnings))
-}
-
-func TestOpsManager_RunValidations_AppDWithConnectivity(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.Connectivity = &mdbv1.MongoDBConnectivity{ReplicaSetHorizons: []mdbv1.MongoDBHorizonConfig{}}
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("connectivity field is not configurable for application databases"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithCredentials(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.Credentials = "something"
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("credentials field is not configurable for application databases"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithOpsManagerConfig(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.OpsManagerConfig = &mdbv1.PrivateCloudConfig{}
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("opsManager field is not configurable for application databases"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithCloudManagerConfig(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.CloudManagerConfig = &mdbv1.PrivateCloudConfig{}
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("cloudManager field is not configurable for application databases"), err)
-}
-
-func TestOpsManager_RunValidations_AppDWithProjectName(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().Build()
-	om.Spec.AppDB.Project = "something"
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("project field is not configurable for application databases"), err)
-}
-
-func TestOpsManager_RunValidations_S3StoreUserResourceRef(t *testing.T) {
-	config := S3Config{Name: "test", MongoDBUserRef: &MongoDBUserRef{Name: "foo"}}
-	om := NewOpsManagerBuilderDefault().AddS3SnapshotStore(config).Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.OpsManager)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: test)"), err)
-}
-
-func TestOpsManager_RunValidations_InvalidVersion(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4.4").Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.OpsManager)
-	assert.Equal(t, errors.New("'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid"), err)
-}
-
-func TestOpsManager_RunValidations_InvalidAppDBVersion(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().SetAppDbVersion("4.0.0").Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.None, part)
-	assert.NoError(t, err)
-	om = NewOpsManagerBuilderDefault().SetAppDbVersion("4.2.0-rc1").Build()
-	err, part = om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.None, part)
-	assert.NoError(t, err)
-	om = NewOpsManagerBuilderDefault().SetAppDbVersion("4.5.0-ent").Build()
-	err, part = om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.None, part)
-	assert.NoError(t, err)
-
-	om = NewOpsManagerBuilderDefault().SetAppDbVersion("3.6.12").Build()
-	err, part = om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Equal(t, errors.New("the version of Application Database must be >= 4.0"), err)
-	om = NewOpsManagerBuilderDefault().SetAppDbVersion("foo").Build()
-	err, part = om.ProcessValidationsOnReconcile()
-	assert.Equal(t, part, status.AppDb)
-	assert.Equal(t, errors.New("'foo' is an invalid value for spec.applicationDatabase.version: No Major.Minor.Patch elements found"), err)
+func TestOpsManagerValidation(t *testing.T) {
+	type args struct {
+		testedOm             MongoDBOpsManager
+		expectedPart         status.Part
+		expectedError        bool
+		expectedErrorMessage string
+	}
+	tests := map[string]args{
+		"Valid KMIP configuration": {
+			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
+				Enabled: true,
+				Encryption: &Encryption{
+					Kmip: &KmipConfig{
+						Server: v1.KmipServerConfig{
+							CA:  "kmip-ca",
+							URL: "kmip.mongodb.com:5696",
+						},
+					},
+				},
+			}).Build(),
+			expectedError: false,
+			expectedPart:  status.None,
+		},
+		"Valid disabled KMIP configuration": {
+			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
+				Enabled: false,
+				Encryption: &Encryption{
+					Kmip: &KmipConfig{
+						Server: v1.KmipServerConfig{
+							URL: "::this::is::a::wrong::address",
+						},
+					},
+				},
+			}).Build(),
+			expectedError: false,
+			expectedPart:  status.None,
+		},
+		"Invalid KMIP configuration with wrong url": {
+			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
+				Enabled: true,
+				Encryption: &Encryption{
+					Kmip: &KmipConfig{
+						Server: v1.KmipServerConfig{
+							CA:  "kmip-ca",
+							URL: "wrong:::url:::123",
+						},
+					},
+				},
+			}).Build(),
+			expectedError: true,
+			expectedPart:  status.OpsManager,
+		},
+		"Invalid KMIP configuration url and no port": {
+			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
+				Enabled: true,
+				Encryption: &Encryption{
+					Kmip: &KmipConfig{
+						Server: v1.KmipServerConfig{
+							CA:  "kmip-ca",
+							URL: "localhost",
+						},
+					},
+				},
+			}).Build(),
+			expectedError: true,
+			expectedPart:  status.OpsManager,
+		},
+		"Invalid KMIP configuration without CA": {
+			testedOm: NewOpsManagerBuilderDefault().SetBackup(MongoDBOpsManagerBackup{
+				Enabled: true,
+				Encryption: &Encryption{
+					Kmip: &KmipConfig{
+						Server: v1.KmipServerConfig{
+							URL: "kmip.mongodb.com:5696",
+						},
+					},
+				},
+			}).Build(),
+			expectedError: true,
+			expectedPart:  status.OpsManager,
+		},
+		"Valid default OpsManager": {
+			testedOm:      NewOpsManagerBuilderDefault().Build(),
+			expectedError: false,
+			expectedPart:  status.None,
+		},
+		"Invalid AppDB connectivity spec": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetAppDbConnectivity(mdbv1.MongoDBConnectivity{ReplicaSetHorizons: []mdbv1.MongoDBHorizonConfig{}}).
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "connectivity field is not configurable for application databases",
+			expectedPart:         status.AppDb,
+		},
+		"Invalid AppDB credentials": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetAppDbCredentials("invalid").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "credentials field is not configurable for application databases",
+			expectedPart:         status.AppDb,
+		},
+		"Invalid AppDB OpsManager config": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetOpsManagerConfig(mdbv1.PrivateCloudConfig{}).
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "opsManager field is not configurable for application databases",
+			expectedPart:         status.AppDb,
+		},
+		"Invalid AppDB CloudManager config": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetCloudManagerConfig(mdbv1.PrivateCloudConfig{}).
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "cloudManager field is not configurable for application databases",
+			expectedPart:         status.AppDb,
+		},
+		"Invalid S3 Store config": {
+			testedOm: NewOpsManagerBuilderDefault().
+				AddS3SnapshotStore(S3Config{Name: "test", MongoDBUserRef: &MongoDBUserRef{Name: "foo"}}).
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("4.4").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid foo OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("foo").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "'foo' is an invalid value for spec.version: Ops Manager Status spec.version foo is invalid",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid 4_4.4.0 OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("4_4.4.0").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "'4_4.4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4_4.4.0 is invalid",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid 4.4_4.0 OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("4.4_4.0").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "'4.4_4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4_4.0 is invalid",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid 4.4.0_0 OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("4.4.0_0").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "'4.4.0_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.0_0 is invalid",
+			expectedPart:         status.OpsManager,
+		},
+		"Too low AppDB version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetAppDbVersion("3.6.12").
+				Build(),
+			expectedError:        true,
+			expectedErrorMessage: "the version of Application Database must be >= 4.0",
+			expectedPart:         status.AppDb,
+		},
+		"Valid 4.0.0 OpsManager version": {
+			testedOm:      NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
+			expectedError: false,
+			expectedPart:  status.None,
+		},
+		"Valid 4.2.0-rc1 OpsManager version": {
+			testedOm:      NewOpsManagerBuilderDefault().SetVersion("4.2.0-rc1").Build(),
+			expectedError: false,
+			expectedPart:  status.None,
+		},
+		"Valid 4.5.0-ent OpsManager version": {
+			testedOm:      NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").Build(),
+			expectedError: false,
+			expectedPart:  status.None,
+		},
+	}
+	for testName, _ := range tests {
+		t.Run(testName, func(t *testing.T) {
+			testConfig, _ := tests[testName]
+			err, part := testConfig.testedOm.ProcessValidationsOnReconcile()
+			assert.Equal(t, testConfig.expectedError, err != nil)
+			assert.Equal(t, testConfig.expectedPart, part)
+			if len(testConfig.expectedErrorMessage) != 0 {
+				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
+			}
+		})
+	}
 }
 
 func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
@@ -114,35 +224,4 @@ func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
 	assert.Equal(t, uint64(3), version.Major)
 	assert.Equal(t, uint64(5), version.Minor)
 	assert.Equal(t, uint64(0), version.Patch)
-}
-
-func TestOpsManager_RunValidations_InvalidMajor(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4_4.4.0").SetAppDbVersion("4.4.4-ent").Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.OpsManager, part)
-	assert.Equal(t, errors.New("'4_4.4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4_4.4.0 is invalid"), err)
-}
-
-func TestOpsManager_RunValidations_InvalidMinor(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4.4_4.0").SetAppDbVersion("4.4.4-ent").Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.OpsManager, part)
-	assert.Equal(t, errors.New("'4.4_4.0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4_4.0 is invalid"), err)
-}
-
-func TestOpsManager_RunValidations_InvalidPatch(t *testing.T) {
-	om := NewOpsManagerBuilder().SetVersion("4.4.4_0").SetAppDbVersion("4.4.4-ent").Build()
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.OpsManager, part)
-	assert.Equal(t, errors.New("'4.4.4_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4_0 is invalid"), err)
-}
-
-func TestOpsManager_RunValidations_MultipleWarnings(t *testing.T) {
-	om := NewOpsManagerBuilderDefault().SetAppDbVersion("4.4.4-ent").Build()
-	om.Spec.AppDB.Project = "something"
-
-	err, part := om.ProcessValidationsOnReconcile()
-	assert.Equal(t, status.AppDb, part)
-	assert.Error(t, err)
-	assert.Equal(t, errors.New("project field is not configurable for application databases"), err)
 }

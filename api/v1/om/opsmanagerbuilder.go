@@ -39,6 +39,21 @@ func (b *OpsManagerBuilder) SetAppDbPodSpec(podSpec mdbv1.MongoDbPodSpec) *OpsMa
 	return b
 }
 
+func (b *OpsManagerBuilder) SetOpsManagerConfig(config mdbv1.PrivateCloudConfig) *OpsManagerBuilder {
+	b.om.Spec.AppDB.OpsManagerConfig = &config
+	return b
+}
+
+func (b *OpsManagerBuilder) SetCloudManagerConfig(config mdbv1.PrivateCloudConfig) *OpsManagerBuilder {
+	b.om.Spec.AppDB.CloudManagerConfig = &config
+	return b
+}
+
+func (b *OpsManagerBuilder) SetAppDbConnectivity(connectivitySpec mdbv1.MongoDBConnectivity) *OpsManagerBuilder {
+	b.om.Spec.AppDB.Connectivity = &connectivitySpec
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDBTLSConfig(config mdbv1.TLSConfig) *OpsManagerBuilder {
 	if b.om.Spec.AppDB.Security == nil {
 		b.om.Spec.AppDB.Security = &mdbv1.Security{}
@@ -125,6 +140,11 @@ func (b *OpsManagerBuilder) SetName(name string) *OpsManagerBuilder {
 
 func (b *OpsManagerBuilder) SetAppDbMembers(members int) *OpsManagerBuilder {
 	b.om.Spec.AppDB.Members = members
+	return b
+}
+
+func (b *OpsManagerBuilder) SetAppDbCredentials(credentials string) *OpsManagerBuilder {
+	b.om.Spec.AppDB.Credentials = credentials
 	return b
 }
 

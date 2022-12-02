@@ -693,7 +693,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 		return workflow.Failed(err.Error())
 	}
 
-	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, sc, log); !status.IsOK() {
+	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, sc, r.SecretClient, log); !status.IsOK() {
 		return status
 	}
 

@@ -38,12 +38,9 @@ done
 # note, that "kubectl delete .. -all" always enables "--ignore-not-found=true" option so there's no need to tolerate
 # failures explicitly (" || true")
 kubectl delete secrets --all -n "${NAMESPACE}"
-
-# Services created by the Operator, and the Operator webhook Service
-# will be labeled as controller=mongodb-enterprise-operator
-kubectl delete svc -l controller=mongodb-enterprise-operator -n "${NAMESPACE}" --ignore-not-found=true
-
+kubectl delete svc --all -n "${NAMESPACE}"
 kubectl delete configmaps --all -n "${NAMESPACE}"
+kubectl delete sts --all -n "${NAMESPACE}"
 kubectl delete validatingwebhookconfigurations/mdbpolicy.mongodb.com --ignore-not-found=true
 
 # certificates and issuers may not be installed

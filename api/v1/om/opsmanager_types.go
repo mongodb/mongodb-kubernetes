@@ -157,6 +157,13 @@ type TLSSecretRef struct {
 	Name string `json:"name"`
 }
 
+func (ms MongoDBOpsManagerSpec) IsKmipEnabled() bool {
+	if ms.Backup == nil || ms.Backup.Enabled == false || ms.Backup.Encryption == nil || ms.Backup.Encryption.Kmip == nil {
+		return false
+	}
+	return true
+}
+
 func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 	if ms.ClusterDomain != "" {
 		return ms.ClusterDomain
@@ -241,6 +248,23 @@ type MongoDBOpsManagerBackup struct {
 	// for queryable backup. This will be mounted into the Ops Manager pod.
 	// +optional
 	QueryableBackupSecretRef SecretRef `json:"queryableBackupSecretRef,omitempty"`
+
+	// Encryption settings
+	// +optional
+	Encryption *Encryption `json:"encryption,omitempty"`
+}
+
+// Encryption contains encryption settings
+type Encryption struct {
+	// Kmip corresponds to the KMIP configuration assigned to the Ops Manager Project's configuration.
+	// +optional
+	Kmip *KmipConfig `json:"kmip,omitempty"`
+}
+
+// KmipConfig contains Project-level KMIP configuration
+type KmipConfig struct {
+	// KMIP Server configuration
+	Server v1.KmipServerConfig `json:"server"`
 }
 
 type MongoDBOpsManagerStatus struct {

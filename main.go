@@ -37,7 +37,7 @@ var (
 
 	// List of allowed operator environments. The first element of this list is
 	// considered the default one.
-	operatorEnvironments = [...]string{"dev", "local", "prod"}
+	operatorEnvironments = []string{"dev", "local", "prod"}
 
 	scheme = runtime.NewScheme()
 )
@@ -102,7 +102,6 @@ func parseCommandLineArgs() commandLineFlags {
 }
 
 func main() {
-
 	initializeEnvironment()
 
 	// Get a config to talk to the apiserver
@@ -127,6 +126,11 @@ func main() {
 		// In multi-namespace scenarios, the namespace where the Operator
 		// resides needs to be part of the Cache as well.
 		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
+	}
+
+	if isInLocalMode() {
+		managerOptions.MetricsBindAddress = "127.0.0.1:8180"
+		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
@@ -218,12 +222,19 @@ func main() {
 	}
 }
 
+func isInLocalMode() bool {
+	return operatorEnvironments[1] == env.ReadOrPanic(util.OmOperatorEnv)
+}
+
 // setupWebhook sets up the validation webhook for MongoDB resources in order
 // to give people early warning when their MongoDB resources are wrong.
 func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool) {
 	// set webhook port — 1993 is chosen as Ben's birthday
 	webhookPort := env.ReadIntOrDefault(mdbWebHookPortEnvName, 1993)
 	mgr.GetWebhookServer().Port = webhookPort
+	if isInLocalMode() {
+		mgr.GetWebhookServer().Host = "127.0.0.1"
+	}
 
 	// this is the default directory on Linux but setting it explicitly helps
 	// with cross-platform compatibility, specifically local development on MacOS

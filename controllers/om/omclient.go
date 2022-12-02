@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"k8s.io/utils/pointer"
 	"net/url"
 	"reflect"
 	"strings"
@@ -50,6 +51,9 @@ type Connection interface {
 	ReadProjectsInOrganization(orgID string, page int) (Paginated, error)
 	CreateProject(project *Project) (*Project, error)
 	UpdateProject(project *Project) (*Project, error)
+
+	backup.GroupConfigReader
+	backup.GroupConfigUpdater
 
 	backup.HostClusterReader
 
@@ -190,6 +194,35 @@ func NewOpsManagerConnection(context *OMContext) Connection {
 	return &HTTPOmConnection{
 		context: context,
 	}
+}
+
+func (oc *HTTPOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, error) {
+	ans, apiErr := oc.get(fmt.Sprintf("/api/public/v1.0/admin/backup/groups/%s", oc.GroupID()))
+
+	if apiErr != nil {
+		// This API provides very inconsistent way for obtaining values and authorization. In certain Ops Manager versions
+		// when there's no Group Backup Config we get 404 (which is inconsistent with the UI, as the endpoints for UI
+		// always return values). In Ops Manager 6, if this object doesn't yet exist, we get 401. So the only reasonable
+		// thing to do here is to check whether the error comes from the Ops Manager (if we can parse it), and if we do,
+		// we just ignore it.
+		_, ok := apiErr.(*apierror.Error)
+		if ok {
+			return backup.GroupBackupConfig{
+				Id: pointer.String(oc.GroupID()),
+			}, nil
+		}
+		return backup.GroupBackupConfig{}, apiErr
+	}
+	groupBackupConfig := &backup.GroupBackupConfig{}
+	if err := json.Unmarshal(ans, groupBackupConfig); err != nil {
+		return backup.GroupBackupConfig{}, apierror.New(err)
+	}
+
+	return *groupBackupConfig, nil
+}
+
+func (oc *HTTPOmConnection) UpdateGroupBackupConfig(config backup.GroupBackupConfig) ([]byte, error) {
+	return oc.put(fmt.Sprintf("/api/public/v1.0/admin/backup/groups/%s", *config.Id), config)
 }
 
 func (oc *HTTPOmConnection) ConfigureProject(project *Project) {

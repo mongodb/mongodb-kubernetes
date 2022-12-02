@@ -200,7 +200,7 @@ func (in *MongoDBMultiSpec) DeepCopyInto(out *MongoDBMultiSpec) {
 	if in.Backup != nil {
 		in, out := &in.Backup, &out.Backup
 		*out = new(mdb.Backup)
-		**out = **in
+		(*in).DeepCopyInto(*out)
 	}
 	in.AdditionalMongodConfig.DeepCopyInto(&out.AdditionalMongodConfig)
 	in.ClusterSpecList.DeepCopyInto(&out.ClusterSpecList)

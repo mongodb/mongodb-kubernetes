@@ -586,7 +586,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return fmt.Errorf("failed to complete reconciliation")
 	}
 
-	status = r.ensureBackupConfigurationAndUpdateStatus(conn, &mrs, log)
+	status = r.ensureBackupConfigurationAndUpdateStatus(conn, &mrs, r.SecretClient, log)
 	if !status.IsOK() {
 		return fmt.Errorf("failed to configure backup for MongoDBMulti RS")
 	}

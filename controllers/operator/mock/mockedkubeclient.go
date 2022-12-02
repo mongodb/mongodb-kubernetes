@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"encoding/json"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"net/http"
 	"runtime"
 	"testing"
@@ -409,6 +410,14 @@ func (k *MockedClient) List(ctx context.Context, list client.ObjectList, opts ..
 			secrets = append(secrets, *v.(*corev1.Secret))
 		}
 		l.Items = secrets
+		return nil
+	case *mdb.MongoDBList:
+		mdbList := k.GetMapForObject(&mdb.MongoDB{})
+		var mdbs []mdb.MongoDB
+		for _, v := range mdbList {
+			mdbs = append(mdbs, *v.(*mdb.MongoDB))
+		}
+		l.Items = mdbs
 		return nil
 	}
 	return fmt.Errorf("the List method is not implemented for type %s", reflect.TypeOf(list))
