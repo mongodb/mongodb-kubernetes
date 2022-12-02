@@ -132,7 +132,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// register backup
-	r.watchMongoDBResourcesReferencedByBackup(*opsManager)
+	r.watchMongoDBResourcesReferencedByBackup(*opsManager, log)
 
 	if err, part := opsManager.ProcessValidationsOnReconcile(); err != nil {
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
@@ -585,6 +585,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 	sts, err := construct.OpsManagerStatefulSet(r.SecretClient, opsManager, log,
 		construct.WithConnectionStringHash(hashConnectionString(connectionString)),
 		construct.WithVaultConfig(vaultConfig),
+		construct.WithKmipConfig(opsManager, r.client, log),
 	)
 
 	if err != nil {
@@ -697,7 +698,8 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	}
 	sts, err := construct.BackupDaemonStatefulSet(r.SecretClient, opsManager, log,
 		construct.WithConnectionStringHash(hashConnectionString(connectionString)),
-		construct.WithVaultConfig(vaultConfig))
+		construct.WithVaultConfig(vaultConfig),
+		construct.WithKmipConfig(opsManager, r.client, log))
 	if err != nil {
 		return workflow.Failed(fmt.Sprintf("error building stateful set: %v", err))
 	}
@@ -712,7 +714,53 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager omv1.MongoDBOpsManager) {
+func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+	if !opsManager.Spec.IsKmipEnabled() {
+		return
+	}
+
+	mdbList := &mdbv1.MongoDBList{}
+	err := r.client.List(context.TODO(), mdbList)
+	if err != nil {
+		log.Warnf("failed to fetch MongoDBList from Kubernetes: %v", err)
+	}
+
+	for _, m := range mdbList.Items {
+		if m.Spec.IsKmipEnabled() {
+			r.AddWatchedResourceIfNotAdded(
+				m.Name,
+				m.Namespace,
+				watch.MongoDB,
+				kube.ObjectKeyFromApiObject(&opsManager))
+
+			r.AddWatchedResourceIfNotAdded(
+				m.Spec.Backup.Encryption.Kmip.Client.ClientCertificateSecretName(m.GetName()),
+				opsManager.Namespace,
+				watch.Secret,
+				kube.ObjectKeyFromApiObject(&opsManager))
+
+			r.AddWatchedResourceIfNotAdded(
+				m.Spec.Backup.Encryption.Kmip.Client.ClientCertificatePasswordSecretName(m.GetName()),
+				opsManager.Namespace,
+				watch.Secret,
+				kube.ObjectKeyFromApiObject(&opsManager))
+		}
+	}
+}
+
+func (r *OpsManagerReconciler) watchCaReferencedByKmip(opsManager omv1.MongoDBOpsManager) {
+	if !opsManager.Spec.IsKmipEnabled() {
+		return
+	}
+
+	r.AddWatchedResourceIfNotAdded(
+		opsManager.Spec.Backup.Encryption.Kmip.Server.CA,
+		opsManager.Namespace,
+		watch.ConfigMap,
+		kube.ObjectKeyFromApiObject(&opsManager))
+}
+
+func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	if !opsManager.Spec.Backup.Enabled {
 		return
 	}
@@ -752,6 +800,9 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(opsManage
 			)
 		}
 	}
+
+	r.watchMongoDBResourcesReferencedByKmip(opsManager, log)
+	r.watchCaReferencedByKmip(opsManager)
 }
 
 // buildMongoConnectionUrl returns a connection URL to the appdb.

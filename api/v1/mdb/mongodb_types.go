@@ -314,7 +314,6 @@ func (s *MongoDbSpec) GetAdditionalMongodConfig() AdditionalMongodConfig {
 // Backup contains configuration options for configuring
 // backup for this MongoDB resource
 type Backup struct {
-
 	// +kubebuilder:validation:Enum=enabled;disabled;terminated
 	// +optional
 	Mode BackupMode `json:"mode"`
@@ -323,6 +322,30 @@ type Backup struct {
 	// when the MongoDB CR is deleted
 	// +optional
 	AutoTerminateOnDeletion bool `json:"autoTerminateOnDeletion,omitempty"`
+
+	// Encryption settings
+	// +optional
+	Encryption *Encryption `json:"encryption,omitempty"`
+}
+
+func (s *MongoDbSpec) IsKmipEnabled() bool {
+	if s.Backup == nil || s.Backup.Encryption == nil || s.Backup.Encryption.Kmip == nil {
+		return false
+	}
+	return true
+}
+
+// Encryption contains encryption settings
+type Encryption struct {
+	// Kmip corresponds to the KMIP configuration assigned to the Ops Manager Project's configuration.
+	// +optional
+	Kmip *KmipConfig `json:"kmip,omitempty"`
+}
+
+// KmipConfig contains Project-level KMIP configuration
+type KmipConfig struct {
+	// KMIP Client configuration
+	Client v1.KmipClientConfig `json:"client"`
 }
 
 type AgentConfig struct {

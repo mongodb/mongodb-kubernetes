@@ -79,13 +79,14 @@ def create_service(
     name: str,
     cluster_ip: Optional[str] = None,
     ports: Optional[List[client.V1ServicePort]] = None,
+    selector = None,
 ):
     if ports is None:
         ports = []
 
     service = client.V1Service(
         metadata=client.V1ObjectMeta(name=name, namespace=namespace),
-        spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip),
+        spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip, selector=selector),
     )
     client.CoreV1Api().create_namespaced_service(namespace, service)
 
@@ -139,6 +140,14 @@ def read_secret(
         .read_namespaced_secret(name, namespace)
         .data
     )
+
+
+def read_configmap(
+        namespace: str,
+        name: str,
+        api_client: Optional[client.ApiClient] = None,
+) -> Dict[str, str]:
+    return client.CoreV1Api(api_client=api_client).read_namespaced_config_map(name, namespace).data
 
 
 def update_secret(namespace: str, name: str, data: Dict[str, str]):

@@ -94,6 +94,7 @@ def generate_cert(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
     dns_list: Optional[List[str]] = None,
+    common_name: Optional[str] = None
 ) -> str:
     if spec is None:
         spec = dict()
@@ -125,6 +126,13 @@ def generate_cert(
         "renewBefore": "120h",
         "usages": ["server auth", "client auth"],
     }
+
+    # The use of the common name field has been deprecated since 2000 and is
+    # discouraged from being used.
+    # However, KMIP still enforces it :(
+    if common_name is not None:
+        cert["spec"]["commonName"] = common_name
+
     cert["spec"].update(spec)
     cert.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
     cert.create().block_until_ready()
@@ -156,6 +164,7 @@ def create_tls_certs(
     additional_domains: Optional[List[str]] = None,
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
+    common_name: Optional[str] = None,
 ) -> Dict[str, str]:
     if service_name is None:
         service_name = resource_name + "-svc"
@@ -191,6 +200,7 @@ def create_tls_certs(
         secret_name=secret_name,
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
+        common_name=common_name
     )
     return cert_secret_name
 

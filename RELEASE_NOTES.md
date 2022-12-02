@@ -1,19 +1,22 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
-# MongoDB Enterprise Kubernetes Operator 1.18.0
+## Improvements
+
+* Introduced the support for KMIP configuration in the backups section of Ops Manager.
 
 ## Breaking changes
 
 * The field `spec.security.tls.secretRef.prefix` has been removed from MongoDB and OpsManager resources. It was deprecated in operator version `1.15.2`. Before upgrading the
-operator to this version, please specify the certificate prefix under `spec.security.certsSecretPrefix`.
+  operator to this version, please specify the certificate prefix under `spec.security.certsSecretPrefix`.
 
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.17.2
 
 * Fixed the OpenShift installation problem mentioned in the Enterprise Operator 1.7.1 release notes. The OLM (Operator Lifecycle Manager)
   upgrade graph will automatically skip the 1.7.1 release and perform an upgrade from 1.7.0 directly to this release.
 * Adds startup probes for database and OpsManager resources with some defaults. This improves the reliability of upgrades by ensuring things occur in the correct order. Customers can also override probe configurations with `podTemplateSpec`.
-<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.17.1
 
 ## Important OpenShift Warning
