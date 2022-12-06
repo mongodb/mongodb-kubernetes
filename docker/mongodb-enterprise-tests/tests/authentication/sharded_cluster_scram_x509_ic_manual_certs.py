@@ -76,7 +76,7 @@ def test_create_replica_can_connect(sharded_cluster: MongoDB, ca_path: str):
 @mark.e2e_sharded_cluster_scram_x509_ic_manual_certs
 def test_ops_manager_state_was_updated_correctly(sharded_cluster: MongoDB):
     ac_tester = sharded_cluster.get_automation_config_tester()
-    ac_tester.assert_authentication_enabled()
+    ac_tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
     ac_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     ac_tester.assert_internal_cluster_authentication_enabled()
 

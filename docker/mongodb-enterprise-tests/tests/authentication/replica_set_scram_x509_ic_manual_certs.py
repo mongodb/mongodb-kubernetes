@@ -77,7 +77,7 @@ def test_create_replica_can_connect(replica_set: MongoDB, ca_path: str):
 @mark.e2e_replica_set_scram_x509_ic_manual_certs
 def test_ops_manager_state_was_updated_correctly(replica_set: MongoDB):
     ac_tester = replica_set.get_automation_config_tester()
-    ac_tester.assert_authentication_enabled()
+    ac_tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
     ac_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     ac_tester.assert_expected_users(0)
     ac_tester.assert_authoritative_set(True)
