@@ -21,6 +21,8 @@ spec:
     tls:
       enabled: true
     authentication:
+      agents:
+        mode: SCRAM
       enabled: true
-      modes: ["SCRAM"]
+      modes: [ "SCRAM", "X509" ]
       internalCluster: X509
