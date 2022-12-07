@@ -21,16 +21,6 @@ spec:
     mms.monitoring.rrd.maintenanceEnabled: "false"
     mms.monitoring.accessLogs.maintenanceEnabled: "false"
     mms.monitoring.slowlogs.maintenanceEnabled: "false"
-  statefulSet:
-    spec:
-      template:
-        spec:
-          containers:
-            - name: mongodb-ops-manager
-              resources:
-                limits: # decreasing memory to make 3 pods consume less memory
-                  memory: 2500M
-
   applicationDatabase:
     members: 3
     version: 4.2.1-ent
