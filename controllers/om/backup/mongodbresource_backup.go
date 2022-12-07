@@ -1,6 +1,9 @@
 package backup
 
 import (
+	"fmt"
+	"reflect"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -26,7 +29,7 @@ func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, secretsReade
 		return workflow.OK(), nil
 	}
 
-	desiredConfig := getMongoBDBackupConfig(mdb.GetBackupSpec(), projectId)
+	desiredConfig := getMongoDBBackupConfig(mdb.GetBackupSpec(), projectId)
 
 	configs, err := configReadUpdater.ReadBackupConfigs()
 	if err != nil {
@@ -107,17 +110,13 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		}
 
 		// There is one HostConfig per component of the deployment being backed up.
-
 		// E.g. a sharded cluster with 2 shards is composed of 4 backup configurations.
-
 		// 1x CONFIG_SERVER_REPLICA_SET (config server)
 		// 2x REPLICA_SET (each shard)
 		// 1x SHARDED_REPLICA_SET (the source of truth for sharded cluster configuration)
-
 		// Only the SHARDED_REPLICA_SET can be configured, we need to ensure that based on the cluster wide
 		// we care about we are only updating the config if the type and name are correct.
 		resourceType := MongoDbResourceType(mdb.GetResourceType())
-
 		nameIsEqual := cluster.ClusterName == mdb.GetResourceName()
 		isReplicaSet := resourceType == ReplicaSetType && cluster.TypeName == "REPLICA_SET"
 		isShardedCluster := resourceType == ShardedClusterType && cluster.TypeName == "SHARDED_REPLICA_SET"
@@ -133,12 +132,19 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		// If we are configuring a sharded cluster, we must only update the config of the whole cluster, not each individual shard.
 		// Status: 409 (Conflict), ErrorCode: CANNOT_MODIFY_SHARD_BACKUP_CONFIG, Detail: Cannot modify backup configuration for individual shard; use cluster ID 611a63f668d22f4e2e62c2e3 for entire cluster.
-
 		// If backup was never enabled and the deployment has `spec.backup.mode=disabled` specified
-		// we don't send this state to OM or we will get
+		// we don't send this state to OM, or we will get
 		// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.'
 		if desiredConfig.Status == Stopped && config.Status == Inactive {
 			continue
+		}
+
+		// When mdb is newly created or backup is being enabled from terminated state, it is not possible to send snapshot schedule to OM,
+		// so the first run will be skipped. Update will be executed again at the end of this method when the backup reaches valid status.
+		// When the backup is already configured (not in INACTIVE state) and it is not changing its status, then this execution will update snapshot schedule.
+		// When both status and snapshot schedule is changing (e.g. backup starting from stopped), then this method will update snapshot schedule twice, which is harmless.
+		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, config, log); err != nil {
+			return workflow.Failed(err.Error()), nil
 		}
 
 		if desiredConfig.Status == config.Status {
@@ -166,6 +172,12 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		}
 
 		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
+
+		// second run for cases when backup was inactive (see comment above)
+		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, desiredConfig, log); err != nil {
+			return workflow.Failed(err.Error()), nil
+		}
+
 		backupOpts, err := getCurrentBackupStatusOption(configReadUpdater, desiredConfig.ClusterId)
 		if err != nil {
 			return workflow.Failed(err.Error()), nil
@@ -174,6 +186,37 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 	}
 
 	return result, nil
+}
+
+func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
+	if specSnapshotSchedule == nil {
+		return nil
+	}
+
+	// in Inactive state we cannot update snapshot schedule in OM
+	if config.Status == Inactive {
+		log.Debugf("Skipping updating backup snapshot schedule due to Inactive status")
+		return nil
+	}
+
+	omSnapshotSchedule, err := configReadUpdater.ReadSnapshotSchedule(config.ClusterId)
+	if err != nil {
+		return fmt.Errorf("failed to read snapshot schedule: %v", err)
+	}
+
+	snapshotSchedule := mergeExistingScheduleWithSpec(*omSnapshotSchedule, *specSnapshotSchedule)
+
+	// we need to use DeepEqual in order to compare pointers' underlying values
+	if !reflect.DeepEqual(snapshotSchedule, *omSnapshotSchedule) {
+		if err := configReadUpdater.UpdateSnapshotSchedule(snapshotSchedule.ClusterID, &snapshotSchedule); err != nil {
+			return fmt.Errorf("failed to update backup snapshot schedule for cluster %s: %v", config.ClusterId, err.Error())
+		}
+		log.Debugf("Updated backup snapshot schedule with: %s", snapshotSchedule)
+	} else {
+		log.Infof("Backup snapshot schedule is up to date")
+	}
+
+	return nil
 }
 
 // getCurrentBackupStatusOption fetches the latest information from the backup config
@@ -189,8 +232,8 @@ func getCurrentBackupStatusOption(configReader ConfigReader, clusterId string) (
 		)}, nil
 }
 
-// getMongoBDBackupConfig builds the backup configuration from the given MongoDB resource
-func getMongoBDBackupConfig(backupSpec *mdbv1.Backup, projectId string) *Config {
+// getMongoDBBackupConfig builds the backup configuration from the given MongoDB resource
+func getMongoDBBackupConfig(backupSpec *mdbv1.Backup, projectId string) *Config {
 	mappings := getStatusMappings()
 	return &Config{
 		// the encryptionEnabled field is also only used in old backup, 4.2 backup will copy all files whether or not they are encrypted

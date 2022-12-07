@@ -2,24 +2,27 @@ from operator import attrgetter
 from typing import Optional, Dict, Callable
 
 from kubernetes import client
-from kubetester import get_default_storage_class
-from kubetester.awss3client import AwsS3Client, s3_endpoint
-from kubetester.kubetester import (
-    skip_if_local,
-    fixture as yaml_fixture,
-    KubernetesTester,
-)
-from kubetester.mongodb import Phase, MongoDB
-from kubetester.mongodb_user import MongoDBUser
-from kubetester.opsmanager import MongoDBOpsManager
+from kubernetes.client import ApiException
+from pytest import mark, fixture
+
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
     run_periodically,
 )
-from kubernetes.client.rest import ApiException
-
-from pytest import mark, fixture, skip
+from kubetester import get_default_storage_class, create_or_update, try_load
+from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.kubetester import (
+    skip_if_local,
+    fixture as yaml_fixture,
+    KubernetesTester,
+    running_locally,
+)
+from kubetester.mongodb import Phase, MongoDB
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.test_identifiers import set_test_identifier
+from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.conftest import ensure_ent_version
 
 HEAD_PATH = "/head/"
@@ -76,7 +79,7 @@ def new_om_data_store(
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
 def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
@@ -93,13 +96,27 @@ def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
 
 def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
     """creates a s3 bucket and a s3 config"""
-    bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
-    aws_s3_client.create_s3_bucket(bucket_prefix)
-    print("Created S3 bucket", bucket_prefix)
+    bucket_name = set_test_identifier(
+        f"create_s3_bucket_{bucket_prefix}",
+        KubernetesTester.random_k8s_name(bucket_prefix),
+    )
 
-    yield bucket_prefix
-    print("\nRemoving S3 bucket", bucket_prefix)
-    aws_s3_client.delete_s3_bucket(bucket_prefix)
+    try:
+        aws_s3_client.create_s3_bucket(bucket_name)
+        print("Created S3 bucket", bucket_name)
+
+        yield bucket_name
+        if not running_locally():
+            print("\nRemoving S3 bucket", bucket_name)
+            aws_s3_client.delete_s3_bucket(bucket_name)
+    except Exception as e:
+        if running_locally():
+            print(
+                f"Local run: skipping creating bucket {bucket_name} because it already exists."
+            )
+            yield bucket_name
+        else:
+            raise e
 
 
 @fixture(scope="module")
@@ -113,15 +130,8 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
     )
 
-    resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-    resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
-    resource["spec"]["backup"]["members"] = 2
-
-    resource.set_version(custom_version)
-    resource.set_appdb_version(custom_appdb_version)
-    resource.allow_mdb_rc_versions()
-
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -141,7 +151,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         "authentication": {"enabled": True, "modes": ["SCRAM"]}
     }
 
-    yield resource.create()
+    yield create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -152,7 +162,7 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
-    yield resource.create()
+    yield create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -163,7 +173,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
     resource["spec"]["version"] = custom_mdb_version
-    yield resource.create()
+    yield create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -185,7 +195,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    yield create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -211,7 +221,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    yield resource.create()
+    yield create_or_update(resource)
 
 
 @mark.e2e_om_ops_manager_backup
@@ -227,8 +237,19 @@ class TestOpsManagerCreation:
         """This is necessary for Backup HeadDB"""
         KubernetesTester.make_default_gp2_storage_class()
 
-    def test_create_om(self, ops_manager: MongoDBOpsManager):
+    def test_create_om(self, ops_manager: MongoDBOpsManager, s3_bucket: str, custom_version: str, custom_appdb_version: str):
         """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
+
+        ops_manager["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
+        ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
+        ops_manager["spec"]["backup"]["members"] = 2
+
+        ops_manager.set_version(custom_version)
+        ops_manager.set_appdb_version(custom_appdb_version)
+        ops_manager.allow_mdb_rc_versions()
+
+        create_or_update(ops_manager)
+
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="The MongoDB object .+ doesn't exist",
@@ -346,6 +367,7 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
+        oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {
             "authentication": {"enabled": True, "modes": ["SCRAM"]}
         }
@@ -531,7 +553,7 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "firstProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
         resource.configure_backup(mode="disabled")
-        return resource.create()
+        return create_or_update(resource)
 
     @fixture(scope="class")
     def mdb_prev(
@@ -544,7 +566,7 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "secondProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
         resource.configure_backup(mode="disabled")
-        return resource.create()
+        return create_or_update(resource)
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
@@ -573,20 +595,20 @@ class TestBackupForMongodb:
     ):
         # a direction transition from enabled to disabled is a single
         # step for the operator
-        mdb_prev.wait_for(reaches_backup_status("STARTED"), timeout=100)
+        mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_prev.configure_backup(mode="disabled")
         mdb_prev.update()
-        mdb_prev.wait_for(reaches_backup_status("STOPPED"), timeout=600)
+        mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
 
     def test_can_transition_from_started_to_terminated_0(
         self, mdb_latest: MongoDB, mdb_prev: MongoDB
     ):
         # a direct transition from enabled to terminated is not possible
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
-        mdb_latest.wait_for(reaches_backup_status("STARTED"), timeout=100)
+        mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_latest.configure_backup(mode="terminated")
         mdb_latest.update()
-        mdb_latest.wait_for(reaches_backup_status("TERMINATING"), timeout=600)
+        mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=600)
 
     def test_backup_terminated_for_deleted_resource(
         self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB
@@ -595,7 +617,7 @@ class TestBackupForMongodb:
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
         mdb_prev.update()
-        mdb_prev.wait_for(reaches_backup_status("STARTED"), timeout=600)
+        mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
         mdb_prev.delete()
 
         def resource_is_deleted() -> bool:
@@ -612,14 +634,9 @@ class TestBackupForMongodb:
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=0)
 
 
-def reaches_backup_status(expected_status: str) -> Callable[[MongoDB], bool]:
-    def _fn(mdb: MongoDB):
-        try:
-            return mdb["status"]["backup"]["statusName"] == expected_status
-        except KeyError:
-            return False
-
-    return _fn
+@mark.e2e_om_ops_manager_backup
+class TestBackupSnapshotSchedule(BackupSnapshotScheduleTests):
+    pass
 
 
 @mark.e2e_om_ops_manager_backup

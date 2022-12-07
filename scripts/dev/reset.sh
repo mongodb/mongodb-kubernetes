@@ -46,3 +46,6 @@ kubectl delete validatingwebhookconfigurations/mdbpolicy.mongodb.com --ignore-no
 # certificates and issuers may not be installed
 kubectl delete certificates --all -n "${NAMESPACE}" || true
 kubectl delete issuers --all -n "${NAMESPACE}" || true
+
+kubectl delete services --all -n "${NAMESPACE}" || true
+kubectl delete deployments --all -n "${NAMESPACE}" || true

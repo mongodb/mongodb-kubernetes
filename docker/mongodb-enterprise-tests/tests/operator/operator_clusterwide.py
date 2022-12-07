@@ -6,7 +6,7 @@ from kubernetes import client
 from kubetester import create_secret, read_secret
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from kubetester.kubetester import create_testing_namespace
+from kubetester.kubetester import create_testing_namespace, running_locally
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import generic_replicaset, MongoDB, Phase
 from kubetester.operator import Operator

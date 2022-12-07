@@ -78,9 +78,9 @@ spec:
                             properties:
                               clientCertificatePrefix:
                                 description: 'A prefix used to construct KMIP client
-                                  certificate (and corresponsind password) Secret
+                                  certificate (and corresponding password) Secret
                                   names. The names are generated using the following
-                                  pattern: KMIP Client Certificate: <clientCertificatePrefix>-<CR
+                                  pattern: KMIP Client Certificate (TLS Secret): <clientCertificatePrefix>-<CR
                                   Name>-kmip-client KMIP Client Certificate Password:
                                   <clientCertificatePrefix>-<CR Name>-kmip-client-password
                                   The expected key inside is called "password".'
@@ -96,6 +96,90 @@ spec:
                     - disabled
                     - terminated
                     type: string
+                  snapshotSchedule:
+                    properties:
+                      clusterCheckpointIntervalMin:
+                        enum:
+                        - 15
+                        - 30
+                        - 60
+                        type: integer
+                      dailySnapshotRetentionDays:
+                        description: Number of days to retain daily snapshots. Setting
+                          0 will disable this rule.
+                        maximum: 365
+                        minimum: 0
+                        type: integer
+                      fullIncrementalDayOfWeek:
+                        description: Day of the week when Ops Manager takes a full
+                          snapshot. This ensures a recent complete backup. Ops Manager
+                          sets the default value to SUNDAY.
+                        enum:
+                        - SUNDAY
+                        - MONDAY
+                        - TUESDAY
+                        - WEDNESDAY
+                        - THURSDAY
+                        - FRIDAY
+                        - SATURDAY
+                        type: string
+                      monthlySnapshotRetentionMonths:
+                        description: Number of months to retain weekly snapshots.
+                          Setting 0 will disable this rule.
+                        maximum: 36
+                        minimum: 0
+                        type: integer
+                      pointInTimeWindowHours:
+                        description: Number of hours in the past for which a point-in-time
+                          snapshot can be created.
+                        enum:
+                        - 1
+                        - 2
+                        - 3
+                        - 4
+                        - 5
+                        - 6
+                        - 7
+                        - 15
+                        - 30
+                        - 60
+                        - 90
+                        - 120
+                        - 180
+                        - 360
+                        type: integer
+                      referenceHourOfDay:
+                        description: Hour of the day to schedule snapshots using a
+                          24-hour clock, in UTC.
+                        maximum: 23
+                        minimum: 0
+                        type: integer
+                      referenceMinuteOfHour:
+                        description: Minute of the hour to schedule snapshots, in
+                          UTC.
+                        maximum: 59
+                        minimum: 0
+                        type: integer
+                      snapshotIntervalHours:
+                        description: Number of hours between snapshots.
+                        enum:
+                        - 6
+                        - 8
+                        - 12
+                        - 24
+                        type: integer
+                      snapshotRetentionDays:
+                        description: Number of days to keep recent snapshots.
+                        maximum: 365
+                        minimum: 1
+                        type: integer
+                      weeklySnapshotRetentionWeeks:
+                        description: Number of weeks to retain weekly snapshots. Setting
+                          0 will disable this rule
+                        maximum: 365
+                        minimum: 0
+                        type: integer
+                    type: object
                 type: object
               cloudManager:
                 properties:

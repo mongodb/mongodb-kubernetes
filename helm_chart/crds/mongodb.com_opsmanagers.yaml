@@ -555,9 +555,8 @@ spec:
                               url:
                                 description: 'KMIP Server url in the following format:
                                   hostname:port Valid examples are: 10.10.10.3:5696
-                                  my-kmip-server.mycorp.com:5696 my-kmip-server.mycorp.com
-                                  kmip-svc.svc.cluster.local'
-                                pattern: '[^\:]+(:[0-9]{0,5})?'
+                                  my-kmip-server.mycorp.com:5696 kmip-svc.svc.cluster.local:5696'
+                                pattern: '[^\:]+:[0-9]{0,5}'
                                 type: string
                             required:
                             - ca

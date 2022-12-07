@@ -1,9 +1,8 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
-## Improvements
-
 * Introduced the support for KMIP configuration in the backups section of Ops Manager.
+* Added `spec.backup.snapshotSchedule` object to MongoDB for configuring [backup snapshot schedule](https://www.mongodb.com/docs/ops-manager/current/reference/api/backup/update-one-snapshot-schedule-by-cluster-id/#request-body-parameters).
 
 ## Breaking changes
 
@@ -16,7 +15,6 @@
 * Fixed the OpenShift installation problem mentioned in the Enterprise Operator 1.7.1 release notes. The OLM (Operator Lifecycle Manager)
   upgrade graph will automatically skip the 1.7.1 release and perform an upgrade from 1.7.0 directly to this release.
 * Adds startup probes for database and OpsManager resources with some defaults. This improves the reliability of upgrades by ensuring things occur in the correct order. Customers can also override probe configurations with `podTemplateSpec`.
-
 # MongoDB Enterprise Kubernetes Operator 1.17.1
 
 ## Important OpenShift Warning

@@ -12,7 +12,7 @@ from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
-    KubernetesTester,
+    KubernetesTester, running_locally,
 )
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
@@ -23,7 +23,6 @@ from kubetester import (
     assert_pod_security_context,
     get_default_storage_class,
 )
-
 from tests.opsmanager.conftest import ensure_ent_version
 
 CREATE_RESOURCES = True

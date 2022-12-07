@@ -80,6 +80,7 @@ type MockedOmConnection struct {
 	BackupHostClusters      map[string]*backup.HostCluster
 	UpdateBackupStatusFunc  func(clusterId string, status backup.Status) error
 	AgentAuthMechanism      string
+	SnapshotSchedules       map[string]*backup.SnapshotSchedule
 
 	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
 	UpdateMonitoringAgentConfigFunc func(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
@@ -126,6 +127,7 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection.hostResults = buildHostsFromDeployment(d)
 	connection.BackupConfigs = make(map[string]*backup.Config)
 	connection.BackupHostClusters = make(map[string]*backup.HostCluster)
+	connection.SnapshotSchedules = make(map[string]*backup.SnapshotSchedule)
 	// By default we don't wait for agents to reach goal
 	connection.AgentsDelayCount = 0
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
@@ -498,6 +500,19 @@ func (oc *MockedOmConnection) GetControlledFeature() (*controlledfeature.Control
 
 func (oc *MockedOmConnection) GetAgentAuthMode() (string, error) {
 	return oc.AgentAuthMechanism, nil
+}
+
+func (oc *MockedOmConnection) ReadSnapshotSchedule(clusterID string) (*backup.SnapshotSchedule, error) {
+	if snapshotSchedule, ok := oc.SnapshotSchedules[clusterID]; ok {
+		return snapshotSchedule, nil
+	}
+	return nil, apierror.New(errors.New("Failed to find snapshot schedule"))
+}
+
+func (oc *MockedOmConnection) UpdateSnapshotSchedule(clusterID string, snapshotSchedule *backup.SnapshotSchedule) error {
+	oc.addToHistory(reflect.ValueOf(oc.UpdateSnapshotSchedule))
+	oc.SnapshotSchedules[clusterID] = snapshotSchedule
+	return nil
 }
 
 // ************* These are native methods of Mocked client (not implementation of OmConnection)
