@@ -139,6 +139,12 @@ class Operator(object):
 
     def _wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
+
+        # we don't want to wait for the operator if the operator is running locally and not in a pod
+        from tests.conftest import local_operator
+        if local_operator():
+            return
+
         # we need to give some time for the new pod to start instead of the existing one (if any)
         time.sleep(4)
         retry_count = retries
@@ -167,6 +173,11 @@ class Operator(object):
     def _wait_operator_webhook_is_ready(
         self, retries: int = 10, multi_cluster: bool = False
     ):
+
+        # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
+        from tests.conftest import local_operator
+        if local_operator():
+            return
 
         # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
         # so we skip this extra check for multi-cluster

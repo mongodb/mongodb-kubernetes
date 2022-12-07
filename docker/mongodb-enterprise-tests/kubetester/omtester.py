@@ -402,6 +402,12 @@ class OMTester(object):
             "get", f"/groups/{self.context.project_id}/backupConfigs"
         ).json()["results"]
 
+    def api_read_backup_snapshot_schedule(self) -> Dict:
+        backup_configs = self.api_read_backup_configs()[0]
+        return self.om_request(
+            "get", f"/groups/{self.context.project_id}/backupConfigs/{backup_configs['clusterId']}/snapshotSchedule"
+        ).json()
+
     def api_read_monitoring_measurements(
         self,
         host_id: str,

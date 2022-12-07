@@ -10,13 +10,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/hashicorp/go-retryablehttp"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
-
-	"go.uber.org/zap"
 )
 
 const (
@@ -131,7 +132,7 @@ func OptionCAValidate(ca string) func(client *Client) error {
 
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
-func (client Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
+func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
 	buffer, err := serializeToBuffer(v)
@@ -140,6 +141,7 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 	}
 
 	req, _ := createHTTPRequest(method, url, buffer)
+
 	if client.username != "" && client.password != "" {
 		// Only add Digest auth when needed.
 		err = client.authorizeRequest(method, hostname, path, req)
@@ -148,17 +150,35 @@ func (client Client) Request(method, hostname, path string, v interface{}) ([]by
 		}
 	}
 
-	if client.debug {
-		dumpRequest, _ := httputil.DumpRequest(req.Request, false)
-		zap.S().Debugf("Ops Manager request: \n %s", dumpRequest)
-	} else {
-		zap.S().Debugf("Ops Manager request: %s %s", method, url)
+	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
+		if client.debug {
+			if !strings.Contains(path, "automationConfig") {
+				dumpRequest, _ := httputil.DumpRequest(request, true)
+				zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
+			}
+		} else {
+			zap.S().Debugf("Ops Manager request: %s %s", method, url)
+		}
+	}
+
+	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
+		if client.debug {
+			if !strings.Contains(path, "automationConfig") {
+				dumpRequest, _ := httputil.DumpResponse(response, true)
+				zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpRequest)
+			}
+		}
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, apierror.New(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
 	}
+
+	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
+	// resulting in logging authorizeRequest
+	client.RequestLogHook = nil
+	client.ResponseLogHook = nil
 
 	// It is required for the body to be read completely for the connection to be reused.
 	// https://stackoverflow.com/a/17953506/75928

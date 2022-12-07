@@ -17,12 +17,15 @@ type ConfigReader interface {
 
 	// ReadBackupConfig reads an individual backup config by cluster id
 	ReadBackupConfig(clusterID string) (*Config, error)
+
+	ReadSnapshotSchedule(clusterID string) (*SnapshotSchedule, error)
 }
 
 // ConfigUpdater is something can update an existing Backup Config
 type ConfigUpdater interface {
 	UpdateBackupConfig(config *Config) (*Config, error)
 	UpdateBackupStatus(clusterID string, status Status) error
+	UpdateSnapshotSchedule(clusterID string, schedule *SnapshotSchedule) error
 }
 
 type ConfigHostReadUpdater interface {

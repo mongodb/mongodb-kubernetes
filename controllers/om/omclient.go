@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"k8s.io/utils/pointer"
 	"net/url"
 	"reflect"
@@ -797,6 +798,39 @@ func (oc *HTTPOmConnection) GetControlledFeature() (*controlledfeature.Controlle
 	return cf, nil
 }
 
+func (oc *HTTPOmConnection) ReadSnapshotSchedule(clusterID string) (*backup.SnapshotSchedule, error) {
+	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s/snapshotSchedule", oc.GroupID(), clusterID)
+	res, err := oc.get(mPath)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &backup.SnapshotSchedule{}
+	if err := json.Unmarshal(res, response); err != nil {
+		return nil, apierror.New(err)
+	}
+
+	// OM returns 0 if not set instead of null or omitted field
+	if response.ClusterCheckpointIntervalMin != nil && *response.ClusterCheckpointIntervalMin == 0 {
+		response.ClusterCheckpointIntervalMin = nil
+	}
+
+	return response, nil
+}
+
+func (oc *HTTPOmConnection) UpdateSnapshotSchedule(clusterID string, snapshotSchedule *backup.SnapshotSchedule) error {
+	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s/snapshotSchedule", oc.GroupID(), clusterID)
+	res, err := oc.patch(path, snapshotSchedule)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(res, &backup.SnapshotSchedule{}); err != nil {
+		return apierror.New(err)
+	}
+	return nil
+}
+
 //********************************** Private methods *******************************************************************
 
 func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
@@ -855,6 +889,10 @@ func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 	}
 
 	opts = append(opts, api.OptionDigestAuth(oc.PublicKey(), oc.PrivateKey()))
+
+	if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) {
+		opts = append(opts, api.OptionDebug)
+	}
 
 	client, err := api.NewHTTPClient(opts...)
 	if err != nil {

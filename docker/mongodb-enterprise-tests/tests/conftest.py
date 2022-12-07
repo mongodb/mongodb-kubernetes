@@ -351,10 +351,21 @@ def default_operator(
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
     the shared environment"""
-    return Operator(
+    operator = Operator(
         namespace=namespace,
         helm_args=operator_installation_config,
     ).upgrade()
+
+    # If we're running locally, then immediately after installing the deployment, we scale it to zero.
+    # This way operator in POD is not interfering with locally running one.
+    if local_operator():
+        client.AppsV1Api().patch_namespaced_deployment_scale(
+            namespace=namespace,
+            name=operator.name,
+            body={"spec": {"replicas": 0}},
+        )
+
+    return operator
 
 
 @fixture(scope="module")
@@ -875,3 +886,11 @@ def create_issuer(
             print("issuer already exists")
 
     return "ca-issuer"
+
+
+def local_operator():
+    """Checks if the current test run should assume that the operator is running locally, i.e. not in a pod"""
+    return os.getenv("LOCAL_OPERATOR", "") == "true"
+
+def local_test_run():
+    return os.getenv("LOCAL_TEST_RUN", "") != ""

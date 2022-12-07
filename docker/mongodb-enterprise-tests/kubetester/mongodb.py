@@ -4,7 +4,7 @@ import re
 import time
 import urllib.parse
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 
 from kubeobject import CustomObject
 from kubernetes import client
@@ -105,6 +105,14 @@ class MongoDB(CustomObject, MongoDBCommon):
             lambda s: s.get_status_phase() != phase, timeout, should_raise=True
         )
 
+    def assert_backup_reaches_status(self, expected_status: str, timeout: int = 600):
+        def reaches_backup_status(mdb: MongoDB) -> bool:
+            try:
+                return mdb["status"]["backup"]["statusName"] == expected_status
+            except KeyError:
+                return False
+        self.wait_for(reaches_backup_status, timeout=timeout)
+
     def assert_status_resource_not_ready(
         self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
     ):
@@ -199,7 +207,6 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
-
         ensure_nested_objects(self, ["spec", "backup"])
         self["spec"]["backup"]["mode"] = mode
         return self

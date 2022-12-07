@@ -484,6 +484,8 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
 
+	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(rs, client, reconciler, uuidStr))
+
 	t.Run("Backup can be stopped", func(t *testing.T) {
 		rs.Spec.Backup.Mode = "disabled"
 		err := client.Update(context.TODO(), rs)

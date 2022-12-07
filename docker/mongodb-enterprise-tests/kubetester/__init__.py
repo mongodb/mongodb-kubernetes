@@ -7,7 +7,8 @@ from typing import Any, Callable, Dict, List, Optional
 import kubernetes.client
 from kubernetes import client, utils
 
-from kubetester.kubetester import run_periodically
+from kubeobject import CustomObject
+from kubetester.kubetester import run_periodically, running_locally
 
 # Re-exports
 from .kubetester import fixture as find_fixture
@@ -314,3 +315,37 @@ def wait_until(fn: Callable[..., Any], timeout=0, **kwargs):
     Runs the Callable `fn` until timeout is reached or until it returns True.
     """
     return run_periodically(fn, timeout=timeout, **kwargs)
+
+
+def create_or_update(resource: CustomObject) -> CustomObject:
+    """
+    Tries to create the resource. If resource already exists (resulting in 409 Conflict),
+    then it updates it instead.
+    """
+    try:
+        if not resource.bound:
+            resource.create()
+        else:
+            resource.update()
+    except kubernetes.client.ApiException as e:
+        if e.status != 409:
+            raise e
+        resource.update()
+
+    return resource
+
+
+def try_load(resource: CustomObject) -> bool:
+    """
+    Tries to load the resource without raising an exception when the resource does not exist.
+    Returns False if the resource does not exist.
+    """
+    try:
+        resource.load()
+    except kubernetes.client.ApiException as e:
+        if e.status != 404:
+            raise e
+        else:
+            return True
+
+    return True

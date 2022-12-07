@@ -812,6 +812,8 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assertAllOtherBackupConfigsRemainUntouched(t)
 	})
 
+	t.Run("Backup snapshot schedule tests", backupSnapshotScheduleTests(sc, client, reconciler, "1"))
+
 	t.Run("Backup can be stopped", func(t *testing.T) {
 		sc.Spec.Backup.Mode = "disabled"
 		err := client.Update(context.TODO(), sc)

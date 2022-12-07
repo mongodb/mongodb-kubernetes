@@ -10,7 +10,7 @@ import tempfile
 import time
 import warnings
 from base64 import b64decode, b64encode
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import jsonpatch
 import kubernetes.client
@@ -118,7 +118,13 @@ class KubernetesTester(object):
         secret = cls.clients("client").V1Secret(
             metadata=cls.clients("client").V1ObjectMeta(name=name), string_data=data
         )
-        cls.clients("corev1").create_namespaced_secret(namespace, secret)
+
+        try:
+            cls.clients("corev1").create_namespaced_secret(namespace, secret)
+        except client.rest.ApiException as e:
+            if e.status == 409 and running_locally():
+                pass
+
 
     @classmethod
     def update_secret(cls, namespace: str, name: str, data: Dict[str, str]):
