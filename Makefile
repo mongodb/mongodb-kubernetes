@@ -182,6 +182,12 @@ deploy-and-configure-operator: deploy-operator configure-operator
 ensure-k8s:
 	@ scripts/dev/ensure_k8s.sh
 
+cert:
+	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca
+	@ mv ca-tls.key ca-tls.crt docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/
+	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
+	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
+	> docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
 ensure-k8s-and-reset: ensure-k8s
 	@ $(MAKE) reset
 
