@@ -1,148 +1,20 @@
+from pytest import fixture
 import pytest
 
-from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.mongotester import ShardedClusterTester
-from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.mongodb import MongoDB
-from kubernetes.client.rest import ApiException
-
-MDB_RESOURCE = "my-sharded-cluster-scram-sha-1"
-USER_NAME = "mms-user-1"
-PASSWORD_SECRET_NAME = "mms-user-1-password"
-USER_PASSWORD = "my-password"
+from tests.authentication.sha1_connectivity_tests import SHA1ConnectivityTests
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
-class TestShardedClusterCreation(KubernetesTester):
-    """
-    description: |
-      Creates a Sharded Cluster and checks everything is created as expected.
-    create:
-      file: sharded-cluster-scram-sha-1.yaml
-      wait_until: in_running_state
-    """
+class TestShardedClusterSHA1Connectivity(SHA1ConnectivityTests):
+    @fixture
+    def yaml_file(self):
+        return "sharded-cluster-scram-sha-1.yaml"
 
-    def test_sharded_cluster_connectivity(self):
-        ShardedClusterTester(MDB_RESOURCE, 2).assert_connectivity()
+    @fixture
+    def mdb_resource_name(self):
+        return "my-sharded-cluster-scram-sha-1"
 
-    def test_ops_manager_state_correctly_updated(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
-        tester.assert_authoritative_set(True)
-        tester.assert_authentication_enabled()
-        tester.assert_expected_users(0)
-
-
-@pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
-class TestCreateMongoDBUser(KubernetesTester):
-    """
-    description: |
-      Creates a MongoDBUser
-    create:
-      file: scram-sha-user.yaml
-      patch: '[{"op":"replace","path":"/spec/mongodbResourceRef/name","value": "my-sharded-cluster-scram-sha-1" }]'
-      wait_until: in_updated_state
-      timeout: 150
-    """
-
-    @classmethod
-    def setup_class(cls):
-        print(
-            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
-        )
-        KubernetesTester.create_secret(
-            KubernetesTester.get_namespace(),
-            PASSWORD_SECRET_NAME,
-            {
-                "password": USER_PASSWORD,
-            },
-        )
-        super().setup_class()
-
-    def test_create_user(self):
-        pass
-
-
-@pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
-class TestShardedClusterIsUpdatedWithNewUser(KubernetesTester):
-    def test_sharded_cluster_connectivity(self):
-        ShardedClusterTester(MDB_RESOURCE, 2).assert_connectivity()
-
-    def test_ops_manager_state_correctly_updated(self):
-        expected_roles = {
-            ("admin", "clusterAdmin"),
-            ("admin", "userAdminAnyDatabase"),
-            ("admin", "readWrite"),
-            ("admin", "userAdminAnyDatabase"),
-        }
-
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_has_user(USER_NAME)
-        tester.assert_user_has_roles(USER_NAME, expected_roles)
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
-        tester.assert_authentication_enabled()
-        tester.assert_expected_users(1)
-        tester.assert_authoritative_set(True)
-
-    def test_user_cannot_authenticate_with_incorrect_password(self):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication_fails(
-            password="invalid-password",
-            username="mms-user-1",
-            auth_mechanism="SCRAM-SHA-1",
-        )
-
-    def test_user_can_authenticate_with_correct_password(self):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication(
-            password="my-password", username="mms-user-1", auth_mechanism="SCRAM-SHA-1"
-        )
-
-
-@pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
-class TestCanChangePassword(KubernetesTester):
-    @classmethod
-    def setup_env(cls):
-        print(
-            f"updating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME}"
-        )
-        KubernetesTester.update_secret(
-            KubernetesTester.get_namespace(),
-            PASSWORD_SECRET_NAME,
-            {"password": "my-new-password"},
-        )
-
-    def test_user_cannot_authenticate_with_old_password(self):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication_fails(
-            password="my-password", username="mms-user-1", auth_mechanism="SCRAM-SHA-1"
-        )
-
-    def test_user_can_authenticate_with_new_password(self):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication(
-            password="my-new-password",
-            username="mms-user-1",
-            auth_mechanism="SCRAM-SHA-1",
-        )
-
-
-@pytest.mark.e2e_sharded_cluster_scram_sha_1_user_connectivity
-def test_authentication_is_disabled_once_resource_is_deleted(namespace: str):
-    resource = MongoDB(MDB_RESOURCE, namespace=namespace).load()
-    resource.delete()
-
-    def resource_is_deleted() -> bool:
-        try:
-            resource.load()
-            return False
-        except ApiException:
-            return True
-
-    # wait until the resource is deleted
-    run_periodically(resource_is_deleted, timeout=300)
-
-    def authentication_was_disabled() -> bool:
-        return KubernetesTester.get_automation_config()["auth"]["disabled"]
-
-    run_periodically(authentication_was_disabled, timeout=60)
+    @fixture
+    def mongo_tester(self, mdb_resource_name: str):
+        return ShardedClusterTester(mdb_resource_name, 2)

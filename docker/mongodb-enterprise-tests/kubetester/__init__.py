@@ -31,10 +31,38 @@ def create_secret(
     secret = client.V1Secret(
         metadata=client.V1ObjectMeta(name=name), string_data=data, type=type
     )
+
     client.CoreV1Api(api_client=api_client).create_namespaced_secret(namespace, secret)
 
     return name
 
+
+def create_or_update_secret(
+        namespace: str,
+        name: str,
+        data: Dict[str, str],
+        type: Optional[str] = "Opaque",
+        api_client: Optional[client.ApiClient] = None,
+) -> str:
+    try:
+        create_secret(namespace, name, data, type, api_client)
+    except kubernetes.client.ApiException as e:
+        if e.status == 409:
+            update_secret(namespace, name, data, api_client)
+
+    return name
+
+
+def update_secret(namespace: str, name: str, data: Dict[str, str], api_client: Optional[client.ApiClient] = None):
+    """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
+    secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
+    client.CoreV1Api(api_client=api_client).patch_namespaced_secret(name, namespace, secret)
+
+
+def delete_secret(
+        namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
+):
+    client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
 
 def create_service_account(namespace: str, name: str) -> str:
     """Creates a service account with `name` in `namespace`"""
@@ -149,22 +177,6 @@ def read_configmap(
         api_client: Optional[client.ApiClient] = None,
 ) -> Dict[str, str]:
     return client.CoreV1Api(api_client=api_client).read_namespaced_config_map(name, namespace).data
-
-
-def update_secret(namespace: str, name: str, data: Dict[str, str]):
-    """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
-    secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
-    client.CoreV1Api().patch_namespaced_secret(name, namespace, secret)
-
-
-def delete_secret(namespace: str, name: str):
-    client.CoreV1Api().delete_namespaced_secret(name, namespace)
-
-
-def delete_secret(
-    namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
-):
-    client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
 
 
 def delete_pod(
