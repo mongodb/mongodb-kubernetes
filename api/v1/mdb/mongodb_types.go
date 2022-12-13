@@ -385,13 +385,24 @@ type Backup struct {
 	// Encryption settings
 	// +optional
 	Encryption *Encryption `json:"encryption,omitempty"`
+
+	// Assignment Labels set in the Ops Manager
+	// +optional
+	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 }
 
-func (s *MongoDbSpec) IsKmipEnabled() bool {
-	if s.Backup == nil || s.Backup.Encryption == nil || s.Backup.Encryption.Kmip == nil {
+func (s *Backup) IsKmipEnabled() bool {
+	if s.Encryption == nil || s.Encryption.Kmip == nil {
 		return false
 	}
 	return true
+}
+
+func (m *Backup) GetKmip() *KmipConfig {
+	if !m.IsKmipEnabled() {
+		return nil
+	}
+	return m.Encryption.Kmip
 }
 
 // Encryption contains encryption settings

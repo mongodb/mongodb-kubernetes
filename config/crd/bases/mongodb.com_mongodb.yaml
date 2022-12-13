@@ -70,6 +70,11 @@ spec:
                 description: Backup contains configuration options for configuring
                   backup for this MongoDB resource
                 properties:
+                  assignmentLabels:
+                    description: Assignment Labels set in the Ops Manager
+                    items:
+                      type: string
+                    type: array
                   autoTerminateOnDeletion:
                     description: AutoTerminateOnDeletion indicates if the Operator
                       should stop and terminate the Backup before the cleanup, when

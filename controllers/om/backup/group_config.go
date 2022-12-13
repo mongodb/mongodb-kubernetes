@@ -37,12 +37,12 @@ type SnapshotStoreFilter struct {
 // GroupBackupConfig corresponds to the "Project Backup Jobs Configuration" from Ops Manager
 // See: https://www.mongodb.com/docs/ops-manager/v6.0/reference/api/admin/backup/groups/update-one-backup-group-configuration/
 type GroupBackupConfig struct {
-	DaemonFilter           *[]DaemonFilter        `json:"daemonFilter,omitempty"`
-	Id                     *string                `json:"id,omitempty"`
-	KmipClientCertPassword *string                `json:"kmipClientCertPassword,omitempty"`
-	KmipClientCertPath     *string                `json:"kmipClientCertPath,omitempty"`
-	LabelFilter            *[]string              `json:"labelFilter,omitempty"`
-	OplogStoreFilter       *[]OplogStoreFilter    `json:"oplogStoreFilter,omitempty"`
-	SnapshotStoreFilter    *[]SnapshotStoreFilter `json:"snapshotStoreFilter,omitempty"`
-	SyncStoreFilter        *[]string              `json:"syncStoreFilter,omitempty"`
+	DaemonFilter           []DaemonFilter        `json:"daemonFilter,omitempty"`
+	Id                     *string               `json:"id,omitempty"`
+	KmipClientCertPassword *string               `json:"kmipClientCertPassword,omitempty"`
+	KmipClientCertPath     *string               `json:"kmipClientCertPath,omitempty"`
+	LabelFilter            []string              `json:"labelFilter"`
+	OplogStoreFilter       []OplogStoreFilter    `json:"oplogStoreFilter,omitempty"`
+	SnapshotStoreFilter    []SnapshotStoreFilter `json:"snapshotStoreFilter,omitempty"`
+	SyncStoreFilter        []string              `json:"syncStoreFilter,omitempty"`
 }

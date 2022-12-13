@@ -230,6 +230,10 @@ type MongoDBOpsManagerBackup struct {
 	// +kubebuilder:validation:Minimum=1
 	Members int `json:"members,omitempty"`
 
+	// Assignment Labels set in the Ops Manager
+	// +optional
+	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
+
 	// HeadDB specifies configuration options for the HeadDB
 	HeadDB    *mdbv1.PersistenceConfig `json:"headDB,omitempty"`
 	JVMParams []string                 `json:"jvmParameters,omitempty"`
@@ -318,6 +322,9 @@ type DataStoreConfig struct {
 	Name               string                    `json:"name"`
 	MongoDBResourceRef userv1.MongoDBResourceRef `json:"mongodbResourceRef"`
 	MongoDBUserRef     *MongoDBUserRef           `json:"mongodbUserRef,omitempty"`
+	// Assignment Labels set in the Ops Manager
+	// +optional
+	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 }
 
 func (f DataStoreConfig) Identifier() interface{} {
@@ -345,6 +352,9 @@ type S3Config struct {
 	// S3 snapshot store. For more details refer this: https://aws.amazon.com/blogs/opensource/introducing-fine-grained-iam-roles-service-accounts/
 	// +optional
 	IRSAEnabled bool `json:"irsaEnabled"`
+	// Assignment Labels set in the Ops Manager
+	// +optional
+	AssignmentLabels []string `json:"assignmentLabels"`
 }
 
 func (s S3Config) Identifier() interface{} {

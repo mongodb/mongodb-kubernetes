@@ -102,8 +102,11 @@ type OpsManagerAdmin interface {
 	// ReadDaemonConfig returns the daemon config by hostname and head db path
 	ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error)
 
+	// UpdateDaemonConfig updates the daemon config
+	UpdateDaemonConfig(backup.DaemonConfig) error
+
 	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
-	CreateDaemonConfig(hostName, headDbDir string) error
+	CreateDaemonConfig(hostName, headDbDir string, assignmentLabels []string) error
 
 	// ReadFileSystemStoreConfigs reads the FileSystemSnapshot store by its ID
 	ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error)
@@ -149,8 +152,16 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Da
 	return *daemonConfig, nil
 }
 
-func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
-	config := backup.NewDaemonConfig(hostName, headDbDir)
+func (a *DefaultOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
+	_, _, err := a.put("admin/backup/daemon/configs/%s/%s", config, url.QueryEscape(config.Machine.MachineHostName), url.QueryEscape(config.Machine.HeadRootDirectory))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignmentLabels []string) error {
+	config := backup.NewDaemonConfig(hostName, headDbDir, assignmentLabels)
 	// dev note, for creation we don't specify the second path parameter (head db) - it's used only during update
 	_, _, err := a.put("admin/backup/daemon/configs/%s", config, hostName)
 	if err != nil {

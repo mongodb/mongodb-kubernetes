@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"reflect"
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -726,7 +727,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(opsManager 
 	}
 
 	for _, m := range mdbList.Items {
-		if m.Spec.IsKmipEnabled() {
+		if m.Spec.Backup != nil && m.Spec.Backup.IsKmipEnabled() {
 			r.AddWatchedResourceIfNotAdded(
 				m.Name,
 				m.Namespace,
@@ -1082,11 +1083,11 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 	// 1. Enabling Daemon Config if necessary
 	backupHostNames := opsManager.BackupDaemonFQDNs()
 	for _, hostName := range backupHostNames {
-		_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
+		dc, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
 		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
 			log.Infow("Backup Daemons is not configured, enabling it", "hostname", hostName, "headDB", util.PvcMountPathHeadDb)
 
-			err = omAdmin.CreateDaemonConfig(hostName, util.PvcMountPathHeadDb)
+			err = omAdmin.CreateDaemonConfig(hostName, util.PvcMountPathHeadDb, opsManager.Spec.Backup.AssignmentLabels)
 			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
 				// Unfortunately by this time backup daemon may not have been started yet and we don't have proper
 				// mechanism to ensure this using readiness probe so we just retry
@@ -1096,6 +1097,17 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 			}
 		} else if err != nil {
 			return workflow.Failed(err.Error())
+		} else {
+			// The Assignment Labels are the only thing that can change at the moment.
+			// If we add new features for controlling the Backup Daemons, we may want
+			// to compare the whole backup.DaemonConfig objects.
+			if !reflect.DeepEqual(opsManager.Spec.Backup.AssignmentLabels, dc.Labels) {
+				dc.Labels = opsManager.Spec.Backup.AssignmentLabels
+				err = omAdmin.UpdateDaemonConfig(dc)
+				if err != nil {
+					return workflow.Failed(err.Error())
+				}
+			}
 		}
 	}
 
@@ -1603,7 +1615,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 
 	tls := mongodb.Spec.Security.TLSConfig.Enabled
 	mongoUri := mongodb.BuildConnectionString(userName, password, connectionstring.SchemeMongoDB, map[string]string{})
-	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls), workflow.OK()
+	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls, operatorConfig.AssignmentLabels), workflow.OK()
 }
 
 func validateS3Config(mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {

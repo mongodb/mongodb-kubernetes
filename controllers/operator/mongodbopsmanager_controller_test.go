@@ -535,6 +535,41 @@ func TestOpsManagerBackupDaemonHostName(t *testing.T) {
 		DefaultOpsManagerBuilder().SetBackupMembers(3).Build().BackupDaemonHostNames())
 }
 
+func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
+	// given
+	assignmentLabels := []string{"test"}
+
+	testOm := DefaultOpsManagerBuilder().
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3Config("s3-config", "s3-secret").
+		Build()
+
+	testOm.Spec.Backup.AssignmentLabels = assignmentLabels
+	testOm.Spec.Backup.OplogStoreConfigs[0].AssignmentLabels = assignmentLabels
+	testOm.Spec.Backup.BlockStoreConfigs[0].AssignmentLabels = assignmentLabels
+	testOm.Spec.Backup.S3Configs[0].AssignmentLabels = assignmentLabels
+
+	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
+	configureBackupResources(client, testOm)
+
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey")
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	// when
+	reconciler.prepareBackupInOpsManager(testOm, mockedAdmin, zap.S())
+	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
+	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
+	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	daemonConfigs, _ := mockedAdmin.(*api.MockedOmAdmin).ReadDaemonConfigs()
+
+	// then
+	assert.Equal(t, assignmentLabels, blockStoreConfigs[0].Labels)
+	assert.Equal(t, assignmentLabels, oplogConfigs[0].Labels)
+	assert.Equal(t, assignmentLabels, s3Configs[0].Labels)
+	assert.Equal(t, assignmentLabels, daemonConfigs[0].Labels)
+}
+
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
