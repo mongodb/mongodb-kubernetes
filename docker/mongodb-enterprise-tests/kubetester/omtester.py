@@ -360,6 +360,12 @@ class OMTester(object):
             )
         return group_id
 
+    def api_backup_group(self):
+        group_id = self.find_group_id()
+        return self.om_request(
+            "get", f"/admin/backup/groups/{self.context.project_id}"
+        ).json()
+
     def api_get_om_version(self) -> str:
         # This can be any API request - we just need the header in the response
         response = self.om_request(

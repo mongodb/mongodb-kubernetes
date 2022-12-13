@@ -8,6 +8,7 @@ type DaemonConfig struct {
 	GarbageCollectionEnabled    bool          `json:"garbageCollectionEnabled"`
 	RestoreQueryableJobsEnabled bool          `json:"restoreQueryableJobsEnabled"`
 	Configured                  bool          `json:"configured"`
+	Labels                      []string      `json:"labels"`
 }
 
 type MachineConfig struct {
@@ -16,13 +17,14 @@ type MachineConfig struct {
 }
 
 // NewDaemonConfig creates the 'DaemonConfig' fully initialized
-func NewDaemonConfig(hostName, headDbDir string) DaemonConfig {
+func NewDaemonConfig(hostName, headDbDir string, assignmentLabels []string) DaemonConfig {
 	return DaemonConfig{
 		Machine: MachineConfig{
 			HeadRootDirectory: headDbDir,
 			MachineHostName:   hostName,
 		},
 		AssignmentEnabled:           true,
+		Labels:                      assignmentLabels,
 		BackupJobsEnabled:           true,
 		ResourceUsageEnabled:        true,
 		GarbageCollectionEnabled:    true,

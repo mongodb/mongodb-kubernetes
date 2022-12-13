@@ -24,13 +24,13 @@ type DataStoreConfig struct {
 	UsedSize             int64    `json:"usedSize,omitempty"`
 	AssignmentEnabled    bool     `json:"assignmentEnabled,omitempty"`
 	MaxCapacityGB        int64    `json:"maxCapacityGB,omitempty"`
-	Labels               []string `json:"labels,omitempty"`
+	Labels               []string `json:"labels"`
 	EncryptedCredentials bool     `json:"encryptedCredentials,omitempty"`
 }
 
 // NewDataStoreConfig returns the new 'DataStoreConfig' object initializing the default values
-func NewDataStoreConfig(id, uri string, tls bool) DataStoreConfig {
-	return DataStoreConfig{
+func NewDataStoreConfig(id, uri string, tls bool, assignmentLabels []string) DataStoreConfig {
+	ret := DataStoreConfig{
 		Id:     id,
 		Uri:    uri,
 		UseSSL: tls,
@@ -38,6 +38,13 @@ func NewDataStoreConfig(id, uri string, tls bool) DataStoreConfig {
 		// Default values
 		AssignmentEnabled: true,
 	}
+
+	// The assignment labels has been set in the CR - so the CR becomes a source of truth for them
+	if assignmentLabels != nil {
+		ret.Labels = assignmentLabels
+	}
+
+	return ret
 }
 
 func (s DataStoreConfig) Identifier() interface{} {
@@ -50,6 +57,7 @@ func (s DataStoreConfig) MergeIntoOpsManagerConfig(opsManagerConfig DataStoreCon
 	opsManagerConfig.Id = s.Id
 	opsManagerConfig.Uri = s.Uri
 	opsManagerConfig.UseSSL = s.UseSSL
+	opsManagerConfig.Labels = s.Labels
 	return opsManagerConfig
 }
 

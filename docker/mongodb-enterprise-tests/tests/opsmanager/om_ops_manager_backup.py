@@ -1,5 +1,5 @@
 from operator import attrgetter
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict
 
 from kubernetes import client
 from kubernetes.client import ApiException
@@ -20,6 +20,7 @@ from kubetester.kubetester import (
 )
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.test_identifiers import set_test_identifier
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
@@ -637,6 +638,57 @@ class TestBackupForMongodb:
 @mark.e2e_om_ops_manager_backup
 class TestBackupSnapshotSchedule(BackupSnapshotScheduleTests):
     pass
+
+
+@mark.e2e_om_ops_manager_backup
+class TestAssignmentLabels:
+
+    @fixture(scope="class")
+    def project_name(self):
+        return "mdb-assignment-labels"
+
+    @fixture(scope="class")
+    def mdb_assignment_labels(self, ops_manager: MongoDBOpsManager, namespace, project_name, custom_mdb_version: str):
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name=project_name,
+        ).configure(ops_manager, project_name)
+        resource["spec"]["members"] = 1
+        resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+        resource["spec"]["backup"] = {}
+        resource["spec"]["backup"]["assignmentLabels"] = ["test"]
+        resource.configure_backup(mode="enabled")
+        return create_or_update(resource)
+
+    @fixture(scope="class")
+    def mdb_assignment_labels_om_tester(self, ops_manager: MongoDBOpsManager, project_name: str) -> OMTester:
+        ops_manager.load()
+        return ops_manager.get_om_tester(project_name=project_name)
+
+    def test_add_assignment_labels_to_the_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        ops_manager["spec"]["backup"]["assignmentLabels"] = ["test"]
+        ops_manager["spec"]["backup"]["blockStores"][0]["assignmentLabels"] = ["test"]
+        ops_manager["spec"]["backup"]["opLogStores"][0]["assignmentLabels"] = ["test"]
+        ops_manager["spec"]["backup"]["s3Stores"][0]["assignmentLabels"] = ["test"]
+
+        ops_manager.update()
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
+
+    def test_mdb_assignment_labels_created(self, mdb_assignment_labels: MongoDB):
+        # In order to configure backup on the project level, the labels
+        # on both Backup Daemons and project need to match. Otherwise, this will fail.
+        mdb_assignment_labels.assert_reaches_phase(Phase.Running, ignore_errors=True)
+
+    def test_assignment_labels_in_om(self, mdb_assignment_labels_om_tester: OMTester):
+        # Those labels are set on the Ops Manager CR level
+        mdb_assignment_labels_om_tester.api_read_backup_configs()
+        mdb_assignment_labels_om_tester.assert_s3_stores([{"id": "s3Store1", "labels": ["test"]}])
+        mdb_assignment_labels_om_tester.assert_oplog_stores([{"id": "oplog1", "labels": ["test"]}])
+        mdb_assignment_labels_om_tester.assert_block_stores([{"id": "blockStore1", "labels": ["test"]}])
+        # This one is set on the MongoDB CR level
+        assert mdb_assignment_labels_om_tester.api_backup_group()["labelFilter"] == ["test"]
 
 
 @mark.e2e_om_ops_manager_backup

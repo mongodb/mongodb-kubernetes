@@ -113,7 +113,7 @@ func WithKmipConfig(opsManager omv1.MongoDBOpsManager, client kubernetesClient.C
 			// would require syncing secrets across namespaces.
 			// I'm not adding any namespace validation, and we'll let the user handle such synchronization as
 			// the backup Daemon will hang in Pending until the secret is provided.
-			if m.Spec.IsKmipEnabled() {
+			if m.Spec.Backup != nil && m.Spec.Backup.IsKmipEnabled() {
 				c := m.Spec.Backup.Encryption.Kmip.Client
 				config := KmipClientConfiguration{
 					ClientCertificateSecretName: c.ClientCertificateSecretName(m.GetName()),

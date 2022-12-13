@@ -51,14 +51,12 @@ func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, secretsReade
 }
 
 func ensureGroupConfig(mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
-	if mdb.GetBackupSpec() == nil || mdb.GetBackupSpec().Encryption == nil {
+	if mdb.GetBackupSpec() == nil || (mdb.GetBackupSpec().AssignmentLabels == nil && mdb.GetBackupSpec().Encryption == nil) {
 		return nil
 	}
 
-	kmip := mdb.GetBackupSpec().Encryption.Kmip
-	if kmip == nil {
-		return nil
-	}
+	assignmentLabels := mdb.GetBackupSpec().AssignmentLabels
+	kmip := mdb.GetBackupSpec().GetKmip()
 
 	config, err := reader.ReadGroupBackupConfig()
 	if err != nil {
@@ -67,25 +65,34 @@ func ensureGroupConfig(mdb ConfigReaderUpdater, secretsReader secrets.SecretClie
 
 	requiresUpdate := false
 
-	desiredPath := util.KMIPClientSecretsHome + "/" + kmip.Client.ClientCertificateSecretName(mdb.GetName()) + kmip.Client.ClientCertificateSecretKeyName()
-	if config.KmipClientCertPath == nil || desiredPath != *config.KmipClientCertPath {
-		config.KmipClientCertPath = &desiredPath
-		requiresUpdate = true
-	}
-
-	// The password is optional, so we propagate the error only if something abnormal happens
-	kmipPasswordSecret, err := secretsReader.GetSecret(types.NamespacedName{
-		Namespace: kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
-		Name:      mdb.GetNamespace(),
-	})
-	if err == nil {
-		desiredPassword := string(kmipPasswordSecret.Data[kmip.Client.ClientCertificatePasswordKeyName()])
-		if config.KmipClientCertPassword == nil || desiredPassword != *config.KmipClientCertPassword {
-			config.KmipClientCertPassword = &desiredPassword
+	if kmip != nil {
+		desiredPath := util.KMIPClientSecretsHome + "/" + kmip.Client.ClientCertificateSecretName(mdb.GetName()) + kmip.Client.ClientCertificateSecretKeyName()
+		if config.KmipClientCertPath == nil || desiredPath != *config.KmipClientCertPath {
+			config.KmipClientCertPath = &desiredPath
 			requiresUpdate = true
 		}
-	} else if !apiErrors.IsNotFound(err) {
-		return err
+
+		// The password is optional, so we propagate the error only if something abnormal happens
+		kmipPasswordSecret, err := secretsReader.GetSecret(types.NamespacedName{
+			Namespace: kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
+			Name:      mdb.GetNamespace(),
+		})
+		if err == nil {
+			desiredPassword := string(kmipPasswordSecret.Data[kmip.Client.ClientCertificatePasswordKeyName()])
+			if config.KmipClientCertPassword == nil || desiredPassword != *config.KmipClientCertPassword {
+				config.KmipClientCertPassword = &desiredPassword
+				requiresUpdate = true
+			}
+		} else if !apiErrors.IsNotFound(err) {
+			return err
+		}
+	}
+
+	if assignmentLabels != nil {
+		if config.LabelFilter == nil || !reflect.DeepEqual(config.LabelFilter, assignmentLabels) {
+			config.LabelFilter = mdb.GetBackupSpec().AssignmentLabels
+			requiresUpdate = true
+		}
 	}
 
 	if requiresUpdate {

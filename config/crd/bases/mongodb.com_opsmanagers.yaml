@@ -503,6 +503,11 @@ spec:
               backup:
                 description: Backup
                 properties:
+                  assignmentLabels:
+                    description: Assignment Labels set in the Ops Manager
+                    items:
+                      type: string
+                    type: array
                   blockStores:
                     items:
                       description: DataStoreConfig is the description of the config
@@ -510,6 +515,11 @@ spec:
                         Optionally references the user if the Mongodb is configured
                         with authentication
                       properties:
+                        assignmentLabels:
+                          description: Assignment Labels set in the Ops Manager
+                          items:
+                            type: string
+                          type: array
                         mongodbResourceRef:
                           properties:
                             name:
@@ -606,6 +616,11 @@ spec:
                         Optionally references the user if the Mongodb is configured
                         with authentication
                       properties:
+                        assignmentLabels:
+                          description: Assignment Labels set in the Ops Manager
+                          items:
+                            type: string
+                          type: array
                         mongodbResourceRef:
                           properties:
                             name:
@@ -644,6 +659,11 @@ spec:
                       store configs used for backup.
                     items:
                       properties:
+                        assignmentLabels:
+                          description: Assignment Labels set in the Ops Manager
+                          items:
+                            type: string
+                          type: array
                         customCertificate:
                           description: Set this to "true" when you have custom certificates
                             for your S3 buckets
@@ -697,6 +717,11 @@ spec:
                   s3Stores:
                     items:
                       properties:
+                        assignmentLabels:
+                          description: Assignment Labels set in the Ops Manager
+                          items:
+                            type: string
+                          type: array
                         customCertificate:
                           description: Set this to "true" when you have custom certificates
                             for your S3 buckets

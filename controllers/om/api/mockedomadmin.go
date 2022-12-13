@@ -37,6 +37,16 @@ type MockedOmAdmin struct {
 	apiKeys                []Key
 }
 
+func (a *MockedOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
+	for _, dc := range a.daemonConfigs {
+		if dc.Machine.MachineHostName == config.Machine.HeadRootDirectory {
+			dc.AssignmentEnabled = config.AssignmentEnabled
+			return nil
+		}
+	}
+	return apierror.NewErrorWithCode(apierror.BackupDaemonConfigNotFound)
+}
+
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
 // if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
 func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) OpsManagerAdmin {
@@ -58,11 +68,19 @@ func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) OpsMana
 	return CurrMockedAdmin
 }
 
+func (a *MockedOmAdmin) Reset() {
+	NewMockedAdminProvider(a.BaseURL, a.PublicKey, a.PrivateKey)
+}
+
 // NewMockedAdmin creates an empty mocked om admin. This must be called by tests when the Om controller is created to
 // make sure the state is cleaned
 func NewMockedAdmin() *MockedOmAdmin {
 	CurrMockedAdmin = &MockedOmAdmin{}
 	return CurrMockedAdmin
+}
+
+func (a *MockedOmAdmin) ReadDaemonConfigs() ([]backup.DaemonConfig, error) {
+	return a.daemonConfigs, nil
 }
 
 func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error) {
@@ -74,8 +92,8 @@ func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Dae
 	return backup.DaemonConfig{}, apierror.NewErrorWithCode(apierror.BackupDaemonConfigNotFound)
 }
 
-func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string) error {
-	config := backup.NewDaemonConfig(hostName, headDbDir)
+func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignmentLabels []string) error {
+	config := backup.NewDaemonConfig(hostName, headDbDir, assignmentLabels)
 
 	for _, dConf := range a.daemonConfigs {
 		// Ops Manager should never be performing Update Operations, only Creations

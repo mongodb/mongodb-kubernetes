@@ -49,7 +49,7 @@ type S3Config struct {
 	// fields the operator will not configure. All of these can be changed via the UI and the operator
 	// will not reset their values on reconciliation
 	EncryptedCredentials bool     `json:"encryptedCredentials"`
-	Labels               []string `json:"labels,omitempty"`
+	Labels               []string `json:"labels"`
 	LoadFactor           int      `json:"loadFactor,omitempty"`
 
 	AuthMethod string `json:"s3AuthMethod"`
@@ -115,7 +115,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri 
 		Id:                     s3Config.Name,
 		Uri:                    uri,
 		MaxConnections:         util.DefaultS3MaxConnections, // can be configured in UI
-		Labels:                 []string{},
+		Labels:                 s3Config.AssignmentLabels,
 		EncryptedCredentials:   false,
 		PathStyleAccessEnabled: true,
 		AuthMethod:             string(authMode),
@@ -152,6 +152,7 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.PathStyleAccessEnabled = s.PathStyleAccessEnabled
 	opsManagerS3Config.Uri = s.Uri
 	opsManagerS3Config.S3RegionOverride = s.S3RegionOverride
+	opsManagerS3Config.Labels = s.Labels
 	return opsManagerS3Config
 }
 

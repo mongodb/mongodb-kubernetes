@@ -2,6 +2,7 @@
 <!-- Next Release -->
 
 * Introduced the support for KMIP configuration in the backups section of Ops Manager.
+* Introduced the support for Backup Assignment Labels in both MongoDB and OpsManager Custom Resources.
 * Added `spec.backup.snapshotSchedule` object to MongoDB for configuring [backup snapshot schedule](https://www.mongodb.com/docs/ops-manager/current/reference/api/backup/update-one-snapshot-schedule-by-cluster-id/#request-body-parameters).
 
 ## Breaking changes
