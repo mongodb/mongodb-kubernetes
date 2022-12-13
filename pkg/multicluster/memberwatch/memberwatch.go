@@ -80,7 +80,7 @@ func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watc
 
 				if shouldAddFailedClusterAnnotation(mdbm.Annotations, k) && multicluster.ShouldPerformFailover() {
 					log.Infof("Enqueuing resource: %s, because cluster %s has failed healthcheck", mdbm.Name, k)
-					err := addFailoverAnnotation(mdbm, k, centralClient)
+					err := AddFailoverAnnotation(mdbm, k, centralClient)
 					if err != nil {
 						log.Errorf("Failed to add failover annotation to the mdbm resource: %s, error: %s", mdbm.Name, err)
 					}
@@ -167,9 +167,9 @@ func distributeFailedMemebers(clusters []mdbmulti.ClusterSpecItem, clustername s
 	return clusters
 }
 
-// addFailoverAnnotation adds the failed cluster spec to the annotation of the MongoDBMulti CR for it to be used
+// AddFailoverAnnotation adds the failed cluster spec to the annotation of the MongoDBMulti CR for it to be used
 // while performing the reconcilliation
-func addFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
+func AddFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}

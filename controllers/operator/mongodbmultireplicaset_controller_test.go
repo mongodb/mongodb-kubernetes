@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
 
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -739,6 +742,51 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 		assert.Equal(t, uuidStr, config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
+}
+
+func TestMultiClusterFailover(t *testing.T) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+
+	reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	// trigger failover by adding an annotation to the CR
+	// read the first cluster from the clusterSpec list and fail it over.
+	expectedNodeCount := 0
+	for _, e := range mrs.Spec.ClusterSpecList.ClusterSpecs {
+		expectedNodeCount += e.Members
+	}
+
+	cluster := mrs.Spec.ClusterSpecList.ClusterSpecs[0]
+	failedClusters := []failedcluster.FailedCluster{{ClusterName: cluster.ClusterName, Members: cluster.Members}}
+
+	clusterSpecBytes, err := json.Marshal(failedClusters)
+	assert.NoError(t, err)
+
+	mrs.SetAnnotations(map[string]string{failedcluster.FailedClusterAnnotation: string(clusterSpecBytes)})
+
+	err = client.Update(context.TODO(), mrs)
+	assert.NoError(t, err)
+
+	os.Setenv("PERFORM_FAILOVER", "true")
+	defer os.Unsetenv("PERFORM_FAILOVER")
+
+	memberwatch.AddFailoverAnnotation(*mrs, cluster.ClusterName, client)
+
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	// assert the statefulset member count in the healthy cluster is same as the initial count
+	statefulSets := readStatefulSets(mrs, memberClusters)
+	currentNodeCount := 0
+
+	// only 2 clusters' statefulsets should be fetched since the first cluster has been failed-over
+	assert.Equal(t, 2, len(statefulSets))
+
+	for _, s := range statefulSets {
+		currentNodeCount += int(*s.Spec.Replicas)
+	}
+
+	assert.Equal(t, expectedNodeCount, currentNodeCount)
 }
 
 func assertClusterpresent(t *testing.T, m map[string]int, specs []mdbmulti.ClusterSpecItem, arr []int) {
