@@ -10,16 +10,16 @@ set -Eeou pipefail
 use_jq="$(command -v jq)"
 
 # log stdout as structured json with given log type
-json_log () {
-  if [ "$use_jq" ]; then
-    jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}";
-  else
-    echo "$1"
-  fi
+json_log() {
+    if [ "$use_jq" ]; then
+        jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
+    else
+        echo "$1"
+    fi
 }
 
 # log a given message in json format
-script_log () {
+script_log() {
     echo "$1" | json_log 'agent-launcher-script'
 }
 
@@ -27,7 +27,7 @@ script_log () {
 # mongodb) receive the signal. For MongoDB this results in graceful shutdown of replication (starting from 4.0.9) which may
 # take some time. The script waits for all the processes to finish, otherwise the container would terminate as Kubernetes
 # waits only for the process with pid #1 to end
-cleanup () {
+cleanup() {
     # Important! Keep this in sync with DefaultPodTerminationPeriodSeconds constant from constants.go
     termination_timeout_seconds=600
 
@@ -48,7 +48,7 @@ cleanup () {
 }
 
 # ensure_certs_symlinks function checks if certificates and CAs are mounted and creates symlinks to them
-ensure_certs_symlinks () {
+ensure_certs_symlinks() {
     # the paths inside the pod. Move to parameters if multiple usage is needed
     secrets_dir="/var/lib/mongodb-automation/secrets"
     custom_ca_dir="${secrets_dir}/ca"
@@ -63,25 +63,25 @@ ensure_certs_symlinks () {
             exit 1
         fi
 
-        ln -s "${secrets_dir}/certs/${podname}-pem" "${pod_secrets_dir}/server.pem"
+        ln -sf "${secrets_dir}/certs/${podname}-pem" "${pod_secrets_dir}/server.pem"
     fi
 
     if [ -d "${custom_ca_dir}" ]; then
         if [ -f "${custom_ca_dir}/ca-pem" ]; then
             script_log "Using CA file provided by user"
-            ln -s "${custom_ca_dir}/ca-pem" "${pod_secrets_dir}/ca.pem"
+            ln -sf "${custom_ca_dir}/ca-pem" "${pod_secrets_dir}/ca.pem"
         else
             script_log "Could not find CA file. The name of the entry on the Secret object should be 'ca-pem'"
             exit 1
         fi
     else
         script_log "Using Kubernetes CA file"
-        ln -s "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "${pod_secrets_dir}/ca.pem"
+        ln -sf "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "${pod_secrets_dir}/ca.pem"
     fi
 }
 
 # download_agent function downloads and unpacks the Mongodb Agent
-download_agent () {
+download_agent() {
     script_log "Downloading a Mongodb Agent from ${base_url:?}"
     pushd /tmp >/dev/null
 
@@ -101,9 +101,9 @@ download_agent () {
         curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
-    if ! curl "${curl_opts[@]}" &> "${MMS_LOG_DIR}/agent-launcher-script.log"; then
+    if ! curl "${curl_opts[@]}" &>"${MMS_LOG_DIR}/agent-launcher-script.log"; then
         script_log "Error while downloading the Mongodb agent"
-        json_log 'agent-launcher-script' < "${MMS_LOG_DIR}/agent-launcher-script.log"
+        json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/agent-launcher-script.log"
         exit 1
     fi
 
@@ -111,7 +111,7 @@ download_agent () {
     tar -xzf automation-agent.tar.gz
     AGENT_VERSION=$(find . -name "mongodb-mms-automation-agent-*" | awk -F"-" '{ print $5 }')
     mkdir -p "${MMS_HOME}/files"
-    echo "${AGENT_VERSION}" > "${MMS_HOME}/files/agent-version"
+    echo "${AGENT_VERSION}" >"${MMS_HOME}/files/agent-version"
     mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent "${MMS_HOME}/files/"
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
     rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
@@ -119,33 +119,27 @@ download_agent () {
     popd >/dev/null
 }
 #https://stackoverflow.com/a/4025065/614239
-compare_versions () {
+compare_versions() {
     # shellcheck disable=SC2053
-    if [[ $1 == $2 ]]
-    then
+    if [[ $1 == $2 ]]; then
         return 0
     fi
     local IFS=.
     # shellcheck disable=SC2206
     local i ver1=($1) ver2=($2)
     # fill empty fields in ver1 with zeros
-    for ((i=${#ver1[@]}; i<${#ver2[@]}; i++))
-    do
+    for ((i = ${#ver1[@]}; i < ${#ver2[@]}; i++)); do
         ver1[i]=0
     done
-    for ((i=0; i<${#ver1[@]}; i++))
-    do
-        if [[ -z ${ver2[i]} ]]
-        then
+    for ((i = 0; i < ${#ver1[@]}; i++)); do
+        if [[ -z ${ver2[i]} ]]; then
             # fill empty fields in ver2 with zeros
             ver2[i]=0
         fi
-        if ((10#${ver1[i]} > 10#${ver2[i]}))
-        then
+        if ((10#${ver1[i]} > 10#${ver2[i]})); then
             return 1
         fi
-        if ((10#${ver1[i]} < 10#${ver2[i]}))
-        then
+        if ((10#${ver1[i]} < 10#${ver2[i]})); then
             return 2
         fi
     done
