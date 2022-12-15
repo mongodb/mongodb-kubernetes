@@ -176,12 +176,11 @@ def issuer(cert_manager: str, namespace: str) -> str:
 @fixture(scope="module")
 def multi_cluster_ldap_issuer(
     cert_manager: str,
-    namespace: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
 
     member_cluster_one = member_cluster_clients[0]
-    return create_issuer(cert_manager, namespace, member_cluster_one.api_client)
+    return create_issuer(cert_manager, "openldap", member_cluster_one.api_client)
 
 
 @fixture(scope="module")
