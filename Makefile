@@ -361,3 +361,8 @@ bundle-build:
 .PHONY: bundle-push
 bundle-push:
 	scripts/evergreen/operator-sdk/bundle-push.sh
+
+.PHONY: dockerfiles
+dockerfiles:
+	python scripts/update_supported_dockerfiles.py
+	tar -czvf ./public/dockerfiles-$(VERSION).tgz ./public/dockerfiles
