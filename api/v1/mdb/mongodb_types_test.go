@@ -47,6 +47,9 @@ func TestGetAgentAuthentication(t *testing.T) {
 	sec.Authentication.Modes = append(sec.Authentication.Modes, util.SCRAM)
 	assert.Equal(t, util.SCRAM, sec.GetAgentMechanism("SCRAM-SHA-256"), "if scram was enabled, scram will be chosen")
 
+	sec.Authentication.Modes = append(sec.Authentication.Modes, util.SCRAMSHA1)
+	assert.Equal(t, util.SCRAM, sec.GetAgentMechanism("SCRAM-SHA-256"), "Adding SCRAM-SHA-1 doesn't change the default")
+
 	sec.Authentication.Agents.Mode = "X509"
 	assert.Equal(t, util.X509, sec.GetAgentMechanism("SCRAM-SHA-256"), "transitioning from SCRAM -> X509 is allowed")
 }

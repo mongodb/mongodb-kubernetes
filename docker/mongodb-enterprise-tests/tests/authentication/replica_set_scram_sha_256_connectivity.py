@@ -1,6 +1,7 @@
 from typing import Dict
 
-from kubetester import create_secret, find_fixture, read_secret, update_secret
+from kubetester import create_secret, find_fixture, read_secret, update_secret, create_or_update, \
+    create_or_update_secret
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser
@@ -28,7 +29,7 @@ def replica_set(namespace: str) -> MongoDB:
         "modes": ["SCRAM"],
     }
 
-    return resource.create()
+    return create_or_update(resource)
 
 
 @fixture(scope="module")
@@ -37,13 +38,13 @@ def scram_user(namespace: str) -> MongoDBUser:
         find_fixture("scram-sha-user.yaml"), namespace=namespace
     )
 
-    create_secret(
+    create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {"password": USER_PASSWORD},
     )
 
-    return resource.create()
+    return create_or_update(resource)
 
 
 @fixture(scope="module")

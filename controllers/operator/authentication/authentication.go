@@ -285,6 +285,12 @@ func getMechanismName(mongodbResourceMode string, ac *om.AutomationConfig, minim
 		return MongoDBX509
 	case util.LDAP:
 		return LDAPPlain
+	case util.SCRAMSHA1:
+		return ScramSha1
+	case util.MONGODBCR:
+		return MongoDBCR
+	case util.SCRAMSHA256:
+		return ScramSha256
 	case util.SCRAM:
 		// if we have already configured authentication and it has been set to MONGODB-CR/SCRAM-SHA-1
 		// we can not transition. This needs to be done in the UI
@@ -512,6 +518,7 @@ type MechanismName string
 
 const (
 	ScramSha256 MechanismName = "SCRAM-SHA-256"
+	ScramSha1   MechanismName = "SCRAM-SHA-1"
 	MongoDBX509 MechanismName = "MONGODB-X509"
 	LDAPPlain   MechanismName = "PLAIN"
 
@@ -534,6 +541,8 @@ func supportedMechanisms() []MechanismName {
 func fromName(name MechanismName, ac *om.AutomationConfig, conn om.Connection, opts Options) Mechanism {
 	switch name {
 	case MongoDBCR:
+		return NewConnectionCR(conn, ac)
+	case ScramSha1:
 		return NewConnectionScramSha1(conn, ac)
 	case ScramSha256:
 		return NewConnectionScramSha256(conn, ac)

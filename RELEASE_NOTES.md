@@ -1,6 +1,7 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
+* The support for `SCRAM-SHA-1` has been introduced into both user and Agent authentication. Before enabling this capability, make sure you use both `MONGODB-CR` and `SCRAM-SHA-1` in authentication modes.
 * Introduced the support for KMIP configuration in the backups section of Ops Manager.
 * Introduced the support for Backup Assignment Labels in both MongoDB and OpsManager Custom Resources.
 * Added `spec.backup.snapshotSchedule` object to MongoDB for configuring [backup snapshot schedule](https://www.mongodb.com/docs/ops-manager/current/reference/api/backup/update-one-snapshot-schedule-by-cluster-id/#request-body-parameters).

@@ -116,6 +116,14 @@ func (b *MongoDBBuilder) EnableAuth(modes []string) *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) EnableAgentAuth(mode string) *MongoDBBuilder {
+	if b.mdb.Spec.Security.Authentication == nil {
+		b.mdb.Spec.Security.Authentication = &Authentication{}
+	}
+	b.mdb.Spec.Security.Authentication.Agents.Mode = mode
+	return b
+}
+
 func (b *MongoDBBuilder) SetShardCountSpec(count int) *MongoDBBuilder {
 	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have shards configuration")
