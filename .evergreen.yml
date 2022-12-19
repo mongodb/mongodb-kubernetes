@@ -252,6 +252,17 @@ functions:
       permissions: public-read
       content_type: application/x-binary
 
+  upload_dockerfiles:
+  - command: s3.put
+    params:
+      aws_key: ${enterprise_aws_access_key_id}
+      aws_secret: ${enterprise_aws_secret_access_key}
+      local_file: src/github.com/10gen/ops-manager-kubernetes/public/dockerfiles-${triggered_by_git_tag}.tgz
+      remote_file: bundles/dockerfiles-${triggered_by_git_tag}.tgz
+      bucket: operator-e2e-bundles
+      permissions: public-read
+      content_type: application/x-binary
+
   # upload_e2e_logs has the responsibility of dumping as much information as
   # possible into the S3 bucket that corresponds to this ${version}. The
   # Kubernetes cluster where the test finished running, should still be
@@ -620,6 +631,32 @@ functions:
       - workdir
       command: scripts/evergreen/operator-sdk/make-bundle.sh
 
+  build-dockerfiles:
+  - *python_venv
+  - *python_requirements
+  - command: subprocess.exec
+    type: setup
+    params:
+      add_to_path:
+      - *go_bin
+      - ${workdir}/bin
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - workdir
+      env:
+        <<: [ *go_options ]
+      command: "${workdir}/venv/bin/python scripts/update_supported_dockerfiles.py"
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+      - triggered_by_git_tag
+      - workdir
+      command: "tar -czvf ./public/dockerfiles-${triggered_by_git_tag}.tgz ./public/dockerfiles"
+
+
+
 tasks:
 - name: preflight_release_images
   commands:
@@ -688,6 +725,14 @@ tasks:
     - func: setup_building_host
     - func: operator-sdk-make-bundle
     - func: upload_bundle_manifests
+
+- name: upload_dockerfiles
+  git_tag_only: true
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - func: build-dockerfiles
+    - func: upload_dockerfiles
 
 # Releases init images to Quay
 - name: release_init_appdb
@@ -2684,6 +2729,13 @@ buildvariants:
     - ubuntu1804-large
   tasks:
     - name: upload_bundle
+
+- name: upload_dockerfiles
+  display_name: upload_dockerfiles
+  run_on:
+    - ubuntu1804-large
+  tasks:
+    - name: upload_dockerfiles
 
 - name: init_test_run
   display_name: init_test_run
