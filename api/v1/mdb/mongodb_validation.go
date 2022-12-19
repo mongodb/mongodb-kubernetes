@@ -7,6 +7,7 @@ package mdb
 
 import (
 	"errors"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"strings"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -90,6 +91,25 @@ func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult
 	return v1.ValidationSuccess()
 }
 
+//scramSha1AuthValidation performs the same validation as the Ops Manager does in
+// https://github.com/10gen/mms/blob/107304ce6988f6280e8af069d19b7c6226c4f3ce/server/src/main/com/xgen/cloud/atm/publish/_public/svc/AutomationValidationSvc.java
+func scramSha1AuthValidation(ms MongoDbSpec) v1.ValidationResult {
+	authSpec := ms.Security.Authentication
+	if authSpec == nil {
+		return v1.ValidationSuccess()
+	}
+	if !authSpec.Enabled {
+		return v1.ValidationSuccess()
+	}
+
+	if stringutil.Contains(authSpec.Modes, util.SCRAMSHA1) {
+		if authSpec.Agents.Mode != util.MONGODBCR {
+			return v1.ValidationError("Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode")
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func ldapAuthRequiresEnterprise(ms MongoDbSpec) v1.ValidationResult {
 	authSpec := ms.Security.Authentication
 	if authSpec != nil && authSpec.isLDAPEnabled() && !strings.HasSuffix(ms.Version, "-ent") {
@@ -164,6 +184,7 @@ func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		deploymentsMustHaveTLSInX509Env,
 		deploymentsMustHaveAgentModesIfAuthIsEnabled,
 		deploymentsMustHaveAgentModeInAuthModes,
+		scramSha1AuthValidation,
 		additionalMongodConfig,
 		ldapAuthRequiresEnterprise,
 		rolesAttributeisCorrectlyConfigured,

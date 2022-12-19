@@ -9,66 +9,58 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestScramSha256_EnableAgentAuthentication(t *testing.T) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
-	ac, _ := conn.ReadAutomationConfig()
-
-	s := NewConnectionScramSha256(conn, ac)
-
-	if err := s.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
-		t.Fatal(err)
+func TestAgentsAuthentication(t *testing.T) {
+	type ConnectionFunction func(om.Connection, *om.AutomationConfig) Mechanism
+	type TestConfig struct {
+		connection     ConnectionFunction
+		mechanismsUsed []MechanismName
 	}
-
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
+	tests := map[string]TestConfig{
+		"SCRAM-SHA-1": {
+			connection: func(connection om.Connection, config *om.AutomationConfig) Mechanism {
+				return NewConnectionScramSha1(connection, config)
+			},
+			mechanismsUsed: []MechanismName{ScramSha1},
+		},
+		"SCRAM-SHA-256": {
+			connection: func(connection om.Connection, config *om.AutomationConfig) Mechanism {
+				return NewConnectionScramSha256(connection, config)
+			},
+			mechanismsUsed: []MechanismName{ScramSha256},
+		},
+		"CR": {
+			connection: func(connection om.Connection, config *om.AutomationConfig) Mechanism {
+				return NewConnectionCR(connection, config)
+			},
+			mechanismsUsed: []MechanismName{MongoDBCR},
+		},
 	}
+	for testName, testConfig := range tests {
+		t.Run(testName, func(t *testing.T) {
+			conn, ac := createConnectionAndAutomationConfig()
 
-	assertAuthenticationEnabled(t, ac.Auth)
-	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
-	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
-	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(ScramSha256))
-	assert.NotEmpty(t, ac.Auth.AutoPwd)
+			s := testConfig.connection(conn, ac)
 
-	assert.True(t, s.IsAgentAuthenticationConfigured())
+			err := s.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S())
+			assert.NoError(t, err)
 
-}
+			err = s.EnableDeploymentAuthentication(Options{CAFilePath: util.CAFilePathInContainer})
+			assert.NoError(t, err)
 
-func TestScramSha1_EnableAgentAuthentication(t *testing.T) {
-	conn := om.NewMockedOmConnection(om.NewDeployment())
+			ac, err = conn.ReadAutomationConfig()
+			assert.NoError(t, err)
 
-	ac, _ := conn.ReadAutomationConfig()
-
-	s := NewConnectionScramSha1(conn, ac)
-
-	if err := s.EnableAgentAuthentication(Options{AuthoritativeSet: true}, zap.S()); err != nil {
-		t.Fatal(err)
+			assertAuthenticationEnabled(t, ac.Auth)
+			assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
+			assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
+			for _, mech := range testConfig.mechanismsUsed {
+				assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(mech))
+			}
+			assert.NotEmpty(t, ac.Auth.AutoPwd)
+			assert.True(t, s.IsAgentAuthenticationConfigured())
+			assert.True(t, s.IsDeploymentAuthenticationConfigured())
+		})
 	}
-
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertAuthenticationEnabled(t, ac.Auth)
-	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
-	assert.Len(t, ac.Auth.AutoAuthMechanisms, 1)
-	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(MongoDBCR))
-	assert.NotEmpty(t, ac.Auth.AutoPwd)
-	assert.Len(t, ac.Auth.Users, 0)
-
-	assert.True(t, s.IsAgentAuthenticationConfigured())
-
-}
-
-func TestScramSha256_DeploymentConfigured(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
-	assertDeploymentMechanismsConfigured(t, NewConnectionScramSha256(conn, ac))
-}
-
-func TestScramSha1_DeploymentConfigured(t *testing.T) {
-	conn, ac := createConnectionAndAutomationConfig()
-	assertDeploymentMechanismsConfigured(t, NewConnectionScramSha1(conn, ac))
 }
 
 func TestScramSha1_DisableAgentAuthentication(t *testing.T) {

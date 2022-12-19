@@ -31,12 +31,13 @@ class SHA1ConnectivityTests:
 
 
     @fixture
-    def mdb(self, namespace: str, mdb_resource_name: str, yaml_file: str):
+    def mdb(self, namespace, mdb_resource_name, yaml_file, custom_mdb_version: str):
         mdb = MongoDB.from_yaml(
             yaml_fixture(yaml_file),
             namespace=namespace,
             name=mdb_resource_name,
         )
+        mdb["spec"]["version"] = custom_mdb_version
 
         try_load(mdb)
         return mdb
@@ -52,7 +53,7 @@ class SHA1ConnectivityTests:
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_authentication_mechanism_enabled("MONGODB-CR")
         tester.assert_authoritative_set(True)
-        tester.assert_authentication_enabled()
+        tester.assert_authentication_enabled(2)
         tester.assert_expected_users(0)
 
     # CreateMongoDBUser
@@ -87,10 +88,7 @@ class SHA1ConnectivityTests:
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         tester.assert_has_user(self.USER_NAME)
         tester.assert_user_has_roles(self.USER_NAME, expected_roles)
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
-        tester.assert_authentication_enabled()
         tester.assert_expected_users(1)
-        tester.assert_authoritative_set(True)
 
     def test_user_cannot_authenticate_with_incorrect_password(self, mongo_tester: MongoTester):
         mongo_tester.assert_scram_sha_authentication_fails(

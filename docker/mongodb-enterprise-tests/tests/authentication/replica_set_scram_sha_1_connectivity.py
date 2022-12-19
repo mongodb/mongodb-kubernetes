@@ -9,7 +9,7 @@ from tests.authentication.sha1_connectivity_tests import SHA1ConnectivityTests
 class TestReplicaSetSHA1Connectivity(SHA1ConnectivityTests):
     @fixture
     def yaml_file(self):
-        return "replica-set-scram-sha-1.yaml"
+        return "replica-set-explicit-scram-sha-1.yaml"
 
     @fixture
     def mdb_resource_name(self):

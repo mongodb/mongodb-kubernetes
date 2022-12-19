@@ -1,6 +1,8 @@
 package mdb
 
 import (
+	"github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -108,4 +110,28 @@ func TestMongoDB_ValidateAdditionalMongodConfig(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, "'spec.additionalMongodConfig' cannot be specified if type of MongoDB is ShardedCluster", err.Error())
 	})
+}
+
+func TestScramSha1AuthValidation(t *testing.T) {
+	type TestConfig struct {
+		MongoDB       *MongoDB
+		ErrorExpected bool
+	}
+	tests := map[string]TestConfig{
+		"Valid MongoDB with Authentication": {
+			MongoDB:       NewReplicaSetBuilder().EnableAuth([]string{util.SCRAMSHA1}).Build(),
+			ErrorExpected: true,
+		},
+		"Valid MongoDB with SCRAM-SHA-1": {
+			MongoDB:       NewReplicaSetBuilder().EnableAuth([]string{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build(),
+			ErrorExpected: false,
+		},
+	}
+	for testName, testConfig := range tests {
+		t.Run(testName, func(t *testing.T) {
+			validationResult := scramSha1AuthValidation(testConfig.MongoDB.Spec)
+			assert.Equal(t, testConfig.ErrorExpected, v1.ValidationSuccess() != validationResult, "Expected %v, got %v", testConfig.ErrorExpected, validationResult)
+		})
+
+	}
 }

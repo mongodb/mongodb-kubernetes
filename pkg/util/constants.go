@@ -131,6 +131,9 @@ const (
 	DefaultUserDatabase               = "admin"
 	X509                              = "X509"
 	SCRAM                             = "SCRAM"
+	SCRAMSHA1                         = "SCRAM-SHA-1"
+	MONGODBCR                         = "MONGODB-CR"
+	SCRAMSHA256                       = "SCRAM-SHA-256"
 	LDAP                              = "LDAP"
 	MinimumScramSha256MdbVersion      = "4.0.0"
 

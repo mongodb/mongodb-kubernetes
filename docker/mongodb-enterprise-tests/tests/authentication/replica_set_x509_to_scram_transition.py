@@ -1,5 +1,6 @@
 import pytest
 
+from kubetester import create_or_update
 from kubetester.omtester import get_rs_cert_names
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
@@ -28,7 +29,7 @@ def replica_set(
         load_fixture("replica-set-x509-to-scram-256.yaml"), namespace=namespace
     )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    return create_or_update(res)
 
 
 @pytest.fixture(scope="module")
@@ -155,20 +156,25 @@ class TestCreateScramSha256User(KubernetesTester):
         )
         super().setup_class()
 
-    def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):
-        tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_scram_sha_authentication_fails(
-            password="invalid-password",
-            username="mms-user-1",
-            auth_mechanism="SCRAM-SHA-256",
-            ssl=True,
-            ssl_ca_certs=ca_path,
-        )
-
     def test_user_can_authenticate_with_correct_password(self, ca_path: str):
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
         tester.assert_scram_sha_authentication(
             password="my-password",
+            username="mms-user-1",
+            auth_mechanism="SCRAM-SHA-256",
+            ssl=True,
+            ssl_ca_certs=ca_path,
+            # As of today, user CRs don't have the status/phase fields. So there's no other way
+            # to verify that they were created other than just spinning and checking.
+            # See https://jira.mongodb.org/browse/CLOUDP-150729
+            # 120 * 5s ~= 600s - the usual timeout we use
+            attempts=120
+        )
+
+    def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):
+        tester = ReplicaSetTester(MDB_RESOURCE, 3)
+        tester.assert_scram_sha_authentication_fails(
+            password="invalid-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
             ssl=True,

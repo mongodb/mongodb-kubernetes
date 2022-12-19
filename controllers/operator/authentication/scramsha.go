@@ -17,12 +17,22 @@ func NewConnectionScramSha256(conn om.Connection, ac *om.AutomationConfig) Conne
 	}
 }
 
-func NewConnectionScramSha1(conn om.Connection, ac *om.AutomationConfig) ConnectionScramSha {
+func NewConnectionCR(conn om.Connection, ac *om.AutomationConfig) ConnectionScramSha {
 	return ConnectionScramSha{
 		Conn: conn,
 		AutomationConfigScramSha: AutomationConfigScramSha{
 			automationConfig: ac,
 			mechanismName:    MongoDBCR,
+		},
+	}
+}
+
+func NewConnectionScramSha1(conn om.Connection, ac *om.AutomationConfig) ConnectionScramSha {
+	return ConnectionScramSha{
+		Conn: conn,
+		AutomationConfigScramSha: AutomationConfigScramSha{
+			automationConfig: ac,
+			mechanismName:    ScramSha1,
 		},
 	}
 }

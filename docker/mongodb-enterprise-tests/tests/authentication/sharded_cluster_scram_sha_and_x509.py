@@ -107,22 +107,27 @@ def test_user_reaches_updated_phase(scram_user: MongoDBUser):
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
-def test_user_cannot_authenticate_with_incorrect_password(ca_path: str):
+def test_user_can_authenticate_with_correct_password(ca_path: str):
     tester = ShardedClusterTester(MDB_RESOURCE, 2)
-    tester.assert_scram_sha_authentication_fails(
-        password="invalid-password",
+    # As of today, user CRs don't have the status/phase fields. So there's no other way
+    # to verify that they were created other than just spinning and checking.
+    # See https://jira.mongodb.org/browse/CLOUDP-150729
+    # 120 * 5s ~= 600s - the usual timeout we use
+    tester.assert_scram_sha_authentication(
+        password="my-password",
         username="mms-user-1",
         ssl=True,
         auth_mechanism="SCRAM-SHA-256",
         ssl_ca_certs=ca_path,
+        attempts=120,
     )
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
-def test_user_can_authenticate_with_correct_password(ca_path: str):
+def test_user_cannot_authenticate_with_incorrect_password(ca_path: str):
     tester = ShardedClusterTester(MDB_RESOURCE, 2)
-    tester.assert_scram_sha_authentication(
-        password="my-password",
+    tester.assert_scram_sha_authentication_fails(
+        password="invalid-password",
         username="mms-user-1",
         ssl=True,
         auth_mechanism="SCRAM-SHA-256",
@@ -175,20 +180,25 @@ class TestX509CertCreationAndApproval(KubernetesTester):
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 class TestCanStillAuthAsScramUsers(KubernetesTester):
-    def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):
-        tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_scram_sha_authentication_fails(
-            password="invalid-password",
-            username="mms-user-1",
-            ssl=True,
-            auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
-        )
-
     def test_user_can_authenticate_with_correct_password(self, ca_path: str):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
         tester.assert_scram_sha_authentication(
             password="my-password",
+            username="mms-user-1",
+            ssl=True,
+            auth_mechanism="SCRAM-SHA-256",
+            ssl_ca_certs=ca_path,
+            # As of today, user CRs don't have the status/phase fields. So there's no other way
+            # to verify that they were created other than just spinning and checking.
+            # See https://jira.mongodb.org/browse/CLOUDP-150729
+            # 120 * 5s ~= 600s - the usual timeout we use
+            attempts=120
+        )
+
+    def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):
+        tester = ShardedClusterTester(MDB_RESOURCE, 2)
+        tester.assert_scram_sha_authentication_fails(
+            password="invalid-password",
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",

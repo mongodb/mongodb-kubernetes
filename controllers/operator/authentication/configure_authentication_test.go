@@ -14,7 +14,7 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-func TestConfigureScramSha1(t *testing.T) {
+func TestConfigureScramSha1FallbackToCr(t *testing.T) {
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -97,6 +97,29 @@ func TestConfigureX509(t *testing.T) {
 
 	assertAuthenticationEnabled(t, ac.Auth)
 	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-X509")
+}
+
+func TestConfigureScramSha1(t *testing.T) {
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	opts := Options{
+		MinimumMajorVersion: 4,
+		AuthoritativeSet:    true,
+		ProcessNames:        []string{"process-1", "process-2", "process-3"},
+		Mechanisms:          []string{"SCRAM-SHA-1"},
+		AgentMechanism:      "SCRAM-SHA-1",
+	}
+
+	if err := Configure(conn, opts, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, err := conn.ReadAutomationConfig()
+	assert.NoError(t, err)
+
+	assertAuthenticationEnabled(t, ac.Auth)
+	assertAuthenticationMechanism(t, ac.Auth, "SCRAM-SHA-1")
 }
 
 func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
