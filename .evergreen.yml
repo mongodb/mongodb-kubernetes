@@ -2726,14 +2726,14 @@ buildvariants:
 - name: upload_bundle
   display_name: upload_bundle
   run_on:
-    - ubuntu1804-large
+    - ubuntu1804-small
   tasks:
     - name: upload_bundle
 
 - name: upload_dockerfiles
   display_name: upload_dockerfiles
   run_on:
-    - ubuntu1804-large
+    - ubuntu1804-small
   tasks:
     - name: upload_dockerfiles
 
