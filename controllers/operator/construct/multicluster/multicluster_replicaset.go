@@ -275,7 +275,10 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 		authentication.ConfigureStatefulSetSecret(&sts, secretName)
 	}
 
-	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, stsOverride)
+	// first override with the global one
+	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec)
+	// override with the cluster specific sts override
+	stsSpecFinal = merge.StatefulSetSpecs(stsSpecFinal, stsOverride)
 	sts.Spec = stsSpecFinal
 
 	return sts, nil

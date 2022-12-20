@@ -7,8 +7,9 @@ package mdb
 
 import (
 	"errors"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -91,7 +92,7 @@ func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult
 	return v1.ValidationSuccess()
 }
 
-//scramSha1AuthValidation performs the same validation as the Ops Manager does in
+// scramSha1AuthValidation performs the same validation as the Ops Manager does in
 // https://github.com/10gen/mms/blob/107304ce6988f6280e8af069d19b7c6226c4f3ce/server/src/main/com/xgen/cloud/atm/publish/_public/svc/AutomationValidationSvc.java
 func scramSha1AuthValidation(ms MongoDbSpec) v1.ValidationResult {
 	authSpec := ms.Security.Authentication

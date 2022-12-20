@@ -253,6 +253,12 @@ type MongoDBMultiSpec struct {
 	Connectivity *mdbv1.MongoDBConnectivity `json:"connectivity,omitempty"`
 	Backup       *mdbv1.Backup              `json:"backup,omitempty"`
 
+	// +optional
+	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
+	// if  "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
+	// the global one
+	StatefulSetConfiguration mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:

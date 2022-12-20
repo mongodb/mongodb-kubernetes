@@ -2,9 +2,10 @@ package multicluster
 
 import (
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"os"
 	"testing"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
@@ -51,56 +52,87 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMulti {
 
 func TestMultiClusterStatefulSet(t *testing.T) {
 
-	tests := []struct {
-		inp              appsv1.StatefulSetSpec
-		outReplicas      int32
-		outLabelSelector map[string]string
-	}{
-		{
-			inp: appsv1.StatefulSetSpec{
-				Replicas: int32Ptr(int32(4)),
-			},
-			outReplicas: 4,
-			outLabelSelector: map[string]string{
-				"controller":        "mongodb-enterprise-operator",
-				"pod-anti-affinity": "pod-aff",
-			},
-		},
-		{
-			inp: appsv1.StatefulSetSpec{
-				Replicas: int32Ptr(int32(5)),
-			},
-			outReplicas: 5,
-			outLabelSelector: map[string]string{
-				"controller":        "mongodb-enterprise-operator",
-				"pod-anti-affinity": "pod-aff",
-			},
-		},
-		{
-			inp: appsv1.StatefulSetSpec{
-				Selector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{"foo": "bar"},
-				},
-			},
-			outReplicas: 3,
-			outLabelSelector: map[string]string{
-				"controller":        "mongodb-enterprise-operator",
-				"pod-anti-affinity": "pod-aff",
-				"foo":               "bar",
-			},
-		},
-	}
-	os.Setenv(util.AutomationAgentImage, "some-registry")
-	os.Setenv(util.InitDatabaseImageUrlEnv, "some-registry")
-
-	for _, tt := range tests {
+	t.Run("No override provided", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
-		mdbm.Spec.ClusterSpecList.ClusterSpecs[0].StatefulSetConfiguration.SpecWrapper.Spec = tt.inp
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}), mdbv1.ProjectConfig{}, tt.inp, "")
+
+		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
+			mdbv1.ProjectConfig{}, appsv1.StatefulSetSpec{}, "")
 		assert.NoError(t, err)
-		assert.Equal(t, *sts.Spec.Replicas, tt.outReplicas)
-		assert.Equal(t, sts.Spec.Selector.MatchLabels, tt.outLabelSelector)
-	}
+
+		expectedReplicas := mdbm.Spec.ClusterSpecList.ClusterSpecs[0].Members
+		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
+
+	})
+
+	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {
+		singleClusterOverride := appsv1.StatefulSetSpec{
+			Replicas: int32Ptr(int32(4)),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"foo": "bar"},
+			},
+		}
+
+		mdbm := getMultiClusterMongoDB()
+		mdbm.Spec.ClusterSpecList.ClusterSpecs[0].StatefulSetConfiguration.SpecWrapper.Spec = singleClusterOverride
+
+		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
+			mdbv1.ProjectConfig{}, singleClusterOverride, "")
+		assert.NoError(t, err)
+
+		expectedMatchLabels := singleClusterOverride.Selector.MatchLabels
+		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name
+		expectedMatchLabels["controller"] = "mongodb-enterprise-operator"
+
+		assert.Equal(t, *singleClusterOverride.Replicas, *sts.Spec.Replicas)
+		assert.Equal(t, expectedMatchLabels, sts.Spec.Selector.MatchLabels)
+
+	})
+
+	t.Run("Override provided only at Spec level", func(t *testing.T) {
+		stsOverride := appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"foo": "bar"},
+			},
+			ServiceName: "overrideservice",
+		}
+
+		mdbm := getMultiClusterMongoDB()
+		mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec = stsOverride
+
+		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
+			mdbv1.ProjectConfig{}, appsv1.StatefulSetSpec{}, "")
+		assert.NoError(t, err)
+
+		expectedReplicas := mdbm.Spec.ClusterSpecList.ClusterSpecs[0].Members
+		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
+
+		assert.Equal(t, stsOverride.ServiceName, sts.Spec.ServiceName)
+
+	})
+
+	t.Run("Override provided at both Spec and clusterSpecList level", func(t *testing.T) {
+		stsOverride := appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"foo": "bar"},
+			},
+			ServiceName: "overrideservice",
+		}
+
+		singleClusterOverride := appsv1.StatefulSetSpec{
+			ServiceName: "clusteroverrideservice",
+			Replicas:    int32Ptr(int32(4)),
+		}
+
+		mdbm := getMultiClusterMongoDB()
+		mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec = stsOverride
+
+		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
+			mdbv1.ProjectConfig{}, singleClusterOverride, "")
+		assert.NoError(t, err)
+
+		assert.Equal(t, singleClusterOverride.ServiceName, sts.Spec.ServiceName)
+		assert.Equal(t, *singleClusterOverride.Replicas, *sts.Spec.Replicas)
+	})
 }
 
 func TestPVCOverride(t *testing.T) {
