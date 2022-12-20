@@ -202,6 +202,7 @@ func (in *MongoDBMultiSpec) DeepCopyInto(out *MongoDBMultiSpec) {
 		*out = new(mdb.Backup)
 		(*in).DeepCopyInto(*out)
 	}
+	in.StatefulSetConfiguration.DeepCopyInto(&out.StatefulSetConfiguration)
 	in.AdditionalMongodConfig.DeepCopyInto(&out.AdditionalMongodConfig)
 	in.ClusterSpecList.DeepCopyInto(&out.ClusterSpecList)
 	if in.Mapping != nil {

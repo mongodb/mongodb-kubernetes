@@ -85,3 +85,19 @@ def test_pvc_not_created(
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_statefulset_overrides(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    # assert sts.podspec override in cluster1
+    cluster_one_client = member_cluster_clients[0]
+    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
+    assert_container_in_sts("sidecar1", cluster_one_sts)
+
+
+def assert_container_in_sts(container_name: str, sts: client.V1StatefulSet):
+    container_names = [c.name for c in sts.spec.template.spec.containers]
+    assert container_name in container_names

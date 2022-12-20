@@ -485,6 +485,18 @@ spec:
                         type: boolean
                     type: object
                 type: object
+              statefulSet:
+                description: StatefulSetConfiguration provides the statefulset override
+                  for each of the cluster's statefulset if  "StatefulSetConfiguration"
+                  is specified at cluster level under "clusterSpecList" that takes
+                  precedence over the global one
+                properties:
+                  spec:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                required:
+                - spec
+                type: object
               type:
                 enum:
                 - ReplicaSet
