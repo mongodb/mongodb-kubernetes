@@ -61,7 +61,7 @@ initAppDb:
 
 agent:
   name: mongodb-agent-ubi
-  version: 11.12.0.7388-1
+  version: 12.0.15.7646-1
 
 mongodb:
   name: mongodb-enterprise-appdb-database-ubi

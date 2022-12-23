@@ -30,10 +30,10 @@ const (
 	// as the AutomationAgent upgrades both other agents automatically
 
 	// MonitoringAgentDefaultVersion
-	MonitoringAgentDefaultVersion = "6.4.0.433-1"
+	MonitoringAgentDefaultVersion = "11.12.0.7388-1"
 
 	// BackupAgentDefaultVersion
-	BackupAgentDefaultVersion = "6.6.0.959-1"
+	BackupAgentDefaultVersion = "11.12.0.7388-1"
 
 	// Default listen address for Prometheus
 	ListenAddress = "0.0.0.0"
