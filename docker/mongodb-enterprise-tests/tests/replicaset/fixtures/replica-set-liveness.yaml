@@ -15,16 +15,3 @@ spec:
   # Use a version that does not exist
   # This way mongod will never start
   version: 4.4.100
-  # Use podTemplate override to specify a 5 mins time
-  # for the liveness probe in which it will always
-  # consider the pod alive
-  podSpec:
-    podTemplate:
-      spec:
-        containers:
-          - name: mongodb-enterprise-database
-            livenessProbe:
-              exec:
-                command:
-                - "opt/scripts/probe.sh"
-                - "5"

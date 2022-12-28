@@ -1,6 +1,8 @@
 import time
 from typing import Set
 import pytest
+
+from kubetester import create_or_update
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     KubernetesTester,
@@ -16,7 +18,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
         yaml_fixture("replica-set-liveness.yaml"), "my-replica-set", namespace
     )
 
-    resource.create()
+    create_or_update(resource)
 
     return resource
 
@@ -49,35 +51,8 @@ def test_pods_are_running(replica_set: MongoDB, namespace: str):
     assert len(running_pods) == 3
 
 
-# test_pods_are_alive_first_5_mins makes sure that pods are not restarted in the first 5 mins.
-# It does so by constantly checking the running time of PID 1 in each pod.
-# If it is under 5 min, it asserts that the restart_count is 0
-# When all pods are over 5 mins, it exists
 @pytest.mark.e2e_replica_set_liveness_probe
-def test_pods_are_alive_first_5_mins(replica_set: MongoDB, namespace: str):
-    corev1_client = client.CoreV1Api()
-    uptime_cmd = ["/bin/sh", "-c", "ps -o etimes= -p 1"]
-    pods_over_5_mins: Set[str] = set()
-    # Loop until all the pods are up for at least 5 mins
-    # and check that no restart happens
-    while True:
-        if len(pods_over_5_mins) == 3:
-            return
-        for podname in _get_pods("my-replica-set-{}", 3):
-            uptime = int(
-                KubernetesTester.run_command_in_pod_container(
-                    podname, namespace, uptime_cmd
-                )
-            )
-            if uptime < 5 * 60:
-                pod = corev1_client.read_namespaced_pod(podname, namespace)
-                assert pod.status.container_statuses[0].restart_count == 0
-            else:
-                pods_over_5_mins.add(podname)
-
-
-@pytest.mark.e2e_replica_set_liveness_probe
-def test_pods_get_restarted(replica_set: MongoDB, namespace: str):
+def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
     corev1_client = client.CoreV1Api()
     statefulset_liveness_probe = (
         replica_set.read_statefulset().spec.template.spec.containers[0].liveness_probe
@@ -113,11 +88,13 @@ def test_pods_are_restarted_if_agent_process_is_terminated(
         "my-replica-set-0", namespace, kill_cmd
     )
 
-    # Remove PID file (not removed by agent after termination)
-    rm_agent_pid_cmd = ["rm", agent_pid_file]
-    KubernetesTester.run_command_in_pod_container(
-        "my-replica-set-0", namespace, rm_agent_pid_cmd
+    # Ensure agent's pid file still exists.
+    # This is to simulate not graceful kill, e.g. by OOM killer
+    agent_pid_2 = KubernetesTester.run_command_in_pod_container(
+        "my-replica-set-0", namespace, pid_cmd
     )
+
+    assert agent_pid == agent_pid_2
 
     statefulset_liveness_probe = (
         replica_set.read_statefulset().spec.template.spec.containers[0].liveness_probe
