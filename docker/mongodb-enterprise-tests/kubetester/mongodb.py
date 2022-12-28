@@ -84,6 +84,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             # Ops Manager must be recovering from an Upgrade and it is
             # currently DOWN.
             "connect: connection refused",
+            "MongoDB version information is not yet available",
         )
         return self.wait_for(
             lambda s: in_desired_state(
