@@ -1,15 +1,26 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
-* The support for `SCRAM-SHA-1` has been introduced into both user and Agent authentication. Before enabling this capability, make sure you use both `MONGODB-CR` and `SCRAM-SHA-1` in authentication modes.
-* Introduced the support for KMIP configuration in the backups section of Ops Manager.
-* Introduced the support for Backup Assignment Labels in both MongoDB and OpsManager Custom Resources.
-* Added `spec.backup.snapshotSchedule` object to MongoDB for configuring [backup snapshot schedule](https://www.mongodb.com/docs/ops-manager/current/reference/api/backup/update-one-snapshot-schedule-by-cluster-id/#request-body-parameters).
+# MongoDB Enterprise Kubernetes Operator 1.18.0
 
-## Breaking changes
+## Improvements
 
-* The field `spec.security.tls.secretRef.prefix` has been removed from MongoDB and OpsManager resources. It was deprecated in operator version `1.15.2`. Before upgrading the
-  operator to this version, please specify the certificate prefix under `spec.security.certsSecretPrefix`.
+* Added support for the missing features for Ops Manager Backup configuration page. This includes:
+  * KMIP Backup Configuration support by introducing `spec.backup.encryption.kmip` in both OpsManager and MongoDB resources.
+  * Backup Assignment Labels settings in `spec.backup.[*].assignmentLabels` elements of the OpsManager resource.
+  * Backup Snapshot Schedule configuration via `spec.backup.snapshotSchedule` in the OpsManager resource.
+* Added `SCRAM-SHA-1` support for both user and Agent authentication. Before enabling this capability, make sure you use both `MONGODB-CR` and `SCRAM-SHA-1` in the authentication modes.
+
+## Bug fixes
+* Fixed liveness probe reporting positive result when the agent process was killed. This could cause database pods to run without automation agent.  
+* Fixed startup script in database pod, that could in some situations report errors on pod's restart.
+
+## Breaking changes and deprecations
+
+* The field `spec.security.tls.secretRef.prefix` has been removed from MongoDB and OpsManager resources. It was deprecated in the [MongoDB Enterprise
+1.15.0](https://www.mongodb.com/docs/kubernetes-operator/master/release-notes/#k8s-op-full-1-15-0) and removed from the Operator runtime in 
+[1.17.0](https://www.mongodb.com/docs/kubernetes-operator/master/release-notes/#k8s-op-full-1-17-0). Before upgrading to this version, make
+sure you migrated to the new TLS format using the following [Migration Guide](https://www.mongodb.com/docs/kubernetes-operator/v1.16/tutorial/migrate-to-new-tls-format/) before upgrading the Operator.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.17.2
