@@ -153,7 +153,7 @@ class MongoTester:
         username: str,
         password: str,
         auth_mechanism: str,
-        attempts: int = 5,
+        attempts: int = 10,
         ssl: bool = False,
         **kwargs,
     ) -> None:
@@ -175,7 +175,7 @@ class MongoTester:
                     fail(
                         msg=f"unable to authenticate after {attempts} attempts with error: {e}"
                     )
-                time.sleep(5)
+                time.sleep(10)
 
     def assert_scram_sha_authentication_fails(
         self,

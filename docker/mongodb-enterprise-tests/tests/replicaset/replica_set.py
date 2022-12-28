@@ -18,8 +18,8 @@ from kubetester import (
 )
 from pytest import fixture
 
-DEFAULT_BACKUP_VERSION = "6.6.0.959-1"
-DEFAULT_MONITORING_AGENT_VERSION = "6.4.0.433-1"
+DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
+DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"
 RESOURCE_NAME = "my-replica-set"
 
 

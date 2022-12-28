@@ -214,6 +214,7 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
+        oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {
             "authentication": {"enabled": True, "modes": ["SCRAM"]}
         }
@@ -325,29 +326,31 @@ class TestBackupForMongodb:
 
 
 # This test extends om_ops_manager_backup.TestBackupSnapshotSchedule tests but overrides fixtures
-# to run snapshot schedule tests on sharded MongoDB 3.6.
+# to run snapshot schedule tests on sharded MongoDB with FCV 4.0.
 # Additionally, it tests clusterCheckpointInterval field.
 @mark.e2e_om_ops_manager_backup_sharded_cluster
-class TestBackupSnapshotScheduleOnMongoDB36(BackupSnapshotScheduleTests):
+class TestBackupSnapshotScheduleOnMongoDBFCV40(BackupSnapshotScheduleTests):
     @fixture
     def mdb(self, ops_manager: MongoDBOpsManager):
         resource = MongoDB.from_yaml(
             yaml_fixture("sharded-cluster-for-om.yaml"),
             namespace=ops_manager.namespace,
-            name="mdb-backup-snapshot-schedule-sharded-on-36",
+            name="mdb-snapshot-sharded-on-fcv-40",
         )
 
         try_load(resource)
+
+        resource["spec"]["featureCompatibilityVersion"] = "3.6"
 
         return resource
 
     @fixture
     def om_project_name(self):
-        return "backupSnapshotScheduleSharded36"
+        return "backupSnapshotScheduleShardedFCV40"
 
     @fixture
     def mdb_version(self):
-        return "3.6.20"
+        return "4.0.28"
 
     def test_cluster_checkpoint_interval(self, mdb: MongoDB):
         self.update_snapshot_schedule(mdb, {

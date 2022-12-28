@@ -101,6 +101,13 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
         tester.assert_expected_users(1)
         tester.assert_authoritative_set(False)
 
+    def test_user_can_authenticate_with_correct_password(self, replica_set: MongoDB):
+        replica_set.tester().assert_scram_sha_authentication(
+            password="my-password",
+            username="mms-user-1",
+            auth_mechanism="SCRAM-SHA-256",
+        )
+
     def test_user_cannot_authenticate_with_incorrect_password(
         self, replica_set: MongoDB
     ):
@@ -110,22 +117,14 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
             auth_mechanism="SCRAM-SHA-256",
         )
 
-    def test_user_can_authenticate_with_correct_password(self, replica_set: MongoDB):
-        replica_set.tester().assert_scram_sha_authentication(
-            password="my-password",
-            username="mms-user-1",
-            auth_mechanism="SCRAM-SHA-256",
-        )
-
-
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestCanChangePassword(KubernetesTester):
     def test_user_can_authenticate_with_new_password(
         self, namespace: str, replica_set: MongoDB
     ):
-        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": "my-new-password"})
+        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": "my-new-password7"})
         replica_set.tester().assert_scram_sha_authentication(
-            password="my-new-password",
+            password="my-new-password7",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
