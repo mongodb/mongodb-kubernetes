@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-# current copy of docker/mongodb-enterprise-database/content
-# FIXME: remove the scripts from docker/mongodb-enterprise-database/content once database builds also uses multi-stage builds
-
 # This is a file containing all the functions which may be needed for other shell scripts
 
 # see if jq is available for json logging

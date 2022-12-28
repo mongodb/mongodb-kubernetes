@@ -1,17 +1,8 @@
 #!/bin/bash
 set -Eeou pipefail
 
-# current copy of docker/mongodb-enterprise-database/content
-# FIXME: remove the scripts from docker/mongodb-enterprise-database/content once database builds also uses multi-stage builds
-
-agent_pid=/mongodb-automation/mongodb-mms-automation-agent.pid
-mins=${1:-60}
-
-check_agent_pid() {
-    # the agent PID must exists always
-    # it it does not exists, we assume it is being updated
-    # so we have a failure threshold of a few minutes.
-    [ -f $agent_pid ]
+check_agent_alive() {
+    pgrep --exact 'mongodb-mms-aut'
 }
 
 check_mongod_alive() {
@@ -33,9 +24,9 @@ check_mongo_process_alive() {
     check_mongod_alive || check_mongos_alive
 }
 
-# 2 conditions are sufficient to state that a Pod is "Alive":
+# One of 2 conditions is sufficient to state that a Pod is "Alive":
 #
-# 1. There is an agent PID present in the filesystem (meaning that the agent is running)
+# 1. There is an agent process running
 # 2. There is a `mongod` or `mongos` process running
 #
-check_agent_pid || check_mongo_process_alive
+check_agent_alive || check_mongo_process_alive
