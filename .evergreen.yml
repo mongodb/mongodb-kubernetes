@@ -2158,7 +2158,8 @@ task_groups:
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_member_cluster_watch
-    - e2e_multi_cluster_enable_tls
+    # Will be fixed as part of: https://jira.mongodb.org/browse/CLOUDP-151573
+    # - e2e_multi_cluster_enable_tls
     - e2e_multi_cluster_upgrade_downgrade
     - e2e_multi_cluster_tls_cert_rotation
     - e2e_multi_cluster_backup_restore
