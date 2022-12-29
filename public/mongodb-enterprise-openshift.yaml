@@ -249,7 +249,7 @@ spec:
               value: "10"
             - name: IMAGE_PULL_POLICY
               value: Always
-        # Database
+            # Database
             - name: MONGODB_ENTERPRISE_DATABASE_IMAGE
               value: quay.io/mongodb/mongodb-enterprise-database-ubi
             - name: INIT_DATABASE_IMAGE_REPOSITORY
@@ -258,14 +258,14 @@ spec:
               value: 1.0.14
             - name: DATABASE_VERSION
               value: 2.0.2
-        # Ops Manager
+            # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi
             - name: INIT_OPS_MANAGER_VERSION
               value: 1.0.10
-        # AppDB
+            # AppDB
             - name: INIT_APPDB_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-init-appdb-ubi
             - name: INIT_APPDB_VERSION
@@ -294,6 +294,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:11.12.0.7388-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_4_7554_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.4.7554-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_15_7646_1
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.15.7646-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_0
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:5.0.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_1
@@ -326,6 +328,10 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:5.0.14"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_15
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:5.0.15"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_16
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:5.0.16"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_17
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:5.0.17"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_0
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_1
@@ -334,6 +340,14 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.2"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_3
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.3"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_4
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.4"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_5
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.5"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_6
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.6"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_7
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.7"
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent
               value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent"
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_2_2_ent
@@ -352,3 +366,5 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.1-ent"
             - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_5_ent
               value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.5-ent"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_7_ent
+              value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.7-ent"
