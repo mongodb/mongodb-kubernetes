@@ -8,6 +8,15 @@ spec:
   type: ReplicaSet
   duplicateServiceObjects: false
   credentials: my-credentials
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: sidecar1
+            image: busybox
+            command: ["sleep"]
+            args: [ "infinity" ]
   opsManager:
     configMapRef:
       name: my-project

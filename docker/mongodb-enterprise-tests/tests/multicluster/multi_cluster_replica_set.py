@@ -15,7 +15,9 @@ def mongodb_multi(
     central_cluster_client: kubernetes.client.ApiClient, namespace: str
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
+        yaml_fixture("mongodb-multi-central-sts-override.yaml"),
+        "multi-replica-set",
+        namespace,
     )
     resource["spec"]["persistent"] = False
 
