@@ -2123,10 +2123,7 @@ task_groups:
     - e2e_operator_partial_crd
     - e2e_operator_clusterwide
     - e2e_operator_multi_namespaces
-# This task was commented out to prevent Foliage from creating tickets against our team.
-# The fix is already provided and this should be re-enabled as part of https://jira.mongodb.org/browse/CLOUDP-138778
-# Or after 1.17.3/1.18.0 release(s).
-#    - e2e_operator_upgrade_appdb_tls
+    - e2e_operator_upgrade_appdb_tls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
