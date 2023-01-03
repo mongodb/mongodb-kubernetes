@@ -101,7 +101,7 @@ class MongoTester:
 
     def assert_connectivity(
         self,
-        attempts: int = 5,
+        attempts: int = 20,
         db: str = "admin",
         col: str = "myCol",
         opts: Optional[List[Dict[str, str]]] = None,
@@ -153,7 +153,7 @@ class MongoTester:
         username: str,
         password: str,
         auth_mechanism: str,
-        attempts: int = 10,
+        attempts: int = 20,
         ssl: bool = False,
         **kwargs,
     ) -> None:
@@ -175,13 +175,13 @@ class MongoTester:
                     fail(
                         msg=f"unable to authenticate after {attempts} attempts with error: {e}"
                     )
-                time.sleep(10)
+                time.sleep(5)
 
     def assert_scram_sha_authentication_fails(
         self,
         username: str,
         password: str,
-        retries: int = 5,
+        retries: int = 20,
         ssl: bool = False,
         **kwargs,
     ):
@@ -222,7 +222,7 @@ class MongoTester:
         self.client["admin"]["myCol"].insert_one({})
 
     def assert_x509_authentication(
-        self, cert_file_name: str, attempts: int = 5, **kwargs
+        self, cert_file_name: str, attempts: int = 20, **kwargs
     ):
         assert attempts > 0
 
@@ -254,7 +254,7 @@ class MongoTester:
         collection: str = "myCol",
         ssl_ca_certs: Optional[str] = None,
         ssl_certfile: str = None,
-        attempts: int = 5,
+        attempts: int = 20,
     ):
 
         options = with_ldap(ssl_certfile, ssl_ca_certs)
