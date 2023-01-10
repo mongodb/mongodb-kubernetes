@@ -183,7 +183,7 @@ ensure-k8s:
 	@ scripts/dev/ensure_k8s.sh
 
 cert:
-	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca
+	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
 	@ mv ca-tls.key ca-tls.crt docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/
 	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
 	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
