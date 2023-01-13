@@ -16,25 +16,27 @@ type MultiReplicaSetBuilder struct {
 
 func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 	spec := MongoDBMultiSpec{
-		Version:                 "5.0.0",
-		DuplicateServiceObjects: util.BooleanRef(false),
-		Persistent:              util.BooleanRef(false),
-		ConnectionSpec: mdbv1.ConnectionSpec{
-			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: mock.TestProjectConfigMapName,
+		DbCommonSpec: mdbv1.DbCommonSpec{
+			Version:    "5.0.0",
+			Persistent: util.BooleanRef(false),
+			ConnectionSpec: mdbv1.ConnectionSpec{
+				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+					ConfigMapRef: mdbv1.ConfigMapRef{
+						Name: mock.TestProjectConfigMapName,
+					},
 				},
+				Credentials: mock.TestCredentialsSecretName,
 			},
-			Credentials: mock.TestCredentialsSecretName,
-		},
-		ResourceType: mdbv1.ReplicaSet,
-		Security: &mdbv1.Security{
-			TLSConfig: &mdbv1.TLSConfig{},
-			Authentication: &mdbv1.Authentication{
-				Modes: []string{},
+			ResourceType: mdbv1.ReplicaSet,
+			Security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{},
+				Authentication: &mdbv1.Authentication{
+					Modes: []string{},
+				},
+				Roles: []mdbv1.MongoDbRole{},
 			},
-			Roles: []mdbv1.MongoDbRole{},
 		},
+		DuplicateServiceObjects: util.BooleanRef(false),
 	}
 
 	mrs := &MongoDBMulti{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}

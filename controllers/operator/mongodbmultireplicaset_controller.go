@@ -404,8 +404,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
 
 		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
-		stsOverride := item.StatefulSetConfiguration.SpecWrapper.Spec
-		sts, err := mconstruct.MultiClusterStatefulSet(mrs, clusterNum, replicasThisReconciliation, conn, projectConfig, stsOverride, certHash)
+
+		sts, err := mconstruct.MultiClusterStatefulSet(mrs, clusterNum, replicasThisReconciliation, conn, projectConfig, item.StatefulSetConfiguration, certHash)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
 		}

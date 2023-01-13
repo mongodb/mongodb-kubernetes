@@ -1,10 +1,5 @@
 package mdb
 
-// IMPORTANT: this package is intended to contain only "simple" validation—in
-// other words, validation that is based only on the properties in the MongoDB
-// resource. More complex validation, such as validation that needs to observe
-// the state of the cluster, belongs somewhere else.
-
 import (
 	"errors"
 	"strings"

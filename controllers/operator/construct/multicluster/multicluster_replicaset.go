@@ -16,6 +16,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -175,7 +176,7 @@ func statefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, memberCount int,
-	conn om.Connection, projectConfig mdbv1.ProjectConfig, stsOverride appsv1.StatefulSetSpec, certHash string) (appsv1.StatefulSet, error) {
+	conn om.Connection, projectConfig mdbv1.ProjectConfig, stsOverride *mdbc.StatefulSetConfiguration, certHash string) (appsv1.StatefulSet, error) {
 
 	configurePodSpecSecurityContext, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -276,10 +277,17 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, clusterNum int, membe
 	}
 
 	// first override with the global one
-	stsSpecFinal := merge.StatefulSetSpecs(sts.Spec, mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec)
+	stsSpecFinal := applyStatefulSetOverride(sts.Spec, mdbm.Spec.StatefulSetConfiguration)
 	// override with the cluster specific sts override
-	stsSpecFinal = merge.StatefulSetSpecs(stsSpecFinal, stsOverride)
+	stsSpecFinal = applyStatefulSetOverride(stsSpecFinal, stsOverride)
 	sts.Spec = stsSpecFinal
 
 	return sts, nil
+}
+
+func applyStatefulSetOverride(sts appsv1.StatefulSetSpec, override *mdbc.StatefulSetConfiguration) appsv1.StatefulSetSpec {
+	if override != nil {
+		return merge.StatefulSetSpecs(sts, override.SpecWrapper.Spec)
+	}
+	return sts
 }

@@ -129,10 +129,12 @@ func TestTlsConfig(t *testing.T) {
 func TestConfigureX509_Process(t *testing.T) {
 	mdb := &mdbv1.MongoDB{
 		Spec: mdbv1.MongoDbSpec{
-			Version: "3.6.4",
-			Security: &mdbv1.Security{
-				Authentication: &mdbv1.Authentication{
-					Modes: []string{util.X509},
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version: "3.6.4",
+				Security: &mdbv1.Security{
+					Authentication: &mdbv1.Authentication{
+						Modes: []string{util.X509},
+					},
 				},
 			},
 		},

@@ -216,24 +216,26 @@ type StandaloneBuilder struct {
 
 func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := mdbv1.MongoDbSpec{
-		Version:    "4.0.0",
-		Members:    1,
-		Persistent: util.BooleanRef(true),
-		ConnectionSpec: mdbv1.ConnectionSpec{
-			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: mock.TestProjectConfigMapName,
+		DbCommonSpec: mdbv1.DbCommonSpec{
+			Version:    "4.0.0",
+			Persistent: util.BooleanRef(true),
+			ConnectionSpec: mdbv1.ConnectionSpec{
+				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+					ConfigMapRef: mdbv1.ConfigMapRef{
+						Name: mock.TestProjectConfigMapName,
+					},
 				},
+				Credentials: mock.TestCredentialsSecretName,
 			},
-			Credentials: mock.TestCredentialsSecretName,
-		},
-		Security: &mdbv1.Security{
-			Authentication: &mdbv1.Authentication{
-				Modes: []string{},
+			Security: &mdbv1.Security{
+				Authentication: &mdbv1.Authentication{
+					Modes: []string{},
+				},
+				TLSConfig: &mdbv1.TLSConfig{},
 			},
-			TLSConfig: &mdbv1.TLSConfig{},
+			ResourceType: mdbv1.Standalone,
 		},
-		ResourceType: mdbv1.Standalone,
+		Members: 1,
 	}
 	resource := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "dublin", Namespace: mock.TestNamespace}, Spec: spec}
 	return &StandaloneBuilder{resource}

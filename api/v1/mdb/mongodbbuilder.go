@@ -195,8 +195,10 @@ func (b *MongoDBBuilder) Build() *MongoDB {
 
 func defaultMongoDB(resourceType ResourceType) *MongoDBBuilder {
 	spec := MongoDbSpec{
-		Version:      "4.0.0",
-		ResourceType: resourceType,
+		DbCommonSpec: DbCommonSpec{
+			Version:      "4.0.0",
+			ResourceType: resourceType,
+		},
 	}
 	mdb := &MongoDB{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-mdb", Namespace: "testNS"}}
 	mdb.InitDefaults()
