@@ -1,9 +1,10 @@
 package mdb
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"testing"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

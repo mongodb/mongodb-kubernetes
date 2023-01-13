@@ -241,58 +241,36 @@ type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
 
-type MongoDbSpec struct {
-	// +kubebuilder:pruning:PreserveUnknownFields
-	ShardedClusterSpec `json:",inline"`
+type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	// +kubebuilder:validation:Required
-	Version                     string  `json:"version"`
-	FeatureCompatibilityVersion *string `json:"featureCompatibilityVersion,omitempty"`
-
-	// DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
-	// this is an optional service, it will get the name "<rsName>-service" in case not provided
-	Service string `json:"service,omitempty"`
-
-	// ExposedExternally determines whether a NodePort service should be created for the resource
-	ExposedExternally bool `json:"exposedExternally,omitempty"`
-
+	Version                     string      `json:"version"`
+	FeatureCompatibilityVersion *string     `json:"featureCompatibilityVersion,omitempty"`
+	Agent                       AgentConfig `json:"agent,omitempty"`
 	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
-	Persistent     *bool `json:"persistent,omitempty"`
+
+	// ExposedExternally determines whether a NodePort service should be created for the resource
+	ExposedExternally bool  `json:"exposedExternally,omitempty"`
+	Persistent        *bool `json:"persistent,omitempty"`
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
 	// +kubebuilder:validation:Required
 	ResourceType ResourceType `json:"type"`
-	Backup       *Backup      `json:"backup,omitempty"`
+	// +optional
+	Security     *Security            `json:"security,omitempty"`
+	Connectivity *MongoDBConnectivity `json:"connectivity,omitempty"`
+	Backup       *Backup              `json:"backup,omitempty"`
 
 	// Prometheus configurations.
 	// +optional
 	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
 
-	// sharded clusters
-
-	// TODO: uncomment once we remove podSpec and support the various statefulSet specs
 	// +optional
-	//ConfigSrvStatefulSetConfiguration *StatefulSetConfiguration `json:"configSrvStatefulSet,omitempty"`
-	// +optional
-	//MongosStatefulSetConfiguration *StatefulSetConfiguration `json:"mongosStatefulSet,omitempty"`
-	// +optional
-	//ShardStatefulSetConfiguration *StatefulSetConfiguration `json:"shardStatefulSet,omitempty"`
-
-	// +optional
+	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
+	// if  "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
+	// the global one
 	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-
-	MongodbShardedClusterSizeConfig `json:",inline"`
-
-	Agent AgentConfig `json:"agent,omitempty"`
-
-	// Amount of members for this MongoDB Replica Set
-	Members int             `json:"members,omitempty"`
-	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
-	// +optional
-	Security *Security `json:"security,omitempty"`
-
-	Connectivity *MongoDBConnectivity `json:"connectivity,omitempty"`
 
 	// AdditionalMongodConfig is additional configuration that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
@@ -301,6 +279,19 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+}
+type MongoDbSpec struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
+	DbCommonSpec                    `json:",inline"`
+	ShardedClusterSpec              `json:",inline"`
+	MongodbShardedClusterSizeConfig `json:",inline"`
+
+	// Amount of members for this MongoDB Replica Set
+	Members int             `json:"members,omitempty"`
+	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
+	// DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
+	// this is an optional service, it will get the name "<rsName>-service" in case not provided
+	Service string `json:"service,omitempty"`
 }
 
 func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {

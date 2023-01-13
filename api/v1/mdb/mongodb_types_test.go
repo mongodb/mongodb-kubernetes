@@ -12,14 +12,19 @@ import (
 )
 
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
-	spec := &MongoDbSpec{Security: nil}
+	spec := &MongoDbSpec{
+		DbCommonSpec: DbCommonSpec{
+			Security: nil,
+		},
+	}
+
 	spec.Security = EnsureSecurity(spec.Security)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
 }
 
 func TestEnsureSecurity_WithNilTlsConfig(t *testing.T) {
-	spec := &MongoDbSpec{Security: &Security{TLSConfig: nil, Authentication: &Authentication{}}}
+	spec := &MongoDbSpec{DbCommonSpec: DbCommonSpec{Security: &Security{TLSConfig: nil, Authentication: &Authentication{}}}}
 	spec.Security = EnsureSecurity(spec.Security)
 	assert.NotNil(t, spec.Security)
 	assert.NotNil(t, spec.Security.TLSConfig)
@@ -56,22 +61,28 @@ func TestGetAgentAuthentication(t *testing.T) {
 
 func TestMinimumMajorVersion(t *testing.T) {
 	mdbSpec := MongoDbSpec{
-		Version:                     "3.6.0-ent",
-		FeatureCompatibilityVersion: nil,
+		DbCommonSpec: DbCommonSpec{
+			Version:                     "3.6.0-ent",
+			FeatureCompatibilityVersion: nil,
+		},
 	}
 
 	assert.Equal(t, mdbSpec.MinimumMajorVersion(), uint64(3))
 
 	mdbSpec = MongoDbSpec{
-		Version:                     "4.0.0-ent",
-		FeatureCompatibilityVersion: stringutil.Ref("3.6"),
+		DbCommonSpec: DbCommonSpec{
+			Version:                     "4.0.0-ent",
+			FeatureCompatibilityVersion: stringutil.Ref("3.6"),
+		},
 	}
 
 	assert.Equal(t, mdbSpec.MinimumMajorVersion(), uint64(3))
 
 	mdbSpec = MongoDbSpec{
-		Version:                     "4.0.0",
-		FeatureCompatibilityVersion: stringutil.Ref("3.6"),
+		DbCommonSpec: DbCommonSpec{
+			Version:                     "4.0.0",
+			FeatureCompatibilityVersion: stringutil.Ref("3.6"),
+		},
 	}
 
 	assert.Equal(t, mdbSpec.MinimumMajorVersion(), uint64(3))

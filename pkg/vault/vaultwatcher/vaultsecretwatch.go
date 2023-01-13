@@ -106,7 +106,7 @@ func getCurrentAndLatestVersion(vaultClient *vault.VaultClient, path string, ann
 	if currentResourceAnnotation == "" {
 		currentResourceVersion = latestResourceVersion
 	} else {
-		currentResourceVersion, err = strconv.Atoi(currentResourceAnnotation)
+		currentResourceVersion, _ = strconv.Atoi(currentResourceAnnotation)
 	}
 
 	return latestResourceVersion, currentResourceVersion

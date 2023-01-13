@@ -197,7 +197,7 @@ type ClusterSpecItem struct {
 	// Amount of members for this MongoDB Replica Set
 	Members int `json:"members"`
 	// +optional
-	StatefulSetConfiguration mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
 	// for a reconcilliation
 	Discard bool `json:"-"`
@@ -230,43 +230,16 @@ type MongoDBMultiStatus struct {
 }
 
 type MongoDBMultiSpec struct {
-	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
-	// +kubebuilder:validation:Required
-	Version                     string            `json:"version"`
-	FeatureCompatibilityVersion *string           `json:"featureCompatibilityVersion,omitempty"`
-	Agent                       mdbv1.AgentConfig `json:"agent,omitempty"`
-	// +kubebuilder:validation:Format="hostname"
-	ClusterDomain        string `json:"clusterDomain,omitempty"`
-	mdbv1.ConnectionSpec `json:",inline"`
-	Persistent           *bool `json:"persistent,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	mdbv1.DbCommonSpec `json:",inline"`
+
 	// In few service mesh options for ex: Istio, by default we would need to duplicate the
 	// service objects created per pod in all the clusters to enable DNS resolution. Users can
 	// however configure their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
 	// enabled in which case the operator doesn't need to create the service objects per cluster. This options tells the operator
 	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
-	DuplicateServiceObjects *bool `json:"duplicateServiceObjects,omitempty"`
-	// +kubebuilder:validation:Enum=ReplicaSet
-	// +kubebuilder:validation:Required
-	ResourceType mdbv1.ResourceType `json:"type"`
-	// +optional
-	Security     *mdbv1.Security            `json:"security,omitempty"`
-	Connectivity *mdbv1.MongoDBConnectivity `json:"connectivity,omitempty"`
-	Backup       *mdbv1.Backup              `json:"backup,omitempty"`
-
-	// +optional
-	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
-	// if  "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
-	// the global one
-	StatefulSetConfiguration mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-
-	// AdditionalMongodConfig is additional configuration that can be passed to
-	// each data-bearing mongod at runtime. Uses the same structure as the mongod
-	// configuration file:
-	// https://docs.mongodb.com/manual/reference/configuration-options/
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +optional
-	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
-	ClusterSpecList        ClusterSpecList              `json:"clusterSpecList,omitempty"`
+	DuplicateServiceObjects *bool           `json:"duplicateServiceObjects,omitempty"`
+	ClusterSpecList         ClusterSpecList `json:"clusterSpecList,omitempty"`
 	// Mapping stores the deterministic index for a given cluster-name.
 	Mapping map[string]int `json:"-"`
 }

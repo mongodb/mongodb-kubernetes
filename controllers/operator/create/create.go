@@ -54,7 +54,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	}
 
 	namespacedName = kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
-	if !mdb.Spec.ExposedExternally {
+	if !mdb.Spec.DbCommonSpec.ExposedExternally {
 		return service.DeleteServiceIfItExists(client, namespacedName)
 	}
 

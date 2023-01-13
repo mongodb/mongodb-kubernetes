@@ -986,24 +986,27 @@ func DefaultClusterBuilder() *ClusterBuilder {
 	}
 
 	spec := mdbv1.MongoDbSpec{
-		Persistent: util.BooleanRef(false),
-		ConnectionSpec: mdbv1.ConnectionSpec{
-			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-				ConfigMapRef: mdbv1.ConfigMapRef{
-					Name: mock.TestProjectConfigMapName,
+		DbCommonSpec: mdbv1.DbCommonSpec{
+			Persistent: util.BooleanRef(false),
+			ConnectionSpec: mdbv1.ConnectionSpec{
+				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+					ConfigMapRef: mdbv1.ConfigMapRef{
+						Name: mock.TestProjectConfigMapName,
+					},
+				},
+				Credentials: mock.TestCredentialsSecretName,
+			},
+			Version:      "3.6.4",
+			ResourceType: mdbv1.ShardedCluster,
+
+			Security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{},
+				Authentication: &mdbv1.Authentication{
+					Modes: []string{},
 				},
 			},
-			Credentials: mock.TestCredentialsSecretName,
 		},
-		Version:                         "3.6.4",
-		ResourceType:                    mdbv1.ShardedCluster,
 		MongodbShardedClusterSizeConfig: sizeConfig,
-		Security: &mdbv1.Security{
-			TLSConfig: &mdbv1.TLSConfig{},
-			Authentication: &mdbv1.Authentication{
-				Modes: []string{},
-			},
-		},
 		ShardedClusterSpec: mdbv1.ShardedClusterSpec{
 			ConfigSrvSpec: &mdbv1.ShardedClusterComponentSpec{},
 			MongosSpec:    &mdbv1.ShardedClusterComponentSpec{},
