@@ -293,6 +293,7 @@ func initializeEnvironment() {
 		"KUBERNETES_",
 		"AGENT_IMAGE",
 		"MONGODB_",
+		"INIT_",
 	}
 
 	// Only env variables with one of these prefixes will be printed

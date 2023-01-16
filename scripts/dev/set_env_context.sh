@@ -5,45 +5,37 @@ set -Eeou pipefail
 # shellcheck disable=1091
 source scripts/funcs/errors
 
-# script prepares environment variables relevant for the current context
-# If it's run locally ($IN_MEMORY_CONTEXT is not defined) then the context variables
-# are read from ~/.operator_dev/context
-if [[ -z "${IN_MEMORY_CONTEXT-}" ]]; then
-    # Reading context file
-    readonly root_dir="$HOME/.operator-dev"
-    readonly context_file="$root_dir/context"
+# Script prepares environment variables relevant for the current context
+# Context variables are read from ~/.operator_dev/context
+readonly root_dir="$HOME/.operator-dev"
+readonly context_file="$root_dir/context"
 
-    if [[ ! -f ${context_file} ]]; then
-        fatal "File ${context_file} not found! You must init development environment using 'make init' first."
-    fi
-
-    # reading the 'om' file first and then the context file - this will allow to use custom connectivity parameters
-    if [[ -f ${root_dir}/om ]]; then
-        # shellcheck disable=SC1090
-        source "${root_dir}/om"
-    fi
-
-    # shellcheck disable=SC1090
-    source "${context_file}"
-
-    # LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions
-    export LOCAL_RUN=true
-    # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
-    # for local run
-    export version_id="latest"
-
-    # Setting the default values for registries
-
-    # By default all "raw" (meaning there are no startup scripts or extra binaries) images are read from
-    # quay.io as they are not rebuilt during building process
-    [[ -z "${OPS_MANAGER_REGISTRY-}" ]] && export OPS_MANAGER_REGISTRY="quay.io/mongodb"
-    [[ -z "${APPDB_REGISTRY-}" ]] && export APPDB_REGISTRY="quay.io/mongodb"
-    [[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="quay.io/mongodb"
-else
-    echo "Skipping reading context file."
-    echo "Note that all the configuration information \
-        (REPO_URL, CLUSTER_TYPE) must be provided as environment variables!"
+if [[ ! -f ${context_file} ]]; then
+    fatal "File ${context_file} not found! You must init development environment using 'make init' first."
 fi
+
+# reading the 'om' file first and then the context file - this will allow to use custom connectivity parameters
+if [[ -f ${root_dir}/om ]]; then
+    # shellcheck disable=SC1090
+    source "${root_dir}/om"
+fi
+
+# shellcheck disable=SC1090
+source "${context_file}"
+
+# LOCAL_RUN indicates that the make script is run locally. This may affect different build/deploy decisions
+export LOCAL_RUN=true
+# version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
+# for local run
+export version_id="latest"
+
+# Setting the default values for registries
+
+# By default all "raw" (meaning there are no startup scripts or extra binaries) images are read from
+# quay.io as they are not rebuilt during building process
+[[ -z "${OPS_MANAGER_REGISTRY-}" ]] && export OPS_MANAGER_REGISTRY="quay.io/mongodb"
+[[ -z "${APPDB_REGISTRY-}" ]] && export APPDB_REGISTRY="quay.io/mongodb"
+[[ -z "${DATABASE_REGISTRY-}" ]] && export DATABASE_REGISTRY="quay.io/mongodb"
 
 # IMAGE_TYPE is mandatory
 if [[ "${IMAGE_TYPE}" != "ubuntu" ]] && [[ "${IMAGE_TYPE}" != "ubi" ]]; then
