@@ -44,7 +44,7 @@ class MongoDBMulti(MongoDB):
 
     def get_item_spec(self, cluster_name: str) -> Dict:
         for spec in sorted(
-            self["spec"]["clusterSpecList"]["clusterSpecs"],
+            self["spec"]["clusterSpecList"],
             key=lambda x: x["clusterName"],
         ):
             if spec["clusterName"] == cluster_name:
@@ -84,7 +84,7 @@ class MongoDBMulti(MongoDB):
         # and as a result the incorrect service name will be returned.
         service_names = []
         cluster_specs = sorted(
-            self["spec"]["clusterSpecList"]["clusterSpecs"],
+            self["spec"]["clusterSpecList"],
             key=lambda x: x["clusterName"],
         )
         for (i, spec) in enumerate(cluster_specs):

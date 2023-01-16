@@ -97,9 +97,9 @@ def mongodb_multi_one(
     )
 
     # TODO: use a full 3 cluster RS with backup once the required agent changes have been made. Remove the below 3 lines
-    spec_item_with_one_member = resource["spec"]["clusterSpecList"]["clusterSpecs"][0]
+    spec_item_with_one_member = resource["spec"]["clusterSpecList"][0]
     spec_item_with_one_member["members"] = 1
-    resource["spec"]["clusterSpecList"]["clusterSpecs"] = [spec_item_with_one_member]
+    resource["spec"]["clusterSpecList"] = [spec_item_with_one_member]
 
     resource.configure_backup(mode="enabled")
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)

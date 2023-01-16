@@ -28,9 +28,9 @@ def mongodb_multi_unmarshalled(
         yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
     )
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][2]["members"] = 2
+    resource["spec"]["clusterSpecList"][0]["members"] = 2
+    resource["spec"]["clusterSpecList"][1]["members"] = 1
+    resource["spec"]["clusterSpecList"][2]["members"] = 2
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -63,7 +63,7 @@ def mongodb_multi(
     mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
 ) -> MongoDBMulti:
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
-    mongodb_multi_unmarshalled["spec"]["clusterSpecList"]["clusterSpecs"].pop()
+    mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     return mongodb_multi_unmarshalled.create()
 
 
@@ -104,7 +104,7 @@ def test_scale_mongodb_multi(
     mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
 ):
     mongodb_multi.load()
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"].append(
+    mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[2].cluster_name}
     )
     mongodb_multi.update()

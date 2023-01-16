@@ -13,28 +13,27 @@ spec:
     configMapRef:
       name: my-project
   clusterSpecList:
-    clusterSpecs:
-      - clusterName: gke_k8s-rdas_us-east1-b_member-1a
-        members: 2
-        statefulSet:
-          spec:
-            template:
-              spec:
-                securityContext:
-                  fsGroup: 2000
-      - clusterName: gke_k8s-rdas_us-east1-c_member-2a
-        members: 1
-        statefulSet:
-          spec:
-            template:
-              spec:
-                securityContext:
-                  fsGroup: 2000
-      - clusterName: gke_k8s-rdas_us-west1-a_member-3a
-        members: 2
-        statefulSet:
-          spec:
-            template:
-              spec:
-                securityContext:
-                  fsGroup: 2000
+    - clusterName: gke_k8s-rdas_us-east1-b_member-1a
+      members: 2
+      statefulSet:
+        spec:
+          template:
+            spec:
+              securityContext:
+                fsGroup: 2000
+    - clusterName: gke_k8s-rdas_us-east1-c_member-2a
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              securityContext:
+                fsGroup: 2000
+    - clusterName: gke_k8s-rdas_us-west1-a_member-3a
+      members: 2
+      statefulSet:
+        spec:
+          template:
+            spec:
+              securityContext:
+                fsGroup: 2000

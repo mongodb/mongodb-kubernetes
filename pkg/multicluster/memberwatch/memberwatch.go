@@ -177,7 +177,7 @@ func AddFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client
 	addFailedClustersAnnotation(mrs, clustername, client)
 
 	currentClusterSpecs := mrs.Spec.ClusterSpecList
-	currentClusterSpecs.ClusterSpecs = distributeFailedMemebers(currentClusterSpecs.ClusterSpecs, clustername)
+	currentClusterSpecs = distributeFailedMemebers(currentClusterSpecs, clustername)
 
 	updatedClusterSpec, err := json.Marshal(currentClusterSpecs)
 	if err != nil {
@@ -210,8 +210,8 @@ func addFailedClustersAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, 
 	return annotations.SetAnnotations(mrs.DeepCopy(), map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
 }
 
-func getClusterMembers(clusterSpecList mdbmulti.ClusterSpecList, clusterName string) int {
-	for _, e := range clusterSpecList.ClusterSpecs {
+func getClusterMembers(clusterSpecList []mdbmulti.ClusterSpecItem, clusterName string) int {
+	for _, e := range clusterSpecList {
 		if e.ClusterName == clusterName {
 			return e.Members
 		}

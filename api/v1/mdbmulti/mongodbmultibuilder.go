@@ -59,7 +59,7 @@ func (m *MultiReplicaSetBuilder) SetClusterSpecList(clusters []string) *MultiRep
 	rand.Seed(time.Now().UnixNano())
 
 	for _, e := range clusters {
-		m.Spec.ClusterSpecList.ClusterSpecs = append(m.Spec.ClusterSpecList.ClusterSpecs, ClusterSpecItem{
+		m.Spec.ClusterSpecList = append(m.Spec.ClusterSpecList, ClusterSpecItem{
 			ClusterName: e,
 			Members:     rand.Intn(5) + 1, // number of cluster members b/w 1 to 5
 		})

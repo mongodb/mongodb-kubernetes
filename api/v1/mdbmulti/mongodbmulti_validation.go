@@ -48,7 +48,7 @@ func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
 func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
 	present := make(map[string]struct{})
 
-	for _, e := range ms.ClusterSpecList.ClusterSpecs {
+	for _, e := range ms.ClusterSpecList {
 		if _, ok := present[e.ClusterName]; ok {
 			msg := fmt.Sprintf("Multiple clusters with the same name(%s) are not allowed", e.ClusterName)
 			return v1.ValidationError(msg)

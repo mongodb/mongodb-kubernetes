@@ -120,7 +120,7 @@ def test_replica_reaches_running(mongodb_multi: MongoDBMulti):
 def test_number_numbers_in_ac(mongodb_multi: MongoDBMulti):
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     desiredmembers = 0
-    for c in mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"]:
+    for c in mongodb_multi["spec"]["clusterSpecList"]:
         desiredmembers += c["members"]
 
     processes = tester.get_replica_set_processes(mongodb_multi.name)

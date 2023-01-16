@@ -27,9 +27,9 @@ def mongodb_multi_unmarshalled(
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
     )
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][2]["members"] = 2
+    resource["spec"]["clusterSpecList"][0]["members"] = 2
+    resource["spec"]["clusterSpecList"][1]["members"] = 1
+    resource["spec"]["clusterSpecList"][2]["members"] = 2
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -106,8 +106,8 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     # remove first and last cluster
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"] = [
-        mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][1]
+    mongodb_multi["spec"]["clusterSpecList"] = [
+        mongodb_multi["spec"]["clusterSpecList"][1]
     ]
     mongodb_multi.update()
 

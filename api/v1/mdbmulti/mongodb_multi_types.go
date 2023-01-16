@@ -170,17 +170,12 @@ type MongoDBMultiList struct {
 }
 
 func (m MongoDBMulti) GetClusterSpecByName(clusterName string) *ClusterSpecItem {
-	for _, csi := range m.Spec.ClusterSpecList.ClusterSpecs {
+	for _, csi := range m.Spec.ClusterSpecList {
 		if csi.ClusterName == clusterName {
 			return &csi
 		}
 	}
 	return nil
-}
-
-// ClusterSpecList holds a list with a clusterSpec corresponding to each cluster
-type ClusterSpecList struct {
-	ClusterSpecs []ClusterSpecItem `json:"clusterSpecs,omitempty"`
 }
 
 // ClusterSpecItem is the mongodb multi-cluster spec that is specific to a
@@ -238,8 +233,8 @@ type MongoDBMultiSpec struct {
 	// however configure their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
 	// enabled in which case the operator doesn't need to create the service objects per cluster. This options tells the operator
 	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
-	DuplicateServiceObjects *bool           `json:"duplicateServiceObjects,omitempty"`
-	ClusterSpecList         ClusterSpecList `json:"clusterSpecList,omitempty"`
+	DuplicateServiceObjects *bool             `json:"duplicateServiceObjects,omitempty"`
+	ClusterSpecList         []ClusterSpecItem `json:"clusterSpecList,omitempty"`
 	// Mapping stores the deterministic index for a given cluster-name.
 	Mapping map[string]int `json:"-"`
 }
@@ -467,7 +462,7 @@ func (m *MongoDBMulti) InitDefaults() {
 // Replicas returns the total number of MongoDB members running across all the clusters
 func (m *MongoDBMultiSpec) Replicas() int {
 	num := 0
-	for _, e := range m.ClusterSpecList.ClusterSpecs {
+	for _, e := range m.ClusterSpecList {
 		num += e.Members
 	}
 	return num
@@ -535,22 +530,22 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 
 // GetClusterSpecList returns the cluster spec items.
 func (m *MongoDBMultiSpec) GetClusterSpecList() []ClusterSpecItem {
-	return m.ClusterSpecList.ClusterSpecs
+	return m.ClusterSpecList
 }
 
 // GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.
 // Returns the failerOver annotation if present else reads the cluster spec list from the CR.
 func (m *MongoDBMulti) GetDesiredSpecList() []ClusterSpecItem {
-	clusterSpecList := m.Spec.ClusterSpecList.ClusterSpecs
+	clusterSpecList := m.Spec.ClusterSpecList
 
 	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
-		var clusterSpecOverride ClusterSpecList
+		var clusterSpecOverride []ClusterSpecItem
 
 		err := json.Unmarshal([]byte(val), &clusterSpecOverride)
 		if err != nil {
 			return clusterSpecList
 		}
-		clusterSpecList = clusterSpecOverride.ClusterSpecs
+		clusterSpecList = clusterSpecOverride
 	}
 	return clusterSpecList
 }

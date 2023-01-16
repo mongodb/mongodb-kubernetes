@@ -331,9 +331,9 @@ func TestScaling(t *testing.T) {
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 1
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -348,8 +348,8 @@ func TestScaling(t *testing.T) {
 		}
 
 		// scale up in two different clusters at once.
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
+		mrs.Spec.ClusterSpecList[0].Members = 3
+		mrs.Spec.ClusterSpecList[2].Members = 3
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 1)
@@ -370,9 +370,9 @@ func TestScaling(t *testing.T) {
 
 	t.Run("Scale one at a time when scaling down", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 2
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
+		mrs.Spec.ClusterSpecList[0].Members = 3
+		mrs.Spec.ClusterSpecList[1].Members = 2
+		mrs.Spec.ClusterSpecList[2].Members = 3
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -390,9 +390,9 @@ func TestScaling(t *testing.T) {
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 8)
 
 		// scale down in all clusters.
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 1
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, true)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 2, 3)
@@ -417,9 +417,9 @@ func TestScaling(t *testing.T) {
 
 	t.Run("Added members don't have overlapping replica set member Ids", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 1
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -442,7 +442,7 @@ func TestScaling(t *testing.T) {
 		assert.Equal(t, members[1].Id(), 1)
 		assert.Equal(t, members[2].Id(), 2)
 
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 2
+		mrs.Spec.ClusterSpecList[0].Members = 2
 
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -463,10 +463,10 @@ func TestScaling(t *testing.T) {
 
 	t.Run("Cluster can be added", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		mrs.Spec.ClusterSpecList.ClusterSpecs = mrs.Spec.ClusterSpecList.ClusterSpecs[:len(mrs.Spec.ClusterSpecList.ClusterSpecs)-1]
+		mrs.Spec.ClusterSpecList = mrs.Spec.ClusterSpecList[:len(mrs.Spec.ClusterSpecList)-1]
 
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
 
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -474,8 +474,8 @@ func TestScaling(t *testing.T) {
 		assertStatefulSetReplicas(t, mrs, memberClusters, 1, 1)
 
 		// scale one member and add a new cluster
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
-		mrs.Spec.ClusterSpecList.ClusterSpecs = append(mrs.Spec.ClusterSpecList.ClusterSpecs, mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList[0].Members = 3
+		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdbmulti.ClusterSpecItem{
 			ClusterName: clusters[2],
 			Members:     3,
 		})
@@ -502,17 +502,17 @@ func TestScaling(t *testing.T) {
 	t.Run("Cluster can be removed", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 3
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 2
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 3
+		mrs.Spec.ClusterSpecList[0].Members = 3
+		mrs.Spec.ClusterSpecList[1].Members = 2
+		mrs.Spec.ClusterSpecList[2].Members = 3
 
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 2, 3)
 
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs = mrs.Spec.ClusterSpecList.ClusterSpecs[:len(mrs.Spec.ClusterSpecList.ClusterSpecs)-1]
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList = mrs.Spec.ClusterSpecList[:len(mrs.Spec.ClusterSpecList)-1]
 
 		err := client.Update(context.TODO(), mrs)
 		assert.NoError(t, err)
@@ -540,9 +540,9 @@ func TestScaling(t *testing.T) {
 	t.Run("Multiple clusters can be removed", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 2
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 2
+		mrs.Spec.ClusterSpecList[0].Members = 2
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 2
 
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -550,7 +550,7 @@ func TestScaling(t *testing.T) {
 		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 2)
 
 		// remove first and last
-		mrs.Spec.ClusterSpecList.ClusterSpecs = []mdbmulti.ClusterSpecItem{mrs.Spec.ClusterSpecList.ClusterSpecs[1]}
+		mrs.Spec.ClusterSpecList = []mdbmulti.ClusterSpecItem{mrs.Spec.ClusterSpecList[1]}
 
 		err := client.Update(context.TODO(), mrs)
 		assert.NoError(t, err)
@@ -577,21 +577,21 @@ func TestClusterNumbering(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		clusterNumMap := getClusterNumMapping(mrs)
-		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1, 2})
+		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1, 2})
 	})
 
 	t.Run("Add Cluster", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-		mrs.Spec.ClusterSpecList.ClusterSpecs = mrs.Spec.ClusterSpecList.ClusterSpecs[:len(mrs.Spec.ClusterSpecList.ClusterSpecs)-1]
+		mrs.Spec.ClusterSpecList = mrs.Spec.ClusterSpecList[:len(mrs.Spec.ClusterSpecList)-1]
 
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		clusterNumMap := getClusterNumMapping(mrs)
-		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1})
+		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1})
 
 		// add cluster
-		mrs.Spec.ClusterSpecList.ClusterSpecs = append(mrs.Spec.ClusterSpecList.ClusterSpecs, mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdbmulti.ClusterSpecItem{
 			ClusterName: clusters[2],
 			Members:     1,
 		})
@@ -608,19 +608,19 @@ func TestClusterNumbering(t *testing.T) {
 	t.Run("Remove and Add back cluster", func(t *testing.T) {
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 
-		mrs.Spec.ClusterSpecList.ClusterSpecs[0].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[1].Members = 1
-		mrs.Spec.ClusterSpecList.ClusterSpecs[2].Members = 1
+		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[1].Members = 1
+		mrs.Spec.ClusterSpecList[2].Members = 1
 
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		clusterNumMap := getClusterNumMapping(mrs)
-		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList.ClusterSpecs, []int{0, 1, 2})
+		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1, 2})
 		clusterOneIndex := clusterNumMap[clusters[1]]
 
 		// Remove cluster index 1 from the specs
-		mrs.Spec.ClusterSpecList.ClusterSpecs = []mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = []mdbmulti.ClusterSpecItem{
 			{
 				ClusterName: clusters[0],
 				Members:     1,
@@ -636,7 +636,7 @@ func TestClusterNumbering(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		// Add cluster index 1 back to the specs
-		mrs.Spec.ClusterSpecList.ClusterSpecs = append(mrs.Spec.ClusterSpecList.ClusterSpecs, mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdbmulti.ClusterSpecItem{
 			ClusterName: clusters[1],
 			Members:     1,
 		})
@@ -753,11 +753,11 @@ func TestMultiClusterFailover(t *testing.T) {
 	// trigger failover by adding an annotation to the CR
 	// read the first cluster from the clusterSpec list and fail it over.
 	expectedNodeCount := 0
-	for _, e := range mrs.Spec.ClusterSpecList.ClusterSpecs {
+	for _, e := range mrs.Spec.ClusterSpecList {
 		expectedNodeCount += e.Members
 	}
 
-	cluster := mrs.Spec.ClusterSpecList.ClusterSpecs[0]
+	cluster := mrs.Spec.ClusterSpecList[0]
 	failedClusters := []failedcluster.FailedCluster{{ClusterName: cluster.ClusterName, Members: cluster.Members}}
 
 	clusterSpecBytes, err := json.Marshal(failedClusters)
