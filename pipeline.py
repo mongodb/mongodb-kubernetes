@@ -113,7 +113,7 @@ def build_configuration_from_env() -> Dict[str, str]:
 def operator_build_configuration(
     builder: str, parallel: bool, debug: bool
 ) -> BuildConfiguration:
-    default_config_location = os.path.expanduser("~/.operator-dev/context")
+    default_config_location = os.path.expanduser("~/.operator-dev/context.env")
     context_file = os.environ.get(
         "OPERATOR_BUILD_CONFIGURATION", default_config_location
     )

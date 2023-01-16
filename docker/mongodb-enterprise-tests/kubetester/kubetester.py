@@ -31,8 +31,6 @@ from requests.auth import HTTPDigestAuth
 from kubetester.crypto import wait_for_certs_to_be_issued
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
-ENVIRONMENT_FILES = ("~/.operator-dev/om", "~/.operator-dev/contexts/{}")
-ENVIRONMENT_FILE_CURRENT = os.path.expanduser("~/.operator-dev/current")
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
 MAX_TAG_LEN = 32
 
@@ -1584,11 +1582,6 @@ def get_env_var_or_fail(name):
     """
     value = os.getenv(name)
 
-    if value is None and running_locally():
-        # If the environment variable is not found, and in local mode,
-        # look for it in any of the "environment" files
-        value = get_env_var_from_file(name)
-
     if value is None:
         raise ValueError("Environment variable `{}` needs to be set.".format(name))
 
@@ -1596,29 +1589,6 @@ def get_env_var_or_fail(name):
         value = value.strip()
 
     return value
-
-
-def get_current_dev_context():
-    with open(ENVIRONMENT_FILE_CURRENT) as fd:
-        return fd.readline().strip()
-
-
-def get_env_var_from_file(var_name):
-    for env_file in ENVIRONMENT_FILES:
-        if "{}" in env_file:
-            env_file = env_file.format(get_current_dev_context())
-
-        with open(os.path.expanduser(env_file)) as fd:
-            for line in fd.readlines():
-                try:
-                    name, value = line.split("=")
-                    if "export " in name:
-                        _, name = name.split("export ")
-                    if name.strip() == var_name:
-                        return value
-                except ValueError:
-                    # unpack error at some point
-                    continue
 
 
 def build_auth(user, api_key):

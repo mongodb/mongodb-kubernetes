@@ -21,5 +21,11 @@ ln -sf "${HOME}/.operator-dev/contexts/${context}" "${HOME}/.operator-dev/contex
 # Reading environment variables for the context - this is where we get "CLUSTER_NAME" var from
 source scripts/dev/read_context.sh
 
+# print all environments variables set in read_context.sh to env file
+# this will render all variable substitutions
+(env -i HOME="${HOME}" PATH="${PATH}" bash -c "source scripts/dev/set_env_context.sh; printenv" > "${context_file}.e2e.env")
+
+scripts/dev/print_operator_env.sh > "${context_file}.operator.env"
+
 echo "Switched operator context to ${context}"
 
