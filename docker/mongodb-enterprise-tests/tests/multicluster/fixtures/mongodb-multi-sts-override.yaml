@@ -12,55 +12,54 @@ spec:
     configMapRef:
       name: my-project
   clusterSpecList:
-    clusterSpecs:
-      - clusterName: e2e.cluster1.mongokubernetes.com
-        members: 2
-        statefulSet:
-          spec:
-            template:
-              spec:
-                containers:
-                - name: sidecar1
-                  image: busybox
-                  command: ["sleep"]
-                  args: [ "infinity" ]
-            volumeClaimTemplates:
-            - metadata:
-                name: data
-              spec:
-                accessModes: [ "ReadWriteOnce" ]
-                storageClassName: "gp2"
-      - clusterName: e2e.cluster2.mongokubernetes.com
-        members: 1
-        statefulSet:
-          spec:
-            template:
-              spec:
-                containers:
-                - name: sidecar2
-                  image: busybox
-                  command: ["sleep"]
-                  args: [ "infinity" ]
-            volumeClaimTemplates:
-            - metadata:
-                name: data
-              spec:
-                accessModes: [ "ReadWriteOnce" ]
-                storageClassName: "gp2"      
-      - clusterName: e2e.cluster3.mongokubernetes.com
-        members: 1
-        statefulSet:
-          spec:
-            template:
-              spec:
-                containers:
-                - name: sidecar3
-                  image: busybox
-                  command: ["sleep"]
-                  args: [ "infinity" ]
-            volumeClaimTemplates:
-            - metadata:
-                name: data
-              spec:
-                accessModes: [ "ReadWriteOnce" ]
-                storageClassName: "gp2"
+    - clusterName: e2e.cluster1.mongokubernetes.com
+      members: 2
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar1
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]
+              storageClassName: "gp2"
+    - clusterName: e2e.cluster2.mongokubernetes.com
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar2
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]
+              storageClassName: "gp2"
+    - clusterName: e2e.cluster3.mongokubernetes.com
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar3
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              accessModes: [ "ReadWriteOnce" ]
+              storageClassName: "gp2"

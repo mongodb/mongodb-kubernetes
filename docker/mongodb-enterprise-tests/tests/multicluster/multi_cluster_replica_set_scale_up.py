@@ -28,9 +28,9 @@ def mongodb_multi_unmarshalled(
         yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
     )
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][2]["members"] = 2
+    resource["spec"]["clusterSpecList"][0]["members"] = 2
+    resource["spec"]["clusterSpecList"][1]["members"] = 1
+    resource["spec"]["clusterSpecList"][2]["members"] = 2
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -63,15 +63,9 @@ def mongodb_multi(
     mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
 ) -> MongoDBMulti:
     # we have created certs for all 5 members, but want to start at only 3.
-    mongodb_multi_unmarshalled["spec"]["clusterSpecList"]["clusterSpecs"][0][
-        "members"
-    ] = 1
-    mongodb_multi_unmarshalled["spec"]["clusterSpecList"]["clusterSpecs"][1][
-        "members"
-    ] = 1
-    mongodb_multi_unmarshalled["spec"]["clusterSpecList"]["clusterSpecs"][2][
-        "members"
-    ] = 1
+    mongodb_multi_unmarshalled["spec"]["clusterSpecList"][0]["members"] = 1
+    mongodb_multi_unmarshalled["spec"]["clusterSpecList"][1]["members"] = 1
+    mongodb_multi_unmarshalled["spec"]["clusterSpecList"][2]["members"] = 1
     return mongodb_multi_unmarshalled.create()
 
 
@@ -113,9 +107,9 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 @pytest.mark.e2e_multi_cluster_replica_set_scale_up
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][0]["members"] = 2
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][1]["members"] = 1
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"][2]["members"] = 2
+    mongodb_multi["spec"]["clusterSpecList"][0]["members"] = 2
+    mongodb_multi["spec"]["clusterSpecList"][1]["members"] = 1
+    mongodb_multi["spec"]["clusterSpecList"][2]["members"] = 2
     mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)

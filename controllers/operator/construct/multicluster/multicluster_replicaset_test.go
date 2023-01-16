@@ -41,15 +41,14 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMulti {
 				Roles: []mdbv1.MongoDbRole{},
 			},
 		},
-		ClusterSpecList: mdbmulti.ClusterSpecList{
-			ClusterSpecs: []mdbmulti.ClusterSpecItem{
-				{
-					ClusterName: "foo",
-					Members:     3,
-				},
+		ClusterSpecList: []mdbmulti.ClusterSpecItem{
+			{
+				ClusterName: "foo",
+				Members:     3,
 			},
 		},
 	}
+
 	return mdbmulti.MongoDBMulti{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "pod-aff", Namespace: mock.TestNamespace}}
 }
 
@@ -62,7 +61,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			mdbv1.ProjectConfig{}, nil, "")
 		assert.NoError(t, err)
 
-		expectedReplicas := mdbm.Spec.ClusterSpecList.ClusterSpecs[0].Members
+		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
 
 	})
@@ -78,7 +77,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		}}
 
 		mdbm := getMultiClusterMongoDB()
-		mdbm.Spec.ClusterSpecList.ClusterSpecs[0].StatefulSetConfiguration = singleClusterOverride
+		mdbm.Spec.ClusterSpecList[0].StatefulSetConfiguration = singleClusterOverride
 
 		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
 			mdbv1.ProjectConfig{}, singleClusterOverride, "")
@@ -110,7 +109,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			mdbv1.ProjectConfig{}, nil, "")
 		assert.NoError(t, err)
 
-		expectedReplicas := mdbm.Spec.ClusterSpecList.ClusterSpecs[0].Members
+		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
 
 		assert.Equal(t, stsOverride.SpecWrapper.Spec.ServiceName, sts.Spec.ServiceName)

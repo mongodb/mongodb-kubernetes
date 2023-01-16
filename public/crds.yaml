@@ -1057,49 +1057,43 @@ spec:
                 format: hostname
                 type: string
               clusterSpecList:
-                description: ClusterSpecList holds a list with a clusterSpec corresponding
-                  to each cluster
-                properties:
-                  clusterSpecs:
-                    items:
-                      description: ClusterSpecItem is the mongodb multi-cluster spec
-                        that is specific to a particular Kubernetes cluster, this
-                        maps to the statefulset created in each cluster
+                items:
+                  description: ClusterSpecItem is the mongodb multi-cluster spec that
+                    is specific to a particular Kubernetes cluster, this maps to the
+                    statefulset created in each cluster
+                  properties:
+                    clusterName:
+                      description: ClusterName is name of the cluster where the MongoDB
+                        Statefulset will be scheduled, the name should have a one
+                        on one mapping with the service-account created in the central
+                        cluster to talk to the workload clusters.
+                      type: string
+                    exposedExternally:
+                      description: ExposedExternally determines whether a NodePort
+                        service should be created for the resource
+                      type: boolean
+                    members:
+                      description: Amount of members for this MongoDB Replica Set
+                      type: integer
+                    service:
+                      description: this is an optional service, it will get the name
+                        "<rsName>-service" in case not provided
+                      type: string
+                    statefulSet:
+                      description: StatefulSetConfiguration holds the optional custom
+                        StatefulSet that should be merged into the operator created
+                        one.
                       properties:
-                        clusterName:
-                          description: ClusterName is name of the cluster where the
-                            MongoDB Statefulset will be scheduled, the name should
-                            have a one on one mapping with the service-account created
-                            in the central cluster to talk to the workload clusters.
-                          type: string
-                        exposedExternally:
-                          description: ExposedExternally determines whether a NodePort
-                            service should be created for the resource
-                          type: boolean
-                        members:
-                          description: Amount of members for this MongoDB Replica
-                            Set
-                          type: integer
-                        service:
-                          description: this is an optional service, it will get the
-                            name "<rsName>-service" in case not provided
-                          type: string
-                        statefulSet:
-                          description: StatefulSetConfiguration holds the optional
-                            custom StatefulSet that should be merged into the operator
-                            created one.
-                          properties:
-                            spec:
-                              type: object
-                              x-kubernetes-preserve-unknown-fields: true
-                          required:
-                          - spec
+                        spec:
                           type: object
+                          x-kubernetes-preserve-unknown-fields: true
                       required:
-                      - members
+                      - spec
                       type: object
-                    type: array
-                type: object
+                  required:
+                  - members
+                  type: object
+                type: array
               connectivity:
                 properties:
                   replicaSetHorizons:

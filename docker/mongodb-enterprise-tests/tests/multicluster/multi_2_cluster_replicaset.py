@@ -19,7 +19,7 @@ def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
     )
-    resource["spec"]["clusterSpecList"]["clusterSpecs"] = [
+    resource["spec"]["clusterSpecList"] = [
         {"clusterName": "e2e.cluster1.mongokubernetes.com", "members": 2},
         {"clusterName": "e2e.cluster2.mongokubernetes.com", "members": 1},
     ]

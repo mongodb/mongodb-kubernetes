@@ -8,7 +8,7 @@ import (
 
 func TestUniqueClusterNames(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
-	mrs.Spec.ClusterSpecList.ClusterSpecs = []ClusterSpecItem{
+	mrs.Spec.ClusterSpecList = []ClusterSpecItem{
 		{
 			ClusterName: "abc",
 			Members:     2,

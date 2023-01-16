@@ -263,7 +263,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(mrs *mdbmultiv1.Mongo
 	// We want to get an existing statefulset, so we should fetch the client from "mrs.Spec.ClusterSpecList.ClusterSpecs"
 	// instead of mrs.GetClusterSpecItems(), since the later returns the effective clusterspecs, which might return
 	// clusters which have been removed and do not have a running statefulset.
-	items := mrs.Spec.ClusterSpecList.ClusterSpecs
+	items := mrs.Spec.ClusterSpecList
 	var firstMemberClient kubernetesClient.Client
 	var firstMemberIdx int
 	for idx, item := range items {
@@ -439,7 +439,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 // shouldDeleteStatefulSet returns a boolean value indicating whether or not the StatefulSet associated with
 // the given cluster spec item should be deleted or not.
 func shouldDeleteStatefulSet(mrs mdbmultiv1.MongoDBMulti, item mdbmultiv1.ClusterSpecItem) (bool, error) {
-	for _, specItem := range mrs.Spec.ClusterSpecList.ClusterSpecs {
+	for _, specItem := range mrs.Spec.ClusterSpecList {
 		if item.ClusterName == specItem.ClusterName {
 			// this spec value has been explicitly defined, don't delete it.
 			return false, nil
@@ -486,7 +486,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 	}
 
 	lastAchievedSpec := mrs.Spec
-	lastAchievedSpec.ClusterSpecList.ClusterSpecs = clusterSpecs
+	lastAchievedSpec.ClusterSpecList = clusterSpecs
 	achievedSpecBytes, err := json.Marshal(lastAchievedSpec)
 	if err != nil {
 		return err

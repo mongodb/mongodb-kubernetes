@@ -37,9 +37,9 @@ def mongodb_multi_unmarshalled(
         yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
     )
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"]["clusterSpecs"][2]["members"] = 2
+    resource["spec"]["clusterSpecList"][0]["members"] = 2
+    resource["spec"]["clusterSpecList"][1]["members"] = 1
+    resource["spec"]["clusterSpecList"][2]["members"] = 2
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -70,7 +70,7 @@ def server_certs(
 def mongodb_multi(
     mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
 ) -> MongoDBMulti:
-    mongodb_multi_unmarshalled["spec"]["clusterSpecList"]["clusterSpecs"].pop()
+    mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     return mongodb_multi_unmarshalled.create()
 
 
@@ -116,7 +116,7 @@ def test_mongodb_multi_recovers_adding_cluster(
 ):
     mongodb_multi.load()
 
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"].append(
+    mongodb_multi["spec"]["clusterSpecList"].append(
         {"clusterName": member_cluster_names[-1], "members": 2}
     )
     mongodb_multi.update()
@@ -151,6 +151,6 @@ def test_mongodb_multi_recovers_removing_cluster(
 
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
 
-    mongodb_multi["spec"]["clusterSpecList"]["clusterSpecs"].pop(0)
+    mongodb_multi["spec"]["clusterSpecList"].pop(0)
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)

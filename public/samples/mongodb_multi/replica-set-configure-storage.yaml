@@ -13,60 +13,58 @@ spec:
     configMapRef:
       name: my-project
   clusterSpecList:
-    clusterSpecs:
-      - clusterName: cluster1.mongokubernetes.com
-        members: 2
-        statefulSet:
-          spec:
-            template:
-              spec:
-                containers:
-                - name: sidecar1
-                  image: busybox
-                  command: ["sleep"]
-                  args: [ "infinity" ]
-            # to override the default storage size of the "data" PV
+    - clusterName: cluster1.mongokubernetes.com
+      members: 2
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar1
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
+          # to override the default storage size of the "data" PV
+          volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              resources:
+                requests:
+                  storage: 1Gi
+    - clusterName: cluster2.mongokubernetes.com
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar2
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
             volumeClaimTemplates:
             - metadata:
-                name: data
-              spec:
-                resources:
-                  requests:
-                    storage: 1Gi
-      - clusterName: cluster2.mongokubernetes.com
-        members: 1
-        statefulSet:
-          spec:
-            template:
-              spec:
-                containers:
-                - name: sidecar2
-                  image: busybox
-                  command: ["sleep"]
-                  args: [ "infinity" ]
-              volumeClaimTemplates:
-              - metadata:
-                name: data
-              spec:
-                resources:
-                  requests:
-                    storage: 1Gi
-      - clusterName: cluster3.mongokubernetes.com
-        members: 1
-        statefulSet:
-          spec:
-            template:
-              spec:
-                containers:
-                - name: sidecar3
-                  image: busybox
-                  command: ["sleep"]
-                  args: [ "infinity" ]
-              volumeClaimTemplates:
-              - metadata:
-                name: data
-              spec:
-                resources:
-                  requests:
-                    storage: 1Gi
-                
+              name: data
+            spec:
+              resources:
+                requests:
+                  storage: 1Gi
+    - clusterName: cluster3.mongokubernetes.com
+      members: 1
+      statefulSet:
+        spec:
+          template:
+            spec:
+              containers:
+              - name: sidecar3
+                image: busybox
+                command: ["sleep"]
+                args: [ "infinity" ]
+            volumeClaimTemplates:
+            - metadata:
+              name: data
+            spec:
+              resources:
+                requests:
+                  storage: 1Gi
