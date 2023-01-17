@@ -12,45 +12,46 @@ usage:
 	@ echo "More information can be found by the link https://github.com/10gen/ops-manager-kubernetes/blob/master/docs/dev/dev-start-guide.md"
 	@ echo
 	@ echo "Usage:"
-	@ echo "  prerequisites:              installs the command line applications necessary for working with this tool and adds git pre-commit hook."
-	@ echo "  init:                       prepares operator environment."
-	@ echo "  switch:                     switch current dev context, e.g 'make switch context=kops'. Note, that it switches"
-	@ echo "                              kubectl context as well and sets the current namespace to the one configured as the default"
-	@ echo "                              one"
-	@ echo "  contexts:                   list all available contexts"
-	@ echo "  operator:                   build and push Operator image, deploy it to the Kubernetes cluster"
-	@ echo "                              Use the 'debug' flag to build and deploy the Operator in debug mode - you need"
-	@ echo "                              to ensure the 30042 port on the K8s node is open"
-	@ echo "                              Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
-	@ echo "  database:                   build and push Database image"
-	@ echo "  full:                       ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
-	@ echo "                              resources, build-push-deploy operator, push-deploy database, create secrets, "
-	@ echo "                              config map, resources etc"
-	@ echo "  appdb:                      build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
-	@ echo "                              version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
-	@ echo "                              if Ops Manager is not released yet and you want to have some git branch as the source "
-	@ echo "                              parameters in ~/operator-dev/om"
-	@ echo "  reset:                      cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
-	@ echo "                              to perform a \"light\" cleanup - delete only Mongodb resources"
-	@ echo "  e2e:                        runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
-	@ echo "                              the test, the namespace is cleaned. The e2e app image is built and pushed. Use a 'light=true'"
-	@ echo "                              in case you are developing tests and not changing the application code - this will allow to"
-	@ echo "                              avoid rebuilding Operator/Database/Init images. Use 'debug=true' to run operator in debug mode."
-	@ echo "                              Use a 'local=true' to run the test locally using 'pytest'."
-	@ echo "                              Use a 'skip=true' to skip cleaning resources (this may help developing long-running tests like for Ops Manager)"
-	@ echo "                              Sometimes you may need to pass some custom configuration, this can be done this way:"
-	@ echo "                              make e2e test=e2e_om_ops_manager_upgrade custom_om_version=4.2.8"
-	@ echo "  recreate-e2e-kops:          deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
-	@ echo "                              kubectl context - the script will handle everything). Pass the flag 'imsure=yes' to make it work."
-	@ echo "                              Pass 'cluster' parameter for a cluster name if it's different from default ('e2e.mongokubernetes.com')"
-	@ echo "                              Possible values are: 'e2e.om.mongokubernetes.com', 'e2e.multinamespace.mongokubernetes.com'"
-	@ echo "  recreate-e2e-openshift:     deletes and creates an e2e Openshift cluster"
-	@ echo "  log:                        reads the Operator log"
-	@ echo "  status:                     prints the current context and the state of Kubernetes cluster"
-	@ echo "  dashboard:                  opens the Kubernetes dashboard. Make sure the cluster was installed using current Makefile as"
-	@ echo "                              dashboard is not installed by default and the script ensures it's installed and permissions"
-	@ echo "                              are configured."
-	@ echo "  open-automation-config/ac:   displays the contents of the Automation Config in in $EDITOR using ~/.operator-dev configuration"
+	@ echo "  prerequisites:                  installs the command line applications necessary for working with this tool and adds git pre-commit hook."
+	@ echo "  init:                           prepares operator environment."
+	@ echo "  switch:                         switch current dev context, e.g 'make switch context=kops'. Note, that it switches"
+	@ echo "                                  kubectl context as well and sets the current namespace to the one configured as the default"
+	@ echo "                                  one"
+	@ echo "  contexts:                       list all available contexts"
+	@ echo "  operator:                       build and push Operator image, deploy it to the Kubernetes cluster"
+	@ echo "                                  Use the 'debug' flag to build and deploy the Operator in debug mode - you need"
+	@ echo "                                  to ensure the 30042 port on the K8s node is open"
+	@ echo "                                  Use the 'watch_namespace' flag to specify a namespace to watch or leave empty to watch project namespace."
+	@ echo "  database:                       build and push Database image"
+	@ echo "  full:                           ('make' is an alias for this command) ensures K8s cluster is up, cleans Kubernetes"
+	@ echo "                                  resources, build-push-deploy operator, push-deploy database, create secrets, "
+	@ echo "                                  config map, resources etc"
+	@ echo "  appdb:                          build and push AppDB image. Specify 'om_version' in format '4.2.1' to provide the already released Ops Manager"
+	@ echo "                                  version which will be used to find the matching tag and find the Automation Agent version. Add 'om_branch' "
+	@ echo "                                  if Ops Manager is not released yet and you want to have some git branch as the source "
+	@ echo "                                  parameters in ~/operator-dev/om"
+	@ echo "  reset:                          cleans all Operator related state from Kubernetes and Ops Manager. Pass the 'light=true'"
+	@ echo "                                  to perform a \"light\" cleanup - delete only Mongodb resources"
+	@ echo "  e2e:                            runs the e2e test, e.g. 'make e2e test=e2e_sharded_cluster_pv'. The Operator is redeployed before"
+	@ echo "                                  the test, the namespace is cleaned. The e2e app image is built and pushed. Use a 'light=true'"
+	@ echo "                                  in case you are developing tests and not changing the application code - this will allow to"
+	@ echo "                                  avoid rebuilding Operator/Database/Init images. Use 'debug=true' to run operator in debug mode."
+	@ echo "                                  Use a 'local=true' to run the test locally using 'pytest'."
+	@ echo "                                  Use a 'skip=true' to skip cleaning resources (this may help developing long-running tests like for Ops Manager)"
+	@ echo "                                  Sometimes you may need to pass some custom configuration, this can be done this way:"
+	@ echo "                                  make e2e test=e2e_om_ops_manager_upgrade custom_om_version=4.2.8"
+	@ echo "  recreate-e2e-kops:              deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
+	@ echo "                                  kubectl context - the script will handle everything). Pass the flag 'imsure=yes' to make it work."
+	@ echo "                                  Pass 'cluster' parameter for a cluster name if it's different from default ('e2e.mongokubernetes.com')"
+	@ echo "                                  Possible values are: 'e2e.om.mongokubernetes.com', 'e2e.multinamespace.mongokubernetes.com'"
+	@ echo "  recreate-e2e-openshift:         deletes and creates an e2e Openshift cluster"
+	@ echo "  recreate-e2e-multicluster-kind  Recreates local (Kind-based) development environment for running tests"
+	@ echo "  log:                            reads the Operator log"
+	@ echo "  status:                         prints the current context and the state of Kubernetes cluster"
+	@ echo "  dashboard:                      opens the Kubernetes dashboard. Make sure the cluster was installed using current Makefile as"
+	@ echo "                                  dashboard is not installed by default and the script ensures it's installed and permissions"
+	@ echo "                                  are configured."
+	@ echo "  open-automation-config/ac:      displays the contents of the Automation Config in in $EDITOR using ~/.operator-dev configuration"
 
 
 # install all necessary software, must be run only once
@@ -188,9 +189,20 @@ cert:
 	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
 	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
 	> docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
+
 ensure-k8s-and-reset: ensure-k8s
 	@ $(MAKE) reset
 
+.PHONY: recreate-e2e-multicluster-kind
+recreate-e2e-multicluster-kind:
+	# The first cluster uses Kind default CIDRs. Just in case...
+	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16"
+	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16"
+	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16"
+	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16"
+	scripts/dev/interconnect_kind_clusters.sh
+	VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh
+	VERSION=1.16.1 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh
 
 ####################################
 ## operator-sdk provided Makefile ##
