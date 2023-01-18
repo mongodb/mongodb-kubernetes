@@ -55,7 +55,7 @@ func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watc
 
 			token := kubeConfig.Users[n].User.Token
 
-			m.Cache[clusterName] = NewMemberHealthCheck(server, certificateAuthority, token)
+			m.Cache[clusterName] = NewMemberHealthCheck(server, certificateAuthority, token, log)
 
 		}
 	}

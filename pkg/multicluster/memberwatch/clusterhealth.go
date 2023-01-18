@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/hashicorp/go-retryablehttp"
 	"net/http"
 	"time"
 
@@ -18,23 +19,43 @@ type ClusterHealthChecker interface {
 
 type MemberHeathCheck struct {
 	Server string
-	Client *http.Client
+	Client *retryablehttp.Client
 	Token  string
 }
 
-func NewMemberHealthCheck(server string, ca []byte, token string) *MemberHeathCheck {
+var DefaultRetryWaitMin = 1 * time.Second
+var DefaultRetryWaitMax = 3 * time.Second
+var DefaultRetryMax = 10
+
+func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger) *MemberHeathCheck {
 	certpool := x509.NewCertPool()
 	certpool.AppendCertsFromPEM(ca)
 
 	return &MemberHeathCheck{
 		Server: server,
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					RootCAs: certpool,
+		Client: &retryablehttp.Client{
+			HTTPClient: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						RootCAs: certpool,
+					},
 				},
+				Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second,
 			},
-			Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second,
+			RetryWaitMin: DefaultRetryWaitMin,
+			RetryWaitMax: DefaultRetryWaitMax,
+			RetryMax:     DefaultRetryMax,
+			// Will retry on all errors
+			CheckRetry: retryablehttp.DefaultRetryPolicy,
+			// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
+			// We don't need Jitter here as we're the only client to the OM, so there's no risk
+			// of overwhelming it in a peek.
+			Backoff: retryablehttp.DefaultBackoff,
+			RequestLogHook: func(logger retryablehttp.Logger, request *http.Request, i int) {
+				if i > 0 {
+					log.Warnf("Retrying (#%d) failed health check to %s (%s)", i, server, request.URL)
+				}
+			},
 		},
 		Token: token,
 	}
@@ -56,9 +77,9 @@ func (m *MemberHeathCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 }
 
 // check pings the "/readyz" endpoint of a cluster's API server and checks if it is healthy
-func check(client *http.Client, server string, token string) (int, error) {
+func check(client *retryablehttp.Client, server string, token string) (int, error) {
 	endPoint := fmt.Sprintf("%s/readyz", server)
-	req, err := http.NewRequest("GET", endPoint, nil)
+	req, err := retryablehttp.NewRequest("GET", endPoint, nil)
 	if err != nil {
 		return 0, err
 	}
