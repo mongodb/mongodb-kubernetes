@@ -10,7 +10,6 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -18,7 +17,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/pointer"
 )
+
+func init() {
+	mock.InitDefaultEnvVariables()
+}
 
 func getMultiClusterMongoDB() mdbmulti.MongoDBMulti {
 	spec := mdbmulti.MongoDBMultiSpec{
@@ -56,10 +60,12 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 
 	t.Run("No override provided", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
-
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
-			mdbv1.ProjectConfig{}, nil, "")
-		assert.NoError(t, err)
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+		)
+		sts := MultiClusterStatefulSet(mdbm, opts)
 
 		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
@@ -69,7 +75,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {
 		singleClusterOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: int32Ptr(int32(4)),
+				Replicas: pointer.Int32(int32(4)),
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{"foo": "bar"},
 				},
@@ -79,11 +85,17 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
 		mdbm.Spec.ClusterSpecList[0].StatefulSetConfiguration = singleClusterOverride
 
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
-			mdbv1.ProjectConfig{}, singleClusterOverride, "")
-		assert.NoError(t, err)
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+			WithStsOverride(&singleClusterOverride.SpecWrapper.Spec),
+		)
+
+		sts := MultiClusterStatefulSet(mdbm, opts)
 
 		expectedMatchLabels := singleClusterOverride.SpecWrapper.Spec.Selector.MatchLabels
+		expectedMatchLabels["app"] = ""
 		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name
 		expectedMatchLabels["controller"] = "mongodb-enterprise-operator"
 
@@ -104,10 +116,13 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 
 		mdbm := getMultiClusterMongoDB()
 		mdbm.Spec.StatefulSetConfiguration = stsOverride
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+		)
 
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
-			mdbv1.ProjectConfig{}, nil, "")
-		assert.NoError(t, err)
+		sts := MultiClusterStatefulSet(mdbm, opts)
 
 		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
@@ -130,7 +145,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		singleClusterOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
 				ServiceName: "clusteroverrideservice",
-				Replicas:    int32Ptr(int32(4)),
+				Replicas:    pointer.Int32(int32(4)),
 			},
 		},
 		}
@@ -138,9 +153,14 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
 		mdbm.Spec.StatefulSetConfiguration = stsOverride
 
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}),
-			mdbv1.ProjectConfig{}, singleClusterOverride, "")
-		assert.NoError(t, err)
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+			WithStsOverride(&singleClusterOverride.SpecWrapper.Spec),
+		)
+
+		sts := MultiClusterStatefulSet(mdbm, opts)
 
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.ServiceName, sts.Spec.ServiceName)
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)
@@ -161,8 +181,13 @@ func Test_MultiClusterStatefulSetWithRelatedImages(t *testing.T) {
 	_ = os.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
 
 	mdbm := getMultiClusterMongoDB()
-	sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}), mdbv1.ProjectConfig{}, nil, "")
-	assert.NoError(t, err)
+	opts := MultiClusterReplicaSetOptions(
+		WithClusterNum(0),
+		WithMemberCount(3),
+		construct.GetPodEnvOptions(),
+	)
+
+	sts := MultiClusterStatefulSet(mdbm, opts)
 
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
@@ -233,9 +258,13 @@ func TestPVCOverride(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
 
 		stsOverrideConfiguration := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{Spec: tt.inp}}
-		sts, err := MultiClusterStatefulSet(mdbm, 0, 3, om.NewEmptyMockedOmConnection(&om.OMContext{}), mdbv1.ProjectConfig{}, stsOverrideConfiguration, "")
-
-		assert.NoError(t, err)
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+			WithStsOverride(&stsOverrideConfiguration.SpecWrapper.Spec),
+		)
+		sts := MultiClusterStatefulSet(mdbm, opts)
 		assert.Equal(t, tt.out.AccessMode, sts.Spec.VolumeClaimTemplates[0].Spec.AccessModes)
 		storage, _ := sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().AsInt64()
 		assert.Equal(t, tt.out.Storage, storage)

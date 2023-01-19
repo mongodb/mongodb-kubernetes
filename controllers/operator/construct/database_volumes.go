@@ -97,6 +97,7 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: secretMountPath,
 			Name:      secretVolume.Name,
+			ReadOnly:  true,
 		})
 		volumes = append(volumes, secretVolume)
 	}

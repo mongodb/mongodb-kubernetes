@@ -405,10 +405,23 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
 
-		sts, err := mconstruct.MultiClusterStatefulSet(mrs, clusterNum, replicasThisReconciliation, conn, projectConfig, item.StatefulSetConfiguration, certHash)
-		if err != nil {
-			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))
+		stsOverride := appsv1.StatefulSetSpec{}
+		if item.StatefulSetConfiguration != nil {
+			stsOverride = item.StatefulSetConfiguration.SpecWrapper.Spec
 		}
+
+		opts := mconstruct.MultiClusterReplicaSetOptions(
+			mconstruct.WithClusterNum(clusterNum),
+			mconstruct.WithMemberCount(replicasThisReconciliation),
+			mconstruct.WithStsOverride(&stsOverride),
+			mconstruct.WithAnnotations(mrs.Name, certHash),
+			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.ConnectionSpec)),
+			CurrentAgentAuthMechanism(currentAgentAuthMode),
+			CertificateHash(certHash),
+			WithLabels(mongoDBMultiLabels(mrs.Name, mrs.Namespace)),
+		)
+
+		sts := mconstruct.MultiClusterStatefulSet(mrs, opts)
 
 		deleteSts, err := shouldDeleteStatefulSet(mrs, item)
 		if err != nil {

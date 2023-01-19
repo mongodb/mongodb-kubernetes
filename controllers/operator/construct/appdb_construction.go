@@ -100,7 +100,7 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
-	appdbPodSpec := newDefaultPodSpecWrapper(*appDb.PodSpec)
+	appdbPodSpec := NewDefaultPodSpecWrapper(*appDb.PodSpec)
 	mongoPodSpec := *appdbPodSpec
 	mongoPodSpec.Default.MemoryRequests = util.DefaultMemoryAppDB
 	mongoPodTemplateFunc := podtemplatespec.WithContainer(
@@ -552,7 +552,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 			container.Apply(
 				container.WithVolumeMounts(volumeMounts),
 				container.WithCommand(monitoringCommand),
-				container.WithResourceRequirements(buildRequirementsFromPodSpec(*newDefaultPodSpecWrapper(*appDB.PodSpec))),
+				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
 				container.WithEnvs(appdbContainerEnv(appDB, &podVars)...),
 			)(monitoringContainer)
