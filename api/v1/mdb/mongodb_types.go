@@ -549,8 +549,8 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 	return fmt.Sprintf("%s-cert", defaultName)
 }
 
-func (spec MongoDbSpec) GetSecurity() *Security {
-	return spec.Security
+func (d DbCommonSpec) GetSecurity() *Security {
+	return d.Security
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1038,11 +1038,11 @@ func (m *MongoDB) InitDefaults() {
 	m.Spec.Security = EnsureSecurity(m.Spec.Security)
 
 	if m.Spec.OpsManagerConfig == nil {
-		m.Spec.OpsManagerConfig = newOpsManagerConfig()
+		m.Spec.OpsManagerConfig = NewOpsManagerConfig()
 	}
 
 	if m.Spec.CloudManagerConfig == nil {
-		m.Spec.CloudManagerConfig = newOpsManagerConfig()
+		m.Spec.CloudManagerConfig = NewOpsManagerConfig()
 	}
 
 	// ProjectName defaults to the name of the resource
@@ -1237,8 +1237,8 @@ func (m MongoDbSpec) GetResourceType() ResourceType {
 	return m.ResourceType
 }
 
-func (m MongoDbSpec) IsSecurityTLSConfigEnabled() bool {
-	return m.GetSecurity().IsTLSEnabled()
+func (d DbCommonSpec) IsSecurityTLSConfigEnabled() bool {
+	return d.GetSecurity().IsTLSEnabled()
 }
 
 func (m MongoDbSpec) GetFeatureCompatibilityVersion() *string {
@@ -1250,7 +1250,7 @@ func newConnectivity() *MongoDBConnectivity {
 }
 
 // PrivateCloudConfig returns and empty `PrivateCloudConfig` object
-func newOpsManagerConfig() *PrivateCloudConfig {
+func NewOpsManagerConfig() *PrivateCloudConfig {
 	return &PrivateCloudConfig{}
 }
 

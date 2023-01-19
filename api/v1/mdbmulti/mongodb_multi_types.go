@@ -461,6 +461,14 @@ func (m *MongoDBMulti) InitDefaults() {
 	if m.Spec.AdditionalMongodConfig.Object == nil {
 		m.Spec.AdditionalMongodConfig.Object = map[string]interface{}{}
 	}
+
+	if m.Spec.CloudManagerConfig == nil {
+		m.Spec.CloudManagerConfig = mdbv1.NewOpsManagerConfig()
+	}
+
+	if m.Spec.OpsManagerConfig == nil {
+		m.Spec.OpsManagerConfig = mdbv1.NewOpsManagerConfig()
+	}
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters

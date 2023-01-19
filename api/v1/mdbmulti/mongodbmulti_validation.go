@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
@@ -32,17 +33,26 @@ func (m *MongoDBMulti) ProcessValidationsOnReconcile(old *MongoDBMulti) error {
 }
 
 func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
-	validators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
+	multiClusterValidators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
 		validateUniqueClusterNames,
 	}
+
 	var validationResults []v1.ValidationResult
 
-	for _, validator := range validators {
+	for _, validator := range multiClusterValidators {
 		res := validator(m.Spec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
 		}
 	}
+
+	for _, validator := range mdbv1.CommonValidators() {
+		res := validator(m.Spec.DbCommonSpec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
 	return validationResults
 }
 func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
