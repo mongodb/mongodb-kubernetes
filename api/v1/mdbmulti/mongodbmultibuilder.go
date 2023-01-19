@@ -17,8 +17,9 @@ type MultiReplicaSetBuilder struct {
 func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 	spec := MongoDBMultiSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
-			Version:    "5.0.0",
-			Persistent: util.BooleanRef(false),
+			Connectivity: &mdbv1.MongoDBConnectivity{},
+			Version:      "5.0.0",
+			Persistent:   util.BooleanRef(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
 					ConfigMapRef: mdbv1.ConfigMapRef{

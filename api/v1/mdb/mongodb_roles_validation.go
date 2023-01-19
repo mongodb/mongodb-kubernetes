@@ -290,10 +290,10 @@ func roleIsCorrectlyConfigured(role MongoDbRole, mdbVersion string) v1.Validatio
 	return v1.ValidationSuccess()
 }
 
-func rolesAttributeisCorrectlyConfigured(ms MongoDbSpec) v1.ValidationResult {
+func rolesAttributeisCorrectlyConfigured(d DbCommonSpec) v1.ValidationResult {
 	// Validate every single entry and return error on the first one that fails validation
-	for _, role := range ms.Security.Roles {
-		if res := roleIsCorrectlyConfigured(role, ms.Version); res.Level == v1.ErrorLevel {
+	for _, role := range d.Security.Roles {
+		if res := roleIsCorrectlyConfigured(role, d.Version); res.Level == v1.ErrorLevel {
 			return v1.ValidationError("Error validating role - %s", res.Msg)
 		}
 	}

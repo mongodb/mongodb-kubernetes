@@ -34,8 +34,8 @@ func (m *MongoDB) ValidateDelete() error {
 	return nil
 }
 
-func replicaSetHorizonsRequireTLS(ms MongoDbSpec) v1.ValidationResult {
-	if len(ms.Connectivity.ReplicaSetHorizons) > 0 && !ms.IsSecurityTLSConfigEnabled() {
+func replicaSetHorizonsRequireTLS(d DbCommonSpec) v1.ValidationResult {
+	if len(d.Connectivity.ReplicaSetHorizons) > 0 && !d.IsSecurityTLSConfigEnabled() {
 		msg := "TLS must be enabled in order to use replica set horizons"
 		return v1.ValidationError(msg)
 	}
@@ -50,19 +50,19 @@ func horizonsMustEqualMembers(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveTLSInX509Env(ms MongoDbSpec) v1.ValidationResult {
-	authSpec := ms.Security.Authentication
+func deploymentsMustHaveTLSInX509Env(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
 	if authSpec == nil {
 		return v1.ValidationSuccess()
 	}
-	if authSpec.Enabled && authSpec.IsX509Enabled() && !ms.GetSecurity().IsTLSEnabled() {
+	if authSpec.Enabled && authSpec.IsX509Enabled() && !d.GetSecurity().IsTLSEnabled() {
 		return v1.ValidationError("Cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveAgentModesIfAuthIsEnabled(ms MongoDbSpec) v1.ValidationResult {
-	authSpec := ms.Security.Authentication
+func deploymentsMustHaveAgentModesIfAuthIsEnabled(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
 	if authSpec == nil {
 		return v1.ValidationSuccess()
 	}
@@ -72,8 +72,8 @@ func deploymentsMustHaveAgentModesIfAuthIsEnabled(ms MongoDbSpec) v1.ValidationR
 	return v1.ValidationSuccess()
 }
 
-func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult {
-	authSpec := ms.Security.Authentication
+func deploymentsMustHaveAgentModeInAuthModes(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
 	if authSpec == nil {
 		return v1.ValidationSuccess()
 	}
@@ -89,8 +89,8 @@ func deploymentsMustHaveAgentModeInAuthModes(ms MongoDbSpec) v1.ValidationResult
 
 // scramSha1AuthValidation performs the same validation as the Ops Manager does in
 // https://github.com/10gen/mms/blob/107304ce6988f6280e8af069d19b7c6226c4f3ce/server/src/main/com/xgen/cloud/atm/publish/_public/svc/AutomationValidationSvc.java
-func scramSha1AuthValidation(ms MongoDbSpec) v1.ValidationResult {
-	authSpec := ms.Security.Authentication
+func scramSha1AuthValidation(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
 	if authSpec == nil {
 		return v1.ValidationSuccess()
 	}
@@ -106,9 +106,9 @@ func scramSha1AuthValidation(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func ldapAuthRequiresEnterprise(ms MongoDbSpec) v1.ValidationResult {
-	authSpec := ms.Security.Authentication
-	if authSpec != nil && authSpec.isLDAPEnabled() && !strings.HasSuffix(ms.Version, "-ent") {
+func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
+	if authSpec != nil && authSpec.isLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
 		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
 	}
 	return v1.ValidationSuccess()
@@ -128,21 +128,21 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(ms MongoDbSpec) v1.ValidationResult {
-	if ms.Security == nil || ms.Security.Authentication == nil {
+func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.ValidationResult {
+	if d.Security == nil || d.Security.Authentication == nil {
 		return v1.ValidationSuccess()
 	}
-	if len(ms.Security.Authentication.Modes) > 1 && ms.Security.Authentication.Agents.Mode == "" {
+	if len(d.Security.Authentication.Modes) > 1 && d.Security.Authentication.Agents.Mode == "" {
 		return v1.ValidationError("spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
 	}
 	return v1.ValidationSuccess()
 }
 
-func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(ms MongoDbSpec) v1.ValidationResult {
-	if ms.Security == nil || ms.Security.Authentication == nil || ms.Security.Authentication.Ldap == nil {
+func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(d DbCommonSpec) v1.ValidationResult {
+	if d.Security == nil || d.Security.Authentication == nil || d.Security.Authentication.Ldap == nil {
 		return v1.ValidationSuccess()
 	}
-	auth := ms.Security.Authentication
+	auth := d.Security.Authentication
 	if auth.Ldap.AuthzQueryTemplate != "" && auth.Agents.AutomationLdapGroupDN == "" && stringutil.Contains([]string{"X509", "LDAP"}, auth.Agents.Mode) {
 		return v1.ValidationError("automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)")
 	}
@@ -158,12 +158,12 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
-func specWithExactlyOneSchema(ms MongoDbSpec) v1.ValidationResult {
+func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	count := 0
-	if *ms.OpsManagerConfig != (PrivateCloudConfig{}) {
+	if *d.OpsManagerConfig != (PrivateCloudConfig{}) {
 		count += 1
 	}
-	if *ms.CloudManagerConfig != (PrivateCloudConfig{}) {
+	if *d.CloudManagerConfig != (PrivateCloudConfig{}) {
 		count += 1
 	}
 
@@ -173,29 +173,44 @@ func specWithExactlyOneSchema(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
-	validators := []func(ms MongoDbSpec) v1.ValidationResult{
+func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
+	return []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
-		horizonsMustEqualMembers,
 		deploymentsMustHaveTLSInX509Env,
 		deploymentsMustHaveAgentModesIfAuthIsEnabled,
 		deploymentsMustHaveAgentModeInAuthModes,
 		scramSha1AuthValidation,
-		additionalMongodConfig,
 		ldapAuthRequiresEnterprise,
 		rolesAttributeisCorrectlyConfigured,
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
 	}
+}
+
+func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
+
+	// apply validators specific to single cluster
+	singleClusterValidators := []func(m MongoDbSpec) v1.ValidationResult{
+		horizonsMustEqualMembers,
+		additionalMongodConfig,
+	}
+
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
 	}
 
 	var validationResults []v1.ValidationResult
 
-	for _, validator := range validators {
+	for _, validator := range singleClusterValidators {
 		res := validator(m.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	for _, validator := range CommonValidators() {
+		res := validator(m.Spec.DbCommonSpec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
 		}
