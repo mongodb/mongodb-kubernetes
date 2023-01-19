@@ -64,7 +64,6 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @pytest.mark.e2e_replica_set
 class TestReplicaSetCreation(KubernetesTester):
-
     def __init__(self):
         # In order to avoid false-positives, we need to pull the initial config version
         # This is just in case we're not running in a fresh namespace/project.
@@ -171,6 +170,7 @@ class TestReplicaSetCreation(KubernetesTester):
                     "LOG_LEVEL",
                     "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
                     "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
+                    "MULTI_CLUSTER_MODE",
                 ]
                 assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
 
@@ -427,6 +427,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
                     "LOG_LEVEL",
                     "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
                     "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
+                    "MULTI_CLUSTER_MODE",
                 ]
                 assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
 

@@ -110,6 +110,10 @@ func (m *MongoDBMulti) GetSecurity() *mdbv1.Security {
 	return m.Spec.Security
 }
 
+func (m *MongoDBMulti) GetPrometheus() *mdbc.Prometheus {
+	return m.Spec.Prometheus
+}
+
 func (m *MongoDBMulti) GetMinimumMajorVersion() uint64 {
 	return m.Spec.MinimumMajorVersion()
 }
@@ -485,6 +489,7 @@ func (m *MongoDBMultiSpec) GetSecurity() *mdbv1.Security {
 	}
 	return m.Security
 }
+
 func (m *MongoDBMultiSpec) GetSecurityAuthenticationModes() []string {
 	return m.GetSecurity().Authentication.GetModes()
 }
