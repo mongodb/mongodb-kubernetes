@@ -1032,7 +1032,7 @@ func (m *MongoDB) InitDefaults() {
 	}
 
 	if m.Spec.Connectivity == nil {
-		m.Spec.Connectivity = newConnectivity()
+		m.Spec.Connectivity = NewConnectivity()
 	}
 
 	m.Spec.Security = EnsureSecurity(m.Spec.Security)
@@ -1245,7 +1245,7 @@ func (m MongoDbSpec) GetFeatureCompatibilityVersion() *string {
 	return m.FeatureCompatibilityVersion
 }
 
-func newConnectivity() *MongoDBConnectivity {
+func NewConnectivity() *MongoDBConnectivity {
 	return &MongoDBConnectivity{}
 }
 

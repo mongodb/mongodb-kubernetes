@@ -469,6 +469,12 @@ func (m *MongoDBMulti) InitDefaults() {
 	if m.Spec.OpsManagerConfig == nil {
 		m.Spec.OpsManagerConfig = mdbv1.NewOpsManagerConfig()
 	}
+
+	if m.Spec.Connectivity == nil {
+		m.Spec.Connectivity = mdbv1.NewConnectivity()
+	}
+
+	m.Spec.Security = mdbv1.EnsureSecurity(m.Spec.Security)
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters
