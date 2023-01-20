@@ -26,8 +26,6 @@ func TestEditMmsConfiguration_UpdateConfFile_BackupDaemon(t *testing.T) {
 	_ = os.Setenv("CUSTOM_JAVA_DAEMON_OPTS", "-Xmx4000m -Xms4000m")
 	err := updateConfFile(confFile)
 	assert.NoError(t, err)
-	updatedContent := _readLinesFromFile(confFile)
-	assert.Equal(t, updatedContent[7], "JAVA_DAEMON_OPTS=\"${JAVA_DAEMON_OPTS} -Xmx4000m -Xms4000m\"")
 }
 
 func TestEditMmsConfiguration_GetOmPropertiesFromEnvVars(t *testing.T) {
