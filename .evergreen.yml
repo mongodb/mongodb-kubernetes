@@ -1859,6 +1859,12 @@ tasks:
     - func: e2e_test
 
 
+- name: e2e_multi_cluster_validation
+  tags: ["patch-run"]
+  exec_timeout_secs: 1000
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_update_before_reconciliation
   tags: ["patch-run"]
   commands:
@@ -2167,6 +2173,7 @@ task_groups:
     - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_network_partition
     - e2e_multi_cluster_recover_clusterwide
+    - e2e_multi_cluster_validation
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

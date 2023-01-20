@@ -25,7 +25,7 @@ func TestUniqueClusterNames(t *testing.T) {
 	}
 
 	err := mrs.ValidateCreate()
-	assert.Equal(t, "Multiple clusters with the same name(abc) are not allowed", err.Error())
+	assert.Equal(t, "Multiple clusters with the same name (abc) are not allowed", err.Error())
 }
 
 func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
