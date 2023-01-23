@@ -87,10 +87,24 @@ func TestDistributeFailedMembers(t *testing.T) {
 				{ClusterName: "cluster4", Members: 2},
 			},
 		},
+		{
+			inp: []mdbmulti.ClusterSpecItem{
+				{ClusterName: "cluster1", Members: 2},
+				{ClusterName: "cluster2", Members: 1},
+				{ClusterName: "cluster3", Members: 4},
+				{ClusterName: "cluster4", Members: 1},
+			},
+			clustername: "cluster4",
+			out: []mdbmulti.ClusterSpecItem{
+				{ClusterName: "cluster1", Members: 2},
+				{ClusterName: "cluster2", Members: 2},
+				{ClusterName: "cluster3", Members: 4},
+			},
+		},
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.out, distributeFailedMemebers(tt.inp, tt.clustername))
+		assert.Equal(t, tt.out, distributeFailedMembers(tt.inp, tt.clustername))
 	}
 
 }

@@ -143,15 +143,17 @@ func clusterWithMinimumMembers(clusters []mdbmulti.ClusterSpecItem) int {
 	return index
 }
 
-// distributeFailedMemebers evenly distributes the failed cluster's members amongst the remaining healthy clusters.
-func distributeFailedMemebers(clusters []mdbmulti.ClusterSpecItem, clustername string) []mdbmulti.ClusterSpecItem {
+// distributeFailedMembers evenly distributes the failed cluster's members amongst the remaining healthy clusters.
+func distributeFailedMembers(clusters []mdbmulti.ClusterSpecItem, clustername string) []mdbmulti.ClusterSpecItem {
 	// add the cluster override annotations. Get the current clusterspec list from the CR and
 	// increase the members of the first cluster by the number of failed nodes
 	membersToFailOver := 0
+
 	for n, c := range clusters {
 		if c.ClusterName == clustername {
 			membersToFailOver = c.Members
 			clusters = append(clusters[:n], clusters[n+1:]...)
+			break
 		}
 
 	}
@@ -177,7 +179,7 @@ func AddFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client
 	addFailedClustersAnnotation(mrs, clustername, client)
 
 	currentClusterSpecs := mrs.Spec.ClusterSpecList
-	currentClusterSpecs = distributeFailedMemebers(currentClusterSpecs, clustername)
+	currentClusterSpecs = distributeFailedMembers(currentClusterSpecs, clustername)
 
 	updatedClusterSpec, err := json.Marshal(currentClusterSpecs)
 	if err != nil {
