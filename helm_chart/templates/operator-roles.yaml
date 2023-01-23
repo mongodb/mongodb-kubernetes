@@ -7,7 +7,7 @@ metadata:
   namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 {{- if .Values.registry.imagePullSecrets}}
 imagePullSecrets:
-- name: {{ .Values.registry.imagePullSecrets }}
+  - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
 
 {{- end }}
@@ -32,76 +32,76 @@ metadata:
   namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 {{- end }}
 rules:
-- apiGroups:
-  - ''
-  resources:
-  - services
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - delete
-- apiGroups:
-  - ''
-  resources:
-  - secrets
-  - configmaps
-  verbs:
-  - get
-  - list
-  - create
-  - update
-  - delete
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - statefulsets
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-  - delete
-  - update
-- apiGroups:
-  - ''
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
-  - delete
-  - deletecollection
-- apiGroups:
-  - mongodb.com
-  verbs:
-  - '*'
-  resources:
-  - mongodb
-  - mongodb/finalizers
-  - mongodbusers
-  - opsmanagers
-  - opsmanagers/finalizers
-  - mongodbmulti
-  - mongodbmulti/finalizers
-{{- if .Values.subresourceEnabled }}
-  - mongodb/status
-  - mongodbusers/status
-  - opsmanagers/status
-  - mongodbmulti/status
-{{- end }}
+  - apiGroups:
+      - ''
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - delete
+      - update
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - deletecollection
+  - apiGroups:
+      - mongodb.com
+    verbs:
+      - '*'
+    resources:
+      - mongodb
+      - mongodb/finalizers
+      - mongodbusers
+      - opsmanagers
+      - opsmanagers/finalizers
+      - mongodbmulti
+      - mongodbmulti/finalizers
+    {{- if .Values.subresourceEnabled }}
+      - mongodb/status
+      - mongodbusers/status
+      - opsmanagers/status
+      - mongodbmulti/status
+    {{- end }}
 {{- if eq $roleScope "ClusterRole" }}
-- apiGroups:
-  - ''
-  resources:
-  - namespaces
-  verbs:
-  - list
-  - watch
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    verbs:
+      - list
+      - watch
 {{- end}}
 
 # This ClusterRoleBinding is necessary in order to use validating
@@ -124,7 +124,6 @@ rules:
       - create
       - update
       - delete
-
   - apiGroups:
       - ""
     resources:
@@ -147,9 +146,9 @@ roleRef:
   kind: ClusterRole
   name: mongodb-enterprise-operator-mongodb-webhook
 subjects:
-- kind: ServiceAccount
-  name: {{ .Values.operator.name }}
-  namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+  - kind: ServiceAccount
+    name: {{ .Values.operator.name }}
+    namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 
 {{- range $idx, $namespace := $watchNamespace }}
 
@@ -173,7 +172,7 @@ roleRef:
   kind: {{ $roleScope }}
   name: {{ $.Values.operator.name }}
 subjects:
-- kind: ServiceAccount
-  name: {{ $.Values.operator.name }}
-  namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
+  - kind: ServiceAccount
+    name: {{ $.Values.operator.name }}
+    namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
 {{- end }}

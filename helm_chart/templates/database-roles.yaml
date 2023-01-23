@@ -18,7 +18,7 @@ metadata:
   {{ $namespaceBlock }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
-- name: {{ $.Values.registry.imagePullSecrets }}
+  - name: {{ $.Values.registry.imagePullSecrets }}
 {{- end }}
 
 ---
@@ -40,7 +40,7 @@ metadata:
   {{ $namespaceBlock }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
-- name: {{ $.Values.registry.imagePullSecrets }}
+  - name: {{ $.Values.registry.imagePullSecrets }}
 {{- end }}
 
 ---
@@ -50,20 +50,20 @@ metadata:
   name: mongodb-enterprise-appdb
   {{ $namespaceBlock }}
 rules:
-- apiGroups:
-  - ''
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - ''
-  resources:
-  - pods
-  verbs:
-  - patch
-  - delete
-  - get
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - patch
+      - delete
+      - get
 
 ---
 kind: RoleBinding
@@ -76,8 +76,8 @@ roleRef:
   kind: Role
   name: mongodb-enterprise-appdb
 subjects:
-- kind: ServiceAccount
-  name: mongodb-enterprise-appdb
-  {{ $namespaceBlock }}
+  - kind: ServiceAccount
+    name: mongodb-enterprise-appdb
+    {{ $namespaceBlock }}
 
 {{- end }}

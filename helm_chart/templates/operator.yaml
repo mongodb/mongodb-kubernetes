@@ -37,144 +37,144 @@ spec:
 {{- end }}
 {{- if .Values.registry.imagePullSecrets}}
       imagePullSecrets:
-      - name: {{ .Values.registry.imagePullSecrets }}
+        - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
       containers:
-      - name: {{ .Values.operator.name }}
-        image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.build }}"
-        imagePullPolicy: {{ .Values.registry.pullPolicy }}
-        {{- if .Values.operator.watchedResources }}
-        args:
-        {{- range .Values.operator.watchedResources }}
-        - -watch-resource={{ . }}
-        {{- end }}
-        {{- if .Values.multiCluster.clusters }}
-        - -watch-resource=mongodbmulti
-        - -cluster-names={{ join "," .Values.multiCluster.clusters }}
-        {{- end }}
-        command:
-        - /usr/local/bin/mongodb-enterprise-operator
-        {{- end }}
-        {{- if .Values.multiCluster.clusters }}
-        volumeMounts:
-          - mountPath: /etc/config/kubeconfig
-            name: kube-config-volume
-        {{- end }}
-        resources:
-          limits:
-            cpu: {{ .Values.operator.resources.limits.cpu }}
-            memory: {{ .Values.operator.resources.limits.memory }}
-          requests:
-            cpu: {{ .Values.operator.resources.requests.cpu }}
-            memory: {{ .Values.operator.resources.requests.memory }}
-        env:
-        - name: OPERATOR_ENV
-          value: {{ .Values.operator.env }}
-{{- if .Values.operator.vaultSecretBackend }}
-  {{- if .Values.operator.vaultSecretBackend.enabled }}
-        - name: SECRET_BACKEND
-          value: VAULT_BACKEND
-  {{- end }}
-{{- end }}
-        - name: WATCH_NAMESPACE
-{{- if .Values.operator.watchNamespace }}
-          value: "{{ .Values.operator.watchNamespace }}"
-{{- else }}
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-{{- end }}
-        - name: CURRENT_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-{{- if eq .Values.managedSecurityContext true }}
-        - name: MANAGED_SECURITY_CONTEXT
-          value: 'true'
-{{- end }}
-{{- if .Values.multiCluster.clusterClientTimeout }}
-        - name: CLUSTER_CLIENT_TIMEOUT
-          value: "{{ .Values.multiCluster.clusterClientTimeout }}"
-{{- end }}
-{{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
-{{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
-{{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
-{{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
-{{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
-{{- $agentImageEnv := "AGENT_IMAGE" -}}
-{{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
-{{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
-{{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
-{{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
-{{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
-{{- $agentVersion := .Values.agent.version }}
-        - name: IMAGE_PULL_POLICY
-          value: {{ .Values.registry.pullPolicy }}
-        # Database
-        - name: {{ $mongodbEnterpriseDatabaseImageEnv }}
-          value: {{ .Values.registry.database }}/{{ .Values.database.name }}
-        - name: {{ $initDatabaseImageRepositoryEnv }}
-          value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
-        - name: INIT_DATABASE_VERSION
-          value: {{ $initDatabaseVersion }}
-        - name: DATABASE_VERSION
-          value: {{ $databaseVersion }}
-        # Ops Manager
-        - name: {{ $opsManagerImageRepositoryEnv }}
-          value: {{ .Values.registry.opsManager }}/{{ .Values.opsManager.name }}
-        - name: {{ $initOpsManagerImageRepositoryEnv }}
-          value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
-        - name: INIT_OPS_MANAGER_VERSION
-          value: {{ $initOpsManagerVersion }}
-        # AppDB
-        - name: {{ $initAppDbImageRepositoryEnv }}
-          value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
-        - name: INIT_APPDB_VERSION
-          value: {{ $initAppDbVersion }}
-        - name: OPS_MANAGER_IMAGE_PULL_POLICY
-          value: {{ .Values.registry.pullPolicy }}
-        - name: {{ $agentImageEnv }}
-          value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ $agentVersion }}"
-        - name: {{ $mongodbImageEnv }}
-          value: {{ .Values.mongodb.name }}
-        - name: MONGODB_REPO_URL
-          value: {{ .Values.mongodb.repo }}
-{{- if eq .Values.multiCluster.performFailOver true }}
-        - name: PERFORM_FAILOVER
-          value: 'true'
-{{- end }}
-{{- if .Values.registry.imagePullSecrets }}
-        - name: IMAGE_PULL_SECRETS
-          value: {{ .Values.registry.imagePullSecrets }}
-{{- end }}
-{{- if .Values.relatedImages }}
-        - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
-          value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"
-        - name: RELATED_IMAGE_{{ $initDatabaseImageRepositoryEnv }}_{{ $initDatabaseVersion | replace "." "_" | replace "-" "_" }}
-          value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
-        - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
-          value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
-        - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
-          value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
-  {{- range $version := .Values.relatedImages.agent }}
-        - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
-          value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
-  {{- end }}
-  {{- range $version := .Values.relatedImages.opsManager }}
-        - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
-          value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
-  {{- end }}
-  {{- range $version := .Values.relatedImages.mongodb }}
-        - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
-          value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
-  {{- end }}
-{{- end }}
-{{- if .Values.customEnvVars }}
-  {{- range split "&" .Values.customEnvVars }}
-        - name: {{ (split "=" .)._0 }}
-          value: '{{ (split "=" .)._1 }}'
-  {{- end }}
-{{- end }}
+        - name: {{ .Values.operator.name }}
+          image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.build }}"
+          imagePullPolicy: {{ .Values.registry.pullPolicy }}
+          {{- if .Values.operator.watchedResources }}
+          args:
+            {{- range .Values.operator.watchedResources }}
+            - -watch-resource={{ . }}
+            {{- end }}
+            {{- if .Values.multiCluster.clusters }}
+            - -watch-resource=mongodbmulti
+            - -cluster-names={{ join "," .Values.multiCluster.clusters }}
+            {{- end }}
+          command:
+            - /usr/local/bin/mongodb-enterprise-operator
+          {{- end }}
+          {{- if .Values.multiCluster.clusters }}
+          volumeMounts:
+            - mountPath: /etc/config/kubeconfig
+              name: kube-config-volume
+          {{- end }}
+          resources:
+            limits:
+              cpu: {{ .Values.operator.resources.limits.cpu }}
+              memory: {{ .Values.operator.resources.limits.memory }}
+            requests:
+              cpu: {{ .Values.operator.resources.requests.cpu }}
+              memory: {{ .Values.operator.resources.requests.memory }}
+          env:
+            - name: OPERATOR_ENV
+              value: {{ .Values.operator.env }}
+    {{- if .Values.operator.vaultSecretBackend }}
+      {{- if .Values.operator.vaultSecretBackend.enabled }}
+            - name: SECRET_BACKEND
+              value: VAULT_BACKEND
+      {{- end }}
+    {{- end }}
+            - name: WATCH_NAMESPACE
+    {{- if .Values.operator.watchNamespace }}
+              value: "{{ .Values.operator.watchNamespace }}"
+    {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+    {{- end }}
+            - name: CURRENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+    {{- if eq .Values.managedSecurityContext true }}
+            - name: MANAGED_SECURITY_CONTEXT
+              value: 'true'
+    {{- end }}
+    {{- if .Values.multiCluster.clusterClientTimeout }}
+            - name: CLUSTER_CLIENT_TIMEOUT
+              value: "{{ .Values.multiCluster.clusterClientTimeout }}"
+    {{- end }}
+    {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
+    {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
+    {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
+    {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
+    {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
+    {{- $agentImageEnv := "AGENT_IMAGE" -}}
+    {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
+    {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
+    {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
+    {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
+    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
+    {{- $agentVersion := .Values.agent.version }}
+            - name: IMAGE_PULL_POLICY
+              value: {{ .Values.registry.pullPolicy }}
+            # Database
+            - name: {{ $mongodbEnterpriseDatabaseImageEnv }}
+              value: {{ .Values.registry.database }}/{{ .Values.database.name }}
+            - name: {{ $initDatabaseImageRepositoryEnv }}
+              value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
+            - name: INIT_DATABASE_VERSION
+              value: {{ $initDatabaseVersion }}
+            - name: DATABASE_VERSION
+              value: {{ $databaseVersion }}
+            # Ops Manager
+            - name: {{ $opsManagerImageRepositoryEnv }}
+              value: {{ .Values.registry.opsManager }}/{{ .Values.opsManager.name }}
+            - name: {{ $initOpsManagerImageRepositoryEnv }}
+              value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
+            - name: INIT_OPS_MANAGER_VERSION
+              value: {{ $initOpsManagerVersion }}
+            # AppDB
+            - name: {{ $initAppDbImageRepositoryEnv }}
+              value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
+            - name: INIT_APPDB_VERSION
+              value: {{ $initAppDbVersion }}
+            - name: OPS_MANAGER_IMAGE_PULL_POLICY
+              value: {{ .Values.registry.pullPolicy }}
+            - name: {{ $agentImageEnv }}
+              value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ $agentVersion }}"
+            - name: {{ $mongodbImageEnv }}
+              value: {{ .Values.mongodb.name }}
+            - name: MONGODB_REPO_URL
+              value: {{ .Values.mongodb.repo }}
+    {{- if eq .Values.multiCluster.performFailOver true }}
+            - name: PERFORM_FAILOVER
+              value: 'true'
+    {{- end }}
+    {{- if .Values.registry.imagePullSecrets }}
+            - name: IMAGE_PULL_SECRETS
+              value: {{ .Values.registry.imagePullSecrets }}
+    {{- end }}
+    {{- if .Values.relatedImages }}
+            - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"
+            - name: RELATED_IMAGE_{{ $initDatabaseImageRepositoryEnv }}_{{ $initDatabaseVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
+            - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
+            - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
+      {{- range $version := .Values.relatedImages.agent }}
+            - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
+      {{- end }}
+      {{- range $version := .Values.relatedImages.opsManager }}
+            - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
+      {{- end }}
+      {{- range $version := .Values.relatedImages.mongodb }}
+            - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
+      {{- end }}
+    {{- end }}
+    {{- if .Values.customEnvVars }}
+      {{- range split "&" .Values.customEnvVars }}
+            - name: {{ (split "=" .)._0 }}
+              value: '{{ (split "=" .)._1 }}'
+      {{- end }}
+    {{- end }}
 {{- if .Values.multiCluster.clusters }}
       volumes:
         - name: kube-config-volume
