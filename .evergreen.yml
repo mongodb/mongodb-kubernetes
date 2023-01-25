@@ -1026,11 +1026,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_standalone_recovery_k8s
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
 - name: e2e_operator_partial_crd
   tags: ["patch-run"]
   commands:
@@ -1096,22 +1091,7 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_replica_set_long_name
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
-- name: e2e_sharded_cluster_long_name
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
 - name: e2e_replica_set_config_map
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
-- name: e2e_replica_set_ent
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1127,11 +1107,6 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_pv_multiple
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
-- name: e2e_replica_set_8_members
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1263,11 +1238,6 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_replica_set_report_pending_pods
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
-- name: e2e_replica_set_project_whitespaces
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1948,11 +1918,8 @@ task_groups:
   tasks:
     # e2e_kube_only_task_group
     - e2e_crd_validation
-    - e2e_sharded_cluster_long_name
-    - e2e_replica_set_long_name
     - e2e_replica_set_config_map
     - e2e_replica_set_exposed_externally
-    - e2e_replica_set_project_whitespaces
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
     - e2e_replica_set_schema_validation
@@ -1963,7 +1930,6 @@ task_groups:
     - e2e_sharded_cluster_statefulset_status
     - e2e_standalone_config_map
     - e2e_standalone_recovery
-    - e2e_standalone_recovery_k8s
     - e2e_standalone_schema_validation
     - e2e_users_schema_validation
     - e2e_replica_set_tls_default
@@ -1972,8 +1938,6 @@ task_groups:
     # e2e_core_task_group
     - e2e_all_mongodb_resources_parallel
     - e2e_multiple_cluster_failures
-    - e2e_replica_set_8_members
-    - e2e_replica_set_ent
     - e2e_replica_set_custom_podspec
     - e2e_replica_set_custom_sa
     - e2e_replica_set_report_pending_pods
@@ -2076,11 +2040,8 @@ task_groups:
   tasks:
     # e2e_kube_only_task_group
     - e2e_crd_validation
-    - e2e_sharded_cluster_long_name
-    - e2e_replica_set_long_name
     - e2e_replica_set_config_map
     - e2e_replica_set_exposed_externally
-    - e2e_replica_set_project_whitespaces
     - e2e_replica_set_pv
     - e2e_replica_set_pv_multiple
     - e2e_replica_set_schema_validation
@@ -2091,7 +2052,6 @@ task_groups:
     - e2e_sharded_cluster_statefulset_status
     - e2e_standalone_config_map
     - e2e_standalone_recovery
-    - e2e_standalone_recovery_k8s
     - e2e_standalone_schema_validation
     - e2e_users_schema_validation
     - e2e_replica_set_tls_default

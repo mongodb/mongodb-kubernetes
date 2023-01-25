@@ -99,7 +99,7 @@ to run, for instance:
 
 ``` bash
 # Run the Replica Set Enterprise Installation E2E Test
-pytest -m e2e_replica_set_ent
+pytest -m e2e_replica_set
 
 # Run the TLS Upgrade E2E Test
 pytest -m e2e_replica_set_tls_require_upgrade
