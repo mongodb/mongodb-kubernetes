@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List
 
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
@@ -23,3 +24,4 @@ def prepare_multi_cluster_namespaces(
     for mcc in member_cluster_clients:
         if mcc.cluster_name != central_cluster_name:
             create_or_replace_from_yaml(mcc.api_client, yaml_file)
+    os.remove(yaml_file)

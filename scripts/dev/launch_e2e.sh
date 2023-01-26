@@ -47,40 +47,7 @@ fi
 if [[ -n "${local:-}" ]]; then
     operator_context="$(kubectl config current-context)"
     if [[ "${kube_environment_name:-}" = "multi" ]]; then
-        operator_context="${central_cluster}"
-        configure_multi_cluster_environment
-        if [ "$(uname)" = "Darwin" ]; then
-            env GOOS=darwin GOARCH=amd64  go build -o docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator public/tools/multicluster/main.go
-            PATH=$PATH:docker/mongodb-enterprise-tests
-        fi
-
-        test_pod_secret_name="test-pod-multi-cluster-config"
-        echo "Creating local configuration for multi cluster test in ${MULTI_CLUSTER_CONFIG_DIR}"
-        mkdir -p "${MULTI_CLUSTER_CONFIG_DIR}"
-
-        # escape "." sign from cluster names
-        # shellcheck disable=SC2001,SC2086
-        central_cluster_escaped=$(echo $central_cluster | sed 's/\./\\./g')
-        # shellcheck disable=SC2206
-        member_cluster_list=($member_clusters)
-        # shellcheck disable=SC2001,SC2086
-        member_cluster_1_escaped=$(echo  ${member_cluster_list[0]} | sed 's/\./\\./g')
-        # shellcheck disable=SC2001,SC2086
-        member_cluster_2_escaped=$(echo  ${member_cluster_list[1]} | sed 's/\./\\./g')
-        # shellcheck disable=SC2001,SC2086
-        member_cluster_3_escaped=$(echo  ${member_cluster_list[2]} | sed 's/\./\\./g')
-
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.central_cluster }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.${central_cluster_escaped} }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${central_cluster}"
-
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.member_cluster_1 }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_1"
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.${member_cluster_1_escaped} }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${member_cluster_list[0]}"
-
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.member_cluster_2 }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_2"
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.${member_cluster_2_escaped} }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${member_cluster_list[1]}"
-
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.member_cluster_3 }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_3"
-        kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .data.${member_cluster_3_escaped} }" | base64 -d > "${MULTI_CLUSTER_CONFIG_DIR}/${member_cluster_list[2]}"
+      prepare_multi_cluster_e2e_run
     fi
 
     prepare_operator_config_map "${operator_context}"

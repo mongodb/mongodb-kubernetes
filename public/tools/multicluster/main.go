@@ -36,17 +36,18 @@ const (
 
 // flags holds all of the fields provided by the user.
 type flags struct {
-	memberClusters             []string
-	memberClusterApiServerUrls []string
-	serviceAccount             string
-	centralCluster             string
-	memberClusterNamespace     string
-	centralClusterNamespace    string
-	cleanup                    bool
-	clusterScoped              bool
-	installDatabaseRoles       bool
-	operatorName               string
-	sourceCluster              string
+	memberClusters              []string
+	memberClusterApiServerUrls  []string
+	serviceAccount              string
+	centralCluster              string
+	memberClusterNamespace      string
+	centralClusterNamespace     string
+	cleanup                     bool
+	clusterScoped               bool
+	installDatabaseRoles        bool
+	operatorName                string
+	sourceCluster               string
+	createServiceAccountSecrets bool
 }
 
 const (
@@ -82,6 +83,7 @@ func parseSetupFlags() (flags, error) {
 	setupCmd.BoolVar(&flags.cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
 	setupCmd.BoolVar(&flags.clusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
 	setupCmd.BoolVar(&flags.installDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
+	setupCmd.BoolVar(&flags.createServiceAccountSecrets, "create-service-account-secrets", false, "Create service account token secrets. [optional default: false]")
 
 	setupCmd.Parse(os.Args[2:])
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace) {
@@ -778,10 +780,40 @@ func createServiceAccountsAndRoles(ctx context.Context, clientMap map[string]kub
 		if err := createMemberServiceAccountAndRoles(ctx, c, f); err != nil {
 			return err
 		}
+		if f.createServiceAccountSecrets {
+			if err := createServiceAccountTokenSecret(ctx, c, f.memberClusterNamespace, f.serviceAccount); err != nil {
+				return err
+			}
+		}
 	}
 	c := clientMap[f.centralCluster]
 	if err := createCentralClusterServiceAccountAndRoles(ctx, c, f); err != nil {
 		return err
+	}
+	if f.createServiceAccountSecrets {
+		if err := createServiceAccountTokenSecret(ctx, c, f.centralClusterNamespace, f.serviceAccount); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func createServiceAccountTokenSecret(ctx context.Context, c kubernetes.Interface, namespace string, serviceAccountName string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-token-secret", serviceAccountName),
+			Namespace: namespace,
+			Annotations: map[string]string{
+				"kubernetes.io/service-account.name": serviceAccountName,
+			},
+		},
+		Type: corev1.SecretTypeServiceAccountToken,
+	}
+
+	_, err := c.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
+	if !errors.IsAlreadyExists(err) && err != nil {
+		return fmt.Errorf("cannot create secret %+v: %s", *secret, err)
 	}
 
 	return nil

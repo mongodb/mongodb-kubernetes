@@ -17,9 +17,10 @@ fi
 #
 cd istio-${VERSION}
 ## perform cleanup prior to install
-bin/istioctl x uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation
-bin/istioctl x uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation
-bin/istioctl x uninstall --context="${CTX_CLUSTER3}" --purge --skip-confirmation
+bin/istioctl x uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation &
+bin/istioctl x uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation &
+bin/istioctl x uninstall --context="${CTX_CLUSTER3}" --purge --skip-confirmation &
+wait
 
 rm -rf certs
 mkdir -p certs
@@ -79,7 +80,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y &
 
 cat <<EOF > cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
@@ -99,7 +100,7 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y &
 
 cat <<EOF > cluster3.yaml
 apiVersion: install.istio.io/v1alpha1
@@ -119,8 +120,9 @@ spec:
       network: network1
 EOF
 
-bin/istioctl install --context="${CTX_CLUSTER3}" -f cluster3.yaml -y
+bin/istioctl install --context="${CTX_CLUSTER3}" -f cluster3.yaml -y &
 
+wait
 
 CLUSTER_1_ADDITIONAL_OPTS=""
 CLUSTER_2_ADDITIONAL_OPTS=""

@@ -65,7 +65,7 @@ elif [[ "${kube_environment_name}" = "minikube" ]]; then
     echo "Starting Minikube"
     minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=50g &>/dev/null
     mv "${HOME}"/.kube/config "${context_config}"
-elif [[ "${kube_environment_name}" = "multi" ]]; then
+elif [[ "${kube_environment_name}" = "multi" && "${CLUSTER_TYPE}" == "kops" ]]; then
 
     # TODO: ensure that the clusters exist and are configured correctly.
     # shellcheck disable=SC2154
@@ -77,6 +77,8 @@ elif [[ "${kube_environment_name}" = "multi" ]]; then
     done
 
     mv "${HOME}"/.kube/config "${context_config}"
+elif [[ "${kube_environment_name}" = "multi" && "${CLUSTER_TYPE}" == "kind" ]]; then
+    scripts/dev/recreate_kind_clusters.sh
 else
     echo "kube_environment_name not recognized"
     echo "value is <<${kube_environment_name}>>. If empty it means it was not set"

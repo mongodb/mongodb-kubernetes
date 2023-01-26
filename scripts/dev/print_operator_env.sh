@@ -44,8 +44,20 @@ OPS_MANAGER_IMAGE_PULL_POLICY=\"Always\"
 AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${agent_version}\"
 MONGODB_IMAGE=\"mongodb-enterprise-appdb-database${UBI_IMAGE_SUFFIX_QUAY}\"
 MONGODB_REPO_URL=\"quay.io/mongodb\"
-IMAGE_PULL_SECRETS=\"image-registries-secret\"
-"
+IMAGE_PULL_SECRETS=\"image-registries-secret\""
+
+if [[ "${KUBECONFIG:-""}" != "" ]]; then
+  echo "KUBECONFIG=${KUBECONFIG}"
+fi
+
+if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
+  echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
+fi
+
+if [[ "${PERFORM_FAILOVER:-""}" != "" ]]; then
+  echo "PERFORM_FAILOVER=${PERFORM_FAILOVER}"
+fi
+
 }
 
 print_operator_env

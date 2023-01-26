@@ -162,7 +162,7 @@ func main() {
 
 		kubeConfigFile, err := multicluster.NewKubeConfigFile()
 		if err != nil {
-			log.Fatalf("failed to open kubeconfig file: %s, err: %s", multicluster.KubeConfigPath, err)
+			log.Fatalf("failed to open kubeconfig file: %s, err: %s", multicluster.GetKubeConfigPath(), err)
 		}
 
 		kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()

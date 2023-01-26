@@ -1,12 +1,13 @@
 import os
 import subprocess
 import tempfile
+from base64 import b64decode
 from typing import Callable, Dict, List, Optional
 
 import kubernetes
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
-from kubetester import create_configmap, create_secret, get_pod_when_ready
+from kubetester import create_configmap, create_secret, get_pod_when_ready, create_or_update_configmap
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer, Certificate
 from kubetester.git import clone_and_checkout
@@ -237,7 +238,7 @@ def multi_cluster_issuer_ca_configmap(
     data = {"ca-pem": ca, "mms-ca.crt": ca}
     name = "issuer-ca"
 
-    create_configmap(namespace, name, data, api_client=central_cluster_client)
+    create_or_update_configmap(namespace, name, data, api_client=central_cluster_client)
 
     return name
 
@@ -429,7 +430,11 @@ def multi_cluster_operator(
     member_cluster_names: List[str],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
+
+    # when running with the local operator this is executed by scripts/dev/prepare_local_e2e_run.sh
+    if not local_operator():
+        run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
+
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -540,12 +545,23 @@ def _install_multi_cluster_operator(
     )
     multi_cluster_operator_installation_config.update(helm_opts)
 
-    return Operator(
+    operator = Operator(
         name=operator_name,
         namespace=namespace,
         helm_args=multi_cluster_operator_installation_config,
         api_client=central_cluster_client,
     ).upgrade(multi_cluster=True)
+
+    # If we're running locally, then immediately after installing the deployment, we scale it to zero.
+    # This way operator in POD is not interfering with locally running one.
+    if local_operator():
+        client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment_scale(
+            namespace=namespace,
+            name=operator.name,
+            body={"spec": {"replicas": 0}},
+        )
+
+    return operator
 
 
 @fixture(scope="module")
@@ -654,14 +670,14 @@ def _get_client_for_cluster(
     if not token:
         raise ValueError(f"No token found for cluster {cluster_name}")
 
+    configuration = kubernetes.client.Configuration()
     kubernetes.config.load_kube_config(
         context=cluster_name,
         config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
+        client_configuration=configuration
     )
-    configuration = kubernetes.client.Configuration()
-
     configuration.host = CLUSTER_HOST_MAPPING.get(
-        cluster_name, f"https://api.{cluster_name}"
+        cluster_name, configuration.host
     )
 
     configuration.verify_ssl = False
@@ -738,7 +754,7 @@ def run_kube_config_creation_tool(
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
     args = [
-        "multi-cluster-kube-config-creator",
+        os.getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH", "multi-cluster-kube-config-creator"),
         "setup",
         "-member-clusters",
         member_clusters_str,

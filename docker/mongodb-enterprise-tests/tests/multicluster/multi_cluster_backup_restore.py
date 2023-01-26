@@ -1,8 +1,10 @@
+from typing import List
+
 import kubernetes.client
 from pymongo.errors import ServerSelectionTimeoutError
 
-from kubetester import read_secret, create_secret, delete_secret, read_service
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester import read_secret, create_secret, delete_secret, read_service, create_or_update, try_load
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester, skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
@@ -86,6 +88,7 @@ def mongodb_multi_one(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     base_url: str,
+    member_cluster_names:  List[str]
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"),
@@ -95,6 +98,21 @@ def mongodb_multi_one(
     ).configure(
         ops_manager, f"{namespace}-project-one", api_client=central_cluster_client
     )
+
+    resource["spec"]["clusterSpecList"] = [
+        {
+            "clusterName": member_cluster_names[0],
+            "members": 2
+        },
+        {
+            "clusterName": member_cluster_names[1],
+            "members": 1
+        },
+        {
+            "clusterName": member_cluster_names[2],
+            "members": 2
+        },
+    ]
 
     # TODO: use a full 3 cluster RS with backup once the required agent changes have been made. Remove the below 3 lines
     spec_item_with_one_member = resource["spec"]["clusterSpecList"][0]
@@ -119,7 +137,8 @@ def mongodb_multi_one(
         api_client=central_cluster_client,
     )
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_multi_cluster_backup_restore
@@ -132,6 +151,7 @@ def test_mongodb_multi_one_running_state(mongodb_multi_one: MongoDBMulti):
     mongodb_multi_one.assert_reaches_phase(Phase.Running, timeout=600)
 
 
+@skip_if_local
 @mark.e2e_multi_cluster_backup_restore
 def test_add_test_data(mongodb_multi_one_collection):
     max_attempts = 100

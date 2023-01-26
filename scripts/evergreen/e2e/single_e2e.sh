@@ -124,7 +124,7 @@ run_tests() {
     local operator_context
     local test_pod_context
     operator_context="$(kubectl config current-context)"
-    
+
     test_pod_context="${operator_context}"
     if [[ "${kube_environment_name}" = "multi" ]]; then
         operator_context="${central_cluster}"

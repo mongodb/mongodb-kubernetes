@@ -195,14 +195,7 @@ ensure-k8s-and-reset: ensure-k8s
 
 .PHONY: recreate-e2e-multicluster-kind
 recreate-e2e-multicluster-kind:
-	# The first cluster uses Kind default CIDRs. Just in case...
-	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16"
-	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16"
-	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16"
-	scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16"
-	scripts/dev/interconnect_kind_clusters.sh
-	VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh
-	VERSION=1.16.1 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh
+	scripts/dev/recreate_kind_clusters.sh
 
 ####################################
 ## operator-sdk provided Makefile ##

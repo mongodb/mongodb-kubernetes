@@ -23,8 +23,10 @@ source scripts/dev/read_context.sh
 
 # print all environments variables set in read_context.sh to env file
 # this will render all variable substitutions
-(env -i HOME="${HOME}" PATH="${PATH}" bash -c "source scripts/dev/set_env_context.sh; printenv" >"${context_file}.env")
-
+(set -o posix; env -i HOME="${HOME}" PATH="${PATH}" bash -c "source scripts/dev/set_env_context.sh; printenv | grep -v 'PATH=' | sed 's/=\(.*\)/=\"\1\"/' >${context_file}.env")
 scripts/dev/print_operator_env.sh >"${context_file}.operator.env"
+awk '{print "export " $0}' < "${context_file}".env > "${context_file}".export.env
+awk '{print "export " $0}' < "${context_file}".operator.env > "${context_file}".operator.export.env
 
-echo "Switched operator context to ${context}"
+echo "Generated env files: "
+ls -l1 ~/.operator-dev/context*.env

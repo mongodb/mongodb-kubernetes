@@ -67,7 +67,6 @@ timeout_sec=$((task_timeout - elapsed_time - 60))
 echo "This task is allowed to run for ${timeout_sec} seconds"
 TEST_RESULTS=0
 timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TEST_RESULTS=$?
-
 # Dump information from all clusters.
 # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
 # shellcheck disable=SC2154

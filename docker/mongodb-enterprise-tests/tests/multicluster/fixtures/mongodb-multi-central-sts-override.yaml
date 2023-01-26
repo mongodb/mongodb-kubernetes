@@ -12,6 +12,8 @@ spec:
     spec:
       template:
         spec:
+          # FIXME workaround for sleep infinity hanging
+          shareProcessNamespace: true
           containers:
           - name: sidecar1
             image: busybox

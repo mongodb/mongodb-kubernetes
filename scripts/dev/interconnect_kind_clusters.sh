@@ -29,7 +29,7 @@ while getopts ':h:v' opt; do
 done
 shift "$((OPTIND-1))"
 
-clusters=($(kind get clusters))
+clusters=("$@")
 echo "Interconnecting ${clusters[*]}"
 
 routes=()
