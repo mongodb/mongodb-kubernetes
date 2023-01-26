@@ -11,6 +11,11 @@ set -Eeou pipefail
 ##   Call
 ##     ./retry-evergreen.sh 62cfba5957e85a64e1f801fa
 ###
+echo "EVERGREEN_RETRY=${EVERGREEN_RETRY:-"true"}"
+if [[ "${EVERGREEN_RETRY:-"true"}" != "true" ]]; then
+  echo "Skipping evergreen retry"
+  exit 0
+fi
 
 if [ $# -eq 0 ]
 then
