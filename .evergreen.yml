@@ -99,6 +99,10 @@ parameters:
   value: ""
   description: set this to the repository:tag of the readinessprobe image
 
+- key: evergreen_retry
+  value: "true"
+  description: set this to false to suppress retries on failure
+
 functions:
   "golint":
     - command: subprocess.exec
@@ -576,6 +580,9 @@ functions:
         include_expansions_in_env:
           - EVERGREEN_API_KEY
           - EVERGREEN_USER
+          - evergreen_retry
+        env:
+          EVERGREEN_RETRY: ${evergreen_retry}
         script: |
           scripts/evergreen/retry-evergreen.sh ${version_id}
 
