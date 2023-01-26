@@ -62,17 +62,17 @@ def main() -> int:
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.opsManager",
-        release["supportedOpsManagerVersions"],
+        release["supportedImages"]["ops-manager"]["versions"],
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.mongodb",
-        release["supportedAppDBVersions"],
+        release["supportedImages"]["appdb-database"]["versions"],
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.agent",
-        release["supportedAgentVersions"],
+        release["supportedImages"]["mongodb-agent"]["versions"],
     )
 
     return 0

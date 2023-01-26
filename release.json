@@ -12,50 +12,188 @@
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "12.0.15.7646-1",
   "communityOperatorVersion": "0.7.8-0.20230118145218-ccec80114b0b",
-  "supportedOpsManagerVersions": [
-    "5.0.0",
-    "5.0.1",
-    "5.0.2",
-    "5.0.3",
-    "5.0.4",
-    "5.0.5",
-    "5.0.6",
-    "5.0.7",
-    "5.0.8",
-    "5.0.9",
-    "5.0.10",
-    "5.0.11",
-    "5.0.12",
-    "5.0.13",
-    "5.0.14",
-    "5.0.15",
-    "5.0.16",
-    "5.0.17",
-    "6.0.0",
-    "6.0.1",
-    "6.0.2",
-    "6.0.3",
-    "6.0.4",
-    "6.0.5",
-    "6.0.6",
-    "6.0.7"
-  ],
-  "supportedAppDBVersions": [
-    "4.2.11-ent",
-    "4.2.2-ent",
-    "4.2.6-ent",
-    "4.2.8-ent",
-    "4.4.0-ent",
-    "4.4.11-ent",
-    "4.4.4-ent",
-    "5.0.1-ent",
-    "5.0.5-ent",
-    "5.0.7-ent"
-  ],
-  "supportedAgentVersions": [
-    "11.0.5.6963-1",
-    "11.12.0.7388-1",
-    "12.0.4.7554-1",
-    "12.0.15.7646-1"
-  ]
+
+  "supportedImages": {
+    "ops-manager": {
+      "versions": [
+        "5.0.0",
+        "5.0.1",
+        "5.0.2",
+        "5.0.3",
+        "5.0.4",
+        "5.0.5",
+        "5.0.6",
+        "5.0.7",
+        "5.0.8",
+        "5.0.9",
+        "5.0.10",
+        "5.0.11",
+        "5.0.12",
+        "5.0.13",
+        "5.0.14",
+        "5.0.15",
+        "5.0.16",
+        "5.0.17",
+        "6.0.0",
+        "6.0.1",
+        "6.0.2",
+        "6.0.3",
+        "6.0.4",
+        "6.0.5",
+        "6.0.6",
+        "6.0.7"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "operator": {
+      "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "1.18.0",
+        "1.17.2",
+        "1.17.1",
+        "1.17.0",
+        "1.16.4",
+        "1.16.3",
+        "1.16.2",
+        "1.16.1",
+        "1.16.0"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "mongodb-kubernetes-operator": {
+      "Description": "Community Operator daily rebuilds",
+      "versions": [
+        "0.7.7",
+        "0.7.6"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "mongodb-agent": {
+      "Description": "Agents corresponding to OpsManager 5.x and 6.x series",
+      "Description for specific versions": {
+        "11.0.5.6963-1": "An upgraded version for OM 5.0 we use for Operator-only deployments",
+        "11.12.0.7388-1": "Version specific to OM 5.9",
+        "12.0.4.7554-1": "OM 6 basic version",
+        "12.0.15.7646-1": "Community and Helm Charts version"
+      },
+      "versions": [
+        "11.0.5.6963-1",
+        "11.12.0.7388-1",
+        "12.0.4.7554-1",
+        "12.0.15.7646-1"
+      ],
+      "opsManagerMapping": [
+        {
+          "ops_manager_version": "5.0",
+          "agent_version": "11.0.5.6963-1"
+        },
+        {
+          "ops_manager_version": "5.9",
+          "agent_version": "11.12.0.7388-1"
+        },
+        {
+          "ops_manager_version": "6.0",
+          "agent_version": "12.0.4.7554-1"
+        }
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
+    "init-ops-manager": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "1.0.7",
+        "1.0.8",
+        "1.0.9",
+        "1.0.10"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "init-database": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "1.0.9",
+        "1.0.10",
+        "1.0.11",
+        "1.0.12",
+        "1.0.13",
+        "1.0.14"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "init-appdb": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "1.0.9",
+        "1.0.10",
+        "1.0.11",
+        "1.0.12",
+        "1.0.13",
+        "1.0.14"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "init-database": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "1.0.9",
+        "1.0.10",
+        "1.0.11",
+        "1.0.12",
+        "1.0.13",
+        "1.0.14"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "database": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "2.0.2"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    },
+    "appdb-database": {
+      "Description": "4.2 onwards, see https://www.mongodb.com/support-policy/lifecycles",
+      "versions": [
+        "4.2.11-ent",
+        "4.2.2-ent",
+        "4.2.6-ent",
+        "4.2.8-ent",
+        "4.4.0-ent",
+        "4.4.11-ent",
+        "4.4.4-ent",
+        "5.0.1-ent",
+        "5.0.5-ent",
+        "5.0.7-ent"
+      ],
+      "variants": [
+        "ubi",
+        "ubuntu"
+      ]
+    }
+  }
 }
