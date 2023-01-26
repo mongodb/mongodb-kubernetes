@@ -75,6 +75,8 @@ func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watc
 				log.Infof("Cluster %s reported healthy", k)
 				continue
 			}
+
+			log.Warnf("Cluster %s reported unhealthy", k)
 			// re-enqueue all the MDBMultis the operator is watching into the reconcile loop
 			for _, mdbm := range mdbmList.Items {
 

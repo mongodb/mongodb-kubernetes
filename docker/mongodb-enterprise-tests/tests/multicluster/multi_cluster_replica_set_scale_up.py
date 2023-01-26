@@ -23,10 +23,26 @@ def mongodb_multi_unmarshalled(
     namespace: str,
     multi_cluster_issuer_ca_configmap: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
     )
+
+    resource["spec"]["clusterSpecList"] = [
+        {
+            "clusterName": member_cluster_names[0],
+            "members": 2
+        },
+        {
+            "clusterName": member_cluster_names[1],
+            "members": 1
+        },
+        {
+            "clusterName": member_cluster_names[2],
+            "members": 2
+        },
+    ]
     # ensure certs are created for the members during scale up
     resource["spec"]["clusterSpecList"][0]["members"] = 2
     resource["spec"]["clusterSpecList"][1]["members"] = 1

@@ -103,6 +103,33 @@ def create_configmap(
     )
 
 
+def update_configmap(
+        namespace: str,
+        name: str,
+        data: Dict[str, str],
+        api_client: Optional[kubernetes.client.ApiClient] = None,
+):
+    configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
+    client.CoreV1Api(api_client=api_client).replace_namespaced_config_map(
+        name, namespace, configmap
+    )
+
+
+def create_or_update_configmap(
+        namespace: str,
+        name: str,
+        data: Dict[str, str],
+        api_client: Optional[kubernetes.client.ApiClient] = None
+) -> str:
+    try:
+        create_configmap(namespace, name, data, api_client)
+    except kubernetes.client.ApiException as e:
+        if e.status == 409:
+            update_configmap(namespace, name, data, api_client)
+
+    return name
+
+
 def create_service(
     namespace: str,
     name: str,

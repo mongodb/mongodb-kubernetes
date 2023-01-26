@@ -58,6 +58,7 @@ variables:
     # Multi Cluster Environment
   - &kubernetes_environment_multi_cluster
     kube_environment_name: multi
+    CLUSTER_TYPE: kops
     member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
     central_cluster: e2e.operator.mongokubernetes.com
     test_pod_cluster: e2e.cluster1.mongokubernetes.com
@@ -65,6 +66,7 @@ variables:
     # Multi Cluster Environment with 2 clusters
   - &kubernetes_environment_multi_cluster_2_clusters
     kube_environment_name: multi
+    CLUSTER_TYPE: kops
     member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com"
     central_cluster: e2e.cluster1.mongokubernetes.com
     test_pod_cluster: e2e.cluster1.mongokubernetes.com
@@ -404,6 +406,7 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       include_expansions_in_env:
       - cluster_name
+      - CLUSTER_TYPE
       - central_cluster
       - member_clusters
       - test_pod_cluster

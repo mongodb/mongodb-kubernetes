@@ -17,7 +17,8 @@ import (
 
 const (
 	// kubeconfig path holding the credentials for different member clusters
-	KubeConfigPath          = "/etc/config/kubeconfig/kubeconfig"
+	DefaultKubeConfigPath   = "/etc/config/kubeconfig/kubeconfig"
+	KubeConfigPathEnv       = "KUBE_CONFIG_PATH"
 	ClusterClientTimeoutEnv = "CLUSTER_CLIENT_TIMEOUT"
 )
 
@@ -26,11 +27,15 @@ type KubeConfig struct {
 }
 
 func NewKubeConfigFile() (KubeConfig, error) {
-	file, err := os.Open(KubeConfigPath)
+	file, err := os.Open(GetKubeConfigPath())
 	if err != nil {
 		return KubeConfig{}, err
 	}
 	return KubeConfig{Reader: file}, nil
+}
+
+func GetKubeConfigPath() string {
+	return env.ReadOrDefault(KubeConfigPathEnv, DefaultKubeConfigPath)
 }
 
 // LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
@@ -52,7 +57,7 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 	clusterClientsMap := map[string]*restclient.Config{}
 
 	for _, c := range clusterNames {
-		clientset, err := getClient(c, KubeConfigPath)
+		clientset, err := getClient(c, GetKubeConfigPath())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create clientset map: %s", err)
 		}

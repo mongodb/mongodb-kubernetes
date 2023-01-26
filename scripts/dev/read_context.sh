@@ -17,5 +17,5 @@ else
     # Setting the default namespace for current context
     kubectl config set-context "$(kubectl config current-context)" "--namespace=${NAMESPACE}" &>/dev/null || true
 
-    echo "Current context: ${CURRENT_CONTEXT} (kubectl context: ${CLUSTER_NAME})"
+    echo "Current context: ${CURRENT_CONTEXT} (kubectl context: ${CLUSTER_NAME}), namespace=${NAMESPACE}"
 fi

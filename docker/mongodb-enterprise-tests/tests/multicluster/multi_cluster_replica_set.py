@@ -3,6 +3,7 @@ from typing import Dict, List
 import kubernetes
 import pytest
 
+from kubetester import create_or_update
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
@@ -12,7 +13,7 @@ from kubernetes import client
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+    central_cluster_client: kubernetes.client.ApiClient, namespace: str, member_cluster_names
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-central-sts-override.yaml"),
@@ -20,22 +21,36 @@ def mongodb_multi(
         namespace,
     )
     resource["spec"]["persistent"] = False
+    resource["spec"]["clusterSpecList"] = [
+        {
+            "clusterName": member_cluster_names[0],
+            "members": 2
+        },
+        {
+            "clusterName": member_cluster_names[1],
+            "members": 1
+        },
+        {
+            "clusterName": member_cluster_names[2],
+            "members": 2
+        },
+    ]
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_create_kube_config_file(cluster_clients: Dict):
+def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str):
     clients = cluster_clients
 
     assert len(clients) == 4
-    assert "e2e.cluster1.mongokubernetes.com" in clients
-    assert "e2e.cluster2.mongokubernetes.com" in clients
-    assert "e2e.cluster3.mongokubernetes.com" in clients
-    assert "e2e.operator.mongokubernetes.com" in clients
+    for member_cluster_name in member_cluster_names:
+        assert member_cluster_name in clients
+    assert central_cluster_name in clients
 
 
 @pytest.mark.e2e_multi_cluster_replica_set

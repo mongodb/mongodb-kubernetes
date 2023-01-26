@@ -130,6 +130,11 @@ class Operator(object):
     def assert_is_running(self):
         """Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get
         to Running state for short and fail later"""
+
+        from tests.conftest import local_operator
+        if local_operator():
+            return
+
         for _ in range(0, 3):
             pods = self.list_operator_pods()
             assert len(pods) == 1
