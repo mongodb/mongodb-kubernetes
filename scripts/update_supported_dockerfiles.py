@@ -3,6 +3,7 @@
 
 import os
 import sys
+import json
 from typing import Dict, List
 
 import requests
@@ -14,7 +15,6 @@ SUPPORTED_IMAGES = (
     "mongodb-agent",
     "mongodb-enterprise-database",
     "mongodb-enterprise-init-database",
-    "mongodb-enterprise-appdb",
     "mongodb-enterprise-init-appdb",
     "mongodb-enterprise-ops-manager",
     "mongodb-enterprise-init-ops-manager",
@@ -30,18 +30,24 @@ LOCAL_DOCKERFILE_LOCATION = "public/dockerfiles"
 DOCKERFILE_NAME = "Dockerfile"
 
 
+def get_release() -> Dict[str, str]:
+    return json.load(open("release.json"))
+
+
+def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
+    splitted_image_name = image.split("mongodb-enterprise-", 1)
+    if len(splitted_image_name) == 2:
+        image = splitted_image_name[1]
+
+    return get_release()["supportedImages"][image]["variants"]
+
+
 def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     splitted_image_name = image.split("mongodb-enterprise-", 1)
     if len(splitted_image_name) == 2:
         image = splitted_image_name[1]
 
-    supported_versions = (
-        "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
-        "kubernetes-release-support-kpvbh/service/"
-        "supported-{}-versions/incoming_webhook/list".format(image)
-    )
-
-    return requests.get(supported_versions).json()
+    return get_release()["supportedImages"][image]["versions"]
 
 
 def download_dockerfile_from_s3(image: str, version: str, distro: str) -> str:
@@ -74,17 +80,16 @@ def save_supported_dockerfiles():
         print("Image:", image)
         versions = get_supported_version_for_image(image)
         for version in versions:
-            for variant in version["variants"]:
-                version_str = version["version"]
-                dockerdir = f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version_str}/{variant}"
+            for variant in get_supported_variants_for_image(image):
+                dockerdir = f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version}/{variant}"
                 os.makedirs(dockerdir, exist_ok=True)
                 dockerfile = download_dockerfile_from_s3(
-                    image, version["version"], variant
+                    image, version, variant
                 )
                 dockerpath = os.path.join(dockerdir, DOCKERFILE_NAME)
                 with open(dockerpath, "w") as fd:
                     fd.write(dockerfile)
-                    print("* {} - {}: {}".format(version_str, variant, dockerpath))
+                    print("* {} - {}: {}".format(version, variant, dockerpath))
 
 
 def main() -> int:

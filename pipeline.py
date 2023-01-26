@@ -25,7 +25,8 @@ from sonar.sonar import process_image
 import docker
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
-logging.basicConfig(level=LOGLEVEL)
+logger = logging.getLogger("pipeline")
+logger.setLevel(LOGLEVEL)
 
 skippable_tags = frozenset(["ubi", "ubuntu"])
 
@@ -299,22 +300,22 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     image_tag = "latest"
     repo_tag = image_repo + ":" + image_tag
 
-    print("Pulling image:", repo_tag)
+    logger.debug("Pulling image:", repo_tag)
     try:
         image = client.images.get(repo_tag)
     except docker.errors.ImageNotFound:
-        print("Operator image does not exist locally. Building it now")
+        logger.debug("Operator image does not exist locally. Building it now")
         build_operator_image(build_configuration)
         return
 
-    print("Done")
+    logger.debug("Done")
     too_old = datetime.now() - timedelta(hours=3)
     image_timestamp = datetime.fromtimestamp(
         image.history()[0]["Created"]
     )  # Layer 0 is the latest added layer to this Docker image. [-1] is the FROM layer.
 
     if image_timestamp < too_old:
-        print("Current operator image is too old, will rebuild it completely first")
+        logger.info("Current operator image is too old, will rebuild it completely first")
         build_operator_image(build_configuration)
         return
 
@@ -322,7 +323,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     operator_binary_location = "/usr/local/bin/mongodb-enterprise-operator"
     try:
         client.containers.get(container_name).remove()
-        print(f"Removed {container_name}")
+        logger.debug(f"Removed {container_name}")
     except docker.errors.NotFound:
         pass
 
@@ -330,9 +331,9 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         repo_tag, name=container_name, entrypoint="sh", detach=True
     )
 
-    print("Building operator with debugging symbols")
+    logger.debug("Building operator with debugging symbols")
     subprocess.run(["make", "manager"], check=True, stdout=subprocess.PIPE)
-    print("Done building the operator")
+    logger.debug("Done building the operator")
 
     copy_into_container(
         client,
@@ -350,7 +351,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     container.stop()
     container.remove()
 
-    print("Pushing operator to {}:{}".format(image_repo, image_tag))
+    logger.info("Pushing operator to {}:{}".format(image_repo, image_tag))
     client.images.push(
         repository=image_repo,
         tag=image_tag,
@@ -358,13 +359,11 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
 
 def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
-    supported_versions = (
-        "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
-        "kubernetes-release-support-kpvbh/service/"
-        "supported-{}-versions/incoming_webhook/list".format(image)
-    )
+    return get_release()["supportedImages"][image]["versions"]
 
-    return requests.get(supported_versions).json()
+
+def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
+    return get_release()["supportedImages"][image]["variants"]
 
 
 def image_config(
@@ -452,19 +451,20 @@ def build_image_daily(
 
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image(image_name)
+        variants = get_supported_variants_for_image(image_name)
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
-        logging.info(
+        logger.info(
             "Supported Versions for {}: {}".format(image_name, supported_versions)
         )
         completed_versions = set()
-        for releases in supported_versions:
+        for version in supported_versions:
             if (
                 min_version is not None
                 and max_version is not None
                 and (
-                    semver.compare(releases["version"], min_version) < 0
-                    or semver.compare(releases["version"], max_version) >= 0
+                    semver.compare(version, min_version) < 0
+                    or semver.compare(version, max_version) >= 0
                 )
             ):
                 continue
@@ -473,11 +473,11 @@ def build_image_daily(
             if build_configuration.include_tags is None:
                 build_configuration.include_tags = []
 
-            build_configuration.include_tags.extend(releases["variants"])
+            build_configuration.include_tags.extend(variants)
 
-            logging.info("Rebuilding {} with variants {}".format(releases["version"], releases["variants"]))
-            args["release_version"] = releases["version"]
-            if releases["version"] not in completed_versions:
+            logger.info("Rebuilding {} with variants {}".format(version, variants))
+            args["release_version"] = version
+            if version not in completed_versions:
                 try:
                     sonar_build_image(
                         "image-daily-build",
@@ -485,10 +485,10 @@ def build_image_daily(
                         args,
                         inventory="inventories/daily.yaml",
                     )
-                    completed_versions.add(releases["version"])
+                    completed_versions.add(version)
                 except Exception as e:
                     # Log error and continue
-                    logging.error(e)
+                    logger.error(e)
 
     return inner
 
@@ -593,7 +593,7 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     )
 
     if os.environ.get("readiness_probe"):
-        logging.info(
+        logger.info(
             "Using readiness_probe source image: %s", os.environ["readiness_probe"]
         )
         repo, tag = os.environ["readiness_probe"].split(":")
@@ -653,8 +653,6 @@ def build_init_database(build_configuration: BuildConfiguration):
 
     base_url = "https://fastdl.mongodb.org/tools/db/"
 
-    # TODO: Make sure this is required (or not) in the init-database image
-    # if not required, remove!
     mongodb_tools_url_ubi = "{}{}".format(
         base_url, release["mongodbToolsBundle"]["ubi"]
     )
@@ -682,7 +680,7 @@ def build_init_database(build_configuration: BuildConfiguration):
     # If this is set to "" or not set at all, then the default value in
     # "inventories/init_database.yaml" will be used.
     if os.environ.get("readiness_probe"):
-        logging.info(
+        logger.info(
             "Using readiness_probe source image: %s", os.environ["readiness_probe"]
         )
         repo, tag = os.environ["readiness_probe"].split(":")

@@ -67,15 +67,13 @@ def get_api_token():
     token = os.environ.get("rh_pyxis", "")
     return token
 
-def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
-    supported_versions = (
-        "https://webhooks.mongodb-realm.com/api/client/v2.0/app/"
-        "kubernetes-release-support-kpvbh/service/"
-        "supported-{}-versions/incoming_webhook/list".format(image)
-    )
 
-    versions = requests.get(supported_versions).json()
-    return {v["version"] for v in versions}
+def get_release() -> Dict[str, str]:
+    return json.load(open("release.json"))
+
+
+def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
+    return get_release()["supportedImages"][image]["versions"]
 
 
 def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
