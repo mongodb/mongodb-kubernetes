@@ -19,7 +19,7 @@ remove_element() {
 if [[ -n "${LOCAL_RUN-}" ]]; then
   # when running locally we don't need to docker login all the time - we can do it once in 11 hours (ECR tokens expire each 12 hours)
   if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] &&
-    grep "268558157000" -q ~/.docker/config.json && grep "registry.connect.redhat.com" -q ~/.docker/config.json; then
+    grep "268558157000" -q ~/.docker/config.json; then
     echo "Docker credentials are up to date - not performing the new login!"
     exit
   fi
@@ -48,7 +48,3 @@ if grep -q "credsStore" ~/.docker/config.json; then
   aws ecr get-login-password --region "us-east-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.us-east-1.amazonaws.com
 fi
 aws ecr get-login-password --region "eu-west-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.eu-west-1.amazonaws.com
-
-
-# This is the redhat account from https://access.redhat.com/terms-based-registry/#/token/openshift3-test-cluster
-docker login -u="11994327|openshift3-test-cluster" -p="${RED_HAT_TOKEN}" registry.connect.redhat.com

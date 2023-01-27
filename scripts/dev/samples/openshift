@@ -12,4 +12,3 @@ export CLUSTER_TYPE=openshift
 export CLUSTER_NAME=default/api-openshift-mongokubernetes-com:6443/kube:admin
 export BASE_REPO_URL=268558157000.dkr.ecr.eu-west-1.amazonaws.com/myname
 export NAMESPACE=myname
-export RED_HAT_TOKEN=

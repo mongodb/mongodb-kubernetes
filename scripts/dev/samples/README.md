@@ -9,7 +9,6 @@ This is a list of all configuration options that can be set by the developer ins
 * `kube_environment_name`: use `vanilla` for kops cluster, `multi` for multi cluster, `kind` for kind cluster type 
 * `BASE_REPO_URL`: the url of docker repository used to store docker images
 * `agent_version`: version of mms-automation agent
-* `RED_HAT_TOKEN`: API token to Red Hat registry
 * Registry and version configuration. Reference versions can be taken from the [yaml file](../../../public/mongodb-enterprise.yaml)
   * `INIT_OPS_MANAGER_REGISTRY` 
   * `INIT_OPS_MANAGER_VERSION`

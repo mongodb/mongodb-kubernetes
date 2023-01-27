@@ -368,7 +368,6 @@ def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
 
 def image_config(
     image_name: str,
-    rh_ospid: str,
     name_prefix: str = "mongodb-enterprise-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
     ubi_suffix: str = "-ubi",
@@ -389,11 +388,6 @@ def image_config(
         "ubuntu_suffix": ubuntu_suffix,
     }
 
-    if rh_ospid:
-        args["rh_registry"] = "scan.connect.redhat.com/ospid-{}/{}{}".format(
-            rh_ospid, name_prefix, image_name
-        )
-
     return image_name, args
 
 
@@ -403,34 +397,16 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     This includes the quay_registry and ospid corresponding to RedHat's project id.
     """
     image_configs = [
-        image_config("appdb", "31c2f102-af15-4e15-87b9-30710586d9ad"),
-        image_config("database", "239de277-d8bb-44b4-8593-73753752317f"),
-        image_config(
-            "init-appdb",
-            "053baed4-c625-44bb-a9bf-a3a5585a17e8",
-        ),
-        image_config(
-            "init-database",
-            "cf1063a9-6391-4dd7-b995-a4614483e6a1",
-        ),
-        image_config(
-            "init-ops-manager",
-            "7da92b80-396f-4298-9de5-909165ba0c9e",
-        ),
-        image_config(
-            "operator",
-            "5558a531-617e-46d7-9320-e84d3458768a",
-        ),
-        image_config("ops-manager", "b419ca35-17b4-4655-adee-a34e704a6835"),
-        image_config(
-            "mongodb-agent", "b2beced3-e4db-46e1-9850-4b85ab4ff8d6", name_prefix=""
-        ),
+        image_config("appdb"),
+        image_config("database"),
+        image_config("init-appdb"),
+        image_config("init-database"),
+        image_config("init-ops-manager"),
+        image_config("operator"),
+        image_config("ops-manager"),
+        image_config("mongodb-agent", name_prefix=""),
         image_config(
             image_name="mongodb-kubernetes-operator",
-            # This rh_ospid is a RedHat project used only for pushing the operator image.
-            # It is not intended to be used for preflight images and certification process.
-            # It is set because outputs in daily.yml are pushing ubi images to scan.connect.redhat.com also.
-            rh_ospid="630cd2cecc80b375a434ff6d",
             name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
             # community ubi image does not have a suffix in its name

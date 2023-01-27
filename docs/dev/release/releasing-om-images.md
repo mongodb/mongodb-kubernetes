@@ -20,7 +20,7 @@
 
 3. The `evergreen` patch will build, test and publish the images.
 
-4. To run a `preflight` check pre-publishing the image to registry.connect.redhat.com, run the following patch for the version you're releasing:
+4. To run a `preflight` use the following command:
 
    * OM50
    ```

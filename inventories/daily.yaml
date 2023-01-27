@@ -2,7 +2,6 @@ vars:
   # these variables are configured from the outside, in pipeline.py::image_config
 
   quay_registry: quay.io/mongodb/<image-name-quay>
-  # rh_registry: scan.connect.redhat.com/ospid-<ospid>/<image-name-th>
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
   ecr_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu/<image-name-ecr>
   ecr_registry_ubi: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/<image-name-ecr>
@@ -38,10 +37,6 @@ images:
         tag: $(inputs.params.release_version)
       - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-      - registry: $(inputs.params.rh_registry)
-        tag: $(inputs.params.release_version)
-      # - registry: $(inputs.params.rh_registry)
-      #   tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
       # Below two push coordinates seem to be wrong as some upgrade tests (e.g. e2e_om_ops_manager_upgrade)
       # use different scheme, such as: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/mongodb-enterprise-ops-manager:4.4.15
       # However, this reflects the way we push things into Quay. So let's keep it for now.

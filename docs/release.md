@@ -80,25 +80,22 @@ rebuild (causing the new images to be published) following the [docs](./running-
 
 ### Note on Published Images
 
-The current process releases new images to [Quay.io](https://quay.io/organization/mongodb)
-and Redhat Connect. The later requires the images to be _published_ manually, before
-they can be fetched or pulled. _This is not required for Quay_.
-
-To publish the collection of images in RedHat, first run the pre-flight tool on the images pushed to scan.connect.redhat.com, by running the following patch:
+The current process releases new images to [Quay.io](https://quay.io/organization/mongodb).
+Later it is required to pre-flight the images by running:
 
 ```
 evergreen patch -p ops-manager-kubernetes -v preflight_release_images -t all -y -f -d "Pre-flight release images" -u --browse
 ```
 
-After the task succeded, visit:
+After the task succeeded, visit:
+Note: These projects are needed for certification of the images we push to quay
 
-* https://connect.redhat.com/project/850021/images (Operator)
-* https://connect.redhat.com/project/5718431/images (Init Database)
-* https://connect.redhat.com/project/4276491/images (Init Ops Manager)
-* https://connect.redhat.com/project/4276451/images (Init AppDB)
-* https://connect.redhat.com/project/851701/images (Database)
-* https://connect.redhat.com/project/5961821/images (AppDB Database)
-* https://connect.redhat.com/project/5961771/images (MongoDB Agent)
+* https://connect.redhat.com/projects/633fcdfaade0e891294196ac/overview (Operator)
+* https://connect.redhat.com/projects/633fcc2982f7934b1ad3be46/overview (Init Database)
+* https://connect.redhat.com/projects/633fccb16f43719c9df934a0/overview (Init Ops Manager)
+* https://connect.redhat.com/projects/633fcb576f43719c9df9349f/overview (Init AppDB)
+* https://connect.redhat.com/projects/633fc9e582f7934b1ad3be45/overview (Database)
+* https://connect.redhat.com/projects/633fc9e582f7934b1ad3be45/overview (MongoDB Agent)
 
 And make sure the relevant images are set to published.
 
