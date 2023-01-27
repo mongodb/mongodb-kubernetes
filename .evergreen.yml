@@ -186,13 +186,6 @@ functions:
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: ${workdir}/venv/bin/python -m pip install -r requirements.txt
-  - command: subprocess.exec
-    type: setup
-    params:
-      include_expansions_in_env:
-        - RED_HAT_TOKEN
-        - rh_e2e_cluster_user
-      command: "podman login -u=\"${rh_e2e_cluster_user}\" -p=\"${RED_HAT_TOKEN}\" registry.connect.redhat.com"
 
   preflight_image:
   - command: subprocess.exec
@@ -312,7 +305,6 @@ functions:
       - ${workdir}/bin
       include_expansions_in_env:
       - workdir
-      - RED_HAT_TOKEN
       env:
         AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
         AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
@@ -538,7 +530,6 @@ functions:
           - install_operator_in_python
           - task_id
           - GITHUB_TOKEN_READ
-          - RED_HAT_TOKEN
           - usaf_operator_version
           - usaf_database_version
           - agent_version

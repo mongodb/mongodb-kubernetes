@@ -132,8 +132,8 @@ available.
 
 ## Running an openshift-preflight scan on the images
 
-When the daily builds are successful, images are pushed to `scan.connect.redhat.com`. To prepare for publishing
-those images, a `preflight` check is performed after the daily builds using [openshift-preflight](https://github.com/redhat-openshift-ecosystem/openshift-preflight). The images should then show up in the certification project (for example: [Certification project for OpsManager](https://connect.redhat.com/projects/5e60b1d32f3c1acdd05f609d/images)), where they can be published from. The publishing process is still manual and required for releasing images to `registry.connect.redhat.com`.
+When the daily builds are successful, images are pushed to Quay. To prepare for publishing
+those images, a `preflight` check is performed after the daily builds using [openshift-preflight](https://github.com/redhat-openshift-ecosystem/openshift-preflight). 
 
 # FAQ
 

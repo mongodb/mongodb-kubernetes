@@ -68,10 +68,7 @@ clusters by default. Edit the file:
 1. Change all ECR registry URLs: change "myname" to something more meaningful
    (we usually use some last name abbreviation)
 2. Change the `CLUSTER_NAME` to `<myname>.mongokubernetes.com`
-3. Specify the `RED_HAT_TOKEN` property ("Token" on
-   https://access.redhat.com/terms-based-registry/#/token/openshift3-test-cluster -
-   ask your colleagues for credentials)
-4. Set `KOPS_ZONES` to the AWS zone with available VPCs. (Specify the zone that
+3. Set `KOPS_ZONES` to the AWS zone with available VPCs. (Specify the zone that
    you selected to create the cluster)
   * Note that if you set this you will need to provide the full zone and not
     just the region name (if your AWS zone is `eu-west-1` you should have, for
@@ -158,8 +155,6 @@ export APPDB_REGISTRY=${REGISTRY}
 export DATABASE_REGISTRY=${REGISTRY}
 export DATABASE_VERSION=2.0.2
 export KUBECONFIG=~/.kube/config
-
-export RED_HAT_TOKEN=eyJhb...
 ```
 
 #### Initial dev workflow

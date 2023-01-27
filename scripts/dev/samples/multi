@@ -8,7 +8,6 @@ export INIT_OPS_MANAGER_REGISTRY=
 export INIT_APPDB_REGISTRY=
 export NAMESPACE=
 export OPERATOR_VERSION=
-export RED_HAT_TOKEN=
 export kube_environment_name=multi
 export member_clusters="e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
 export central_cluster=e2e.operator.mongokubernetes.com
