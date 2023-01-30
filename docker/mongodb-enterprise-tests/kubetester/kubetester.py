@@ -123,7 +123,6 @@ class KubernetesTester(object):
             if e.status == 409 and running_locally():
                 pass
 
-
     @classmethod
     def update_secret(cls, namespace: str, name: str, data: Dict[str, str]):
         """

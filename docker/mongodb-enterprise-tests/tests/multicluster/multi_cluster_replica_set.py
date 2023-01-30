@@ -1,19 +1,26 @@
 from typing import Dict, List
-
 import kubernetes
 import pytest
+from kubernetes import client
+from kubernetes.client.rest import ApiException
 
 from kubetester import create_or_update
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
+from kubetester.kubetester import (
+    fixture as yaml_fixture,
+    skip_if_local,
+    KubernetesTester,
+)
 from kubernetes import client
 
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str, member_cluster_names
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-central-sts-override.yaml"),
@@ -22,18 +29,9 @@ def mongodb_multi(
     )
     resource["spec"]["persistent"] = False
     resource["spec"]["clusterSpecList"] = [
-        {
-            "clusterName": member_cluster_names[0],
-            "members": 2
-        },
-        {
-            "clusterName": member_cluster_names[1],
-            "members": 1
-        },
-        {
-            "clusterName": member_cluster_names[2],
-            "members": 2
-        },
+        {"clusterName": member_cluster_names[0], "members": 2},
+        {"clusterName": member_cluster_names[1], "members": 1},
+        {"clusterName": member_cluster_names[2], "members": 2},
     ]
 
     # TODO: incorporate this into the base class.
@@ -44,7 +42,9 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str):
+def test_create_kube_config_file(
+    cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str
+):
     clients = cluster_clients
 
     assert len(clients) == 4
@@ -89,7 +89,7 @@ def test_pvc_not_created(
     namespace: str,
 ):
     with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
-        pvc = client.CoreV1Api(
+        client.CoreV1Api(
             api_client=member_cluster_clients[0].api_client
         ).read_namespaced_persistent_volume_claim(
             f"data-{mongodb_multi.name}-{0}-{0}", namespace
@@ -113,6 +113,33 @@ def test_statefulset_overrides(
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
     assert_container_in_sts("sidecar1", cluster_one_sts)
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_cleanup_on_mdbm_delete(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    cluster_one_client = member_cluster_clients[0]
+    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
+
+    mongodb_multi.delete()
+
+    def check_sts_not_exist():
+        try:
+            client.AppsV1Api(
+                api_client=cluster_one_client.api_client
+            ).read_namespaced_stateful_set(
+                cluster_one_sts.metadata.name, cluster_one_sts.metadata.namespace
+            )
+        except ApiException as e:
+            if e.reason == "Not Found":
+                return True
+            return False
+        else:
+            return False
+
+    KubernetesTester.wait_until(check_sts_not_exist, timeout=100)
 
 
 def assert_container_in_sts(container_name: str, sts: client.V1StatefulSet):

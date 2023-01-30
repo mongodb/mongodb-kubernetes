@@ -1829,6 +1829,15 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_agent_flags
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set_ignore_unknown_users
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
 
 - name: e2e_multi_cluster_validation
   tags: ["patch-run"]
@@ -2135,6 +2144,8 @@ task_groups:
     - e2e_multi_cluster_recover_network_partition
     - e2e_multi_cluster_recover_clusterwide
     - e2e_multi_cluster_validation
+    - e2e_multi_cluster_agent_flags
+    - e2e_multi_cluster_replica_set_ignore_unknown_users
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

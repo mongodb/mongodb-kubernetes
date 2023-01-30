@@ -1,0 +1,58 @@
+from typing import Dict, List
+import kubernetes
+from pytest import mark, fixture
+
+from kubetester.mongodb import Phase
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.operator import Operator
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubernetes import client
+
+
+@fixture(scope="module")
+def mongodb_multi(
+    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+) -> MongoDBMulti:
+
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"),
+        "multi-replica-set",
+        namespace,
+    )
+
+    print(resource)
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
+
+    resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+
+    return resource.create()
+
+
+@mark.e2e_multi_cluster_replica_set_ignore_unknown_users
+def test_replica_set(multi_cluster_operator: Operator, mongodb_multi: MongoDBMulti):
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@mark.e2e_multi_cluster_replica_set_ignore_unknown_users
+def test_authoritative_set_false(mongodb_multi: MongoDBMulti):
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_authoritative_set(False)
+
+
+@mark.e2e_multi_cluster_replica_set_ignore_unknown_users
+def test_set_ignore_unknown_users_false(mongodb_multi: MongoDBMulti):
+    mongodb_multi.load()
+    mongodb_multi["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = False
+    mongodb_multi.update()
+    mongodb_multi.assert_abandons_phase(Phase.Running)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@mark.e2e_multi_cluster_replica_set_ignore_unknown_users
+def test_authoritative_set_true(mongodb_multi: MongoDBMulti):
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_authoritative_set(True)
