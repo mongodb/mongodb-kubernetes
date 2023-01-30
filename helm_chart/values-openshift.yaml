@@ -114,6 +114,7 @@ relatedImages:
   - 6.0.5
   - 6.0.6
   - 6.0.7
+  - 6.0.8
   mongodb:
   - 4.2.11-ent
   - 4.2.2-ent

@@ -427,7 +427,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_version(self) -> str:
         return self["spec"]["version"]
 
-    def get_status(self) -> Optional:
+    def get_status(self) -> Optional[str]:
         if "status" not in self:
             return None
         return self["status"]
