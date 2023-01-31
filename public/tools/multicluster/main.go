@@ -4,6 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+
 	"github.com/ghodss/yaml"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -14,11 +20,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/util/homedir"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strings"
-	"syscall"
 )
 
 type clusterType string
@@ -759,17 +760,19 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 	} else {
 		clusterRole = buildMemberEntityClusterRole()
 	}
+
 	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return fmt.Errorf("error creating cluster role: %s", err)
 	}
+	fmt.Printf("created clusterrole: %s\n", clusterRole.Name)
 
 	clusterRoleBinding := buildClusterRoleBinding(clusterRole, sa)
 	_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
 		return fmt.Errorf("error creating cluster role binding: %s", err)
 	}
-
+	fmt.Printf("created clusterrolebinding: %s\n", clusterRoleBinding.Name)
 	return nil
 }
 
