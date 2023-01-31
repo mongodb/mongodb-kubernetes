@@ -135,6 +135,8 @@ The next task for `pct` will be to create a release PR on the public repository
 ([Example](https://github.com/mongodb/mongodb-enterprise-kubernetes/pull/201)).
 Take a look at this PR, and correct anything that needs correction.
 
+Once this PR is merged, a new draft release with the operator version tag will be created for the multicluster CLI binary in https://github.com/mongodb/mongodb-enterprise-kubernetes/releases . Please check and publish this release.
+
 ## Publish release notes
 
 After the public release PR has been merged, `pct` will create release notes:
