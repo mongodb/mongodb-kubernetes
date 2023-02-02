@@ -1,6 +1,12 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
+# MongoDB Enterprise Kubernetes Operator 1.19.0
+
+## Breaking changes and deprecations
+* Ubuntu-based images were deprecated in favor of UBI-based images in operator version 1.17.0. In the 1.19.0 release we are removing the support for Ubuntu-based images. The ubuntu based images won't be rebuilt daily with updates. Please upgrade to the UBI-based images by following these instructions: https://www.mongodb.com/docs/kubernetes-operator/master/tutorial/migrate-k8s-images/#migrate-k8s-images
+
+<!-- Past releases -->
 # MongoDB Enterprise Kubernetes Operator 1.18.0
 
 ## Improvements
@@ -12,13 +18,13 @@
 * Added `SCRAM-SHA-1` support for both user and Agent authentication. Before enabling this capability, make sure you use both `MONGODB-CR` and `SCRAM-SHA-1` in the authentication modes.
 
 ## Bug fixes
-* Fixed liveness probe reporting positive result when the agent process was killed. This could cause database pods to run without automation agent.  
+* Fixed liveness probe reporting positive result when the agent process was killed. This could cause database pods to run without automation agent.
 * Fixed startup script in database pod, that could in some situations report errors on pod's restart.
 
 ## Breaking changes and deprecations
 
 * The field `spec.security.tls.secretRef.prefix` has been removed from MongoDB and OpsManager resources. It was deprecated in the [MongoDB Enterprise
-1.15.0](https://www.mongodb.com/docs/kubernetes-operator/master/release-notes/#k8s-op-full-1-15-0) and removed from the Operator runtime in 
+1.15.0](https://www.mongodb.com/docs/kubernetes-operator/master/release-notes/#k8s-op-full-1-15-0) and removed from the Operator runtime in
 [1.17.0](https://www.mongodb.com/docs/kubernetes-operator/master/release-notes/#k8s-op-full-1-17-0). Before upgrading to this version, make
 sure you migrated to the new TLS format using the following [Migration Guide](https://www.mongodb.com/docs/kubernetes-operator/v1.16/tutorial/migrate-to-new-tls-format/) before upgrading the Operator.
 
