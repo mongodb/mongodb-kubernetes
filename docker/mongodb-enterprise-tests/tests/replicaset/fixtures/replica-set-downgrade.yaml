@@ -5,7 +5,7 @@ metadata:
   name: my-replica-set-downgrade
 spec:
   members: 3
-  version: 3.6.20
+  version: 4.4.2
   type: ReplicaSet
   opsManager:
     configMapRef:

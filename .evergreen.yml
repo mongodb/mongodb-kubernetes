@@ -30,7 +30,7 @@ variables:
   - &mdb_50_latest 5.0.5
   - &mdb_50_prev 5.0.1
 
-  - &mdb_44_latest 4.4.11
+  - &mdb_44_latest 4.4.14
 
   # Latest available version of Kubernetes
   # https://kubernetes.io/releases/
@@ -1915,7 +1915,7 @@ task_groups:
     - unit_tests_lint
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
-- name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+- name: e2e_mdb_kind_cloudqa_task_group
   max_hosts: 30
   setup_group:
     - func: clone
@@ -2036,9 +2036,10 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
-# This is the task group that contains all the tests run in the e2e_mdb_openshift_ubi_cloudqa build variant
+# This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
+# This is mostly a smoke test, so we execute only a few essential ones.
 - name: e2e_mdb_openshift_ubi_cloudqa_task_group
-  # OM tests are also run on the same Openshift cluster so we shouldn't go too high
+  # OM tests are also run on the same Openshift cluster, so we shouldn't go too high
   max_hosts: 4
   setup_group:
     - func: clone
@@ -2048,34 +2049,11 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    # e2e_kube_only_task_group
     - e2e_crd_validation
-    - e2e_replica_set_config_map
-    - e2e_replica_set_exposed_externally
-    - e2e_replica_set_pv
-    - e2e_replica_set_pv_multiple
-    - e2e_replica_set_schema_validation
-    - e2e_replica_set_statefulset_status
-    - e2e_sharded_cluster_pv
-    - e2e_sharded_cluster_recovery
-    - e2e_sharded_cluster_schema_validation
-    - e2e_sharded_cluster_statefulset_status
-    - e2e_standalone_config_map
-    - e2e_standalone_recovery
-    - e2e_standalone_schema_validation
-    - e2e_users_schema_validation
-    - e2e_replica_set_tls_default
-    - e2e_replica_set_tls_override
-    # e2e_scram_sha_task_group_with_manually_generated_certs
     - e2e_replica_set_scram_sha_256_user_connectivity
-    - e2e_replica_set_scram_sha_256_user_first
-    - e2e_replica_set_scram_sha_1_user_connectivity
-    - e2e_replica_set_scram_sha_1_upgrade
-    - e2e_replica_set_scram_x509_ic_manual_certs
-    - e2e_sharded_cluster_scram_sha_1_upgrade
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
-    - e2e_sharded_cluster_scram_sha_1_user_connectivity
-    - e2e_sharded_cluster_scram_x509_ic_manual_certs
+    - e2e_replica_set_pv
+    - e2e_sharded_cluster_pv
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2345,7 +2323,32 @@ buildvariants:
     agent_version: *agent_version50
     image_type: ubuntu
   tasks:
-    - name: e2e_mdb_kind_ubuntu_cloudqa_task_group
+    - name: e2e_mdb_kind_cloudqa_task_group
+
+- name: e2e_mdb_kind_ubi_cloudqa
+  display_name: e2e_mdb_kind_ubi_cloudqa
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
+    custom_mdb_version: *mdb_44_latest
+    agent_version: *agent_version50
+    image_type: ubi
+  tasks:
+    - name: e2e_mdb_kind_cloudqa_task_group
 
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
@@ -2527,48 +2530,48 @@ buildvariants:
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
 
-
-# Multi Cluster build variants
 - name: e2e_multi_cluster
   display_name: e2e_multi_cluster
   run_on:
     - ubuntu1804-large
   depends_on:
-    - name: build_operator_ubuntu
+    - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
     - name: prepare_multi_cluster
       variant: init_test_run
-    - name: build_init_database_image_ubuntu
+    - name: build_init_database_image_ubi
       variant: init_test_run
-    - name: build_database_image_ubuntu
+    - name: build_database_image_ubi
       variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
-    image_type: ubuntu
+    image_type: ubi
     agent_version: *agent_version50
   tasks:
     - name: e2e_multi_cluster_task_group
+
+
 
 - name: e2e_multi_cluster_2_clusters
   display_name: e2e_multi_cluster_2_clusters
   run_on:
     - ubuntu1804-large
   depends_on:
-    - name: build_operator_ubuntu
+    - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
     - name: prepare_multi_cluster_2_clusters
       variant: init_test_run
-    - name: build_init_database_image_ubuntu
+    - name: build_init_database_image_ubi
       variant: init_test_run
-    - name: build_database_image_ubuntu
+    - name: build_database_image_ubi
       variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_2_clusters ]
-    image_type: ubuntu
+    image_type: ubi
     agent_version: *agent_version50
   tasks:
     - name: e2e_multi_cluster_2_clusters_task_group

@@ -103,7 +103,7 @@ def test_scale_replica_test(replica_set: MongoDB):
     replica_set["spec"]["members"] = 5
     replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -141,16 +141,6 @@ def test_replica_set_connectivity_with_no_auth(replica_set: MongoDB):
 def test_deployment_is_reachable_with_no_auth(replica_set: MongoDB):
     tester = replica_set.tester()
     tester.assert_deployment_reachable(attempts=10)
-
-
-@mark.e2e_replica_set_ldap_agent_auth
-def test_change_version_to_4_2_8(replica_set: MongoDB):
-    replica_set.reload()
-    replica_set["spec"]["version"] = "4.2.8-ent"
-    replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Running)
-
-    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth

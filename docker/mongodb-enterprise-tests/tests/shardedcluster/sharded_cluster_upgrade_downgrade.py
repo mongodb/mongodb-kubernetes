@@ -18,7 +18,7 @@ class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
         mongod_tester.assert_connectivity()
-        mongod_tester.assert_version("3.6.20")
+        mongod_tester.assert_version("4.4.2")
 
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
@@ -29,7 +29,7 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
       Updates a ShardedCluster to bigger version, leaving feature compatibility version as it was
     update:
       file: sharded-cluster-downgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.16"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.4.0"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "4.4"}]'
       wait_until: in_running_state
       timeout: 300
     """
@@ -37,7 +37,7 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
         mongod_tester.assert_connectivity()
-        mongod_tester.assert_version("4.0.16")
+        mongod_tester.assert_version("4.4.0")
 
 
 @pytest.mark.e2e_sharded_cluster_upgrade_downgrade
@@ -55,4 +55,4 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     def test_db_connectable(self):
         mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
         mongod_tester.assert_connectivity()
-        mongod_tester.assert_version("3.6.20")
+        mongod_tester.assert_version("4.4.2")

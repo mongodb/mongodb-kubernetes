@@ -18,7 +18,7 @@ class TestStandaloneUpgradeDowngradeCreate(KubernetesTester):
     @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
-        mongod_tester.assert_version("3.6.20")
+        mongod_tester.assert_version("4.4.2")
 
     def test_noop(self):
         assert True
@@ -32,7 +32,7 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
       Updates a Standalone to bigger version, leaving feature compatibility version as it was
     update:
       file: standalone-downgrade.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.16"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "3.6"}]'
+      patch: '[{"op":"replace","path":"/spec/version", "value": "4.4.0"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "4.4"}]'
       wait_until: in_running_state
       timeout: 200
     """
@@ -40,7 +40,7 @@ class TestStandaloneUpgradeDowngradeUpdate(KubernetesTester):
     @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
-        mongod_tester.assert_version("4.0.16")
+        mongod_tester.assert_version("4.4.0")
 
     def test_noop(self):
         assert True
@@ -61,7 +61,7 @@ class TestStandaloneUpgradeDowngradeRevert(KubernetesTester):
     @skip_if_local
     def test_db_connectable(self):
         mongod_tester = StandaloneTester("my-standalone-downgrade")
-        mongod_tester.assert_version("3.6.20")
+        mongod_tester.assert_version("4.4.2")
 
     def test_noop(self):
         assert True
