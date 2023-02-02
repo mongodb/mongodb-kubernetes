@@ -3,7 +3,7 @@ kind: MongoDB
 metadata:
   name: my-standalone-downgrade
 spec:
-  version: 3.6.20
+  version: 4.4.2
   type: Standalone
   opsManager:
     configMapRef:

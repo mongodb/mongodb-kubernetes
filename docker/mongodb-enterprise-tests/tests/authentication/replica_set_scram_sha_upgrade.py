@@ -22,33 +22,7 @@ class TestCreateScramSha1ReplicaSet(KubernetesTester):
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
-        tester.assert_authentication_enabled()
-
-        tester.assert_expected_users(0)
-        tester.assert_authoritative_set(True)
-
-
-@pytest.mark.e2e_replica_set_scram_sha_1_upgrade
-class TestUpgradeReplicaSetToMongoDB40(KubernetesTester):
-    """
-    description: |
-      Upgraded the version of MongoDB to 4.0, since MONGODB-CR was enabled previously,
-      the deployment should stay at MONGODB-CR and not upgrade to SCRAM-SHA-256
-    update:
-      file: replica-set-scram-sha-1.yaml
-      patch: '[{"op":"replace","path":"/spec/version", "value": "4.0.1"}]'
-      wait_until: in_running_state
-      timeout: 400
-    """
-
-    def test_assert_connectivity(self):
-        ReplicaSetTester(MDB_RESOURCE, 3).assert_connectivity()
-
-    def test_ops_manager_state_updated_correctly(self):
-        tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-        tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
-        tester.assert_authentication_mechanism_enabled("MONGODB-CR")
+        tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled()
 
         tester.assert_expected_users(0)

@@ -10,9 +10,7 @@ from kubetester import kubetester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user
 from kubetester.ldap import OpenLDAP, LDAPUser
-from kubetester.omtester import get_rs_cert_names
 from kubetester.certs import (
-    Certificate,
     ISSUER_CA_NAME,
     create_x509_mongodb_tls_certs,
     create_x509_agent_tls_certs,

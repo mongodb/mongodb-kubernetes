@@ -9,7 +9,7 @@ spec:
   mongodsPerShardCount: 3
   mongosCount: 2
   configServerCount: 3
-  version: 3.6.20 # versions < 4.0 will use SCRAM-SHA-1
+  version: 4.4.2
   opsManager:
     configMapRef:
       name: my-project
