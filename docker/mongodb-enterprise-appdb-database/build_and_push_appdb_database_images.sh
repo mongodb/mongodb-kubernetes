@@ -2,7 +2,7 @@
 set -Eou pipefail
 
 _44_versions="4.4.0 4.4.4 4.4.11"
-_50_versions="5.0.1 5.0.5 5.0.7"
+_50_versions="5.0.1 5.0.5 5.0.7 5.0.14"
 
 build_id="b$(date '+%Y%m%dT000000Z')"
 
