@@ -42,7 +42,8 @@
         "6.0.5",
         "6.0.6",
         "6.0.7",
-        "6.0.8"
+        "6.0.8",
+        "6.0.9"
       ],
       "variants": [
         "ubi",
@@ -138,21 +139,6 @@
       ]
     },
     "init-appdb": {
-      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
-      "versions": [
-        "1.0.9",
-        "1.0.10",
-        "1.0.11",
-        "1.0.12",
-        "1.0.13",
-        "1.0.14"
-      ],
-      "variants": [
-        "ubi",
-        "ubuntu"
-      ]
-    },
-    "init-database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
         "1.0.9",
