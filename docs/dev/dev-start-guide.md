@@ -1,6 +1,33 @@
+- [Starting guide for developers](#starting-guide-for-developers)
+    * [Prerequisites](#prerequisites)
+    * [Development workflow](#development-workflow)
+        + [Install necessary tools and commit hook](#install-necessary-tools-and-commit-hook)
+        + [Initialize development context](#initialize-development-context)
+            - [Edit the context file](#edit-the-context-file)
+            - [Switching between contexts](#switching-between-contexts)
+        + [Cloud-qa integration](#cloud-qa-integration)
+        + [Example context file](#example-context-file)
+        + [Steps for Local Development](#local-development)
+        + [Quick Dev Workflow: Running a Test](#quick-dev-workflow--running-a-test)
+        + [Full Dev workflow](#full-dev-workflow)
+    * [Examples and Quick Overview](#examples-and-quick-overview)
+        + [Using Evergreen to run E2E tests](#using-evergreen-to-run-e2e-tests)
+        + [Using an Openshift cluster to run E2E tests](#using-an-openshift-cluster-to-run-e2e-tests)
+        + [Using an old Kubernetes cluster](#using-an-old-kubernetes-cluster)
+        + [Testing on Ops Manager 4.0](#testing-on-ops-manager-40)
+        + [Multi Cluster](#multi-cluster)
+    * [Troubleshooting](#troubleshooting)
+        + [Error with find](#error-with-find)
+        + [Not enough free space](#not-enough-free-space)
+
 ## Starting guide for developers
 
-This is a guide about setting all necessary environment for developing the MongoDB Enterprise Operator
+This is a guide about setting all necessary environment for developing the MongoDB Enterprise Operator.
+This includes setting up:
+- KOPS cluster
+- Cloud Manager / Ops Manager
+- Setting and sourcing the env-vars to let the test run on your kops cluster
+- Running the e2e test on your Kops Cluster
 
 ### Prerequisites
 
@@ -34,6 +61,8 @@ root of the project. You can have many configurations - local, remote etc, you
 can easily switch between them using `make switch context=some` Execute `make
 usage` to see detailed description of all targets.
 
+We rely on different environment variables to run tests on different environments.
+
 #### Install necessary tools and commit hook
 
 Initialize python virtual environment.
@@ -56,11 +85,12 @@ Prepare default configuration context files. All context files reside in
 clusters, image repositories). The context file is a simple bash script
 exporting environment variables sourced by the development bash scripts.
 
+
 ```bash
 make init
 ```
 
-#### Edit the context file
+##### Edit the context file
 
 `~/.operator-dev/contexts/dev` context file is configured to work with kops
 clusters by default. Edit the file:
@@ -78,17 +108,21 @@ You can edit the other context files or copy them to new ones.
 
 See [additional documentation](../../scripts/dev/samples/README.md) for the context variables.
 
-#### Switching between contexts 
+##### Switching between contexts 
 
 This will update the symlink `~/.operator-dev/context` to point to the relevant
 context file in `~/.operator-dev/contexts` - it will be used by all `make`
-commands for building and deploying images
+commands for building and deploying images.
 
 ```bash
-make switch context=e2e-openshift
+make switch context=kind 
 ```
+switches the context to the default env vars defined under kind to run e2e test on kind. 
 
 #### Cloud-qa integration
+
+The enterprise operator will need to connect to OM/CM to be able to run. 
+The test rely on below env-vars to be setup properly. 
 
 First of all, follow [this
 doc](https://wiki.corp.mongodb.com/display/MMS/Cloud+IAM%27s+Okta+Usage) to set
@@ -114,7 +148,9 @@ export OM_API_KEY=<private_key>
 export OM_ORGID=<org_id>
 ```
 
-Note, that if you plan to use one kops cluster with different Ops Manager
+As defined i.e. here https://cloud-qa.mongodb.com/v2#/org/<orgid>/access/apiKeys
+
+**Note**, that if you plan to use one kops cluster with different Ops Manager
 installations and/or Cloud-qa you'll need to specify the non-default namespace
 which will be the namespace where the Operator and all the resources will be
 created. So switching between different context will result in having different
@@ -156,8 +192,17 @@ export DATABASE_REGISTRY=${REGISTRY}
 export DATABASE_VERSION=2.0.2
 export KUBECONFIG=~/.kube/config
 ```
+**Note**: if no image version is given, most of the operator assumes "latest", which will be available once you use the 
+make targets to push local images to your defined registry.
 
-#### Initial dev workflow
+#### Local Development and E2E Testing
+More on this topic here: [Local Development and E2E Testing](local_e2e_testing.md).
+The linked document describes:
+- How to run the operator locally
+- How to run tests locally
+- Different context for different use-cases
+
+#### Quick Dev Workflow: Running a Test
 These steps allow to execute the first e2e test. For the simplest case only the operator and e2e tests images are built locally.
 
 ```bash
@@ -168,14 +213,17 @@ make aws_login
 # build operator image locally
 ./pipeline.py --include operator-quick
 
+# assuming you are running test on your kind cluster
+make switch context=kind 
+
 # build test image and run e2e test
 # light=true is for building test image only, otherwise it will build all images
 make e2e test=e2e_replica_set light=true  
 ```
 
-#### Dev workflow
+#### Full Dev workflow
 
-This includes the major commands that are used during development
+This includes the major commands that are used during development, including running your own ops manager.
 
 ```bash
 # ensures Kubernetes cluster is alive (for kops will spawn a new cluster - takes ~5-10 minutes, for Kind starts a new
@@ -199,6 +247,9 @@ kubectl get om -o yaml -w
 # build and deploy the Operator only - all existing K8s resources will be left untouched
 make operator
 
+# assuming you are running test on your kops cluster
+make switch context=kops 
+
 # run an e2e test (specify 'light=true' to avoid rebuilding the Operator, Database and init images)
 # Will build and deploy the test image to the current K8s cluster, wait until it's finished
 make e2e test=e2e_replica_set
@@ -208,7 +259,7 @@ make status
 
 ```
 
-Please note that you will have to be connected to the VPN to succesfully run
+Please note that you will have to be connected to the VPN to successfully run
 `make` the first time, when the `kops` cluster is created.
 
 If kops cluster fails to get created because of VPC limits, you can change
@@ -224,7 +275,9 @@ This is normal as it will take a few minutes for the DNS to behave correctly.
 You can try to run `kops validate cluster <yourname>.mongokubernetes.com` a few
 times: if the DNS is still flaky it will sometimes return this `tcp` error.
 
-### Examples
+### Examples and Quick Overview
+#### Using Evergreen to run E2E tests
+TBA
 #### Using an Openshift cluster to run E2E tests
 
 (note, that you need to ensure the OM connectivity details are specified in

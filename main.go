@@ -57,7 +57,7 @@ func init() {
 // commandLineFlags struct holds the command line arguments passed to the operator deployment
 type commandLineFlags struct {
 	crdsToWatch    string
-	memberclusters []string
+	memberClusters []string
 }
 
 // crdsToWatch is a custom Value implementation which can be
@@ -97,7 +97,7 @@ func parseCommandLineArgs() commandLineFlags {
 
 	return commandLineFlags{
 		crdsToWatch:    crds.String(),
-		memberclusters: clusterNames,
+		memberClusters: clusterNames,
 	}
 }
 
@@ -152,7 +152,7 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if multicluster.IsMultiClusterMode(crdsToWatch) {
-		memberClustersNames := commandLineFlags.memberclusters
+		memberClustersNames := commandLineFlags.memberClusters
 		log.Infof("Watching Member clusters: %s", memberClustersNames)
 		// get cluster clients for the member clusters
 		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames)
@@ -173,8 +173,8 @@ func main() {
 		// Add the cluster object to the manager corresponding to each member clusters.
 		for k, v := range memberClusterClients {
 			var cluster runtime_cluster.Cluster
-			// if lenght of namespaces is 1(one particular namespace or * namespace) we can use the namespace in options
-			// but if we are watching a subsect of namespaces we need to initialize the cache with specific namespaces only
+			// if length of namespaces is 1(one particular namespace or * namespace) we can use the namespace in options
+			// but if we are watching a subset of namespaces we need to initialize the cache with specific namespaces only
 			if len(namespacesToWatch) == 1 {
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
 					options.Namespace = kubeConfig.GetMemberClusterNamespace()

@@ -102,7 +102,7 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
 
-	// Passing any value different than "false" results in true.
+	// Passing any value different from "false" results in true.
 	cm = defaultConfigMap("cm3")
 	cm.Data[util.UseCustomCAConfigMap] = ""
 	client.Create(context.TODO(), &cm)
@@ -132,11 +132,31 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	assert.False(t, projectConfig.UseCustomCA)
 }
 
+func TestMissingRequiredFieldsFromCM(t *testing.T) {
+	client := mock.NewClient()
+
+	t.Run("missing url", func(t *testing.T) {
+		cm := defaultConfigMap("cm1")
+		delete(cm.Data, util.OmBaseUrl)
+		client.Create(context.TODO(), &cm)
+		_, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
+		assert.Error(t, err)
+	})
+	t.Run("missing orgID", func(t *testing.T) {
+		cm := defaultConfigMap("cm1")
+		delete(cm.Data, util.OmOrgId)
+		client.Create(context.TODO(), &cm)
+		_, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
+		assert.Error(t, err)
+	})
+}
+
 func defaultConfigMap(name string) corev1.ConfigMap {
 	return configmap.Builder().
 		SetName(name).
 		SetNamespace(mock.TestNamespace).
 		SetDataField(util.OmBaseUrl, "http://mycompany.com:8080").
+		SetDataField(util.OmOrgId, "123abc").
 		SetDataField(util.OmProjectName, "my-name").
 		Build()
 }

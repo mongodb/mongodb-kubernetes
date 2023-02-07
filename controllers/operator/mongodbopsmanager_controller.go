@@ -66,7 +66,7 @@ import (
 
 const (
 	oldestSupportedOpsManagerVersion       = "5.0.0"
-	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json"
+	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json" // TODO: make that an envar to support local development
 	programmaticKeyVersion                 = "5.0.0"
 )
 

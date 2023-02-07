@@ -278,13 +278,18 @@ class KubernetesTester(object):
         )
 
     @classmethod
-    def create_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):
+    def create_or_update_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):
         if storage_class_name is not None:
             body["spec"]["storageClassName"] = storage_class_name
-
-        cls.clients("corev1").create_namespaced_persistent_volume_claim(
-            body=body, namespace=namespace
-        )
+        try:
+            cls.clients("corev1").create_namespaced_persistent_volume_claim(
+                body=body, namespace=namespace
+            )
+        except client.rest.ApiException as e:
+            if e.status == 409:
+                cls.clients("corev1").patch_namespaced_persistent_volume_claim(
+                    body=body, namespace=namespace
+                )
 
     @classmethod
     def delete_pvc(cls, namespace: str, name: str):

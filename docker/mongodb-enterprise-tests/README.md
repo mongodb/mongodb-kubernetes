@@ -202,9 +202,9 @@ def test_mdb_object_is_removed(self):
     assert mdb["status"] == "Success"
 ```
 
-### Finally, add an entry into Evegreen ###
+### Finally, add an entry into Evergreen ###
 
-This is a 2 step process, which requires adding a new E2E task and add
+This is a 2-step process, which requires adding a new E2E task and add
 this new task into a task group.
 
 First you add a new task, under the `tasks` dictionary in the

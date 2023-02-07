@@ -1,25 +1,23 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-from typing import List, Optional, Dict, Callable
 from base64 import b64decode
+from typing import List, Optional, Dict, Callable
 
 import kubernetes.client
 import requests
-from requests.auth import HTTPDigestAuth
-
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
+from requests.auth import HTTPDigestAuth
 
+from kubetester import read_secret, create_configmap
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts
+from kubetester.kubetester import KubernetesTester, build_list_of_hosts, build_om_org_endpoint
 from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state, MongoDB, get_pods
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester, OMContext
-from kubetester import read_secret, create_configmap
 
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
@@ -264,8 +262,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         namespace=None,
         api_client: Optional[client.ApiClient] = None,
     ) -> str:
+        """Creates the configmap containing the information needed to connect to OM"""
         config_map_name = f"{mongodb_name}-config"
-        data = {"baseUrl": self.om_status().get_url(), "projectName": project_name}
+        data = {"baseUrl": self.om_status().get_url(), "projectName": project_name, "orgId": ""}
 
         # the namespace can be different from OM one if the MongoDB is created in a separate namespace
         if namespace is None:
@@ -437,7 +436,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     ) -> str:
         old_secret_name = self.name + "-admin-key"
 
-        # try to read the old secret, if it's is present return it, else return the new secret name
+        # try to read the old secret, if it's present return it, else return the new secret name
         try:
             client.CoreV1Api(api_client=api_client).read_namespaced_secret(
                 old_secret_name, namespace

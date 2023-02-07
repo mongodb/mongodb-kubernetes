@@ -72,7 +72,7 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
-func (in *MongoDB) ForcedIndividualScaling() bool {
+func (m *MongoDB) ForcedIndividualScaling() bool {
 	return false
 }
 
@@ -472,20 +472,13 @@ func (m MongoDbSpec) MinimumMajorVersion() uint64 {
 	return semverVersion.Major
 }
 
-// ProjectConfig contains the configuration expected from the `project` (ConfigMap) attribute in
-// `.spec.project`.
+// ProjectConfig contains the configuration expected from the `project` (ConfigMap) under Data.
 type ProjectConfig struct {
-	// +required
-	BaseURL string
-	// +optional
+	BaseURL     string
 	ProjectName string
-	// +optional
-	OrgID string
-	// +optional
+	OrgID       string
 	Credentials string
-	// +optional
 	UseCustomCA bool
-	// +optional
 	env.SSLProjectConfig
 }
 
@@ -805,7 +798,7 @@ func (spec MongoDbSpec) GetTLSConfig() *TLSConfig {
 	return spec.Security.TLSConfig
 }
 
-// when unmarshaling a MongoDB instance, we don't want to have any nil references
+// when unmarshalling a MongoDB instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references
 func (m *MongoDB) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *MongoDB

@@ -24,7 +24,7 @@ def ops_manager(
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
         pvc_body = yaml.safe_load(f.read())
 
-    KubernetesTester.create_pvc(
+    KubernetesTester.create_or_update_pvc(
         namespace, body=pvc_body, storage_class_name=get_default_storage_class()
     )
 

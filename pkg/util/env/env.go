@@ -54,6 +54,7 @@ func PrintWithPrefix(printableEnvPrefixes []string) {
 		for _, prefix := range printableEnvPrefixes {
 			if strings.HasPrefix(e, prefix) {
 				zap.S().Infof("%s", e)
+				break
 			}
 		}
 	}

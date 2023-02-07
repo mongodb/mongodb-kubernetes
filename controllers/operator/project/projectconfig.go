@@ -13,24 +13,38 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func validateProjectConfig(cmGetter configmap.Getter, projectConfigMap client.ObjectKey) (map[string]string, error) {
+	data, err := configmap.ReadData(cmGetter, projectConfigMap)
+	if err != nil {
+		return nil, err
+	}
+
+	requiredFields := []string{util.OmBaseUrl, util.OmOrgId}
+
+	for _, requiredField := range requiredFields {
+		if _, ok := data[requiredField]; !ok {
+			return nil, fmt.Errorf(`property "%s" is not specified in ConfigMap %s`, requiredField, projectConfigMap)
+		}
+	}
+	return data, nil
+}
+
 // ReadProjectConfig returns a "Project" config build from a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
 // If configMap doesn't have a projectName defined - the name of MongoDB resource is used as a name of project
 func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
-	data, err := configmap.ReadData(cmGetter, projectConfigMap)
+	data, err := validateProjectConfig(cmGetter, projectConfigMap)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
 	}
 
-	baseURL, ok := data[util.OmBaseUrl]
-	if !ok {
-		return mdbv1.ProjectConfig{}, fmt.Errorf(`property "%s" is not specified in ConfigMap %s`, util.OmBaseUrl, projectConfigMap)
-	}
+	baseURL := data[util.OmBaseUrl]
+	orgID := data[util.OmOrgId]
+
 	projectName := data[util.OmProjectName]
 	if projectName == "" {
 		projectName = mdbName
 	}
-	orgID := data[util.OmOrgId]
 
 	sslRequireValid := true
 	sslRequireValidData, ok := data[util.SSLRequireValidMMSServerCertificates]
