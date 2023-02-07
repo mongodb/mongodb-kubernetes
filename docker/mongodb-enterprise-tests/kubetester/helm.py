@@ -40,7 +40,8 @@ def helm_install(
     command_args = _create_helm_args(helm_args, helm_options)
     args = (
         "helm",
-        "install",
+        "upgrade",
+        "--install",
         f"--namespace={namespace}",
         *(command_args),
         name,
@@ -61,7 +62,7 @@ def helm_install_from_chart(
     override_path: Optional[str] = None,
 ):
     """Installs a helm chart from a repo. It can accept a new custom_repo to add before the
-    chart is installed. Also `helm_args` accepts a dictionary that will be passed as --set
+    chart is installed. Also, `helm_args` accepts a dictionary that will be passed as --set
     arguments to `helm install`.
 
     Some charts are clusterwide (like CertManager), and simultaneous installation can

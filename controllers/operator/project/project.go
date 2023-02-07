@@ -41,9 +41,8 @@ func ReadConfigAndCredentials(cmGetter configmap.Getter, secretGetter secrets.Se
 
 /*
 Communication with groups is tricky.
-In connection ConfigMap user must provide the project name and optionally the id of organization.
-If org id is omitted this means that controller will create the project if it doesn't exist and organization will be
-created with the same name as project. The only way to find out if the project exists already is to check if its
+In connection ConfigMap user must provide the project name and the id of organization.
+The only way to find out if the project exists already is to check if its
 organization name is the same as the projects one and that's what Operator is doing. So if ConfigMap specifies the
 project with name "A" and no org id and there is already project in Ops manager named "A" in organization with name"B"
 then Operator won't find it as the names don't match.
@@ -109,6 +108,7 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 
 func findOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
 	if orgID == "" {
+		// Note: this org_id = "" has to be explicitly set by the customer.
 		// If org id is not specified - then the contract is that the organization for the project must have the same
 		// name as project has (as it was created automatically for the project), so we need to find relevant organization
 		log.Debugf("Organization id is not specified - trying to find the organization with name \"%s\"", projectName)
@@ -169,7 +169,7 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 }
 
 func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {
-	// 1. We try to find the ogranization using 'name' filter parameter first
+	// 1. We try to find the organization using 'name' filter parameter first
 	organizations, err := conn.ReadOrganizationsByName(name)
 
 	if err != nil {

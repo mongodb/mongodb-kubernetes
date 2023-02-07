@@ -180,7 +180,7 @@ def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
 def test_check_k8s_resources(
     ops_manager: MongoDBOpsManager, ops_manager_namespace: str, namespace: str
 ):
-    """Verifying that all the K8s resources were created in a ops manager namespace"""
+    """Verifying that all the K8s resources were created in an ops manager namespace"""
     assert ops_manager.read_statefulset().metadata.namespace == ops_manager_namespace
     assert (
         ops_manager.read_backup_statefulset().metadata.namespace
