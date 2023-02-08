@@ -355,6 +355,7 @@ func createUserControllerConfigMap(client *mock.MockedClient) {
 		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: mock.TestNamespace},
 		Data: map[string]string{
 			util.OmBaseUrl:     om.TestURL,
+			util.OmOrgId:       om.TestOrgID,
 			util.OmProjectName: om.TestGroupName,
 			util.OmCredentials: mock.TestCredentialsSecretName,
 		},

@@ -354,22 +354,17 @@ def default_operator(
     operator = Operator(
         namespace=namespace,
         helm_args=operator_installation_config,
-    )
-    # If we're running locally, scale it to zero first and make sure we don't start a pod in the first place.
-    # Otherwise, there will be a short moment that an operator pod is running interfering with our application
+    ).upgrade()
+
+    # If we're running locally, then immediately after installing the deployment, we scale it to zero.
+    # Note: There will be a short moment that an operator pod is running interfering with our application
     # This way operator in POD is not interfering with locally running one.
     if local_operator():
-        try:
-            client.AppsV1Api().patch_namespaced_deployment_scale(
-                namespace=namespace,
-                name=operator.name,
-                body={"spec": {"replicas": 0}},
-            )
-        except kubernetes.client.ApiException as e:
-            if e.status != 404:
-                raise
-    else:
-        operator.upgrade()
+        client.AppsV1Api().patch_namespaced_deployment_scale(
+            namespace=namespace,
+            name=operator.name,
+            body={"spec": {"replicas": 0}},
+        )
 
     return operator
 
