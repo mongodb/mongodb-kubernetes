@@ -1158,6 +1158,7 @@ func configMap() corev1.ConfigMap {
 		SetName(om.TestGroupName).
 		SetNamespace(mock.TestNamespace).
 		SetDataField(util.OmBaseUrl, om.TestURL).
+		SetDataField(util.OmOrgId, om.TestOrgID).
 		SetDataField(util.OmProjectName, om.TestGroupName).
 		Build()
 }

@@ -255,7 +255,7 @@ endif
 # Run tests
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 test: generate fmt vet manifests
-	/bin/bash -o pipefail -c 'find . -name go.mod -execdir go test -coverprofile cover.out ./... \;  | tee -a ops-manager-kubernetes.suite'
+	scripts/evergreen/unit-tests.sh
 
 # Build manager binary
 manager: generate fmt vet
