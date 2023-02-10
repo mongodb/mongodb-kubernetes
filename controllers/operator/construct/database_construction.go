@@ -842,14 +842,31 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 
 // replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to given version
 func replaceImageTagOrDigestToTag(image string, newVersion string) string {
+	// quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
 	if strings.Contains(image, "sha256:") {
 		imageSplit := strings.Split(image, "@")
 		imageSplit[len(imageSplit)-1] = newVersion
 		return strings.Join(imageSplit, ":")
 	} else {
-		imageSplit := strings.Split(image, ":")
-		imageSplit[len(imageSplit)-1] = newVersion
-		return strings.Join(imageSplit, ":")
+		// quay.io/mongodb/mongodb-agent:1234-567
+		// private-registry.local:3000/mongodb/mongodb-agent:1234-567
+		// mongodb
+		idx := strings.IndexRune(image, '/')
+		// If there is no domain separator in the image string or the segment before the slash does not contain
+		// a '.' or ':' and is not 'localhost' to indicate that the segment is a host, assume the image will be pulled from
+		// docker.io and the whole string represents the image.
+		if idx == -1 || (!strings.ContainsAny(image[:idx], ".:") && image[:idx] != "localhost") {
+			return fmt.Sprintf("%s:%s", image[:strings.LastIndex(image, ":")], newVersion)
+		}
+
+		host := image[:idx]
+		imagePath := image[idx+1:]
+
+		// If there is a ':' in the image path we can safely assume that it is a version separator.
+		if strings.Contains(imagePath, ":") {
+			imagePath = imagePath[:strings.LastIndex(imagePath, ":")]
+		}
+		return fmt.Sprintf("%s/%s:%s", host, imagePath, newVersion)
 	}
 }
 

@@ -158,6 +158,7 @@ func TestReplaceImageTagOrDigestToTag(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"))
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a", "9876-54321"))
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:some-tag", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-enterprise-database:45678", "some-tag"))
+	assert.Equal(t, "quay.io:3000/mongodb/mongodb-enterprise-database:some-tag", replaceImageTagOrDigestToTag("quay.io:3000/mongodb/mongodb-enterprise-database:45678", "some-tag"))
 }
 
 func TestContainerImage(t *testing.T) {
@@ -165,7 +166,7 @@ func TestContainerImage(t *testing.T) {
 	initDatabaseRelatedImageEnv2 := fmt.Sprintf("RELATED_IMAGE_%s_12_0_4_7554_1", InitDatabaseVersionEnv)
 	initDatabaseRelatedImageEnv3 := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0_b20220912000000", InitDatabaseVersionEnv)
 
-	defer env.RevertEnvVariables(initDatabaseRelatedImageEnv1, initDatabaseRelatedImageEnv2, initDatabaseRelatedImageEnv3, InitDatabaseVersionEnv, util.InitAppdbImageUrlEnv)()
+	defer env.RevertEnvVariables(initDatabaseRelatedImageEnv1, initDatabaseRelatedImageEnv2, initDatabaseRelatedImageEnv3, InitDatabaseVersionEnv, util.InitAppdbImageUrlEnv, util.OpsManagerImageUrl)()
 
 	_ = os.Setenv(InitDatabaseVersionEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
 	_ = os.Setenv(initDatabaseRelatedImageEnv1, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd")
@@ -194,6 +195,15 @@ func TestContainerImage(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
 	// env var has version already as digest, there is no related image with this version, so we use version instead of digest
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:1.2.3", ContainerImage(util.InitAppdbImageUrlEnv, "1.2.3"))
+
+	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/ops-manager-kubernetes")
+	assert.Equal(t, "quay.io:3000/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3"))
+
+	_ = os.Setenv(util.OpsManagerImageUrl, "localhost/mongodb/ops-manager-kubernetes")
+	assert.Equal(t, "localhost/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3"))
+
+	_ = os.Setenv(util.OpsManagerImageUrl, "mongodb")
+	assert.Equal(t, "mongodb:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3"))
 }
 
 func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
