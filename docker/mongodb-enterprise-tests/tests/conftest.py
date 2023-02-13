@@ -253,7 +253,7 @@ def issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
     data = {"ca-pem": ca, "mms-ca.crt": ca}
 
     name = "issuer-ca"
-    KubernetesTester.create_configmap(namespace, name, data)
+    create_or_update_configmap(namespace, name, data)
     return name
 
 
@@ -271,7 +271,7 @@ def ops_manager_issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> 
     data = {"mms-ca.crt": ca}
 
     name = "ops-manager-issuer-ca"
-    KubernetesTester.create_configmap(namespace, name, data)
+    create_or_update_configmap(namespace, name, data)
     return name
 
 
@@ -284,7 +284,7 @@ def app_db_issuer_ca_configmap(issuer_ca_filepath: str, namespace: str) -> str:
     ca = open(issuer_ca_filepath).read()
 
     name = "app-db-issuer-ca"
-    KubernetesTester.create_configmap(namespace, name, {"ca-pem": ca})
+    create_or_update_configmap(namespace, name, {"ca-pem": ca})
     return name
 
 

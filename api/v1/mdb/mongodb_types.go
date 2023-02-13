@@ -1052,10 +1052,7 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	}
 
 	mdbLdap := m.Spec.Security.Authentication.Ldap
-	transportSecurity := TransportSecurityNone
-	if mdbLdap.TransportSecurity != nil {
-		transportSecurity = TransportSecurityTLS
-	}
+	transportSecurity := GetTransportSecurity(mdbLdap)
 
 	validateServerConfig := true
 	if mdbLdap.ValidateLDAPServerConfig != nil {
@@ -1082,6 +1079,14 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
 
+}
+
+func GetTransportSecurity(mdbLdap *Ldap) TransportSecurity {
+	transportSecurity := TransportSecurityNone
+	if mdbLdap.TransportSecurity != nil && strings.ToLower(string(*mdbLdap.TransportSecurity)) != "none" {
+		transportSecurity = TransportSecurityTLS
+	}
+	return transportSecurity
 }
 
 type MongoDbPodSpec struct {

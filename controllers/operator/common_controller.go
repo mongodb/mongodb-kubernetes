@@ -457,7 +457,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	}
 
 	scramAgentUserName := util.AutomationAgentUserName
-	// only use the default name if there is not already a configure user name
+	// only use the default name if there is not already a configured username
 	if ac.Auth.AutoUser != "" && ac.Auth.AutoUser != scramAgentUserName {
 		scramAgentUserName = ac.Auth.AutoUser
 	}

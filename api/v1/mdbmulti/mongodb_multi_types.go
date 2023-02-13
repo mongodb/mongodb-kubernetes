@@ -130,10 +130,7 @@ func (m *MongoDBMulti) GetLDAP(password, caContents string) *ldap.Ldap {
 		return nil
 	}
 	mdbLdap := m.Spec.Security.Authentication.Ldap
-	transportSecurity := TransportSecurityNone
-	if mdbLdap.TransportSecurity != nil {
-		transportSecurity = TransportSecurityTLS
-	}
+	transportSecurity := mdbv1.GetTransportSecurity(mdbLdap)
 
 	validateServerConfig := true
 	if mdbLdap.ValidateLDAPServerConfig != nil {

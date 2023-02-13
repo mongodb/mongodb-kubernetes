@@ -291,3 +291,47 @@ func TestInternalClusterAuthSecretName(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("prefix-%s-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
 
 }
+
+func TestGetTransportSecurity(t *testing.T) {
+	someTLS := TransportSecurity("SomeTLS")
+	none := TransportSecurity("NONE")
+	noneUpper := TransportSecurity("none")
+
+	tests := []struct {
+		name    string
+		mdbLdap *Ldap
+		want    TransportSecurity
+	}{
+		{
+			name: "enabling transport security",
+			mdbLdap: &Ldap{
+				TransportSecurity: &someTLS,
+			},
+			want: TransportSecurityTLS,
+		},
+		{
+			name:    "no transport set",
+			mdbLdap: &Ldap{},
+			want:    TransportSecurityNone,
+		},
+		{
+			name: "none set",
+			mdbLdap: &Ldap{
+				TransportSecurity: &none,
+			},
+			want: TransportSecurityNone,
+		},
+		{
+			name: "NONE set",
+			mdbLdap: &Ldap{
+				TransportSecurity: &noneUpper,
+			},
+			want: TransportSecurityNone,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, GetTransportSecurity(tt.mdbLdap), "GetTransportSecurity(%v)", tt.mdbLdap)
+		})
+	}
+}
