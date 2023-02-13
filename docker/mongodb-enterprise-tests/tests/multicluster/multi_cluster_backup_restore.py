@@ -3,7 +3,8 @@ from typing import List
 import kubernetes.client
 from pymongo.errors import ServerSelectionTimeoutError
 
-from kubetester import read_secret, create_secret, delete_secret, read_service, create_or_update, try_load
+from kubetester import read_secret, create_secret, delete_secret, read_service, create_or_update, try_load, \
+    create_or_update_configmap
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester, skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
@@ -130,7 +131,7 @@ def mongodb_multi_one(
     )
     data["baseUrl"] = base_url
     data["sslMMSCAConfigMap"] = multi_cluster_issuer_ca_configmap
-    KubernetesTester.create_configmap(
+    create_or_update_configmap(
         namespace,
         "multi-replica-set-one-config",
         data,

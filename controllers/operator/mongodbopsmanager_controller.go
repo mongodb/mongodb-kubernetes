@@ -406,7 +406,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 	}
 
 	// 5. Stop backup daemon if necessary
-	if err = r.stopBackupDaemonIfNeeded(*opsManager, log); err != nil {
+	if err = r.stopBackupDaemonIfNeeded(*opsManager); err != nil {
 		return workflow.Failed(err.Error()), nil
 	}
 
@@ -440,10 +440,10 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 }
 
 // stopBackupDaemonIfNeeded stops the backup daemon when OM is upgraded.
-// Otherwise the backup daemon will remain in a broken state (because of version missmatch between OM and backup daemon)
+// Otherwise, the backup daemon will remain in a broken state (because of version missmatch between OM and backup daemon)
 // due to this STS limitation: https://github.com/kubernetes/kubernetes/issues/67250.
 // Later, the normal reconcile process will update the STS and start the backup daemon.
-func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(opsManager omv1.MongoDBOpsManager) error {
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}

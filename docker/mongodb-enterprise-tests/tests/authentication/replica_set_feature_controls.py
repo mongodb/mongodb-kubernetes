@@ -1,7 +1,7 @@
 from pytest import fixture, mark
 
-from kubetester.mongodb import Phase, MongoDB
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase, MongoDB
 
 
 @fixture(scope="module")
@@ -102,10 +102,11 @@ def test_authentication_disabled_owned_by_opsmanager(replicaset: MongoDB):
     Authentication has been disabled (removed) on the Operator. Authentication
     is now "owned" by Ops Manager.
     """
+    last_transition = replicaset.get_status_last_transition_time()
     replicaset["spec"]["security"] = None
     replicaset.update()
 
-    replicaset.assert_abandons_phase(Phase.Running)
+    replicaset.assert_state_transition_happens(last_transition)
     replicaset.assert_reaches_phase(Phase.Running)
 
     fc = replicaset.get_om_tester().get_feature_controls()

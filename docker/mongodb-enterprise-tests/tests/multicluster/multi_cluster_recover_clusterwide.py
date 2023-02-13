@@ -9,7 +9,7 @@ from kubetester import (
     delete_cluster_role,
     delete_cluster_role_binding,
     read_secret,
-    random_k8s_name,
+    random_k8s_name, create_or_update_configmap,
 )
 from kubetester.kubetester import KubernetesTester, create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
@@ -214,12 +214,12 @@ def test_copy_configmap_and_secret_across_ns(
         namespace, "my-project", api_client=central_cluster_client
     )
     data["projectName"] = mdba_ns
-    KubernetesTester.create_configmap(
+    create_or_update_configmap(
         mdba_ns, "my-project", data, api_client=central_cluster_client
     )
 
     data["projectName"] = mdbb_ns
-    KubernetesTester.create_configmap(
+    create_or_update_configmap(
         mdbb_ns, "my-project", data, api_client=central_cluster_client
     )
 

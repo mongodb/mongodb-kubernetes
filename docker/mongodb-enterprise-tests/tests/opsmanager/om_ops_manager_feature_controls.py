@@ -125,10 +125,11 @@ def test_authentication_disabled_owned_by_opsmanager(replica_set: MongoDB):
     Authentication has been disabled (removed) on the Operator. Authentication
     is now "owned" by Ops Manager.
     """
+    last_transition = replica_set.get_status_last_transition_time()
     replica_set["spec"]["security"] = None
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running)
+    replica_set.assert_state_transition_happens(last_transition)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replica_set.get_om_tester().get_feature_controls()

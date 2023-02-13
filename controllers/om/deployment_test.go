@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"io/ioutil"
 	"strconv"
 	"strings"
@@ -150,7 +151,7 @@ func TestConfigureSSL_Deployment(t *testing.T) {
 	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]interface{}))
 
 	d.ConfigureTLS(&mdbv1.Security{}, util.CAFilePathInContainer)
-	assert.Empty(t, d["tls"])
+	assert.Equal(t, d["tls"], map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)})
 }
 
 func TestTLSConfigurationWillBeDisabled(t *testing.T) {

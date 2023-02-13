@@ -82,12 +82,13 @@ def test_sharded_cluster_has_no_connectivity_without_tls(sharded_cluster: MongoD
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_disable_tls(sharded_cluster: MongoDB):
+
+    last_transition = sharded_cluster.get_status_last_transition_time()
     sharded_cluster.load()
-
     sharded_cluster["spec"]["security"]["tls"]["enabled"] = False
-
     sharded_cluster.update()
-    sharded_cluster.assert_abandons_phase(Phase.Running)
+
+    sharded_cluster.assert_state_transition_happens(last_transition)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

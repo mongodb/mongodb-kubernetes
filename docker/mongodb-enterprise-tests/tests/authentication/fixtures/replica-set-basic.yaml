@@ -11,4 +11,4 @@ spec:
   opsManager:
     configMapRef:
       name: my-project
-  persistent: false
+  

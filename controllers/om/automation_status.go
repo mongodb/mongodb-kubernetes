@@ -38,8 +38,8 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 // Waits until the agents for relevant processes reach their state
 func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLogger) error {
 	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
-	reachStateFunc := func() (string, bool) {
 
+	reachStateFunc := func() (string, bool) {
 		as, lastErr := oc.ReadAutomationStatus()
 		if lastErr != nil {
 			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
@@ -60,9 +60,9 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
 // state.
-// Note, that the function is quite tolerant to any situations except for non matching goal state, for example
+// Note, that the function is quite tolerant to any situations except for non-matching goal state, for example
 // if one of the requested processes doesn't exist in the list of OM status processes - this is considered as ok
-// (may be we are doing the scale down for the RS and some members were removed from OM manually - this is ok as the Operator
+// (maybe we are doing the scale down for the RS and some members were removed from OM manually - this is ok as the Operator
 // will fix this later)
 func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string) bool {
 	for _, p := range as.Processes {

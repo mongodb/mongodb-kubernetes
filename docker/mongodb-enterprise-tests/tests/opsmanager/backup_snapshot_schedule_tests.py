@@ -149,10 +149,12 @@ class BackupSnapshotScheduleTests:
 
     @staticmethod
     def update_snapshot_schedule(mdb: MongoDB, snapshot_schedule: Dict):
+        last_transition = mdb.get_status_last_transition_time()
+
         mdb["spec"]["backup"]["snapshotSchedule"] = snapshot_schedule
         mdb.update()
 
-        mdb.assert_reaches_phase(Phase.Reconciling)
+        mdb.assert_state_transition_happens(last_transition)
         mdb.assert_reaches_phase(Phase.Running)
 
     @staticmethod

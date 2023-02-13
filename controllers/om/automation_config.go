@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -68,6 +69,34 @@ func (a *AutomationConfig) EqualsWithoutDeployment(b *AutomationConfig) bool {
 		return true
 	})
 	return cmp.Equal(a, b, deploymentsComparer)
+}
+
+// isEqual returns true if two Deployment objects are equal ignoring their underlying custom types.
+// depFunc might change the Deployment or might only change the types. In both cases it will fail the comparison
+// as long as we don't ignore the types.
+func isEqual(depFunc func(Deployment) error, deployment Deployment) (bool, error) {
+	original, err := util.MapDeepCopy(deployment) // original over the wire does not contain any types
+	if err != nil {
+		return false, err
+	}
+	if err := depFunc(deployment); err != nil { // might change types as well
+		return false, err
+	}
+
+	deploymentWithoutTypes := map[string]interface{}{}
+	b, err := json.Marshal(deployment)
+	if err != nil {
+		return false, err
+	}
+	err = json.Unmarshal(b, &deploymentWithoutTypes)
+	if err != nil {
+		return false, err
+	}
+
+	if equality.Semantic.DeepEqual(deploymentWithoutTypes, original) {
+		return true, nil
+	}
+	return false, nil
 }
 
 // NewAutomationConfig returns an AutomationConfig instance with all reference

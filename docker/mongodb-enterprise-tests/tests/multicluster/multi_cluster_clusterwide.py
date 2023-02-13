@@ -20,7 +20,7 @@ from kubetester import (
     create_secret,
     read_secret,
     delete_cluster_role,
-    delete_cluster_role_binding,
+    delete_cluster_role_binding, create_or_update_configmap,
 )
 
 
@@ -214,12 +214,12 @@ def test_copy_configmap_and_secret_across_ns(
         namespace, "my-project", api_client=central_cluster_client
     )
     data["projectName"] = mdba_ns
-    KubernetesTester.create_configmap(
+    create_or_update_configmap(
         mdba_ns, "my-project", data, api_client=central_cluster_client
     )
 
     data["projectName"] = mdbb_ns
-    KubernetesTester.create_configmap(
+    create_or_update_configmap(
         mdbb_ns, "my-project", data, api_client=central_cluster_client
     )
 

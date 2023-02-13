@@ -11,6 +11,6 @@ spec:
     configMapRef:
       name: om-rs-configmap
   credentials: my-credentials
-  persistent: false
+  persistent: true
   logLevel: DEBUG
 

@@ -91,7 +91,7 @@ func cutLegacyVersions(configs []om.MongoDbVersionConfig, firstAllowedVersion st
 }
 
 // fixLinksAndBuildModules iterates over build links and prefixes them with a correct domain
-// (see mms AutomationMongoDbVersionSvc#buildRemoteUrl) and ensures that build.Modules has
+// (see mms AutomationMongoDbVersionSvc#buildRemoteUrl) and ensures that build. Modules have
 // a non-nil value as this will cause the agent to fail cluster validation
 func fixLinksAndBuildModules(configs []om.MongoDbVersionConfig) {
 	for _, version := range configs {
