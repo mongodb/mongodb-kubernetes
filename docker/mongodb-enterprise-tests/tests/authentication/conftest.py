@@ -62,6 +62,7 @@ def openldap_install(
             namespace=namespace,
             helm_args=helm_args,
             helm_chart_path="vendor/openldap",
+            helm_override_path=True
         )
         get_pod_when_ready(namespace, f"app={name}", api_client=cluster_client)
 

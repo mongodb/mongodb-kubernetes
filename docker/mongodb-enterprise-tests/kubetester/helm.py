@@ -133,17 +133,22 @@ def helm_upgrade(
     helm_args: Dict,
     helm_chart_path: Optional[str] = "helm_chart",
     helm_options: Optional[List[str]] = None,
+    helm_override_path: Optional[bool] = False,
 ):
     command_args = _create_helm_args(helm_args, helm_options)
-    args = (
+    args = [
         "helm",
         "upgrade",
         "--install",
         f"--namespace={namespace}",
-        *(command_args),
+        *command_args,
         name,
-        _helm_chart_dir(helm_chart_path),
-    )
+    ]
+    if helm_override_path:
+        args.append(helm_chart_path)
+    else:
+        args.append(_helm_chart_dir(helm_chart_path))
+
     logging.info(args)
 
     process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
