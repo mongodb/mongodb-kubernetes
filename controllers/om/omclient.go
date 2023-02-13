@@ -27,7 +27,7 @@ import (
 // TODO move it to 'api' package
 
 // Connection is a client interacting with OpsManager API. Note, that all methods returning 'error' return the
-// '*Error' in fact but it's error-prone to declare method as returning specific implementation of error
+// '*Error' in fact, but it's error-prone to declare method as returning specific implementation of error
 // (see https://golang.org/doc/faq#nil_error)
 type Connection interface {
 	UpdateDeployment(deployment Deployment) ([]byte, error)
@@ -302,24 +302,28 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
-
 	deployment, err := oc.ReadDeployment()
 	if err != nil {
 		return err
 	}
 
-	original, err := util.MapDeepCopy(deployment)
+	isEqual, err := isEqual(depFunc, deployment)
 	if err != nil {
 		return err
 	}
-	if err := depFunc(deployment); err != nil {
-		return apierror.New(err)
+	if isEqual {
+		log.Debug("AutomationConfig has not changed, not pushing changes to Ops Manager")
+		return nil
 	}
+
 	// Since Deployments comparison don't work, we don't need to check if deployment changed here.
 	_, err = oc.UpdateDeployment(deployment)
 	if err != nil {
 		if util.ShouldLogAutomationConfigDiff() {
-			var originalDeployment Deployment = original
+			originalDeployment, err := oc.ReadDeployment()
+			if err != nil {
+				return err
+			}
 			log.Debug("Current Automation Config")
 			originalDeployment.Debug(log)
 			log.Debug("Invalid Automation Config")

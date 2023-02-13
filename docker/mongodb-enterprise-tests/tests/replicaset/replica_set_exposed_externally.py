@@ -58,12 +58,13 @@ def test_nodeport_service_node_port_stays_the_same(
 def test_service_gets_deleted(replica_set: MongoDB, namespace: str):
 
     replica_set.load()
+    last_transition = replica_set.get_status_last_transition_time()
     replica_set["spec"]["exposedExternally"] = False
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running, timeout=60)
+    replica_set.assert_state_transition_happens(last_transition)
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
     with pytest.raises(client.rest.ApiException):
-        service = client.CoreV1Api().read_namespaced_service(
+        client.CoreV1Api().read_namespaced_service(
             "my-replica-set-externally-exposed-svc-external", namespace
         )

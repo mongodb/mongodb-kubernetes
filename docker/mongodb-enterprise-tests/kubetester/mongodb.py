@@ -70,6 +70,13 @@ class MongoDB(CustomObject, MongoDBCommon):
         with_defaults.update(kwargs)
         super(MongoDB, self).__init__(*args, **with_defaults)
 
+    def assert_state_transition_happens(self, last_transition, timeout=None):
+
+        def transition_changed(mdb: MongoDB):
+            return mdb.get_status_last_transition_time() != last_transition
+
+        self.wait_for(transition_changed, timeout)
+
     def assert_reaches_phase(
         self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False
     ):
@@ -81,7 +88,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             # "Get https://cloud-qa.mongodb.com/api/public/v1.0/groups/5f186b406c835e37e6160aef/automationConfig:
             # read tcp 10.244.0.6:33672->75.2.105.99:443: read: connection reset by peer"
             "read: connection reset by peer",
-            # Ops Manager must be recovering from an Upgrade and it is
+            # Ops Manager must be recovering from an Upgrade, and it is
             # currently DOWN.
             "connect: connection refused",
             "MongoDB version information is not yet available",
@@ -102,6 +109,10 @@ class MongoDB(CustomObject, MongoDBCommon):
         )
 
     def assert_abandons_phase(self, phase: Phase, timeout=None):
+        """ This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
+        happens during the time we call this method. If there is not a lot of work, then the phase can already finished
+        transitioning during the modification call before calling this method.
+        """
         return self.wait_for(
             lambda s: s.get_status_phase() != phase, timeout, should_raise=True
         )
@@ -325,6 +336,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             return Phase[self["status"]["phase"]]
         except KeyError:
             return None
+
+    def get_status_last_transition_time(self) -> Optional[str]:
+        return self["status"]["lastTransition"]
 
     def get_status_message(self) -> Optional[str]:
         try:

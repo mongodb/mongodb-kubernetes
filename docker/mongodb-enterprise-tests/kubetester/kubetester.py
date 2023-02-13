@@ -160,8 +160,9 @@ class KubernetesTester(object):
     def read_configmap(
         cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None
     ) -> Dict[str, str]:
-        """Reads a ConfigMap and returns its contents"""
-
+        """
+        Deprecated: use kubetester.create_or_update_configmap instead.
+        """
         corev1 = cls.clients("corev1")
         if api_client is not None:
             corev1 = client.CoreV1Api(api_client=api_client)
@@ -191,25 +192,6 @@ class KubernetesTester(object):
         """Reads a Pod by labels."""
         return cls.clients("corev1").list_namespaced_pod(
             namespace=namespace, label_selector=label_selector
-        )
-
-    @classmethod
-    def create_configmap(
-        cls,
-        namespace: str,
-        name: str,
-        data: Dict[str, str],
-        api_client: Optional[client.ApiClient] = None,
-    ):
-        """Create a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
-        configmap = cls.clients("client", api_client=api_client).V1ConfigMap(
-            metadata=cls.clients("client", api_client=api_client).V1ObjectMeta(
-                name=name
-            ),
-            data=data,
-        )
-        cls.clients("corev1", api_client=api_client).create_namespaced_config_map(
-            namespace, configmap
         )
 
     @classmethod

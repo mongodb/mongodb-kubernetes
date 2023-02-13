@@ -428,7 +428,7 @@ func updateOmDeploymentDisableTLSConfiguration(conn om.Connection, membersNumber
 			tlsConfigWasDisabled = true
 			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
 
-			// configure as much agents/Pods as we currently have, no more (in case
+			// configure as many agents/Pods as we currently have, no more (in case
 			// there's a scale up change at the same time).
 			replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), membersNumberBefore)
 

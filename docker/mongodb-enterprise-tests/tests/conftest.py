@@ -304,7 +304,7 @@ def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
     data = {"ca-pem": ca + plus_ca, "mms-ca.crt": ca + plus_ca}
 
     name = "issuer-plus-ca"
-    KubernetesTester.create_configmap(namespace, name, data)
+    create_configmap(namespace, name, data)
     yield name
 
     KubernetesTester.delete_configmap(namespace, name)

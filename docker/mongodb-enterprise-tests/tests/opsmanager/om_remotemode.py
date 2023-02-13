@@ -19,7 +19,7 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
     """
     Adds a new initContainer to `deployment` to download a particular MongoDB version.
 
-    Please note that the initContainers will never fail so it is fine to add version that don't
+    Please note that the initContainers will never fail, so it is fine to add version that don't
     exist for older distributions (like mdb5.0 in ubuntu1604).
     """
     mount_path = "/mongodb-ops-manager/mongodb-releases/linux"
@@ -157,7 +157,7 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     # returned in the automation config to include only the available ones (in remote/local modes).
     # Somehow though as of OM 4.4.9 this filtering didn't work fine and some Enterprise builds were not returned so
     # the replica sets using enterprise versions didn't reach the goal.
-    # We need to sleep for sometime to let the cron get into the game and this allowed to reproduce the issue
+    # We need to sleep for some time to let the cron get into the game and this allowed to reproduce the issue
     # (got fixed by switching off the cron by 'automation.versions.download.baseUrl.allowOnlyAvailableBuilds: false')
     print("Sleeping for one minute to let Ops Manager Cron jobs kick in")
     time.sleep(60)

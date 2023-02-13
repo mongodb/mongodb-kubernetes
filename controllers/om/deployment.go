@@ -110,7 +110,7 @@ func (d Deployment) TLSConfigurationWillBeDisabled(security *mdbv1.Security) boo
 	tlsIsCurrentlyEnabled := false
 
 	// To detect that TLS is enabled, it is sufficient to check for the
-	// d["tls"]["CAFilePath"] attribute to have a value different than nil.
+	// d["tls"]["CAFilePath"] attribute to have a value different from nil.
 	if tls, ok := d["tls"]; ok {
 		if caFilePath, ok := tls.(map[string]interface{})["CAFilePath"]; ok {
 			if caFilePath != nil {
@@ -126,13 +126,13 @@ func (d Deployment) TLSConfigurationWillBeDisabled(security *mdbv1.Security) boo
 // specification provided by the user in the mongodb resource.
 func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 	if !security.IsTLSEnabled() {
-		delete(d, "tls") // unset TLS config
+		d["tls"] = map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)}
 		return
 	}
 
 	tlsConfig := util.ReadOrCreateMap(d, "tls")
 	// ClientCertificateMode detects if Ops Manager requires client certification - may be there will be no harm
-	// setting this to "REQUIRED" always (need to check). Otherwise this should be configurable
+	// setting this to "REQUIRED" always (need to check). Otherwise, this should be configurable
 	// see OM configurations that affects this setting from AA side:
 	// https://docs.opsmanager.mongodb.com/current/reference/configuration/#mms.https.ClientCertificateMode
 	//sslConfig["ClientCertificateMode"] = "OPTIONAL"

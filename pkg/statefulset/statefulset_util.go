@@ -125,7 +125,7 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 	return &updatedSts, nil
 }
 
-// func GetFilePathFromAnnotationOrDefault returns a concatennation of a default path and an annotation, or a default value
+// func GetFilePathFromAnnotationOrDefault returns a concatenation of a default path and an annotation, or a default value
 // if the annotation is not present.
 func GetFilePathFromAnnotationOrDefault(sts appsv1.StatefulSet, key string, path string, defaultValue string) string {
 	val, ok := sts.Annotations[key]

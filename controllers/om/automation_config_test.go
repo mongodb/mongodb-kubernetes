@@ -1,6 +1,8 @@
 package om
 
 import (
+	"encoding/json"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"testing"
 
 	"github.com/spf13/cast"
@@ -765,4 +767,77 @@ func TestLDAPIsMerged(t *testing.T) {
 	assert.Contains(t, ldapMap, "validateLDAPServerConfig")
 	assert.Contains(t, ldapMap, "bindQueryPassword")
 	assert.Contains(t, ldapMap, "CAFileContents")
+}
+
+func changeTypes(deployment Deployment) error {
+	rs := deployment.getReplicaSets()
+	deployment.setReplicaSets(rs)
+	return nil
+}
+func TestIsEqual(t *testing.T) {
+
+	type args struct {
+		depFunc    func(Deployment) error
+		deployment Deployment
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "depFunc does not do anything",
+			args: args{
+				depFunc: func(deployment Deployment) error {
+					return nil
+				},
+				deployment: getDeploymentWithRSOverTheWire(t),
+			},
+			want: true,
+		},
+		{
+			name: "depFunc does changes types, but content does not change",
+			args: args{
+				depFunc:    changeTypes,
+				deployment: getDeploymentWithRSOverTheWire(t),
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := isEqual(tt.args.depFunc, tt.args.deployment)
+			assert.NoError(t, err)
+			assert.Equalf(t, tt.want, got, "isEqual(%v, %v)", tt.args.depFunc, tt.args.deployment)
+		})
+	}
+}
+
+// TestIsEqualNotWorkingWithTypeChanges is a test that shows that deep equality does not work if our depFunc changes
+// the underlying types as we mostly do.
+func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
+
+	t.Run("is not working", func(t *testing.T) {
+		overTheWire := getDeploymentWithRSOverTheWire(t)
+
+		original, err := util.MapDeepCopy(overTheWire)
+		assert.NoError(t, err)
+
+		_ = changeTypes(overTheWire)
+
+		equal := equality.Semantic.DeepEqual(original, overTheWire)
+		assert.False(t, equal)
+	})
+
+}
+
+func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {
+	overTheWire := getTestAutomationConfig().Deployment
+	overTheWire.addReplicaSet(NewReplicaSet("rs-1", "3.2.0"))
+	overTheWire.addReplicaSet(NewReplicaSet("rs-2", "3.2.0"))
+	marshal, err := json.Marshal(overTheWire) // as we get it over the wire we need to reflect that
+	assert.NoError(t, err)
+	err = json.Unmarshal(marshal, &overTheWire)
+	assert.NoError(t, err)
+	return overTheWire
 }

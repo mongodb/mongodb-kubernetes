@@ -55,14 +55,17 @@ class TestReplicaSetWithAdditionalCertDomains(KubernetesTester):
 
 @pytest.mark.e2e_tls_rs_additional_certs
 class TestReplicaSetRemoveAdditionalCertDomains(KubernetesTester):
-    def test_remove_additionalCerts(self, namespace: str, mdb: MongoDB):
-        # We dont' have a nice way to delete fields from a resource specification
+    def test_remove_additional_certs(self, namespace: str, mdb: MongoDB):
+        # We don't have a nice way to delete fields from a resource specification
         # in our test env, so we need to achieve it with specific uses of patches
         body = {
             "op": "remove",
             "path": "/spec/security/tls/additionalCertificateDomains",
         }
         patch = jsonpatch.JsonPatch([body])
+
+        last_transition = mdb.get_status_last_transition_time()
+
         mdb_resource = client.CustomObjectsApi().get_namespaced_custom_object(
             mdb.group,
             mdb.version,
@@ -78,7 +81,8 @@ class TestReplicaSetRemoveAdditionalCertDomains(KubernetesTester):
             mdb.name,
             jsonpatch.apply_patch(mdb_resource, patch),
         )
-        mdb.assert_abandons_phase(Phase.Running)
+
+        mdb.assert_state_transition_happens(last_transition)
         mdb.assert_reaches_phase(Phase.Running, timeout=400)
 
     @skip_if_local
