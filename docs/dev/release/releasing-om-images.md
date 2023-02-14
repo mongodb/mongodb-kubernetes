@@ -40,4 +40,8 @@ If the evergreen patch is successful, create a PR with the following changes:
 1. Change the variable `ops_manager_50_latest` or `ops_manager_44_latest`
    (whatever you are releasing) to `X.Y.Z` in `.evergreen.yml` file.
 
-2. Add the new version in `release.json` under the ops-manager versions 
+2. Add the new version in `release.json` under the ops-manager versions
+
+3. Add the new version in `helm_chart/values-openshift.yaml` under `relatedImages.opsManager`.
+
+4. Add the new image version reference in `public/mongodb-enterprise-openshift.yaml`.
