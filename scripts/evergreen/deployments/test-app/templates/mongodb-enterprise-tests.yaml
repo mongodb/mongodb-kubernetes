@@ -89,6 +89,8 @@ spec:
       value: {{ .Values.multiCluster.memberClusters }}
     - name: CENTRAL_CLUSTER
       value: {{ .Values.multiCluster.centralCluster }}
+    - name: TEST_POD_CLUSTER
+      value: {{ .Values.multiCluster.testPodCluster }}
     {{- end }}
     {{ if .Values.customOmVersion }}
     - name: CUSTOM_OM_VERSION

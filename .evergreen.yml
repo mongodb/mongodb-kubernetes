@@ -63,6 +63,13 @@ variables:
     central_cluster: e2e.operator.mongokubernetes.com
     test_pod_cluster: e2e.cluster1.mongokubernetes.com
 
+  - &kubernetes_environment_multi_cluster_kind
+    kube_environment_name: multi
+    CLUSTER_TYPE: kind
+    member_clusters: "kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
+    central_cluster: kind-e2e-operator
+    test_pod_cluster: kind-e2e-cluster-1
+
     # Multi Cluster Environment with 2 clusters
   - &kubernetes_environment_multi_cluster_2_clusters
     kube_environment_name: multi
@@ -342,6 +349,7 @@ functions:
       include_expansions_in_env:
         - workdir
         - kube_environment_name
+        - CLUSTER_TYPE
       binary: scripts/evergreen/setup_kind.sh
 
   setup_docker_datadir: &setup_docker_datadir
@@ -536,6 +544,7 @@ functions:
           - central_cluster
           - member_clusters
           - test_pod_cluster
+          - CLUSTER_TYPE
         env:
           REGISTRY: ${ecr_registry}/dev/${image_type}
           OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
@@ -559,6 +568,7 @@ functions:
           KUBECONFIG: ${workdir}/${kube_environment_name}_config
           IMAGE_TYPE: ${image_type}
           KUBE_ENVIRONMENT_NAME: ${kube_environment_name}
+          CLUSTER_TYPE: ${CLUSTER_TYPE}
 
         binary: scripts/evergreen/e2e/e2e.sh
 
@@ -949,6 +959,8 @@ tasks:
   commands:
     - func: clone
     - func: download_kube_tools
+      vars:
+        <<: [ *kubernetes_environment_multi_cluster ]
     - func: setup_kubernetes_environment
       vars:
         <<: [ *kubernetes_environment_multi_cluster ]
@@ -1799,6 +1811,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_clusterwide
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_disaster_recovery
   tags: ["patch-run"]
   commands:
@@ -2097,7 +2114,6 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
-    - e2e_multi_cluster_replica_set
     - e2e_multi_cluster_replica_set_deletion
     - e2e_multi_cluster_replica_set_scale_up
     - e2e_multi_cluster_scale_up_cluster
@@ -2115,15 +2131,34 @@ task_groups:
     - e2e_multi_cluster_backup_restore
     - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_with_ldap
-    - e2e_multi_cluster_specific_namespaces
     - e2e_multi_cluster_disaster_recovery
     - e2e_multi_cluster_multi_disaster_recovery
-    - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_network_partition
-    - e2e_multi_cluster_recover_clusterwide
     - e2e_multi_cluster_validation
     - e2e_multi_cluster_agent_flags
     - e2e_multi_cluster_replica_set_ignore_unknown_users
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+- name: e2e_multi_cluster_kind_task_group
+  max_hosts: 2
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_multi_cluster_replica_set
+    - e2e_multi_cluster_recover
+    - e2e_multi_cluster_recover_clusterwide
+    - e2e_multi_cluster_specific_namespaces
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2552,7 +2587,25 @@ buildvariants:
   tasks:
     - name: e2e_multi_cluster_task_group
 
-
+- name: e2e_multi_cluster_kind
+  display_name: e2e_multi_cluster_kind
+  run_on:
+    - ubuntu1804-xlarge
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_kind ]
+    image_type: ubi
+    agent_version: *agent_version50
+  tasks:
+    - name: e2e_multi_cluster_kind_task_group
 
 - name: e2e_multi_cluster_2_clusters
   display_name: e2e_multi_cluster_2_clusters

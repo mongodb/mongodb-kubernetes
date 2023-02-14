@@ -27,8 +27,8 @@ fi
 
 # Convert context variables to variables required by the operator binary
 function print_operator_env() {
-  echo "OPERATOR_ENV=\"$NAMESPACE\"
-WATCH_NAMESPACE=\"$NAMESPACE\"
+  echo "OPERATOR_ENV=\"$OPERATOR_ENV\"
+WATCH_NAMESPACE=\"$WATCH_NAMESPACE\"
 CURRENT_NAMESPACE=\"$NAMESPACE\"
 IMAGE_PULL_POLICY=\"Always\"
 MONGODB_ENTERPRISE_DATABASE_IMAGE=\"${DATABASE_REGISTRY}/mongodb-enterprise-database${UBI_IMAGE_SUFFIX}\"

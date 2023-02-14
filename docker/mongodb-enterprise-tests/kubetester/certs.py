@@ -9,7 +9,13 @@ from datetime import datetime, timezone
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester.kubetester import KubernetesTester
-from kubetester import random_k8s_name, create_secret, read_secret, delete_secret
+from kubetester import (
+    random_k8s_name,
+    create_secret,
+    read_secret,
+    delete_secret,
+    create_or_update,
+)
 from typing import Optional, Dict, List, Generator
 from kubeobject import CustomObject
 import copy
@@ -94,7 +100,7 @@ def generate_cert(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
     dns_list: Optional[List[str]] = None,
-    common_name: Optional[str] = None
+    common_name: Optional[str] = None,
 ) -> str:
     if spec is None:
         spec = dict()
@@ -135,7 +141,9 @@ def generate_cert(
 
     cert["spec"].update(spec)
     cert.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
-    cert.create().block_until_ready()
+    create_or_update(cert)
+    print(f"Waiting for certificate to become ready: {cert}")
+    cert.block_until_ready()
 
     if secret_backend == "Vault":
         path = "secret/mongodbenterprise/"
@@ -200,7 +208,7 @@ def create_tls_certs(
         secret_name=secret_name,
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
-        common_name=common_name
+        common_name=common_name,
     )
     return cert_secret_name
 
@@ -214,7 +222,6 @@ def create_ops_manager_tls_certs(
     additional_domains: Optional[List[str]] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> str:
-
     certs_secret_name = "certs-for-ops-manager"
 
     if secret_name is not None:
@@ -243,7 +250,6 @@ def create_ops_manager_tls_certs(
 def create_vault_certs(
     namespace: str, issuer: str, vault_namespace: str, vault_name: str, secret_name: str
 ):
-
     cert = Certificate(namespace=namespace, name=secret_name)
 
     cert["spec"] = {
@@ -288,7 +294,6 @@ def create_mongodb_tls_certs(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
 ) -> str:
-
     cert_and_pod_names = create_tls_certs(
         issuer=issuer,
         namespace=namespace,
@@ -342,7 +347,7 @@ def create_multi_cluster_tls_certs(
             )
         )
 
-    cert_secret_name = generate_cert(
+    generate_cert(
         namespace=mongodb_multi.namespace,
         pod="tmp",
         dns="",
@@ -398,7 +403,6 @@ def create_multi_cluster_mongodb_tls_certs(
     mongodb_multi: MongoDBMulti,
     additional_domains: Optional[List[str]] = None,
 ) -> str:
-
     # create the "source-of-truth" tls cert in central cluster
     create_multi_cluster_tls_certs(
         multi_cluster_issuer=multi_cluster_issuer,
@@ -423,7 +427,6 @@ def create_x509_mongodb_tls_certs(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
 ) -> str:
-
     subject = {}
     subject["countries"] = ["US"]
     subject["provinces"] = ["NY"]

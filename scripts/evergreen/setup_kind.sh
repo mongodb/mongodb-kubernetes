@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-if [[ "${kube_environment_name-}" != "kind" ]]; then
-    echo "Skiping download of kind"
+if [[ "${kube_environment_name-}" != "kind" && "${CLUSTER_TYPE}" != "kind" ]]; then
+    echo "Skipping download of kind"
     exit 0
 fi
 

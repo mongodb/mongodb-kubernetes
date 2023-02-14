@@ -74,6 +74,7 @@ func contains(s []string, str string) bool {
 // parseFlags returns a struct containing all of the flags provided by the user.
 func parseSetupFlags() (flags, error) {
 	var memberClusters string
+	var memberClustersApiServers string
 	setupCmd := flag.NewFlagSet("setup", flag.ExitOnError)
 	flags := flags{}
 	setupCmd.StringVar(&memberClusters, "member-clusters", "", "Comma separated list of member clusters. [required]")
@@ -85,6 +86,7 @@ func parseSetupFlags() (flags, error) {
 	setupCmd.BoolVar(&flags.clusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
 	setupCmd.BoolVar(&flags.installDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
 	setupCmd.BoolVar(&flags.createServiceAccountSecrets, "create-service-account-secrets", false, "Create service account token secrets. [optional default: false]")
+	setupCmd.StringVar(&memberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 
 	setupCmd.Parse(os.Args[2:])
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace) {
@@ -93,13 +95,22 @@ func parseSetupFlags() (flags, error) {
 
 	flags.memberClusters = strings.Split(memberClusters, ",")
 
+	if strings.TrimSpace(memberClustersApiServers) != "" {
+		flags.memberClusterApiServerUrls = strings.Split(memberClustersApiServers, ",")
+		if len(flags.memberClusterApiServerUrls) != len(flags.memberClusters) {
+			return flags, fmt.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(flags.memberClusters), len(flags.memberClusterApiServerUrls))
+		}
+	}
+
 	configFilePath := loadKubeConfigFilePath()
 	kubeconfig, err := clientcmd.LoadFromFile(configFilePath)
 	if err != nil {
 		return flags, fmt.Errorf("error loading kubeconfig file '%s': %s", configFilePath, err)
 	}
-	if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
-		return flags, err
+	if len(flags.memberClusterApiServerUrls) == 0 {
+		if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
+			return flags, err
+		}
 	}
 
 	return flags, nil
@@ -107,6 +118,7 @@ func parseSetupFlags() (flags, error) {
 
 func parseRecoverFlags() (flags, error) {
 	var memberClusters string
+	var memberClustersApiServers string
 	recoverCmd := flag.NewFlagSet("recover", flag.ExitOnError)
 	flags := flags{}
 	recoverCmd.StringVar(&memberClusters, "member-clusters", "", "Comma separated list of member clusters. [required]")
@@ -119,6 +131,7 @@ func parseRecoverFlags() (flags, error) {
 	recoverCmd.StringVar(&flags.operatorName, "operator-name", defaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-enterprise-operator]")
 	recoverCmd.BoolVar(&flags.installDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
 	recoverCmd.StringVar(&flags.sourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
+	recoverCmd.StringVar(&memberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 	recoverCmd.Parse(os.Args[2:])
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace, flags.sourceCluster) {
 		return flags, fmt.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace, source-cluster]")
@@ -129,13 +142,22 @@ func parseRecoverFlags() (flags, error) {
 		return flags, fmt.Errorf("source-cluster has to be one of the healthy member clusters: %s", memberClusters)
 	}
 
+	if strings.TrimSpace(memberClustersApiServers) != "" {
+		flags.memberClusterApiServerUrls = strings.Split(memberClustersApiServers, ",")
+		if len(flags.memberClusterApiServerUrls) != len(flags.memberClusters) {
+			return flags, fmt.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(flags.memberClusters), len(flags.memberClusterApiServerUrls))
+		}
+	}
+
 	configFilePath := loadKubeConfigFilePath()
 	kubeconfig, err := clientcmd.LoadFromFile(configFilePath)
 	if err != nil {
 		return flags, fmt.Errorf("error loading kubeconfig file '%s': %s", configFilePath, err)
 	}
-	if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
-		return flags, err
+	if len(flags.memberClusterApiServerUrls) == 0 {
+		if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
+			return flags, err
+		}
 	}
 	return flags, nil
 }

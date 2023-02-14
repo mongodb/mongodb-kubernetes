@@ -163,9 +163,8 @@ def helm_uninstall(name):
 def _create_helm_args(
     helm_args: Dict[str, str], helm_options: Optional[List[str]] = None
 ) -> List[str]:
-
     command_args = []
-    for (key, value) in helm_args.items():
+    for key, value in helm_args.items():
         command_args.append("--set")
 
         if "," in value:

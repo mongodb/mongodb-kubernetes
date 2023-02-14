@@ -6,7 +6,7 @@ context_config="${workdir:?}/${kube_environment_name:?}_config"
 
 if [ "${kube_environment_name}" = "kind" ]; then
     echo "Deleting Kind cluster"
-    kind delete cluster
+    kind delete clusters --all
 elif [[ "${kube_environment_name}" = "minikube" ]]; then
     echo "Deleting Minikube cluster"
     minikube delete

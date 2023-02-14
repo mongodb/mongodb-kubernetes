@@ -10,6 +10,7 @@ docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 
 my-*
 .vscode
+.env
 data
 cache
 **/__pycache__

@@ -55,6 +55,12 @@ class Operator(object):
         helm_args["namespace"] = namespace
         helm_args["operator.env"] = "dev"
 
+        # the import is done here to prevent circular dependency
+        from tests.conftest import local_operator
+
+        if local_operator():
+            helm_args["operator.replicas"] = "0"
+
         self.namespace = namespace
         self.helm_arguments = helm_args
         self.helm_options = helm_options
@@ -131,7 +137,9 @@ class Operator(object):
         """Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get
         to Running state for short and fail later"""
 
+        # the import is done here to prevent circular dependency
         from tests.conftest import local_operator
+
         if local_operator():
             return
 
@@ -147,6 +155,7 @@ class Operator(object):
 
         # we don't want to wait for the operator if the operator is running locally and not in a pod
         from tests.conftest import local_operator
+
         if local_operator():
             return
 
@@ -181,6 +190,7 @@ class Operator(object):
 
         # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
         from tests.conftest import local_operator
+
         if local_operator():
             return
 
