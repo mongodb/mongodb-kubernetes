@@ -1,27 +1,27 @@
-from typing import List, Callable
+from typing import List, Callable, Dict
 
 import kubernetes
 import pytest
-from kubernetes import client
 
-from kubetester.automation_config_tester import AutomationConfigTester
+
+from kubetester import create_or_update
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import (
     MongoDBMulti,
     MultiClusterClient,
 )
-from kubetester.mongotester import with_tls
+
 from kubetester.operator import Operator
 from kubetester.kubetester import (
     fixture as yaml_fixture,
-    skip_if_local,
 )
 from tests.conftest import (
     run_kube_config_creation_tool,
     run_multi_cluster_recovery_tool,
     MULTI_CLUSTER_OPERATOR_NAME,
 )
+from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
@@ -32,14 +32,15 @@ def mongodb_multi_unmarshalled(
     namespace: str,
     multi_cluster_issuer_ca_configmap: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
     )
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"][2]["members"] = 2
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -71,7 +72,8 @@ def mongodb_multi(
     mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
 ) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    return mongodb_multi_unmarshalled.create()
+    create_or_update(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -80,7 +82,9 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace)
+    run_kube_config_creation_tool(
+        member_cluster_names[:-1], namespace, namespace, member_cluster_names
+    )
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.assert_is_running()

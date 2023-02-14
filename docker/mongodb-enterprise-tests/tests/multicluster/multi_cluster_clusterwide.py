@@ -20,8 +20,12 @@ from kubetester import (
     create_secret,
     read_secret,
     delete_cluster_role,
-    delete_cluster_role_binding, create_or_update_configmap,
+    delete_cluster_role_binding,
+    create_or_update_secret,
+    create_or_update_configmap,
+    create_or_update,
 )
+from .conftest import cluster_spec_list
 
 
 @fixture(scope="module")
@@ -44,47 +48,83 @@ def create_namespace(
     member_cluster_clients: List[MultiClusterClient],
     task_id: str,
     namespace: str,
+    image_pull_secret_name: str,
+    image_pull_secret_data: dict[str, str],
 ) -> str:
     for client in member_cluster_clients:
         create_testing_namespace(task_id, namespace, client.api_client, True)
+        create_or_update_secret(
+            namespace,
+            image_pull_secret_name,
+            image_pull_secret_data,
+            type="kubernetes.io/dockerconfigjson",
+            api_client=client.api_client,
+        )
 
-    return create_testing_namespace(task_id, namespace, central_cluster_client)
+    create_testing_namespace(task_id, namespace, central_cluster_client)
+    create_or_update_secret(
+        namespace,
+        image_pull_secret_name,
+        image_pull_secret_data,
+        type="kubernetes.io/dockerconfigjson",
+        api_client=client.api_client,
+    )
+
+    return namespace
 
 
 @fixture(scope="module")
 def mongodb_multi_a(
-    central_cluster_client: kubernetes.client.ApiClient, mdba_ns: str
+    central_cluster_client: kubernetes.client.ApiClient,
+    mdba_ns: str,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns
     )
 
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
+
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
 def mongodb_multi_b(
-    central_cluster_client: kubernetes.client.ApiClient, mdbb_ns: str
+    central_cluster_client: kubernetes.client.ApiClient,
+    mdbb_ns: str,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns
     )
-
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
 def unmanaged_mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, unmanaged_mdb_ns: str
+    central_cluster_client: kubernetes.client.ApiClient,
+    unmanaged_mdb_ns: str,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", unmanaged_mdb_ns
     )
 
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -93,14 +133,18 @@ def install_operator(
     central_cluster_name: str,
     multi_cluster_operator_installation_config: Dict[str, str],
     central_cluster_client: client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_clients: List[kubernetes.client.ApiClient],
+    cluster_clients: Dict[str, kubernetes.client.ApiClient],
     member_cluster_names: List[str],
     mdba_ns: str,
     mdbb_ns: str,
 ) -> Operator:
+    print(f"Installing operator in context: {central_cluster_name}")
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
     member_cluster_namespaces = mdba_ns + "," + mdbb_ns
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, True)
+    run_kube_config_creation_tool(
+        member_cluster_names, namespace, namespace, member_cluster_names, True
+    )
 
     return _install_multi_cluster_operator(
         namespace,
@@ -144,18 +188,27 @@ def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
 
 @mark.e2e_multi_cluster_specific_namespaces
 def test_create_namespaces(
+    namespace: str,
     mdba_ns: str,
     mdbb_ns: str,
     unmanaged_mdb_ns: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     evergreen_task_id: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
 ):
+    image_pull_secret_name = multi_cluster_operator_installation_config[
+        "registry.imagePullSecrets"
+    ]
+    image_pull_secret_data = read_secret(namespace, image_pull_secret_name)
+
     create_namespace(
         central_cluster_client,
         member_cluster_clients,
         evergreen_task_id,
         mdba_ns,
+        image_pull_secret_name,
+        image_pull_secret_data,
     )
 
     create_namespace(
@@ -163,6 +216,8 @@ def test_create_namespaces(
         member_cluster_clients,
         evergreen_task_id,
         mdbb_ns,
+        image_pull_secret_name,
+        image_pull_secret_data,
     )
 
     create_namespace(
@@ -170,6 +225,8 @@ def test_create_namespaces(
         member_cluster_clients,
         evergreen_task_id,
         unmanaged_mdb_ns,
+        image_pull_secret_name,
+        image_pull_secret_data,
     )
 
 
@@ -186,7 +243,6 @@ def test_prepare_namespace(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-
     prepare_multi_cluster_namespaces(
         mdba_ns,
         multi_cluster_operator_installation_config,
@@ -224,17 +280,19 @@ def test_copy_configmap_and_secret_across_ns(
     )
 
     data = read_secret(namespace, "my-credentials", api_client=central_cluster_client)
-    create_secret(mdba_ns, "my-credentials", data, api_client=central_cluster_client)
-    create_secret(mdbb_ns, "my-credentials", data, api_client=central_cluster_client)
+    create_or_update_secret(
+        mdba_ns, "my-credentials", data, api_client=central_cluster_client
+    )
+    create_or_update_secret(
+        mdbb_ns, "my-credentials", data, api_client=central_cluster_client
+    )
 
 
-@mark.e2e_multi_cluster_clusterwide
 @mark.e2e_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
     mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
 
 
-@mark.e2e_multi_cluster_clusterwide
 @mark.e2e_multi_cluster_specific_namespaces
 def test_create_mongodb_multi_nsb(mongodb_multi_b: MongoDBMulti):
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)

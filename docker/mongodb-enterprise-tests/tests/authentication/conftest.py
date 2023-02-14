@@ -57,6 +57,8 @@ def openldap_install(
         namespace, label_selector=f"app={name}"
     )
     if not pods.items:
+        print(f"performing helm upgrade of openldap")
+
         helm_upgrade(
             name=name,
             namespace=namespace,

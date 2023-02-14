@@ -27,6 +27,7 @@ fi
 
 
 deploy_test_app() {
+    printenv
     title "Deploying test application"
     local context=${1}
     local helm_template_file
@@ -56,6 +57,7 @@ deploy_test_app() {
     if [[ ${kube_environment_name} = "multi" ]]; then
         helm_params+=("--set" "multiCluster.memberClusters=${member_clusters}")
         helm_params+=("--set" "multiCluster.centralCluster=${central_cluster}")
+        helm_params+=("--set" "multiCluster.testPodCluster=${test_pod_cluster}")
     fi
 
     if [[ -n "${custom_om_version:-}" ]]; then
@@ -83,6 +85,8 @@ deploy_test_app() {
     fi
 
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
+
+    cat "${helm_template_file}"
 
     kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" delete -f "${helm_template_file}" 2>/dev/null  || true
 

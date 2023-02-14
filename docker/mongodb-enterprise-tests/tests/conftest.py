@@ -1,19 +1,24 @@
 import os
 import subprocess
 import tempfile
-from base64 import b64decode
 from typing import Callable, Dict, List, Optional
 
 import kubernetes
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
-from kubetester import create_configmap, create_secret, get_pod_when_ready, create_or_update_configmap
+from kubetester import (
+    get_pod_when_ready,
+    create_or_update_configmap,
+    is_pod_ready,
+    read_secret,
+)
+
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer, Certificate
 from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
 from kubetester.http import get_retriable_https_session
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, running_locally
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
@@ -128,7 +133,7 @@ def operator_vault_secret_backend_tls(
 
 @fixture(scope="module")
 def evergreen_task_id() -> str:
-    return os.environ["TASK_ID"]
+    return os.environ.get("TASK_ID", "")
 
 
 @fixture(scope="module")
@@ -159,8 +164,17 @@ def cert_manager(namespace: str) -> str:
 
 @fixture(scope="module")
 def multi_cluster_cert_manager(
-    namespace: str, member_cluster_clients: List[MultiClusterClient]
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    central_cluster_name: str,
+    member_cluster_clients: List[MultiClusterClient],
 ):
+    install_cert_manager(
+        namespace,
+        cluster_client=central_cluster_client,
+        cluster_name=central_cluster_name,
+    )
+
     for client in member_cluster_clients:
         install_cert_manager(
             namespace,
@@ -171,7 +185,7 @@ def multi_cluster_cert_manager(
 
 @fixture(scope="module")
 def issuer(cert_manager: str, namespace: str) -> str:
-    return create_issuer(cert_manager=cert_manager, namespace=namespace)
+    return create_issuer(namespace=namespace)
 
 
 @fixture(scope="module")
@@ -179,9 +193,8 @@ def multi_cluster_ldap_issuer(
     cert_manager: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-
     member_cluster_one = member_cluster_clients[0]
-    return create_issuer(cert_manager, "openldap", member_cluster_one.api_client)
+    return create_issuer("openldap", member_cluster_one.api_client)
 
 
 @fixture(scope="module")
@@ -216,7 +229,7 @@ def multi_cluster_issuer(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
-    return create_issuer(cert_manager, namespace, central_cluster_client)
+    return create_issuer(namespace, central_cluster_client)
 
 
 @fixture(scope="module")
@@ -304,7 +317,7 @@ def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
     data = {"ca-pem": ca + plus_ca, "mms-ca.crt": ca + plus_ca}
 
     name = "issuer-plus-ca"
-    create_configmap(namespace, name, data)
+    create_or_update_configmap(namespace, name, data)
     yield name
 
     KubernetesTester.delete_configmap(namespace, name)
@@ -331,7 +344,8 @@ def custom_mdb_version() -> str:
 @fixture(scope="module")
 def custom_appdb_version(custom_mdb_version: str) -> str:
     """Returns a CUSTOM_APPDB_VERSION for AppDB to be created/upgraded to for testing,
-    defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)"""
+    defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)
+    """
 
     return os.getenv("CUSTOM_APPDB_VERSION", f"{custom_mdb_version}-ent")
 
@@ -414,7 +428,7 @@ def member_cluster_clients(
     member_cluster_names: List[str],
 ) -> List[MultiClusterClient]:
     member_cluster_clients = []
-    for (i, member_cluster) in enumerate(sorted(member_cluster_names)):
+    for i, member_cluster in enumerate(sorted(member_cluster_names)):
         member_cluster_clients.append(
             MultiClusterClient(cluster_clients[member_cluster], member_cluster, i)
         )
@@ -434,7 +448,9 @@ def multi_cluster_operator(
 
     # when running with the local operator this is executed by scripts/dev/prepare_local_e2e_run.sh
     if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
+        run_kube_config_creation_tool(
+            member_cluster_names, namespace, namespace, member_cluster_names
+        )
 
     return _install_multi_cluster_operator(
         namespace,
@@ -458,9 +474,12 @@ def multi_cluster_operator_manual_remediation(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    cluster_clients,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
+    run_kube_config_creation_tool(
+        member_cluster_names, namespace, namespace, member_cluster_names
+    )
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -484,9 +503,12 @@ def multi_cluster_operator_clustermode(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    cluster_clients: Dict[str, kubernetes.client.ApiClient],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, True)
+    run_kube_config_creation_tool(
+        member_cluster_names, namespace, namespace, member_cluster_names, True
+    )
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -556,7 +578,9 @@ def _install_multi_cluster_operator(
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
     if local_operator():
-        client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment_scale(
+        client.AppsV1Api(
+            api_client=central_cluster_client
+        ).patch_namespaced_deployment_scale(
             namespace=namespace,
             name=operator.name,
             body={"spec": {"replicas": 0}},
@@ -675,11 +699,9 @@ def _get_client_for_cluster(
     kubernetes.config.load_kube_config(
         context=cluster_name,
         config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
-        client_configuration=configuration
+        client_configuration=configuration,
     )
-    configuration.host = CLUSTER_HOST_MAPPING.get(
-        cluster_name, configuration.host
-    )
+    configuration.host = CLUSTER_HOST_MAPPING.get(cluster_name, configuration.host)
 
     configuration.verify_ssl = False
     configuration.api_key = {"authorization": f"Bearer {token}"}
@@ -693,19 +715,36 @@ def install_cert_manager(
     name="cert-manager",
     version="v1.5.4",
 ) -> str:
-
     if cluster_name is not None:
         # ensure we cert-manager in the member clusters.
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
-    helm_install_from_chart(
-        name,  # cert-manager is installed on a specific namespace
-        name,
-        f"jetstack/{name}",
-        version=version,
-        custom_repo=("jetstack", "https://charts.jetstack.io"),
-        helm_args={"installCRDs": "true"},
-    )
+    install_required = True
+
+    if running_locally():
+        webhook_ready = is_pod_ready(
+            name,
+            f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
+            api_client=cluster_client,
+        )
+        controller_ready = is_pod_ready(
+            name,
+            f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
+            api_client=cluster_client,
+        )
+        if webhook_ready and controller_ready:
+            print("Cert manager already installed, skipping helm install")
+            install_required = False
+
+    if install_required:
+        helm_install_from_chart(
+            name,  # cert-manager is installed on a specific namespace
+            name,
+            f"jetstack/{name}",
+            version=version,
+            custom_repo=("jetstack", "https://charts.jetstack.io"),
+            helm_args={"installCRDs": "true"},
+        )
 
     # waits until the cert-manager webhook and controller are Ready, otherwise creating
     # Certificate Custom Resources will fail.
@@ -733,29 +772,55 @@ def cluster_clients(
 
     if len(member_cluster_names) == 3:
         member_clusters.append(_read_multi_cluster_config_value("member_cluster_3"))
-    return get_clients_for_clusters(member_clusters, namespace)
+    return get_clients_for_clusters(member_clusters)
 
 
 def get_clients_for_clusters(
-    member_cluster_names: List[str], namespace: str
+    member_cluster_names: List[str],
 ) -> Dict[str, kubernetes.client.ApiClient]:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
+
     return {
-        c: _get_client_for_cluster(c) for c in [central_cluster] + member_cluster_names
+        c: _get_client_for_cluster(c)
+        for c in ([central_cluster] + member_cluster_names)
     }
+
+
+def get_api_servers_from_pod_kubeconfig(
+    kubeconfig: str, cluster_clients: Dict[str, kubernetes.client.ApiClient]
+):
+    api_servers = dict()
+    fd, kubeconfig_tmp_path = tempfile.mkstemp()
+    with os.fdopen(fd, "w") as fp:
+        fp.write(kubeconfig)
+
+        for cluster_name, cluster_client in cluster_clients.items():
+            configuration = kubernetes.client.Configuration()
+            kubernetes.config.load_kube_config(
+                context=cluster_name,
+                config_file=kubeconfig_tmp_path,
+                client_configuration=configuration,
+            )
+            api_servers[cluster_name] = configuration.host
+
+    return api_servers
 
 
 def run_kube_config_creation_tool(
     member_clusters: List[str],
     central_namespace: str,
     member_namespace: str,
+    member_cluster_names: List[str],
     cluster_scoped: Optional[bool] = False,
     service_account_name: Optional[str] = "mongodb-enterprise-operator-multi-cluster",
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
     args = [
-        os.getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH", "multi-cluster-kube-config-creator"),
+        os.getenv(
+            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
+            "multi-cluster-kube-config-creator",
+        ),
         "setup",
         "-member-clusters",
         member_clusters_str,
@@ -768,13 +833,62 @@ def run_kube_config_creation_tool(
         "-service-account",
         service_account_name,
     ]
+
+    if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
+        args.append("-create-service-account-secrets")
+
+    if not local_operator():
+        api_servers = get_api_servers_from_test_pod_kubeconfig(
+            member_namespace, member_cluster_names
+        )
+
+        if len(api_servers) > 0:
+            args.append("-member-clusters-api-servers")
+            args.append(
+                ",".join(
+                    [api_servers[member_cluster] for member_cluster in member_clusters]
+                )
+            )
+
     if cluster_scoped:
         args.extend(["-cluster-scoped", "true"])
 
-    subprocess.call(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    try:
+        print(f"Running multi-cluster cli setup tool: {' '.join(args)}")
+        subprocess.check_output(args, stderr=subprocess.PIPE)
+        print("Finished running multi-cluster cli setup tool")
+    except subprocess.CalledProcessError as exc:
+        print("Status: FAIL", exc.returncode, exc.output)
+        return exc.returncode
+
+    return 0
+
+
+def get_api_servers_from_kubeconfig_secret(
+    namespace: str,
+    secret_name: str,
+    secret_cluster_client: kubernetes.client.ApiClient,
+    cluster_clients: Dict[str, kubernetes.client.ApiClient],
+):
+    kubeconfig_secret = read_secret(
+        namespace, secret_name, api_client=secret_cluster_client
+    )
+    return get_api_servers_from_pod_kubeconfig(
+        kubeconfig_secret["kubeconfig"], cluster_clients
+    )
+
+
+def get_api_servers_from_test_pod_kubeconfig(
+    namespace: str, member_cluster_names: List[str]
+) -> Dict[str, str]:
+    test_pod_cluster = os.environ["TEST_POD_CLUSTER"]
+    cluster_clients = get_clients_for_clusters(member_cluster_names)
+
+    return get_api_servers_from_kubeconfig_secret(
+        namespace,
+        "test-pod-kubeconfig",
+        cluster_clients[test_pod_cluster],
+        cluster_clients,
     )
 
 
@@ -787,7 +901,10 @@ def run_multi_cluster_recovery_tool(
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
     args = [
-        "multi-cluster-kube-config-creator",
+        os.getenv(
+            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
+            "multi-cluster-kube-config-creator",
+        ),
         "recover",
         "-member-clusters",
         member_clusters_str,
@@ -806,19 +923,17 @@ def run_multi_cluster_recovery_tool(
         args.extend(["-cluster-scoped", "true"])
 
     try:
+        print(f"Running multi-cluster cli recovery tool: {' '.join(args)}")
         subprocess.check_output(args, stderr=subprocess.PIPE)
+        print("Finished running multi-cluster cli recovery tool")
     except subprocess.CalledProcessError as exc:
         print("Status: FAIL", exc.returncode, exc.output)
-    return subprocess.call(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+        return exc.returncode
+
+    return 0
 
 
-def create_issuer(
-    cert_manager: str, namespace: str, api_client: Optional[client.ApiClient] = None
-):
+def create_issuer(namespace: str, api_client: Optional[client.ApiClient] = None):
     """
     This fixture creates an "Issuer" in the testing namespace. This requires cert-manager to be installed in the cluster.
     The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
@@ -843,6 +958,8 @@ def create_issuer(
     except client.rest.ApiException as e:
         if e.status == 409:
             print("ca-key-pair already exists")
+        else:
+            raise e
 
     # And then creates the Issuer
     issuer = Issuer(name="ca-issuer", namespace=namespace)
@@ -854,6 +971,8 @@ def create_issuer(
     except client.rest.ApiException as e:
         if e.status == 409:
             print("issuer already exists")
+        else:
+            raise e
 
     return "ca-issuer"
 
@@ -861,7 +980,3 @@ def create_issuer(
 def local_operator():
     """Checks if the current test run should assume that the operator is running locally, i.e. not in a pod"""
     return os.getenv("LOCAL_OPERATOR", "") == "true"
-
-
-def local_test_run():
-    return os.getenv("LOCAL_TEST_RUN", "") != ""

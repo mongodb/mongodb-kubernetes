@@ -49,6 +49,8 @@ operator:
     enabled: false
     tlsSecretRef: ''
 
+  replicas: 1
+
 ## Database
 database:
   name: mongodb-enterprise-database

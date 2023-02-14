@@ -5,7 +5,7 @@ export RED_HAT_TOKEN=eyJhb...
 export AWS_ACCESS_KEY_ID=ABC...
 export AWS_SECRET_ACCESS_KEY=e4af...
 # repo used as OPERATOR_REGISTRY when not using local operator
-export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/lsierant-kops2
+export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/<your-ecr-registry>
 
 # comment this or set to empty to use local kind clusters
 # export EVG_HOST_NAME=""
@@ -18,13 +18,13 @@ export UBI_IMAGE_WITHOUT_SUFFIX=true
 export LOCAL_OPERATOR=true
 # set to true for running cluster-wide operator
 export OPERATOR_CLUSTER_SCOPED=${OPERATOR_CLUSTER_SCOPED:-false}
-# by default watch only main NAMESPACE, set other watched namespaces for cluster-wide operator (comma-separated)
+# by default watch only main NAMESPACE, set other watched namespaces for cluster-wide operator
 export WATCH_NAMESPACE="${WATCH_NAMESPACE:-${NAMESPACE}}"
 # set:
 #   multi - for multicluster
 #   kops  - for kops cluster
 #   kind  - for local/evg kind clusters
-export kube_environment_name=kind
+export kube_environment_name=multi
 export CLUSTER_TYPE="kind"
 
 #
@@ -32,7 +32,9 @@ export CLUSTER_TYPE="kind"
 #
 
 # these are fixed when using scripts/dev/recreate_kind_clusters.sh
-export CLUSTER_NAME=kind-test-cluster
+export CLUSTER_NAME=kind-e2e-operator # this has to be central-cluster
+export test_pod_cluster=kind-e2e-cluster-1
+export member_clusters="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
 
 # when using EVG ec2 instance, we copy kubeconfig locally and use it
 if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
@@ -40,6 +42,20 @@ if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
 else
   export KUBECONFIG=~/.kube/config
 fi
+
+export central_cluster=${CLUSTER_NAME}
+export MEMBER_CLUSTERS=${member_clusters}
+export CENTRAL_CLUSTER=${central_cluster}
+export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
+export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator
+
+# override for /etc/config/kubeconfig file mounted in operator's pod
+if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
+  export KUBE_CONFIG_PATH=$HOME/.operator-dev/multicluster_kubeconfig
+  export PERFORM_FAILOVER=false
+fi
+
 
 export OPERATOR_ENV="dev"
 export PROJECT_NAMESPACE=${NAMESPACE}

@@ -9,7 +9,10 @@ from kubetester import (
     delete_cluster_role,
     delete_cluster_role_binding,
     read_secret,
-    random_k8s_name, create_or_update_configmap,
+    random_k8s_name,
+    create_or_update_secret,
+    create_or_update,
+    create_or_update_configmap,
 )
 from kubetester.kubetester import KubernetesTester, create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
@@ -25,6 +28,8 @@ from tests.conftest import (
 )
 
 from . import prepare_multi_cluster_namespaces
+from .conftest import cluster_spec_list, create_service_entries_objects
+from .multi_cluster_clusterwide import create_namespace
 
 
 @fixture(scope="module")
@@ -37,40 +42,41 @@ def mdbb_ns(namespace: str):
     return "{}-mdb-ns-b".format(namespace)
 
 
-def create_namespace(
-    central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
-    task_id: str,
-    namespace: str,
-) -> str:
-    for client in member_cluster_clients:
-        create_testing_namespace(task_id, namespace, client.api_client, True)
-
-    return create_testing_namespace(task_id, namespace, central_cluster_client)
-
-
 @fixture(scope="module")
 def mongodb_multi_a(
-    central_cluster_client: kubernetes.client.ApiClient, mdba_ns: str
+    central_cluster_client: kubernetes.client.ApiClient,
+    mdba_ns: str,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns
     )
 
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
+
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
 def mongodb_multi_b(
-    central_cluster_client: kubernetes.client.ApiClient, mdbb_ns: str
+    central_cluster_client: kubernetes.client.ApiClient,
+    mdbb_ns: str,
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns
     )
 
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -90,6 +96,7 @@ def install_operator(
         member_cluster_names,
         namespace,
         namespace,
+        member_cluster_names,
         True,
         service_account_name=MULTI_CLUSTER_OPERATOR_NAME,
     )
@@ -126,17 +133,26 @@ def test_label_operator_namespace(
 
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_create_namespaces(
+    namespace: str,
     mdba_ns: str,
     mdbb_ns: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     evergreen_task_id: str,
+    multi_cluster_operator_installation_config: Dict[str, str],
 ):
+    image_pull_secret_name = multi_cluster_operator_installation_config[
+        "registry.imagePullSecrets"
+    ]
+    image_pull_secret_data = read_secret(namespace, image_pull_secret_name)
+
     create_namespace(
         central_cluster_client,
         member_cluster_clients,
         evergreen_task_id,
         mdba_ns,
+        image_pull_secret_name,
+        image_pull_secret_data,
     )
 
     create_namespace(
@@ -144,12 +160,15 @@ def test_create_namespaces(
         member_cluster_clients,
         evergreen_task_id,
         mdbb_ns,
+        image_pull_secret_name,
+        image_pull_secret_data,
     )
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_create_service_entry(service_entry: CustomObject):
-    service_entry.create()
+def test_create_service_entry(service_entries: List[CustomObject]):
+    for service_entry in service_entries:
+        create_or_update(service_entry)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
@@ -186,7 +205,6 @@ def test_prepare_namespace(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-
     prepare_multi_cluster_namespaces(
         mdba_ns,
         multi_cluster_operator_installation_config,
@@ -224,29 +242,36 @@ def test_copy_configmap_and_secret_across_ns(
     )
 
     data = read_secret(namespace, "my-credentials", api_client=central_cluster_client)
-    create_secret(mdba_ns, "my-credentials", data, api_client=central_cluster_client)
-    create_secret(mdbb_ns, "my-credentials", data, api_client=central_cluster_client)
+    create_or_update_secret(
+        mdba_ns, "my-credentials", data, api_client=central_cluster_client
+    )
+    create_or_update_secret(
+        mdbb_ns, "my-credentials", data, api_client=central_cluster_client
+    )
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_create_mongodb_multi_nsa(mongodb_multi_a: MongoDBMulti):
+def test_create_mongodb_multi_nsa_nsb(
+    mongodb_multi_a: MongoDBMulti, mongodb_multi_b: MongoDBMulti
+):
     mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
-
-
-@mark.e2e_multi_cluster_recover_clusterwide
-def test_create_mongodb_multi_nsb(mongodb_multi_b: MongoDBMulti):
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject):
-    service_entry.load()
-    service_entry["spec"]["hosts"] = [
-        "cloud-qa.mongodb.com",
-        "api.e2e.cluster1.mongokubernetes.com",
-        "api.e2e.cluster2.mongokubernetes.com",
-    ]
-    service_entry.update()
+def test_update_service_entry_block_cluster3_traffic(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+):
+    service_entries = create_service_entries_objects(
+        namespace,
+        central_cluster_client,
+        [member_cluster_names[0], member_cluster_names[1]],
+    )
+    for service_entry in service_entries:
+        print(f"service_entry={service_entries}")
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

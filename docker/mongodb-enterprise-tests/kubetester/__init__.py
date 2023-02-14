@@ -38,11 +38,11 @@ def create_secret(
 
 
 def create_or_update_secret(
-        namespace: str,
-        name: str,
-        data: Dict[str, str],
-        type: Optional[str] = "Opaque",
-        api_client: Optional[client.ApiClient] = None,
+    namespace: str,
+    name: str,
+    data: Dict[str, str],
+    type: Optional[str] = "Opaque",
+    api_client: Optional[client.ApiClient] = None,
 ) -> str:
     try:
         create_secret(namespace, name, data, type, api_client)
@@ -53,16 +53,24 @@ def create_or_update_secret(
     return name
 
 
-def update_secret(namespace: str, name: str, data: Dict[str, str], api_client: Optional[client.ApiClient] = None):
+def update_secret(
+    namespace: str,
+    name: str,
+    data: Dict[str, str],
+    api_client: Optional[client.ApiClient] = None,
+):
     """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
     secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
-    client.CoreV1Api(api_client=api_client).patch_namespaced_secret(name, namespace, secret)
+    client.CoreV1Api(api_client=api_client).patch_namespaced_secret(
+        name, namespace, secret
+    )
 
 
 def delete_secret(
-        namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
+    namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
 ):
     client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
+
 
 def create_service_account(namespace: str, name: str) -> str:
     """Creates a service account with `name` in `namespace`"""
@@ -104,10 +112,10 @@ def create_configmap(
 
 
 def update_configmap(
-        namespace: str,
-        name: str,
-        data: Dict[str, str],
-        api_client: Optional[kubernetes.client.ApiClient] = None,
+    namespace: str,
+    name: str,
+    data: Dict[str, str],
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
     client.CoreV1Api(api_client=api_client).replace_namespaced_config_map(
@@ -116,11 +124,12 @@ def update_configmap(
 
 
 def create_or_update_configmap(
-        namespace: str,
-        name: str,
-        data: Dict[str, str],
-        api_client: Optional[kubernetes.client.ApiClient] = None
+    namespace: str,
+    name: str,
+    data: Dict[str, str],
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> str:
+    print("Logging inside create_or_update configmap")
     try:
         create_configmap(namespace, name, data, api_client)
     except kubernetes.client.ApiException as e:
@@ -135,14 +144,16 @@ def create_service(
     name: str,
     cluster_ip: Optional[str] = None,
     ports: Optional[List[client.V1ServicePort]] = None,
-    selector = None,
+    selector=None,
 ):
     if ports is None:
         ports = []
 
     service = client.V1Service(
         metadata=client.V1ObjectMeta(name=name, namespace=namespace),
-        spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip, selector=selector),
+        spec=client.V1ServiceSpec(
+            ports=ports, cluster_ip=cluster_ip, selector=selector
+        ),
     )
     client.CoreV1Api().create_namespaced_service(namespace, service)
 
@@ -199,17 +210,43 @@ def read_secret(
 
 
 def read_configmap(
-        namespace: str,
-        name: str,
-        api_client: Optional[client.ApiClient] = None,
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
 ) -> Dict[str, str]:
-    return client.CoreV1Api(api_client=api_client).read_namespaced_config_map(name, namespace).data
+    return (
+        client.CoreV1Api(api_client=api_client)
+        .read_namespaced_config_map(name, namespace)
+        .data
+    )
 
 
 def delete_pod(
     namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
 ):
     client.CoreV1Api(api_client=api_client).delete_namespaced_pod(name, namespace)
+
+
+def create_or_update_namespace(
+    namespace: str,
+    labels: dict = None,
+    annotations: dict = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+):
+    namespace_resource = client.V1Namespace(
+        metadata=client.V1ObjectMeta(
+            name=namespace,
+            labels=labels,
+            annotations=annotations,
+        )
+    )
+    try:
+        client.CoreV1Api(api_client=api_client).create_namespace(namespace_resource)
+    except kubernetes.client.ApiException as e:
+        if e.status == 409:
+            client.CoreV1Api(api_client=api_client).patch_namespace(
+                namespace, namespace_resource
+            )
 
 
 def delete_namespace(name: str):
@@ -300,22 +337,28 @@ def get_pod_when_ready(
     namespace: str,
     label_selector: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    default_retry: Optional[int] = 20,
 ) -> client.V1Pod:
     """
     Returns a Pod that matches label_selector. It will block until the Pod is in
     Ready state.
     """
-    while True:
+    cnt = 0
+
+    while True and cnt < default_retry:
+        print(f": namespace={namespace}, label_selector={label_selector}")
         time.sleep(3)
 
+        cnt += 1
         try:
             pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
                 namespace, label_selector=label_selector
             )
-            try:
-                pod = pods.items[0]
-            except IndexError:
+
+            if len(pods.items) == 0:
                 continue
+
+            pod = pods.items[0]
 
             # This might happen when the pod is still pending
             if pod.status.conditions is None:
@@ -330,6 +373,43 @@ def get_pod_when_ready(
             if e.status != 404:
                 raise
 
+    print(f"bailed on getting pod ready after 10 retries")
+
+
+def is_pod_ready(
+    namespace: str,
+    label_selector: str,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> client.V1Pod:
+    """
+    Checks if a Pod that matches label_selector is ready. It will return False if the pod is not ready,
+    if it does not exist or there is any other kind of error.
+    This function is intended to check if installing third party components is needed.
+    """
+    print(
+        f"Checking if pod is ready: namespace={namespace}, label_selector={label_selector}"
+    )
+    try:
+        pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
+            namespace, label_selector=label_selector
+        )
+
+        if len(pods.items) == 0:
+            return False
+
+        pod = pods.items[0]
+
+        if pod.status.conditions is None:
+            return False
+
+        for condition in pod.status.conditions:
+            if condition.type == "Ready" and condition.status == "True":
+                return True
+    except client.rest.ApiException as e:
+        return False
+
+    return False
+
 
 def get_default_storage_class() -> str:
     default_class_annotations = (
@@ -338,7 +418,6 @@ def get_default_storage_class() -> str:
     )
     sc: client.V1StorageClass
     for sc in client.StorageV1Api().list_storage_class().items:
-
         if sc.metadata.annotations is not None and any(
             sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
         ):

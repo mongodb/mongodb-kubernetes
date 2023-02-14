@@ -90,6 +90,17 @@ recreate-kind-clusters() {
   get-kubeconfig
 }
 
+recreate-kind-cluster() {
+  shift 1
+  cluster_name=$1
+  echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
+  # shellcheck disable=SC2088
+  ssh -T "${host_url}" "~/scripts/dev/setup_kind_cluster.sh -ern ${cluster_name}"
+  echo "Copying kubeconfig to ${kubeconfig_path}"
+  get-kubeconfig
+}
+
+
 tunnel() {
   api_servers=$(yq '.clusters.[].cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
   port_forwards=()
@@ -134,6 +145,7 @@ COMMANDS:
 case $cmd in
 configure) configure ;;
 recreate-kind-clusters) recreate-kind-clusters ;;
+recreate-kind-cluster) recreate-kind-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
 ssh) ssh_to_host "$@" ;;
 tunnel) tunnel ;;

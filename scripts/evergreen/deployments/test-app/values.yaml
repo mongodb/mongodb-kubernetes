@@ -28,3 +28,4 @@ imagePullSecrets:
 multiCluster:
   memberClusters: "" # Set this to a space separated list of member clusters to configure the test pod for running a multi cluster test.
   centralCluster: "" # Set this to the name of the central cluster to configure the test pod for running a multi cluster test.
+  testPodCluster: ""

@@ -5,7 +5,7 @@ metadata:
   name: {{ .Values.operator.name }}
   namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.operator.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/component: controller

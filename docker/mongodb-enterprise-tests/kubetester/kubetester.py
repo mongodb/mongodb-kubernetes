@@ -10,7 +10,7 @@ import tempfile
 import time
 import warnings
 from base64 import b64decode, b64encode
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 import jsonpatch
 import kubernetes.client
@@ -23,7 +23,6 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from kubeobject import CustomObject
 from kubernetes import client, config
-from kubernetes.client import V1ObjectMeta
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from requests.auth import HTTPDigestAuth
@@ -112,7 +111,8 @@ class KubernetesTester(object):
         """
         Deprecated: use kubetester.create_secret instead.
 
-        Create a secret in a given namespace with the given name and data—handles base64 encoding."""
+        Create a secret in a given namespace with the given name and data—handles base64 encoding.
+        """
         secret = cls.clients("client").V1Secret(
             metadata=cls.clients("client").V1ObjectMeta(name=name), string_data=data
         )
@@ -1172,7 +1172,8 @@ class KubernetesTester(object):
     @staticmethod
     def random_om_project_name() -> str:
         """Generates the name for the projects with our common namespace (and project) convention so that
-        GC process could remove it if it's left for some reasons. Always has a whitespace."""
+        GC process could remove it if it's left for some reasons. Always has a whitespace.
+        """
         current_seconds_epoch = int(time.time())
         prefix = f"a-{current_seconds_epoch}-"
 
@@ -1649,7 +1650,7 @@ def fixture(filename):
 
     fixture_dirs = []
 
-    for (dirpath, dirnames, filenames) in os.walk(root_dir):
+    for dirpath, dirnames, filenames in os.walk(root_dir):
         if dirpath.endswith("/fixtures"):
             fixture_dirs.append(dirpath)
 
@@ -1741,22 +1742,21 @@ def create_testing_namespace(
     istio_label: Optional[bool] = False,
 ) -> str:
     """creates the namespace that is used by the test. Marks it with necessary labels and annotations so that
-    it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information)"""
+    it would be handled by configuration scripts correctly (cluster cleaner, dumping the diagnostics information)
+    """
 
     labels = {"evg": "task"}
     if istio_label:
         labels.update({"istio-injection": "enabled"})
 
-    test_ns = client.V1Namespace(
-        metadata=V1ObjectMeta(
-            name=name,
-            labels=labels,
-            annotations={
-                "evg/task": f"https://evergreen.mongodb.com/task/{evergreen_task_id}"
-            },
-        )
-    )
-    client.CoreV1Api(api_client=api_client).create_namespace(test_ns)
+    annotations = {
+        "evg/task": f"https://evergreen.mongodb.com/task/{evergreen_task_id}"
+    }
+
+    from kubetester import create_or_update_namespace
+
+    create_or_update_namespace(name, labels, annotations, api_client=api_client)
+
     return name
 
 

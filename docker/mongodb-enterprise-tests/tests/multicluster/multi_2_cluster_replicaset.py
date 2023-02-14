@@ -15,7 +15,7 @@ BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
     )

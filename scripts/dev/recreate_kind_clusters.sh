@@ -7,7 +7,7 @@ scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-2" -p "10.246.0.0/16" -s
 scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" &
 echo "Waiting for setup_kind_cluster.sh to complete"
 wait
-scripts/dev/interconnect_kind_clusters.sh e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator
+scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator
 
 echo "Downloading istio"
 [ ! -d "istio-${VERSION}" ] && curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -

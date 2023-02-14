@@ -1,4 +1,4 @@
-from typing import List, Callable
+from typing import List, Callable, Dict
 
 import kubernetes
 import pytest
@@ -76,7 +76,9 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace)
+    run_kube_config_creation_tool(
+        member_cluster_names[:-1], namespace, namespace, member_cluster_names
+    )
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.assert_is_running()
@@ -126,8 +128,9 @@ def test_re_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace)
+    run_kube_config_creation_tool(
+        member_cluster_names, namespace, namespace, member_cluster_names
+    )
 
     # deploy the operator without all clusters
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names)

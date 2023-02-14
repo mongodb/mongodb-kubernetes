@@ -10,7 +10,7 @@ if [ -f "${context_config}" ]; then
     exit 1
 fi
 
-if [ "${kube_environment_name}" = "vanilla" ] || [ "${kube_environment_name}" = "multi" ]; then
+if [[ "${kube_environment_name}" == "vanilla" || ("${kube_environment_name}" == "multi" && "${CLUSTER_TYPE}" == "kops") ]]; then
     export AWS_ACCESS_KEY_ID="${mms_eng_test_aws_access_key:?}"
     export AWS_SECRET_ACCESS_KEY="${mms_eng_test_aws_secret:?}"
     export AWS_DEFAULT_REGION="${mms_eng_test_aws_region:?}"
@@ -35,8 +35,6 @@ if [ "${kube_environment_name}" = "openshift_4" ]; then
 
     # https://stackoverflow.com/c/private-cloud-kubernetes/questions/15
     oc login --token="${openshift_token:?}" --server="${openshift_url:?}"
-    mv "${HOME}"/.kube/config "${context_config}"
-
 elif [ "${kube_environment_name}" = "vanilla" ]; then
     if [ -n "${cluster_name:-}" ]; then
         export CLUSTER=${cluster_name}
@@ -52,21 +50,16 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
     fi
 
     kops export kubecfg $CLUSTER --admin=87600h
-    mv "${HOME}"/.kube/config "${context_config}"
-
 elif [ "${kube_environment_name}" = "kind" ]; then
     echo "Starting Kind"
     kubernetes_image="kindest/node:v${kubernetes_kind_version:?}"
     kind create cluster \
         --image "${kubernetes_image}" \
         --kubeconfig "${context_config}"
-
 elif [[ "${kube_environment_name}" = "minikube" ]]; then
     echo "Starting Minikube"
     minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=50g &>/dev/null
-    mv "${HOME}"/.kube/config "${context_config}"
 elif [[ "${kube_environment_name}" = "multi" && "${CLUSTER_TYPE}" == "kops" ]]; then
-
     # TODO: ensure that the clusters exist and are configured correctly.
     # shellcheck disable=SC2154
     kops export kubecfg "${central_cluster}" --admin=87600h
@@ -75,8 +68,6 @@ elif [[ "${kube_environment_name}" = "multi" && "${CLUSTER_TYPE}" == "kops" ]]; 
     for member_cluster in ${member_clusters}; do
         kops export kubecfg "${member_cluster}" --admin=87600h
     done
-
-    mv "${HOME}"/.kube/config "${context_config}"
 elif [[ "${kube_environment_name}" = "multi" && "${CLUSTER_TYPE}" == "kind" ]]; then
     scripts/dev/recreate_kind_clusters.sh
 else
@@ -86,3 +77,6 @@ else
     # Fail if there's no Kubernetes environment set
     exit 1
 fi
+
+echo "Moving $HOME/.kube/config to ${context_config}"
+mv "${HOME}"/.kube/config "${context_config}"

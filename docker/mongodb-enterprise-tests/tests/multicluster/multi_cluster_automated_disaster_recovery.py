@@ -10,9 +10,9 @@ from kubernetes import client
 from kubeobject import CustomObject
 import time
 
-from kubetester import delete_pod, get_pod_when_ready
+from kubetester import delete_pod, get_pod_when_ready, create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
-
+from .conftest import create_service_entries_objects
 
 @fixture(scope="module")
 def mongodb_multi(
@@ -41,8 +41,9 @@ def test_label_namespace(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_create_service_entry(service_entry: CustomObject):
-    service_entry.create()
+def test_create_service_entry(service_entries: List[CustomObject]):
+    for service_entry in service_entries:
+        create_or_update(service_entry)
 
 
 @mark.e2e_multi_cluster_disaster_recovery
@@ -84,14 +85,19 @@ def test_block_cluster2_traffic(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_update_service_entry_block_cluster3_traffic(service_entry: CustomObject):
-    service_entry.load()
-    service_entry["spec"]["hosts"] = [
-        "cloud-qa.mongodb.com",
-        "api.e2e.cluster1.mongokubernetes.com",
-        "api.e2e.cluster2.mongokubernetes.com",
-    ]
-    service_entry.update()
+def test_update_service_entry_block_cluster3_traffic(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+):
+    service_entries = create_service_entries_objects(
+        namespace,
+        central_cluster_client,
+        [member_cluster_names[0], member_cluster_names[1]],
+    )
+    for service_entry in service_entries:
+        print(f"service_entry={service_entries}")
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_disaster_recovery

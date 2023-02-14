@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
+import re
+import urllib
 from typing import Generator, List
+from urllib import parse
+
+import kubernetes
+from kubeobject import CustomObject
+from kubernetes import client
+from kubernetes.client import V1ObjectMeta
+from pytest import fixture
+
+from kubetester.certs import generate_cert
 from kubetester.ldap import (
     OpenLDAP,
     LDAPUser,
     create_user,
     ensure_organizational_unit,
     ensure_group,
-    ensure_organization,
     add_user_to_group,
 )
-
 from kubetester.mongodb_multi import MultiClusterClient
-from kubetester.certs import generate_cert
-from pytest import fixture
 from tests.authentication.conftest import (
     openldap_install,
     LDAP_NAME,
@@ -20,10 +27,12 @@ from tests.authentication.conftest import (
     AUTOMATION_AGENT_NAME,
     ldap_host,
 )
-from kubernetes import client
-from kubernetes.client import V1ObjectMeta
-from kubeobject import CustomObject
-import kubernetes
+from tests.conftest import (
+    get_api_servers_from_test_pod_kubeconfig,
+    get_clients_for_clusters,
+)
+
+import ipaddress
 
 
 @fixture(scope="module")
@@ -128,12 +137,33 @@ def ldap_mongodb_agent_user(
 
 # more details https://istio.io/latest/docs/tasks/traffic-management/egress/egress-control/
 @fixture(scope="module")
-def service_entry(
+def service_entries(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-):
-    service_entry = CustomObject(
-        name="cluster-block",
+    member_cluster_names: List[str],
+) -> List[CustomObject]:
+    return create_service_entries_objects(
+        namespace, central_cluster_client, member_cluster_names
+    )
+
+
+def check_valid_ip(ip_str: str) -> bool:
+    try:
+        ipaddress.ip_address(ip_str)
+        return True
+    except ValueError:
+        return False
+
+
+def create_service_entries_objects(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
+) -> List[CustomObject]:
+    service_entries = []
+
+    allowed_hosts_service_entry = CustomObject(
+        name="allowed-hosts",
         namespace=namespace,
         kind="ServiceEntry",
         plural="serviceentries",
@@ -142,21 +172,72 @@ def service_entry(
         api_client=central_cluster_client,
     )
 
-    service_entry["spec"] = {
+    allowed_addresses_service_entry = CustomObject(
+        name="allowed-addresses",
+        namespace=namespace,
+        kind="ServiceEntry",
+        plural="serviceentries",
+        group="networking.istio.io",
+        version="v1beta1",
+        api_client=central_cluster_client,
+    )
+
+    api_servers = get_api_servers_from_test_pod_kubeconfig(
+        namespace, member_cluster_names
+    )
+
+    host_parse_results = [
+        urllib.parse.urlparse(api_servers[member_cluster])
+        for member_cluster in member_cluster_names
+    ]
+
+    hosts = set(["cloud-qa.mongodb.com"])
+    addresses = set()
+    ports = [{"name": "https", "number": 443, "protocol": "HTTPS"}]
+
+    for host_parse_result in host_parse_results:
+        if host_parse_result.port is not None and host_parse_result.port != "":
+            ports.append(
+                {
+                    "name": f"https-{host_parse_result.port}",
+                    "number": host_parse_result.port,
+                    "protocol": "HTTPS",
+                }
+            )
+        if check_valid_ip(host_parse_result.hostname):
+            addresses.add(host_parse_result.hostname)
+        else:
+            hosts.add(host_parse_result.hostname)
+
+    allowed_hosts_service_entry["spec"] = {
         # by default the access mode is set to "REGISTRY_ONLY" which means only the hosts specified
         # here would be accessible from the operator pod
-        "hosts": [
-            "cloud-qa.mongodb.com",
-            "api.e2e.cluster1.mongokubernetes.com",
-            "api.e2e.cluster2.mongokubernetes.com",
-            "api.e2e.cluster3.mongokubernetes.com",
-        ],
+        "hosts": list(hosts),
         "exportTo": ["."],
         "location": "MESH_EXTERNAL",
-        "ports": [{"name": "https", "number": 443, "protocol": "HTTPS"}],
+        "ports": ports,
         "resolution": "DNS",
     }
-    service_entry.api = kubernetes.client.CustomObjectsApi(
-        api_client=central_cluster_client
-    )
-    return service_entry
+    service_entries.append(allowed_hosts_service_entry)
+
+    if len(addresses) > 0:
+        allowed_addresses_service_entry["spec"] = {
+            "hosts": ["kubernetes", "kubernetes-master", "kube-apiserver"],
+            "addresses": list(addresses),
+            "exportTo": ["."],
+            "location": "MESH_EXTERNAL",
+            "ports": ports,
+            # when allowing by IP address we do not want to resolve IP using HTTP host field
+            "resolution": "NONE",
+        }
+        service_entries.append(allowed_addresses_service_entry)
+
+    return service_entries
+
+
+def cluster_spec_list(member_cluster_names: List[str], members: List[int]):
+    return [
+        {"clusterName": member_cluster_names[0], "members": 2},
+        {"clusterName": member_cluster_names[1], "members": 1},
+        {"clusterName": member_cluster_names[2], "members": 2},
+    ]

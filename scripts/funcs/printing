@@ -10,3 +10,11 @@ header() {
     echo "$1"
     echo "--------------------------------------------------"
 }
+
+# Function to prepend every line with a prefix passed as an argument. Useful when spawning
+# multiple jobs in the background to identify to which job the logs belong.
+# Pipe output to it, e.g. <command> | prepend "job prefix: "
+prepend() {
+  prefix=$1
+  awk -v prefix="${prefix}" '{printf "%s: %s\n", prefix, $0}'
+}

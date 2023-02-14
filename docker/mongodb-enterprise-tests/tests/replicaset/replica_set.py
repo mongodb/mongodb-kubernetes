@@ -14,7 +14,7 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from kubetester import (
     assert_pod_container_security_context,
-    assert_pod_security_context,
+    assert_pod_security_context, create_or_update,
 )
 from pytest import fixture
 
@@ -57,7 +57,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
             }
         }
     }
-    resource.create()
+    create_or_update(resource)
 
     return resource
 
