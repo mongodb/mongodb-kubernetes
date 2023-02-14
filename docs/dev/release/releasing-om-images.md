@@ -1,6 +1,8 @@
 # How to release OM new images
+Note: All below should be done by PCT.
 
 ## Publishing new OM images
+
 1. In `evergreen.yml` change one of:
 
    * `ops_manager_50_latest`
@@ -38,7 +40,4 @@ If the evergreen patch is successful, create a PR with the following changes:
 1. Change the variable `ops_manager_50_latest` or `ops_manager_44_latest`
    (whatever you are releasing) to `X.Y.Z` in `.evergreen.yml` file.
 
-## Ops Manager 5.0 Release Only
-
-1. Change the `ops-manager` samples to use the new version ([ops-manager.yaml](../../../deploy/crds/samples/ops-manager.yaml) and the files in [this directory](../../../public/samples/ops-manager))
-1. Change the default version for the fixture `custom_version` in [conftest.py](../../../docker/mongodb-enterprise-tests/tests/conftest.py). This will allow developers to run by local tests using the same OM version.
+2. Add the new version in `release.json` under the ops-manager versions 
