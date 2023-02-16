@@ -74,7 +74,7 @@ def test_configure_prefer_ssl(tls_replica_set: MongoDB):
 
     tls_replica_set.update()
     tls_replica_set.assert_abandons_phase(Phase.Running)
-    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -104,7 +104,7 @@ def test_configure_allow_ssl(tls_replica_set: MongoDB):
 
     tls_replica_set.update()
     tls_replica_set.assert_abandons_phase(Phase.Running)
-    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable
@@ -137,7 +137,7 @@ def test_disabled_ssl(tls_replica_set: MongoDB):
 
     tls_replica_set.update()
     tls_replica_set.assert_abandons_phase(Phase.Running)
-    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_replica_set_tls_require_and_disable

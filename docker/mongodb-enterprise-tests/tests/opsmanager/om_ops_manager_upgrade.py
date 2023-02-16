@@ -5,7 +5,7 @@ import pytest
 import semver
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB
+from kubetester import MongoDB, create_or_update
 from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
@@ -49,16 +49,17 @@ def ops_manager(
     resource.set_appdb_version(ensure_ent_version(custom_mdb_prev_version))
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
-    return resource.create()
+    return create_or_update(resource)
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+def oplog_replica_set(ops_manager, namespace, custom_mdb_prev_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development-oplog")
+    resource["spec"]["version"] = custom_mdb_prev_version
 
     return resource.create()
 
@@ -176,6 +177,7 @@ class TestOpsManagerWithMongoDB:
     def test_mongodb_upgrade(self, mdb: MongoDB):
         """Scales up the mongodb. Note, that we are not upgrading the Mongodb version at this stage as it can be
         the major update (e.g. 4.2 -> 4.4) and this requires OM upgrade as well - this happens later."""
+        mdb.reload()
         mdb["spec"]["members"] = 4
 
         mdb.update()
@@ -304,9 +306,15 @@ class TestMongoDbsVersionUpgrade:
         """
         # Because OM was not in running phase, this resource, mdb, was also not in
         # running phase. We will wait for it to come back before applying any changes.
-        mdb.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
-
         mdb.reload()
+        # Forcing a pod restart to get the new agent version. This should be fixed in https://jira.mongodb.org/browse/CLOUDP-161473
+        mdb["spec"]["podSpec"] = {
+            "podTemplate": {"metadata": {"annotations": {"key1": "val1"}}}
+        }
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+        # At this point all the agent versions should be up to date and we can perform the database version upgrade.
+
         mdb["spec"]["version"] = custom_mdb_version
         mdb.update()
 
