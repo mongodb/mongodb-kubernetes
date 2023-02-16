@@ -2,7 +2,7 @@ from typing import Optional
 
 from pytest import mark, fixture
 
-from kubetester import MongoDB
+from kubetester import MongoDB, create_or_update
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -63,7 +63,8 @@ def ops_manager(
         "ca"
     ] = app_db_issuer_ca_configmap
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -77,7 +78,8 @@ def oplog_replica_set(
     ).configure(ops_manager, "development")
     resource.configure_custom_tls(app_db_issuer_ca_configmap, oplog_certs_secret)
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -91,7 +93,8 @@ def blockstore_replica_set(
     ).configure(ops_manager, "blockstore")
     resource.configure_custom_tls(app_db_issuer_ca_configmap, blockstore_certs_secret)
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_tls
@@ -154,7 +157,8 @@ class TestBackupForMongodb:
         # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
         resource.configure_backup(mode="enabled")
-        return resource.create()
+        create_or_update(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_prev(
@@ -167,7 +171,8 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "secondProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
         resource.configure_backup(mode="enabled")
-        return resource.create()
+        create_or_update(resource)
+        return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
