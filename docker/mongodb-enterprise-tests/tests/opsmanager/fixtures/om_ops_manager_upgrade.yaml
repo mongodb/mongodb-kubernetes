@@ -6,8 +6,6 @@ spec:
   replicas: 1
   # version is configured in the test
   adminCredentials: ops-manager-admin-secret
-  configuration:
-    mms.testUtil.enabled: "true"
 
   backup:
     enabled: true
@@ -23,3 +21,17 @@ spec:
     # version is configured in the test
     members: 3
     version: "4.2.1-ent"
+
+  # avoid wizard when opening OM UI
+  configuration:
+    automation.versions.source: mongodb
+    mms.testUtil.enabled: "true"
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

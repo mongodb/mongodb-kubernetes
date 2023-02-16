@@ -57,7 +57,7 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
 
 
 @fixture(scope="module")
-def nginx(namespace: str, custom_mdb_version: str):
+def nginx(namespace: str, custom_mdb_version: str, custom_appdb_version: str):
     with open(yaml_fixture("remote_fixtures/nginx-config.yaml"), "r") as f:
         config_body = yaml.safe_load(f.read())
     KubernetesTester.clients("corev1").create_namespaced_config_map(
@@ -69,9 +69,9 @@ def nginx(namespace: str, custom_mdb_version: str):
 
         # Adds versions to Nginx deployment.
         new_versions = set()
-        new_versions.add("4.4.11")
         new_versions.add(custom_mdb_version)
         new_versions.add(custom_mdb_version + "-ent")
+        new_versions.add(custom_appdb_version)
 
         for version in new_versions:
             add_mdb_version_to_deployment(nginx_body, version)
@@ -91,7 +91,7 @@ def nginx(namespace: str, custom_mdb_version: str):
 
 @fixture(scope="module")
 def ops_manager(
-    namespace: str, custom_version: Optional[str], nginx
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str, nginx
 ) -> MongoDBOpsManager:
 
     """The fixture for Ops Manager to be created."""
@@ -105,6 +105,7 @@ def ops_manager(
     ] = f"http://nginx-svc.{namespace}.svc.cluster.local:80"
 
     om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
     om.allow_mdb_rc_versions()
 
     yield om.create()
