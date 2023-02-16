@@ -284,6 +284,8 @@ def clean_unused_keys(org_id: str):
         if not keep_the_key(key):
             print("Removing the key {} ({})".format(key["publicKey"], key["desc"]))
             delete_api_key(org_id, key["id"])
+        else:
+            print("Keeping the key {} ({})".format(key["publicKey"], key["desc"]))
 
 
 def keep_the_key(key: Dict) -> bool:
@@ -302,7 +304,12 @@ def clean_unused_projects(org_id: str):
 
 def unconfigure():
     """Tries to remove the project and API Key from Cloud-QA"""
-    env = read_env_file()
+    env_file_exists = True
+    try:
+        env = read_env_file()
+    except Exception as e:
+        env_file_exists = False
+
     namespace = read_namespace()
 
     # The "group" needs to be removed using the user's API credentials
@@ -313,13 +320,15 @@ def unconfigure():
         except Exception as e:
             print("Got an exception trying to remove group", e)
 
-    # The API Key needs to be removed using the Owner's API credentials
-    key_id = env["OM_KEY_ID"]
     org = os.getenv(ORG_ID)
-    try:
-        delete_api_key(org, key_id)
-    except Exception as e:
-        print("Got an exception trying to remove Api Key", e)
+
+    # The API Key needs to be removed using the Owner's API credentials
+    if env_file_exists:
+        key_id = env["OM_KEY_ID"]
+        try:
+            delete_api_key(org, key_id)
+        except Exception as e:
+            print("Got an exception trying to remove Api Key", e)
 
     clean_unused_projects(org)
     clean_unused_keys(org)
