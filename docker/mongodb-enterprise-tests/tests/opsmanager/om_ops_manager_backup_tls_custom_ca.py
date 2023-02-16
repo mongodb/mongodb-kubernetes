@@ -4,7 +4,7 @@ from typing import Optional
 
 from pytest import mark, fixture
 
-from kubetester import MongoDB
+from kubetester import MongoDB, create_or_update
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
@@ -107,7 +107,8 @@ def ops_manager(
     # configure OM to be using hybrid mode
     resource["spec"]["configuration"]["automation.versions.source"] = "hybrid"
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -121,7 +122,8 @@ def oplog_replica_set(
     ).configure(ops_manager, "oplog")
     resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -135,7 +137,8 @@ def blockstore_replica_set(
     ).configure(ops_manager, "blockstore")
     resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_tls_custom_ca
@@ -225,7 +228,8 @@ class TestBackupForMongodb:
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, first_project_certs)
-        return resource.create()
+        create_or_update(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_prev(
@@ -244,7 +248,8 @@ class TestBackupForMongodb:
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
-        return resource.create()
+        create_or_update(resource)
+        return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
