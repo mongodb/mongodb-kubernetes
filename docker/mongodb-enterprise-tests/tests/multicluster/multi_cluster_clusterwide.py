@@ -19,8 +19,6 @@ from kubetester.kubetester import KubernetesTester
 from kubetester import (
     create_secret,
     read_secret,
-    delete_cluster_role,
-    delete_cluster_role_binding,
     create_or_update_secret,
     create_or_update_configmap,
     create_or_update,
@@ -158,27 +156,6 @@ def install_operator(
         },
         central_cluster_name,
     )
-
-
-@mark.e2e_multi_cluster_specific_namespaces
-def test_delete_cluster_role_and_binding(
-    central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    role_names = [
-        "mongodb-enterprise-operator-multi-cluster-role",
-        "mongodb-enterprise-operator-multi-cluster",
-        "mongodb-enterprise-operator-multi-cluster-role-binding",
-    ]
-
-    for name in role_names:
-        delete_cluster_role(name, central_cluster_client)
-        delete_cluster_role_binding(name, central_cluster_client)
-
-    for name in role_names:
-        for client in member_cluster_clients:
-            delete_cluster_role(name, client.api_client)
-            delete_cluster_role_binding(name, client.api_client)
 
 
 @mark.e2e_multi_cluster_clusterwide
