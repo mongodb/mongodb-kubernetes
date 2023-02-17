@@ -251,9 +251,14 @@ type DbCommonSpec struct {
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
 
-	// ExposedExternally determines whether a NodePort service should be created for the resource
-	ExposedExternally bool  `json:"exposedExternally,omitempty"`
-	Persistent        *bool `json:"persistent,omitempty"`
+	// DEPRECATED: use ExternalAccessConfiguration instead
+	// +optional
+	ExposedExternally bool `json:"exposedExternally,omitempty"`
+	// ExternalAccessConfiguration provides external access configuration.
+	// +optional
+	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+
+	Persistent *bool `json:"persistent,omitempty"`
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
 	// +kubebuilder:validation:Required
 	ResourceType ResourceType `json:"type"`
@@ -280,6 +285,7 @@ type DbCommonSpec struct {
 	// +optional
 	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
+
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	DbCommonSpec                    `json:",inline"`
@@ -544,6 +550,13 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 
 func (d DbCommonSpec) GetSecurity() *Security {
 	return d.Security
+}
+
+func (d DbCommonSpec) GetExternalDomain() *string {
+	if d.ExternalAccessConfiguration != nil {
+		return d.ExternalAccessConfiguration.ExternalDomain
+	}
+	return nil
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1040,6 +1053,13 @@ func (m *MongoDB) InitDefaults() {
 
 	// ProjectName defaults to the name of the resource
 	m.Spec.ProjectName = m.Name
+
+	// External Access old API compatibility code
+	if m.Spec.ExposedExternally {
+		if m.Spec.ExternalAccessConfiguration == nil {
+			m.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{}
+		}
+	}
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
@@ -1079,6 +1099,29 @@ func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
 
+}
+
+// ExternalAccessConfiguration holds the custom Service override that will be merged into the operator created one.
+type ExternalAccessConfiguration struct {
+	// Provides a way to override the default (NodePort) Service
+	// +optional
+	ExternalService ExternalServiceConfiguration `json:"externalService,omitempty"`
+
+	// An external domain that is used for exposing MongoDB to the outside world.
+	// +optional
+	ExternalDomain *string `json:"externalDomain,omitempty"`
+}
+
+// ExternalServiceConfiguration is a wrapper for the Service spec object.
+type ExternalServiceConfiguration struct {
+	// A wrapper for the Service spec object.
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	SpecWrapper *ServiceSpecWrapper `json:"spec"`
+
+	// A map of annotations that shall be added to the externally available Service.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 func GetTransportSecurity(mdbLdap *Ldap) TransportSecurity {

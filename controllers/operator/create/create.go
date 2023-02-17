@@ -2,7 +2,6 @@ package create
 
 import (
 	"fmt"
-
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -12,6 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -54,11 +54,20 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	}
 
 	namespacedName = kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
-	if !mdb.Spec.DbCommonSpec.ExposedExternally {
+	if mdb.Spec.ExternalAccessConfiguration == nil {
 		return service.DeleteServiceIfItExists(client, namespacedName)
 	}
 
 	externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
+
+	if mdb.Spec.ExternalAccessConfiguration != nil {
+		if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
+			externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+		}
+		externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+	}
+
+	//FIXME: This needs to be a Service per ReplicaSet member.
 	return service.CreateOrUpdateService(client, externalService)
 
 }

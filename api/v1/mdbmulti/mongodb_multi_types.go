@@ -188,8 +188,12 @@ type ClusterSpecItem struct {
 	ClusterName string `json:"clusterName,omitempty"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
-	// ExposedExternally determines whether a NodePort service should be created for the resource
-	ExposedExternally bool `json:"exposedExternally,omitempty"`
+	// DEPRECATED: use ExternalAccessConfiguration instead
+	// +optional
+	ExposedExternally *bool `json:"exposedExternally,omitempty"`
+	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
+	// +optional
+	ExternalAccessConfiguration mdbv1.ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	Members int `json:"members"`
 	// +optional

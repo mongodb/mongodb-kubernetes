@@ -130,3 +130,23 @@ func (s *StatefulSetSpecWrapper) DeepCopy() *StatefulSetSpecWrapper {
 		Spec: s.Spec,
 	}
 }
+
+type ServiceSpecWrapper struct {
+	Spec corev1.ServiceSpec `json:"-"`
+}
+
+// MarshalJSON defers JSON encoding to the wrapped map
+func (s *ServiceSpecWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.Spec)
+}
+
+// UnmarshalJSON will decode the data into the wrapped map
+func (s *ServiceSpecWrapper) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &s.Spec)
+}
+
+func (s *ServiceSpecWrapper) DeepCopy() *ServiceSpecWrapper {
+	return &ServiceSpecWrapper{
+		Spec: s.Spec,
+	}
+}

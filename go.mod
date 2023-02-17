@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.2
 	github.com/hashicorp/vault/api v1.8.3
 	github.com/imdario/mergo v0.3.13
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.8-0.20230118145218-ccec80114b0b
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.9-0.20230209092905-1f64cf199633
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/prometheus/common v0.39.0
@@ -24,7 +24,7 @@ require (
 	github.com/stretchr/objx v0.5.0
 	github.com/stretchr/testify v1.8.1
 	github.com/xdg/stringprep v1.0.3
-	go.uber.org/zap v1.23.0
+	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
 	k8s.io/api v0.23.15
 	k8s.io/apimachinery v0.23.15

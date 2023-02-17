@@ -294,9 +294,32 @@ spec:
                 description: Name of the Secret holding credentials information
                 type: string
               exposedExternally:
-                description: ExposedExternally determines whether a NodePort service
-                  should be created for the resource
+                description: 'DEPRECATED: use ExternalAccessConfiguration instead'
                 type: boolean
+              externalAccess:
+                description: ExternalAccessConfiguration provides external access
+                  configuration.
+                properties:
+                  externalDomain:
+                    description: An external domain that is used for exposing MongoDB
+                      to the outside world.
+                    type: string
+                  externalService:
+                    description: Provides a way to override the default (NodePort)
+                      Service
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: A map of annotations that shall be added to the
+                          externally available Service.
+                        type: object
+                      spec:
+                        description: A wrapper for the Service spec object.
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                type: object
               featureCompatibilityVersion:
                 type: string
               logLevel:
