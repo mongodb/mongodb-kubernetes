@@ -11,7 +11,7 @@
   "readinessProbeVersion": "1.0.10",
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "12.0.15.7646-1",
-  "communityOperatorVersion": "0.7.8-0.20230118145218-ccec80114b0b",
+  "communityOperatorVersion": "0.7.9-0.20230209092905-1f64cf199633",
   "supportedImages": {
     "ops-manager": {
       "versions": [

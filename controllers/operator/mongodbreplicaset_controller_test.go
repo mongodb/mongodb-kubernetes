@@ -127,6 +127,73 @@ func TestScaleUpReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 4)
 }
 
+func TestExposedExternallyReplicaSet(t *testing.T) {
+	//given
+	rs := DefaultReplicaSetBuilder().SetMembers(3).ExposedExternally(nil, nil).Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	//when
+	checkReconcileSuccessful(t, reconciler, rs, client)
+	externalService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{},
+	}
+	err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
+
+	//then
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.ServiceTypeNodePort, externalService.Spec.Type)
+}
+
+func TestExposedExternallyReplicaSetWithBackwardsCompatibility(t *testing.T) {
+	//given
+	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+	//explicit test for deprecated function. Can be removed once we wipe it out from the APIs.
+	rs.Spec.ExposedExternally = true
+	rs.InitDefaults()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	//when
+	checkReconcileSuccessful(t, reconciler, rs, client)
+	externalService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{},
+	}
+	err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
+
+	//then
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.ServiceTypeNodePort, externalService.Spec.Type)
+}
+
+func TestExposedExternallyReplicaSetWithLoadBalancer(t *testing.T) {
+	//given
+	rs := DefaultReplicaSetBuilder().
+		SetMembers(3).
+		ExposedExternally(
+			&corev1.ServiceSpec{
+				Type:           corev1.ServiceTypeLoadBalancer,
+				LoadBalancerIP: "10.0.0.1",
+			},
+			map[string]string{"test": "test"}).
+		Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	//when
+	checkReconcileSuccessful(t, reconciler, rs, client)
+	externalService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{},
+	}
+	err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
+
+	//then
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.ServiceTypeLoadBalancer, externalService.Spec.Type)
+	assert.Equal(t, "10.0.0.1", externalService.Spec.LoadBalancerIP)
+	assert.Equal(t, map[string]string{"test": "test"}, externalService.Annotations)
+}
+
 func TestCreateReplicaSet_TLS(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetMembers(3).EnableTLS().SetTLSCA("custom-ca").Build()
 
@@ -519,7 +586,6 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		assert.Equal(t, uuidStr, config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
-
 }
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment
@@ -726,4 +792,15 @@ func (b *ReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *Rep
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.MongoDB.DeepCopy()
+}
+
+func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, annotationsOverride map[string]string) *ReplicaSetBuilder {
+	b.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+	if specOverride != nil {
+		b.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &mdbv1.ServiceSpecWrapper{Spec: *specOverride}
+	}
+	if len(annotationsOverride) > 0 {
+		b.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride
+	}
+	return b
 }
