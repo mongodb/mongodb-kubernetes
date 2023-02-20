@@ -37,7 +37,7 @@ var (
 
 	// List of allowed operator environments. The first element of this list is
 	// considered the default one.
-	operatorEnvironments = []string{"dev", "local", "prod"}
+	operatorEnvironments = []string{util.OperatorEnvironmentDev, util.OperatorEnvironmentLocal, util.OperatorEnvironmentProd}
 
 	scheme = runtime.NewScheme()
 )

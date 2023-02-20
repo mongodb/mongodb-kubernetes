@@ -143,6 +143,11 @@ dump_secrets() {
     done
 }
 
+dump_metrics() {
+  local namespace="${1}"
+  kubectl exec -it deployment/mongodb-enterprise-operator  -n "${namespace}" -- curl localhost:8080/metrics > "logs/metrics.txt"
+}
+
 # dump_pods writes logs for each relevant Pod in the namespace: agent, mongodb
 # logs, etc.
 dump_pods() {
@@ -215,4 +220,6 @@ dump_namespace() {
 
     # shellcheck disable=SC2046
     kubectl describe $(kubectl get crd -o name | grep mongodb.com) > "logs/${prefix}z_mongodb_crds.log"
+
+    dump_metrics "${namespace}"
 }
