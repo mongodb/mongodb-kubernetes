@@ -4,7 +4,7 @@ IMAGE_VERSION=0.12
 all: build push install
 
 build:
-	docker build -t dev/cluster-cleaner:$(IMAGE_VERSION) .
+	docker build --platform linux/amd64 -t dev/cluster-cleaner:$(IMAGE_VERSION) .
 
 push:
 	$(aws ecr get-login --no-include-email --region us-east-1 || true)

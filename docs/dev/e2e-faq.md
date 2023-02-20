@@ -1,3 +1,19 @@
+- [E2E Tests](#e2e-tests)
+    * [General](#general)
+- [How to choose the taskGroup/buildVariant for an e2e test](#how-to-choose-the-taskgroup-buildvariant-for-an-e2e-test)
+- [Choose the correct tag](#choose-the-correct-tag)
+    * [FAQ](#faq)
+        - [How to connect to Openshift e2e cluster?](#how-to-connect-to-openshift-e2e-cluster-)
+        - [How to connect to kops e2e cluster?](#how-to-connect-to-kops-e2e-cluster-)
+        - [How to recreate e2e kops cluster?](#how-to-recreate-e2e-kops-cluster-)
+        - [How to recreate e2e Openshift cluster?](#how-to-recreate-e2e-openshift-cluster-)
+        - [If the test has failed - how to check what happened there?](#if-the-test-has-failed---how-to-check-what-happened-there-)
+        - [Cleaning old namespaces via CronJob](#cleaning-old-namespaces-via-cronjob)
+        - [How to avoid my test Namespaces being deleted?](#how-to-avoid-my-test-namespaces-being-deleted-)
+        - [Problems with EBS volumes](#problems-with-ebs-volumes)
+        - [Error terminating Ops Manager instance](#error-terminating-ops-manager-instance)
+        - [SSH access to nodes](#ssh-access-to-nodes)
+
 # E2E Tests
 
 ## General
@@ -47,15 +63,26 @@ If your test is supposed to be run during patches, then make sure you add the
 ```
 means that in the PRs the test will be run in the build variant `e2e_openshift_cloud_qa`
 **It's important to make sure that the task group which the test belongs to is run by this build 
-variant!** Otherwise the test may be skipped from PR run totally and may get red only after merge 
+variant!** Otherwise, the test may be skipped from PR run totally and may get red only after merge 
 to master.
 
 ## FAQ
 #### How to connect to Openshift e2e cluster?
+##### How to connect to the Console/WebUI
+- The entry point of finding the openshift url should be the evergreen project setting page
+- Go to evergreen (our ci) and our project, currently: https://evergreen.mongodb.com/projects##ops-manager-kubernetes
+and find the openshift url from the variables, currently it is: `openshift_url`
+- Use the URL and edit it to access the console 
+  - replace `api` with `https://console-openshift-console.apps`
+  - replace the port with 80 (default http port)
+  - finally it should look like something like this: https://console-openshift-console.apps.kubeteam.invq.p1.openshiftapps.com/
+- Ping your lead to share access credentials
 
-Access the [OpenShift Web
-Console](https://console-openshift-console.apps.openshift.mongokubernetes.com).
-The person who created the cluster should have saved the credentials.
+With these you should be able to see the following page to login.
+![img.png](login.png)
+
+##### How to connect to the cluster via kubectl
+- Follow the guide as described here: https://www.rosaworkshop.io/rosa/6-access_cluster/
 
 #### How to connect to kops e2e cluster?
 ```bash
