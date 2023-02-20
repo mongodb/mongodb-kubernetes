@@ -6,10 +6,15 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/prometheus/client_golang/prometheus"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +24,33 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 )
+
+const (
+	OMClientSubsystem = "om_client"
+	ResultKey         = "requests_total"
+)
+
+var (
+	omClient = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Subsystem: OMClientSubsystem,
+		Name:      ResultKey,
+		Help:      "Number of HTTP requests, partitioned by status code, method, and path.",
+	}, []string{"code", "method", "path"})
+)
+
+func init() {
+	// Register custom metrics with the global prometheus registry
+	if os.Getenv(util.OmOperatorEnv) != util.OperatorEnvironmentProd {
+		zap.S().Debugf("collecting operator specific debug metrics")
+		registerClientMetrics()
+	}
+}
+
+// registerClientMetrics sets up the operator om client metrics.
+func registerClientMetrics() {
+	// register the metrics with our registry
+	metrics.Registry.MustRegister(omClient)
+}
 
 const (
 	defaultRetryWaitMin = 1 * time.Second
@@ -172,8 +204,10 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, apierror.New(fmt.Errorf("Error sending %s request to %s: %v", method, url, err))
+		return nil, nil, apierror.New(fmt.Errorf("error sending %s request to %s: %v", method, url, err))
 	}
+
+	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
 
 	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
 	// resulting in logging authorizeRequest

@@ -277,6 +277,12 @@ const (
 	RetryTimeSec = 10
 )
 
+const (
+	OperatorEnvironmentDev   string = "dev"
+	OperatorEnvironmentProd         = "prod"
+	OperatorEnvironmentLocal        = "local"
+)
+
 // ***** These variables are set at compile time
 
 // OperatorVersion is the version of the current Operator. Important: currently it's empty when the Operator is
