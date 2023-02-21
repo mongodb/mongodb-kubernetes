@@ -10,8 +10,6 @@ imagePullSecrets:
   - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
 
-{{- end }}
-
 {{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
@@ -104,6 +102,35 @@ rules:
       - watch
 {{- end}}
 
+{{- range $idx, $namespace := $watchNamespace }}
+
+{{- $namespaceBlock := "" }}
+{{- if not (eq $namespace "*") }}
+{{- $namespaceBlock = printf "namespace: %s" $namespace }}
+{{- end }}
+
+---
+{{- if eq $namespace "*" }}
+kind: ClusterRoleBinding
+{{- else }}
+kind: RoleBinding
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $.Values.operator.name }}
+  {{ $namespaceBlock }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $roleScope }}
+  name: {{ $.Values.operator.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.operator.name }}
+    namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
+{{- end }}
+
+{{- end }}
+
 # This ClusterRoleBinding is necessary in order to use validating
 # webhooks—these will prevent you from applying a variety of invalid resource
 # definitions. The validating webhooks are optional so this can be removed if
@@ -149,30 +176,3 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
-
-{{- range $idx, $namespace := $watchNamespace }}
-
-{{- $namespaceBlock := "" }}
-{{- if not (eq $namespace "*") }}
-{{- $namespaceBlock = printf "namespace: %s" $namespace }}
-{{- end }}
-
----
-{{- if eq $namespace "*" }}
-kind: ClusterRoleBinding
-{{- else }}
-kind: RoleBinding
-{{- end }}
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ $.Values.operator.name }}
-  {{ $namespaceBlock }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: {{ $roleScope }}
-  name: {{ $.Values.operator.name }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ $.Values.operator.name }}
-    namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
-{{- end }}

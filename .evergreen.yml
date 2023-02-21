@@ -73,10 +73,10 @@ variables:
     # Multi Cluster Environment with 2 clusters
   - &kubernetes_environment_multi_cluster_2_clusters
     kube_environment_name: multi
-    CLUSTER_TYPE: kops
-    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com"
-    central_cluster: e2e.cluster1.mongokubernetes.com
-    test_pod_cluster: e2e.cluster1.mongokubernetes.com
+    CLUSTER_TYPE: kind
+    member_clusters: "kind-e2e-cluster-1 kind-e2e-cluster-2"
+    central_cluster: kind-e2e-cluster-1
+    test_pod_cluster: kind-e2e-cluster-1
 
   - &kubernetes_environment_kind
     kube_environment_name: kind
@@ -966,16 +966,6 @@ tasks:
         <<: [ *kubernetes_environment_multi_cluster ]
     - func: prepare_test_env
 
-- name: prepare_multi_cluster_2_clusters
-  priority: 59
-  commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_kubernetes_environment
-      vars:
-        <<: [ *kubernetes_environment_multi_cluster_2_clusters ]
-    - func: prepare_test_env
-
 - name: prepare_aws
   priority: 59
   commands:
@@ -1831,6 +1821,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_2_clusters_clusterwide
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_recover
   tags: ["patch-run"]
   commands:
@@ -2178,6 +2173,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_multi_cluster_2_clusters_replica_set
+    - e2e_multi_cluster_2_clusters_clusterwide
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2610,13 +2606,11 @@ buildvariants:
 - name: e2e_multi_cluster_2_clusters
   display_name: e2e_multi_cluster_2_clusters
   run_on:
-    - ubuntu1804-large
+    - ubuntu1804-xlarge
   depends_on:
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
-      variant: init_test_run
-    - name: prepare_multi_cluster_2_clusters
       variant: init_test_run
     - name: build_init_database_image_ubi
       variant: init_test_run

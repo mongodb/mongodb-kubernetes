@@ -81,9 +81,20 @@ class Certificate(CertificateType, WaitForConditions):
 IssuerType = CustomObject.define(
     "Issuer", kind="Issuer", plural="issuers", group="cert-manager.io", version="v1"
 )
+ClusterIssuerType = CustomObject.define(
+    "ClusterIssuer",
+    kind="ClusterIssuer",
+    plural="clusterissuers",
+    group="cert-manager.io",
+    version="v1",
+)
 
 
 class Issuer(IssuerType, WaitForConditions):
+    Reason = "KeyPairVerified"
+
+
+class ClusterIssuer(ClusterIssuerType, WaitForConditions):
     Reason = "KeyPairVerified"
 
 
@@ -101,6 +112,7 @@ def generate_cert(
     vault_subpath: Optional[str] = None,
     dns_list: Optional[List[str]] = None,
     common_name: Optional[str] = None,
+    clusterwide: bool = False,
 ) -> str:
     if spec is None:
         spec = dict()
@@ -124,10 +136,14 @@ def generate_cert(
     if additional_domains is not None:
         dns_names += additional_domains
 
+    issuerRef = {"name": issuer, "kind": "Issuer"}
+    if clusterwide:
+        issuerRef["kind"] = "ClusterIssuer"
+
     cert["spec"] = {
         "dnsNames": dns_names,
         "secretName": secret_name,
-        "issuerRef": {"name": issuer},
+        "issuerRef": issuerRef,
         "duration": "240h",
         "renewBefore": "120h",
         "usages": ["server auth", "client auth"],
@@ -331,6 +347,7 @@ def create_multi_cluster_tls_certs(
     mongodb_multi: MongoDBMulti,
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
+    clusterwide: bool = False,
 ) -> str:
     service_fqdns = [
         f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"
@@ -359,6 +376,7 @@ def create_multi_cluster_tls_certs(
         secret_name=secret_name,
         vault_subpath="database",
         dns_list=service_fqdns,
+        clusterwide=clusterwide,
     )
 
     return secret_name
@@ -402,6 +420,7 @@ def create_multi_cluster_mongodb_tls_certs(
     central_cluster_client: kubernetes.client.ApiClient,
     mongodb_multi: MongoDBMulti,
     additional_domains: Optional[List[str]] = None,
+    clusterwide: bool = False,
 ) -> str:
     # create the "source-of-truth" tls cert in central cluster
     create_multi_cluster_tls_certs(
@@ -411,6 +430,7 @@ def create_multi_cluster_mongodb_tls_certs(
         secret_name=bundle_secret_name,
         mongodb_multi=mongodb_multi,
         additional_domains=additional_domains,
+        clusterwide=clusterwide,
     )
 
     return bundle_secret_name

@@ -237,7 +237,6 @@ def create_service_entries_objects(
 
 def cluster_spec_list(member_cluster_names: List[str], members: List[int]):
     return [
-        {"clusterName": member_cluster_names[0], "members": 2},
-        {"clusterName": member_cluster_names[1], "members": 1},
-        {"clusterName": member_cluster_names[2], "members": 2},
+        {"clusterName": name, "members": members}
+        for (name, members) in zip(member_cluster_names, members)
     ]

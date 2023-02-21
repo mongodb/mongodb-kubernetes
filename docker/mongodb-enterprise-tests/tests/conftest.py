@@ -14,7 +14,7 @@ from kubetester import (
 )
 
 from kubetester.awss3client import AwsS3Client
-from kubetester.certs import Issuer, Certificate
+from kubetester.certs import Issuer, Certificate, ClusterIssuer
 from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
 from kubetester.http import get_retriable_https_session
@@ -230,6 +230,15 @@ def multi_cluster_issuer(
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
     return create_issuer(namespace, central_cluster_client)
+
+
+@fixture(scope="module")
+def multi_cluster_clusterissuer(
+    multi_cluster_cert_manager: str,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+) -> str:
+    return create_issuer(namespace, central_cluster_client, clusterwide=True)
 
 
 @fixture(scope="module")
@@ -451,7 +460,6 @@ def multi_cluster_operator(
         run_kube_config_creation_tool(
             member_cluster_names, namespace, namespace, member_cluster_names
         )
-
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -933,7 +941,11 @@ def run_multi_cluster_recovery_tool(
     return 0
 
 
-def create_issuer(namespace: str, api_client: Optional[client.ApiClient] = None):
+def create_issuer(
+    namespace: str,
+    api_client: Optional[client.ApiClient] = None,
+    clusterwide: bool = False,
+):
     """
     This fixture creates an "Issuer" in the testing namespace. This requires cert-manager to be installed in the cluster.
     The ca-tls.key and ca-tls.crt are the private key and certificates used to generate
@@ -952,9 +964,14 @@ def create_issuer(namespace: str, api_client: Optional[client.ApiClient] = None)
     )
 
     try:
-        client.CoreV1Api(api_client=api_client).create_namespaced_secret(
-            namespace, secret
-        )
+        if clusterwide:
+            client.CoreV1Api(api_client=api_client).create_namespaced_secret(
+                "cert-manager", secret
+            )
+        else:
+            client.CoreV1Api(api_client=api_client).create_namespaced_secret(
+                namespace, secret
+            )
     except client.rest.ApiException as e:
         if e.status == 409:
             print("ca-key-pair already exists")
@@ -962,7 +979,11 @@ def create_issuer(namespace: str, api_client: Optional[client.ApiClient] = None)
             raise e
 
     # And then creates the Issuer
-    issuer = Issuer(name="ca-issuer", namespace=namespace)
+    if clusterwide:
+        issuer = ClusterIssuer(name="ca-issuer", namespace="")
+    else:
+        issuer = Issuer(name="ca-issuer", namespace=namespace)
+
     issuer["spec"] = {"ca": {"secretName": "ca-key-pair"}}
     issuer.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
 
