@@ -9,20 +9,23 @@ from kubetester.operator import Operator
 from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
 from kubetester.mongotester import with_tls
 
+from .conftest import cluster_spec_list
+
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
 BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
+def mongodb_multi_unmarshalled(
+    namespace: str, member_cluster_names: List[str]
+) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
     )
-    resource["spec"]["clusterSpecList"] = [
-        {"clusterName": "e2e.cluster1.mongokubernetes.com", "members": 2},
-        {"clusterName": "e2e.cluster2.mongokubernetes.com", "members": 1},
-    ]
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1]
+    )
     return resource
 
 
@@ -64,12 +67,14 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_replica_set
-def test_create_kube_config_file(cluster_clients: Dict):
+def test_create_kube_config_file(
+    cluster_clients: Dict, member_cluster_names: List[str]
+):
     clients = cluster_clients
 
     assert len(clients) == 2
-    assert "e2e.cluster1.mongokubernetes.com" in clients
-    assert "e2e.cluster2.mongokubernetes.com" in clients
+    assert member_cluster_names[0] in clients
+    assert member_cluster_names[1] in clients
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_replica_set

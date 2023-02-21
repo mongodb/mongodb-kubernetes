@@ -601,27 +601,31 @@ func getCentralRules() []rbacv1.PolicyRule {
 	return []rbacv1.PolicyRule{
 		{
 			Verbs: []string{"*"},
-			Resources: []string{"mongodbmulti", "mongodbmulti/finalizers", "mongousers",
-				"opsmanagers", "opsmanagers/finalizers",
-				"mongodb", "mongodb/finalizers"},
+			Resources: []string{
+				"mongodbmulti", "mongodbmulti/finalizers", "mongodbmulti/status",
+				"mongodbusers", "mongodbusers/status",
+				"opsmanagers", "opsmanagers/finalizers", "opsmanagers/status",
+				"mongodb", "mongodb/finalizers", "mongodb/status"},
 			APIGroups: []string{"mongodb.com"},
 		},
 	}
 }
 
 func buildCentralEntityRole(namespace string) rbacv1.Role {
+	rules := append(getCentralRules(), getMemberRules()...)
 	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mongodb-enterprise-operator-multi-role",
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
-		Rules: getCentralRules(),
+		Rules: rules,
 	}
 }
 
 func buildCentralEntityClusterRole() rbacv1.ClusterRole {
-	rules := append(getCentralRules(), rbacv1.PolicyRule{
+	rules := append(getCentralRules(), getMemberRules()...)
+	rules = append(rules, rbacv1.PolicyRule{
 		Verbs:     []string{"list", "watch"},
 		Resources: []string{"namespaces"},
 		APIGroups: []string{""},
@@ -748,6 +752,9 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 			Namespace: namespace,
 			Labels:    multiClusterLabels(),
 		},
+		ImagePullSecrets: []corev1.LocalObjectReference{
+			{Name: "image-registries-secret"},
+		},
 	}
 
 	_, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
@@ -800,7 +807,23 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 
 // createServiceAccountsAndRoles creates the required ServiceAccounts in all member clusters.
 func createServiceAccountsAndRoles(ctx context.Context, clientMap map[string]kubernetes.Interface, f flags) error {
+	fmt.Printf("creating central cluster roles in cluster: %s\n", f.centralCluster)
+	c := clientMap[f.centralCluster]
+	if err := createCentralClusterServiceAccountAndRoles(ctx, c, f); err != nil {
+		return err
+	}
+	if f.createServiceAccountSecrets {
+		if err := createServiceAccountTokenSecret(ctx, c, f.centralClusterNamespace, f.serviceAccount); err != nil {
+			return err
+		}
+	}
+
 	for _, memberCluster := range f.memberClusters {
+		if memberCluster == f.centralCluster {
+			fmt.Printf("skipping creation of member roles in cluster (it is also the central cluster): %s\n", memberCluster)
+			continue
+		}
+		fmt.Printf("creating member roles in cluster: %s\n", memberCluster)
 		c := clientMap[memberCluster]
 		if err := createMemberServiceAccountAndRoles(ctx, c, f); err != nil {
 			return err
@@ -809,15 +832,6 @@ func createServiceAccountsAndRoles(ctx context.Context, clientMap map[string]kub
 			if err := createServiceAccountTokenSecret(ctx, c, f.memberClusterNamespace, f.serviceAccount); err != nil {
 				return err
 			}
-		}
-	}
-	c := clientMap[f.centralCluster]
-	if err := createCentralClusterServiceAccountAndRoles(ctx, c, f); err != nil {
-		return err
-	}
-	if f.createServiceAccountSecrets {
-		if err := createServiceAccountTokenSecret(ctx, c, f.centralClusterNamespace, f.serviceAccount); err != nil {
-			return err
 		}
 	}
 
