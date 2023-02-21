@@ -1,20 +1,19 @@
 from typing import Dict, List
+
 import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 
 from kubetester import create_or_update
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.operator import Operator
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     skip_if_local,
     KubernetesTester,
 )
-from kubernetes import client
-
+from kubetester.mongodb import Phase
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.operator import Operator
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -35,8 +34,6 @@ def mongodb_multi(
 
     create_or_update(resource)
     return resource
-
-
 
 
 @pytest.mark.e2e_multi_cluster_replica_set

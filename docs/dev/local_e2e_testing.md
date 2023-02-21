@@ -31,7 +31,7 @@
 
 ### Context variables
 
-Use context file from `scripts/dev/multi-kind`
+Use and modify context file from `scripts/dev/samples/multi-kind`
 
 ### Example context file - run local tests against Kind clusters on remote EVG host
 
@@ -54,13 +54,11 @@ source ~/.operator-dev/contexts/multi-kind
 ### Running tests against Kind clusters
 
 #### Prepare env
-
 * `make switch context=<context-name>` - this generates the following files containing environment variables:
     * `~/.operator-dev/context.env` - all env variables from context file in the form: `VAR="VALUE"`. E2E test requires these env variables.
     * `~/.operator-dev/context.export.env` - same as above, but with exported form : `export VAR="VALUE"`, which can be sourced to current session.
     * `~/.operator-dev/context.operator.env` - env variables from the context required by the operator binary in not-exported env form.
     * `~/.operator-dev/context.operator.export.env` - same as above, but in exported form.
-
 * `scripts/dev/recreate_kind_clusters.sh` - recreates all kind clusters for multi-cluster
 * `make aws_login` - important to make sure you have up-to-date tokens for ECR.
 * `scripts/dev/prepare_local_e2e_run.sh` - cleans/creates current namespace in central and all member clusters; executes multi-cluster cli; installs CRD in central cluster.
@@ -142,9 +140,18 @@ Testing on Kind clusters deployed on remote host works similar to locally deploy
 * Run `scripts/dev/evg_host.sh recreate-kind-clusters` to create kind clusters on remote host and copy kubeconfig to `~/.operator-dev/evg-host.kubeconfig`.
 * Run `scripts/dev/evg_host.sh tunnel` to expose locally all api servers.
 
-#### Run the tests locally
+#### All steps combined to run test locally
 
-Running tests looks identical to running tests against local Kind clusters.
+Generally, running tests looks identical to running tests against local Kind clusters.
+
+* [only the first time] `scripts/dev/evg_host.sh configure`
+* [only the first time] `scripts/dev/evg_host.sh recreate-kind-clusters`
+* [in a new terminal] `scripts/dev/evg_host.sh tunnel` 
+* `cp multi-kind context to ~/.operator-dev`
+  * `make updates to the env vars marked with <UPDATE ME>`
+* `source ~/.operator-dev/contexts/multi-kind`
+* `./scripts/dev/prepare_local_e2e_run.sh` - This script creates all the necessary files our test automation relies on. 
+
 
 #### Other uses of `evg_host.sh` script
 
