@@ -188,7 +188,7 @@ prepare_multi_cluster_e2e_run() {
       goarch="arm64"
     fi
 
-    (cd public/tools/multicluster/; GOOS=darwin GOARCH="${goarch}" go build -o ../../../docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator main.go)
+    (cd public/tools/multicluster/; GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go)
     PATH=$PATH:docker/mongodb-enterprise-tests
   fi
 

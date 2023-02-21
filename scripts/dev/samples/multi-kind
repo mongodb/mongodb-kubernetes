@@ -1,11 +1,12 @@
 export NAMESPACE=your-namespace
 # absolute path to ops-manager-kubernetes dir
-export PROJECT_DIR=/path/to/ops-manager-kubernetes
-export RED_HAT_TOKEN=eyJhb...
-export AWS_ACCESS_KEY_ID=ABC...
-export AWS_SECRET_ACCESS_KEY=e4af...
+export PROJECT_DIR=/path/to/ops-manager-kubernetes # <UPDATE ME>
+export RED_HAT_TOKEN=eyJhb... # <UPDATE ME>
+export AWS_ACCESS_KEY_ID=ABC... # <UPDATE ME>
+export AWS_SECRET_ACCESS_KEY=e4af... # <UPDATE ME>
+export CURRENT_NAMESPACE=evg-namespace # <UPDATE ME>
 # repo used as OPERATOR_REGISTRY when not using local operator
-export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/<your-ecr-registry>
+export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/<your-ecr-registry> # <UPDATE ME>
 
 # comment this or set to empty to use local kind clusters
 # export EVG_HOST_NAME=""
@@ -74,6 +75,10 @@ export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
 export DATABASE_VERSION=latest
 export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
 export APPDB_REGISTRY=${QUAY_REGISTRY}
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
+export OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-ops-manager"
 
 export agent_version=12.0.4.7554-1
 
@@ -83,3 +88,10 @@ export CUSTOM_OM_VERSION=6.0.7
 export CUSTOM_OM_PREV_VERSION=5.0.1
 export CUSTOM_MDB_VERSION=5.0.5
 export CUSTOM_MDB_PREV_VERSION=5.0.1
+
+# OM Credentials
+export OM_HOST=https://cloud-qa.mongodb.com # <UPDATE ME>
+export OM_BASE_URL=https://cloud-qa.mongodb.com # <UPDATE ME>
+export OM_USER=dasdada # <UPDATE ME>
+export OM_API_KEY=0321312-312312-321 # <UPDATE ME>
+export OM_ORGID=63bec8638facb45e76c9cfe8 # <UPDATE ME>
