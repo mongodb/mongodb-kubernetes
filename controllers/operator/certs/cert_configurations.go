@@ -24,7 +24,7 @@ const (
 type X509CertConfigurator interface {
 	GetName() string
 	GetNamespace() string
-	GetSecurity() *mdbv1.Security
+	GetDbCommonSpec() mdbv1.DbCommonSpec
 	GetCertOptions() []Options
 	GetSecretReadClient() secrets.SecretClient
 	GetSecretWriteClient() secrets.SecretClient
@@ -47,6 +47,10 @@ func (rs ReplicaSetX509CertConfigurator) GetSecretReadClient() secrets.SecretCli
 
 func (rs ReplicaSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
 	return rs.SecretClient
+}
+
+func (rs ReplicaSetX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
+	return rs.Spec.DbCommonSpec
 }
 
 type ShardedSetX509CertConfigurator struct {
@@ -77,6 +81,10 @@ func (sc ShardedSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretCl
 	return sc.SecretClient
 }
 
+func (sc ShardedSetX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
+	return sc.Spec.DbCommonSpec
+}
+
 type StandaloneX509CertConfigurator struct {
 	*mdbv1.MongoDB
 	SecretClient secrets.SecretClient
@@ -96,9 +104,14 @@ func (s StandaloneX509CertConfigurator) GetSecretWriteClient() secrets.SecretCli
 	return s.SecretClient
 }
 
+func (s StandaloneX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
+	return s.Spec.DbCommonSpec
+}
+
 type MongoDBMultiX509CertConfigurator struct {
 	*mdbmulti.MongoDBMulti
 	ClusterNum        int
+	ClusterName       string
 	Replicas          int
 	SecretReadClient  secrets.SecretClient
 	SecretWriteClient secrets.SecretClient
@@ -107,7 +120,7 @@ type MongoDBMultiX509CertConfigurator struct {
 var _ X509CertConfigurator = MongoDBMultiX509CertConfigurator{}
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetCertOptions() []Options {
-	return []Options{MultiReplicaSetConfig(*mdbm.MongoDBMulti, mdbm.ClusterNum, mdbm.Replicas)}
+	return []Options{MultiReplicaSetConfig(*mdbm.MongoDBMulti, mdbm.ClusterNum, mdbm.ClusterName, mdbm.Replicas)}
 }
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
@@ -116,6 +129,10 @@ func (mdbm MongoDBMultiX509CertConfigurator) GetSecretReadClient() secrets.Secre
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
 	return mdbm.SecretWriteClient
+}
+
+func (mdbm MongoDBMultiX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
+	return mdbm.Spec.DbCommonSpec
 }
 
 type Options struct {
@@ -135,6 +152,8 @@ type Options struct {
 	// ClusterDomain is the cluster domain for the resource
 	ClusterDomain                string
 	additionalCertificateDomains []string
+	// External domain for external access (if enabled)
+	ExternalDomain *string
 
 	// horizons is an array of MongoDBHorizonConfig which is used to determine any
 	// additional cert domains required.
@@ -156,6 +175,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
 
@@ -172,6 +192,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
 
@@ -202,11 +223,12 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
 
 // MultiReplicaSetConfig returns a struct which provides all of thr configuration required for a given MongoDB Multi Replicaset.
-func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int) Options {
+func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum int, clusterName string, replicas int) Options {
 	return Options{
 		ResourceName:              mdbm.MultiStatefulsetName(clusterNum),
 		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
@@ -216,6 +238,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum, replicas int)
 		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
 		ClusterMode:               multi,
 		OwnerReference:            mdbm.GetOwnerReferences(),
+		ExternalDomain:            mdbm.ExternalMemberClusterDomain(clusterName),
 	}
 }
 
@@ -231,6 +254,7 @@ func MongosConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
 
@@ -247,6 +271,7 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, scaler scale.ReplicaSetScaler) Options {
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
 

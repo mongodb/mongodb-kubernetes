@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"reflect"
 	"sort"
 
@@ -96,7 +97,7 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
-func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	agents.UpgradeAllIfNeeded(r.client, r.SecretClient, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
@@ -357,7 +358,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		}
 
 		// Ensure TLS for multi-cluster statefulset in each cluster
-		mrsConfig := certs.MultiReplicaSetConfig(mrs, clusterNum, replicasThisReconciliation)
+		mrsConfig := certs.MultiReplicaSetConfig(mrs, clusterNum, item.ClusterName, replicasThisReconciliation)
 		if status := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, secretMemberClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
 			return status
 		}
@@ -536,7 +537,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnamesToAdd := dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members)
+		hostnamesToAdd := dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, spec.ExternalAccessConfiguration.ExternalDomain)
 		hostnames = append(hostnames, hostnamesToAdd...)
 	}
 
@@ -544,6 +545,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	if err != nil {
 		return err
 	}
+
+	//len:8, cap:8
 
 	processIds, err := getExistingProcessIds(conn, mrs)
 	if err != nil {
@@ -651,6 +654,34 @@ func getSRVService(mrs *mdbmultiv1.MongoDBMulti) corev1.Service {
 	return svc
 }
 
+func getExternalService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) corev1.Service {
+	clusterNum := mrs.ClusterNum(clusterName)
+
+	svc := getService(mrs, clusterName, podNum)
+	svc.Name = svc.Name + "-external"
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+
+	externalDomain := mrs.ExternalMemberClusterDomain(clusterName)
+	if externalDomain != nil {
+		// first we override with the Service spec from the root and then from a specific cluster.
+		if mrs.Spec.ExternalAccessConfiguration != nil {
+			globalOverrideSpecWrapper := mrs.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper
+			if globalOverrideSpecWrapper != nil {
+				svc.Spec = merge.ServiceSpec(svc.Spec, globalOverrideSpecWrapper.Spec)
+			}
+		}
+
+		clusterLevelOverrideSpec := mrs.Spec.ClusterSpecList[clusterNum].ExternalAccessConfiguration.ExternalService.SpecWrapper
+		additionalAnnotations := mrs.Spec.ClusterSpecList[clusterNum].ExternalAccessConfiguration.ExternalService.Annotations
+		if clusterLevelOverrideSpec != nil {
+			svc.Spec = merge.ServiceSpec(svc.Spec, clusterLevelOverrideSpec.Spec)
+		}
+		svc.Annotations = merge.StringToStringMap(svc.Annotations, additionalAnnotations)
+	}
+
+	return svc
+}
+
 func getService(mrs *mdbmultiv1.MongoDBMulti, clusterName string, podNum int) corev1.Service {
 	svcLabels := map[string]string{
 		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(mrs.Name, mrs.ClusterNum(clusterName), podNum),
@@ -688,24 +719,28 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	// by default we would create the duplicate services
+	// by default, we would create the duplicate services
 	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
 	if shouldCreateDuplicates {
 		// iterate over each cluster and create service object corresponding to each of the pods in the multi-cluster RS.
 		for k, v := range r.memberClusterClientsMap {
 			for _, e := range clusterSpecList {
 				if stringutil.Contains(failedClusterNames, e.ClusterName) {
-					log.Warnf("failed to create duplicate service: cluster %s is marked as failed", e.ClusterName)
+					log.Warnf("failed to create duplicate services: cluster %s is marked as failed", e.ClusterName)
 					continue
 				}
 				for podNum := 0; podNum < e.Members; podNum++ {
-					svc := getService(mrs, e.ClusterName, podNum)
+					var svc corev1.Service
+					if mrs.ExternalMemberClusterDomain(e.ClusterName) != nil {
+						svc = getExternalService(mrs, e.ClusterName, podNum)
+					} else {
+						svc = getService(mrs, e.ClusterName, podNum)
+					}
 					err := service.CreateOrUpdateService(v, svc)
-
 					if err != nil && !apiErrors.IsAlreadyExists(err) {
 						return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, k, err)
 					}
-					log.Infof("Successfully created service: %s in cluster: %s", svc.Name, k)
+					log.Infof("Successfully created services in cluster: %s", k)
 				}
 			}
 		}
@@ -714,17 +749,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 
 	for _, e := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, e.ClusterName) {
-			log.Warnf(fmt.Sprintf("failed to create service: cluster %s is marked as failed", e.ClusterName))
+			log.Warnf(fmt.Sprintf("failed to create services: cluster %s is marked as failed", e.ClusterName))
 			continue
 		}
 
 		client, ok := r.memberClusterClientsMap[e.ClusterName]
 		if !ok {
-			log.Warnf(fmt.Sprintf("failed to create service: cluster %s missing from client map", e.ClusterName))
+			log.Warnf(fmt.Sprintf("failed to create services: cluster %s missing from client map", e.ClusterName))
 			continue
 		}
 		if e.Members == 0 {
-			log.Warnf("skipping service creation: no members assigned to cluster %s", e.ClusterName)
+			log.Warnf("skipping services creation: no members assigned to cluster %s", e.ClusterName)
 			continue
 		}
 
@@ -736,24 +771,35 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
 
 		for podNum := 0; podNum < e.Members; podNum++ {
-			svc := getService(mrs, e.ClusterName, podNum)
+			var svc corev1.Service
+			if mrs.ExternalMemberClusterDomain(e.ClusterName) != nil {
+				svc = getExternalService(mrs, e.ClusterName, podNum)
+			} else {
+				svc = getService(mrs, e.ClusterName, podNum)
+
+			}
 			err := service.CreateOrUpdateService(client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return fmt.Errorf("failed to created service: %s in cluster: %s, err: %v", svc.Name, e.ClusterName, err)
 			}
-
-			log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
+			log.Infof("Successfully created services in cluster: %s", e.ClusterName)
 		}
 	}
 	return nil
 }
 
-func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, members int) corev1.ConfigMap {
+func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMulti, clusterNum int, clusterName string, members int) corev1.ConfigMap {
 	data := make(map[string]string)
 
+	externalDomain := mrs.ExternalMemberClusterDomain(clusterName)
 	for podNum := 0; podNum < members; podNum++ {
 		key := dns.GetMultiPodName(mrs.Name, clusterNum, podNum)
-		value := fmt.Sprintf("%s.%s.svc.cluster.local", dns.GetServiceName(mrs.Name, clusterNum, podNum), mrs.Namespace)
+		var value string
+		if externalDomain != nil {
+			value = dns.GetMultiServiceExternalDomain(mrs.Name, *externalDomain, clusterNum, podNum)
+		} else {
+			value = dns.GetMultiServiceFQDN(mrs.Name, mrs.Namespace, clusterNum, podNum)
+		}
 		data[key] = value
 	}
 
@@ -789,7 +835,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(log
 			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is missing from client map", e.ClusterName))
 			continue
 		}
-		cm := getHostnameOverrideConfigMap(mrs, i, e.Members)
+		cm := getHostnameOverrideConfigMap(mrs, i, e.ClusterName, e.Members)
 
 		err = configmap.CreateOrUpdate(client, cm)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/utils/pointer"
 	"os"
 	"sort"
 	"testing"
@@ -75,8 +76,47 @@ func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 	assert.True(t, result.RequeueAfter > 0)
 }
 
+func TestServiceCreation_WithExternalName(t *testing.T) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetExternalAccess(
+			mdbv1.ExternalAccessConfiguration{
+				ExternalDomain: pointer.String("cluster-%d.testing"),
+			}, "cluster-%d.testing").
+		Build()
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+	clusterSpecs := clusterSpecList
+	for _, item := range clusterSpecs {
+		c := memberClusterMap[item.ClusterName]
+		for podNum := 0; podNum < item.Members; podNum++ {
+			externalService := getExternalService(mrs, item.ClusterName, podNum)
+
+			err = c.GetClient().Get(context.TODO(), kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
+			assert.NoError(t, err)
+
+			// ensure that all other clusters do not have this service
+			for _, otherItem := range clusterSpecs {
+				if item.ClusterName == otherItem.ClusterName {
+					continue
+				}
+				otherCluster := memberClusterMap[otherItem.ClusterName]
+				err = otherCluster.GetClient().Get(context.TODO(), kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
+				assert.Error(t, err)
+			}
+		}
+	}
+}
+
 func TestServiceCreation_WithoutDuplicates(t *testing.T) {
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		Build()
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
@@ -108,7 +148,9 @@ func TestServiceCreation_WithoutDuplicates(t *testing.T) {
 }
 
 func TestServiceCreation_WithDuplicates(t *testing.T) {
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		Build()
 	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
 
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
@@ -846,7 +888,27 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 }
 
 func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
-	return multiReplicaSetReconcilerWithConnection(m, om.NewEmptyMockedOmConnection, t)
+	connection := func(ctx *om.OMContext) om.Connection {
+		ret := om.NewEmptyMockedOmConnection(ctx)
+		ret.(*om.MockedOmConnection).Hostnames = calculateHostNames(m)
+		return ret
+
+	}
+	return multiReplicaSetReconcilerWithConnection(m, connection, t)
+}
+
+func calculateHostNames(m *mdbmulti.MongoDBMulti) []string {
+	if m.Spec.ExternalAccessConfiguration == nil || m.Spec.ExternalAccessConfiguration.ExternalDomain == nil {
+		return nil
+	}
+
+	var expectedHostnames []string
+	for i, cl := range m.Spec.ClusterSpecList {
+		for j := 0; j < cl.Members; j++ {
+			expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d-%d.%s", m.Name, i, j, *cl.ExternalAccessConfiguration.ExternalDomain))
+		}
+	}
+	return expectedHostnames
 }
 
 func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMulti,

@@ -8,7 +8,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 	zap "go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -24,7 +23,7 @@ func BuildFromStatefulSet(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec) om.Replic
 // based on the given StatefulSet and MongoDB spec. The amount of members is set by the replicas
 // parameter.
 func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int) om.ReplicaSetWithProcesses {
-	members := process.CreateMongodProcessesWithLimit(set, util.DatabaseContainerName, dbSpec, replicas)
+	members := process.CreateMongodProcessesWithLimit(set, dbSpec, replicas)
 	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion())
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())
@@ -99,7 +98,7 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 }
 
 func PrepareScaleDownFromStatefulSet(omClient om.Connection, statefulSet appsv1.StatefulSet, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(statefulSet, rs.Spec.GetClusterDomain(), rs.Status.Members)
+	_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(statefulSet, rs.Spec.GetClusterDomain(), rs.Status.Members, nil)
 	podNames = podNames[scale.ReplicasThisReconciliation(rs):rs.Status.Members]
 
 	if len(podNames) != 1 {

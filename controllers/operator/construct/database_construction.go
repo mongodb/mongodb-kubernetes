@@ -164,6 +164,11 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        "false",
 		}
+
+		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
+			opts.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
+		}
+
 		for _, opt := range additionalOpts {
 			opt(&opts)
 		}

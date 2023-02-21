@@ -121,16 +121,20 @@ spec:
                   connectivity:
                     properties:
                       replicaSetHorizons:
+                        description: 'ReplicaSetHorizons holds list of maps of horizons
+                          to be configured in each of MongoDB processes. Horizons
+                          map horizon names to the node addresses for each process
+                          in the replicaset, e.g.: [ { "internal": "my-rs-0.my-internal-domain.com:31843",
+                          "external": "my-rs-0.my-external-domain.com:21467" }, {
+                          "internal": "my-rs-1.my-internal-domain.com:31843", "external":
+                          "my-rs-1.my-external-domain.com:21467" }, ... ] The key
+                          of each item in the map is an arbitrary, user-chosen string
+                          that represents the name of the horizon. The value of the
+                          item is the host and, optionally, the port that this mongod
+                          node will be connected to from.'
                         items:
                           additionalProperties:
                             type: string
-                          description: 'MongoDBHorizonConfig holds a map of horizon
-                            names to the node addresses, e.g. {   "internal": "my-rs-2.my-internal-domain.com:31843",   "external":
-                            "my-rs-2.my-external-domain.com:21467" } The key of each
-                            item in the map is an arbitrary, user-chosen string that
-                            represents the name of the horizon. The value of the item
-                            is the host and, optionally, the port that this mongod
-                            node will be connected to from.'
                           type: object
                         type: array
                     type: object

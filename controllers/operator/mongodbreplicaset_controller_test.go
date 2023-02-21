@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"reflect"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestScaleUpReplicaSet(t *testing.T) {
 
 func TestExposedExternallyReplicaSet(t *testing.T) {
 	//given
-	rs := DefaultReplicaSetBuilder().SetMembers(3).ExposedExternally(nil, nil).Build()
+	rs := DefaultReplicaSetBuilder().SetMembers(3).ExposedExternally(nil, nil, nil).Build()
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 
@@ -143,6 +144,45 @@ func TestExposedExternallyReplicaSet(t *testing.T) {
 	//then
 	assert.NoError(t, err)
 	assert.Equal(t, corev1.ServiceTypeNodePort, externalService.Spec.Type)
+	processes := om.CurrMockedConnection.GetProcesses()
+	require.Len(t, processes, 3)
+	// check hostnames are pod's headless service FQDNs
+	for i, process := range processes {
+		assert.Equal(t, fmt.Sprintf("%s-%d.%s-svc.%s.svc.cluster.local", rs.Name, i, rs.Name, rs.Namespace), process.HostName())
+	}
+}
+
+func TestExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T) {
+	externalDomain := "example.com"
+	memberCount := 3
+	replicaSetName := "rs"
+	var expectedHostnames []string
+	for i := 0; i < memberCount; i++ {
+		expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d.%s", replicaSetName, i, externalDomain))
+	}
+
+	testExposedExternallyReplicaSetExternalDomainInHostnames(t, replicaSetName, memberCount, externalDomain, expectedHostnames)
+}
+
+func testExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T, replicaSetName string, memberCount int, externalDomain string, expectedHostnames []string) {
+	rs := DefaultReplicaSetBuilder().SetName(replicaSetName).SetMembers(memberCount).ExposedExternally(nil, nil, &externalDomain).Build()
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	// We set this to mock processes that agents are registering in OM, otherwise reconcile will hang on agent.WaitForRsAgentsToRegister.
+	// hostnames are already mocked in controllers/operator/mock/mockedkubeclient.go::markStatefulSetsReady,
+	// but we don't have externalDomain in statefulset there, hence we're setting them here
+	om.CurrMockedConnection = om.NewMockedOmConnection(nil)
+	om.CurrMockedConnection.Hostnames = expectedHostnames
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	processes := om.CurrMockedConnection.GetProcesses()
+	require.Len(t, processes, memberCount)
+	// check hostnames are external domain
+	for i, process := range processes {
+		// process.HostName is created when building automation config using resource spec
+		assert.Equal(t, expectedHostnames[i], process.HostName())
+	}
 }
 
 func TestExposedExternallyReplicaSetWithBackwardsCompatibility(t *testing.T) {
@@ -175,7 +215,8 @@ func TestExposedExternallyReplicaSetWithLoadBalancer(t *testing.T) {
 				Type:           corev1.ServiceTypeLoadBalancer,
 				LoadBalancerIP: "10.0.0.1",
 			},
-			map[string]string{"test": "test"}).
+			map[string]string{"test": "test"},
+			nil).
 		Build()
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
@@ -794,8 +835,9 @@ func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	return b.MongoDB.DeepCopy()
 }
 
-func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, annotationsOverride map[string]string) *ReplicaSetBuilder {
+func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, annotationsOverride map[string]string, externalDomain *string) *ReplicaSetBuilder {
 	b.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+	b.Spec.ExternalAccessConfiguration.ExternalDomain = externalDomain
 	if specOverride != nil {
 		b.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper = &mdbv1.ServiceSpecWrapper{Spec: *specOverride}
 	}

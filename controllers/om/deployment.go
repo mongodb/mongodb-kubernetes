@@ -300,35 +300,38 @@ func (d Deployment) AddMonitoring(log *zap.SugaredLogger, tls bool, caFilePath s
 	monitoringVersions := d.getMonitoringVersions()
 	for _, p := range d.getProcesses() {
 		found := false
+		var monitoringVersion map[string]interface{}
 		for _, m := range monitoringVersions {
-			monitoring := m.(map[string]interface{})
-			if monitoring["hostname"] == p.HostName() {
+			monitoringVersion = m.(map[string]interface{})
+			if monitoringVersion["hostname"] == p.HostName() {
 				found = true
 				break
 			}
 		}
 
 		if !found {
-			monitoringVersion := map[string]interface{}{
+			monitoringVersion = map[string]interface{}{
 				"hostname": p.HostName(),
 				"name":     MonitoringAgentDefaultVersion,
 			}
-			if tls {
-				additionalParams := map[string]string{
-					"useSslForAllConnections":      "true",
-					"sslTrustedServerCertificates": caFilePath,
-				}
-
-				pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
-				if pemKeyFile != nil {
-					additionalParams["sslClientCertificate"] = pemKeyFile.(string)
-				}
-
-				monitoringVersion["additionalParams"] = additionalParams
-
-			}
 			log.Debugw("Added monitoring agent configuration", "host", p.HostName(), "tls", tls)
 			monitoringVersions = append(monitoringVersions, monitoringVersion)
+		}
+
+		monitoringVersion["hostname"] = p.HostName()
+
+		if tls {
+			additionalParams := map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": caFilePath,
+			}
+
+			pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
+			if pemKeyFile != nil {
+				additionalParams["sslClientCertificate"] = pemKeyFile.(string)
+			}
+
+			monitoringVersion["additionalParams"] = additionalParams
 		}
 	}
 	d.setMonitoringVersions(monitoringVersions)

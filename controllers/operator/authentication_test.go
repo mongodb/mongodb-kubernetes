@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"k8s.io/utils/pointer"
 	"math/big"
 	"testing"
 	"time"
@@ -848,6 +849,29 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 		expectedErrorMessage := fmt.Sprintf("domain %s-%d.foo is not contained in the list of DNSNames", rs.Name, i)
 		assert.Contains(t, err.Error(), expectedErrorMessage)
 	}
+}
+
+func Test_NoExternalDomainPresent(t *testing.T) {
+	rs := DefaultReplicaSetBuilder().
+		EnableTLS().
+		EnableAuth().
+		EnableX509().
+		Build()
+
+	rs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("foo")}
+
+	manager := mock.NewManager(rs)
+	reconciler := newReplicaSetReconciler(manager, om.NewEmptyMockedOmConnection)
+	client := manager.Client
+
+	addKubernetesTlsResources(client, rs)
+
+	secret := &corev1.Secret{}
+
+	_ = client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-cert", rs.Name), Namespace: rs.Namespace}, secret)
+
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
+	assert.Error(t, err)
 }
 
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type

@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -187,6 +189,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	caFilePath := util.CAFilePathInContainer
 	caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
+	if err := r.reconcileHostnameOverrideConfigMap(log, r.client, *rs); err != nil {
+		return r.updateStatus(rs, workflow.Failed("Failed to reconcileHostnameOverrideConfigMap: %s", err), log)
+	}
+
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
 	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
@@ -256,6 +262,41 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	return r.updateStatus(rs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.MembersOption(rs))
 }
 
+func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigMap {
+	data := make(map[string]string)
+
+	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
+		hostnames, names := dns.GetDNSNames(mdb.Name, "", mdb.GetObjectMeta().GetNamespace(), mdb.GetClusterName(), mdb.Spec.Members, mdb.Spec.DbCommonSpec.GetExternalDomain())
+		for i := range hostnames {
+			data[names[i]] = hostnames[i]
+		}
+	}
+
+	cm := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-hostname-override", mdb.Name),
+			Namespace: mdb.Namespace,
+		},
+		Data: data,
+	}
+	return cm
+}
+
+func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator, mdb mdbv1.MongoDB) error {
+	if mdb.Spec.DbCommonSpec.GetExternalDomain() == nil {
+		return nil
+	}
+
+	cm := getHostnameOverrideConfigMapForReplicaset(mdb)
+	err := configmap.CreateOrUpdate(getUpdateCreator, cm)
+	if err != nil && !errors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create configmap: %s, err: %v", cm.Name, err)
+	}
+	log.Infof("Successfully ensured configmap: %s", cm.Name)
+
+	return nil
+}
+
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddReplicaSetController(mgr manager.Manager) error {
@@ -322,7 +363,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
-	err := agents.WaitForRsAgentsToRegisterReplicasSpecified(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log)
+	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log, rs)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -398,8 +439,9 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		return workflow.Pending("Performing multi stage reconciliation")
 	}
 
-	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore)
-	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs))
+	externalDomain := rs.Spec.DbCommonSpec.GetExternalDomain()
+	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore, externalDomain)
+	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), externalDomain)
 
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
 		return workflow.Failed(err.Error())
@@ -488,7 +530,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 		}
 	}
 
-	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members))
+	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members), nil)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
 	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
@@ -505,7 +547,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 	return nil
 }
 
-func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int) []string {
-	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount)
+func getAllHostsRs(set appsv1.StatefulSet, clusterName string, membersCount int, externalDomain *string) []string {
+	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, membersCount, externalDomain)
 	return hostnames
 }
