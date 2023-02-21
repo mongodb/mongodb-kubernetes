@@ -147,7 +147,7 @@ func (b builder) Build() string {
 		if len(b.multiClusterHosts) > 0 {
 			hostnames = b.multiClusterHosts
 		} else {
-			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas)
+			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas, nil)
 			for i, h := range hostnames {
 				hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
 			}

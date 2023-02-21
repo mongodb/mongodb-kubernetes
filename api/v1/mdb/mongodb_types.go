@@ -162,6 +162,10 @@ func (m MongoDB) GetSecretsMountedIntoDBPod() []string {
 	return secrets
 }
 
+func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
+	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
 type AdditionalMongodConfigType int
 
 const (
@@ -203,6 +207,7 @@ type DbSpec interface {
 	GetFeatureCompatibilityVersion() *string
 	GetHorizonConfig() []MongoDBHorizonConfig
 	GetAdditionalMongodConfig() AdditionalMongodConfig
+	GetExternalDomain() *string
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -212,16 +217,26 @@ type MongoDBList struct {
 	Items           []MongoDB `json:"items"`
 }
 
-// MongoDBHorizonConfig holds a map of horizon
-// names to the node addresses, e.g. {   "internal": "my-rs-2.my-internal-domain.com:31843",   "external":
-// "my-rs-2.my-external-domain.com:21467" } The key of each
-// item in the map is an arbitrary, user-chosen string that
-// represents the name of the horizon. The value of the item
-// is the host and, optionally, the port that this mongod
-// node will be connected to from.
 type MongoDBHorizonConfig map[string]string
 
 type MongoDBConnectivity struct {
+	// ReplicaSetHorizons holds list of maps of horizons to be configured in each of MongoDB processes.
+	// Horizons map horizon names to the node addresses for each process in the replicaset, e.g.:
+	//  [
+	//    {
+	//      "internal": "my-rs-0.my-internal-domain.com:31843",
+	//      "external": "my-rs-0.my-external-domain.com:21467"
+	//    },
+	//    {
+	//      "internal": "my-rs-1.my-internal-domain.com:31843",
+	//      "external": "my-rs-1.my-external-domain.com:21467"
+	//    },
+	//    ...
+	//  ]
+	// The key of each item in the map is an arbitrary, user-chosen string that
+	// represents the name of the horizon. The value of the item is the host and,
+	// optionally, the port that this mongod node will be connected to from.
+	// +optional
 	ReplicaSetHorizons []MongoDBHorizonConfig `json:"replicaSetHorizons,omitempty"`
 }
 
@@ -298,6 +313,13 @@ type MongoDbSpec struct {
 	// DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
+}
+
+func (s *MongoDbSpec) GetExternalDomain() *string {
+	if s.ExternalAccessConfiguration != nil {
+		return s.ExternalAccessConfiguration.ExternalDomain
+	}
+	return nil
 }
 
 func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {

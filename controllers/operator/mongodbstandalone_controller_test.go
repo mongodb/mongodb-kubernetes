@@ -275,8 +275,8 @@ func (b *StandaloneBuilder) Build() *mdbv1.MongoDB {
 func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
 	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetPodEnvOptions()))
-	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain())
-	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "")
+	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain(), nil)
+	process := om.NewMongodProcess(0, st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "")
 
 	lastConfig, err := st.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
 	if err != nil {

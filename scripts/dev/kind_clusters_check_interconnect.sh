@@ -106,6 +106,10 @@ test_connectivity() {
   kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://echoserver${first_idx}.${NAMESPACE}.svc.cluster.local:8080"
   echo "Checking LB service connection from ${second_context} to ${first_context}"
   kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://$lbpod1:8080"
+  echo "Checking external name connectivity from ${first_context} to ${first_context}"
+  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://test.kind-e2e-cluster-${first_idx}.interconnected:8080"
+  echo "Checking external name connectivity from ${first_context} to ${second_context}"
+  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://test.kind-e2e-cluster-${second_idx}.interconnected:8080"
 }
 
 wait_for_deployment() {

@@ -3,6 +3,7 @@ package agents
 import (
 	"errors"
 	"fmt"
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -90,13 +91,10 @@ func ApiKeySecretName(project string) string {
 	return fmt.Sprintf("%s-group-secret", project)
 }
 
-func WaitForRsAgentsToRegister(set appsv1.StatefulSet, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
-	return WaitForRsAgentsToRegisterReplicasSpecified(set, 0, clusterName, omConnection, log)
-}
-
 // WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
-func WaitForRsAgentsToRegisterReplicasSpecified(set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger) error {
-	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members)
+func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger, rs *mdbv1.MongoDB) error {
+	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members, rs.Spec.DbCommonSpec.GetExternalDomain())
+
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...) {

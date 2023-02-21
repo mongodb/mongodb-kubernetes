@@ -35,6 +35,7 @@ func (m *MongoDBMulti) ProcessValidationsOnReconcile(old *MongoDBMulti) error {
 func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
 	multiClusterValidators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
 		validateUniqueClusterNames,
+		validateUniqueExternalDomains,
 	}
 
 	var validationResults []v1.ValidationResult
@@ -55,6 +56,7 @@ func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
 
 	return validationResults
 }
+
 func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
 	present := make(map[string]struct{})
 
@@ -64,6 +66,26 @@ func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
 			return v1.ValidationError(msg)
 		}
 		present[e.ClusterName] = struct{}{}
+	}
+	return v1.ValidationSuccess()
+}
+
+func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {
+	if ms.ExternalAccessConfiguration != nil {
+		present := make(map[string]struct{})
+
+		for _, e := range ms.ClusterSpecList {
+			val := e.ExternalAccessConfiguration.ExternalDomain
+			if val == nil {
+				return v1.ValidationError("The externalDomain is not set for cluster name %s", e.ClusterName)
+			}
+			valAsString := *e.ExternalAccessConfiguration.ExternalDomain
+			if _, ok := present[valAsString]; ok {
+				msg := fmt.Sprintf("Multiple externalDomains with the same name (%s) are not allowed", valAsString)
+				return v1.ValidationError(msg)
+			}
+			present[valAsString] = struct{}{}
+		}
 	}
 	return v1.ValidationSuccess()
 }

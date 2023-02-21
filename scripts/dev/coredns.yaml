@@ -1,0 +1,43 @@
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {
+           max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+        debug
+        hosts /etc/coredns/customdomains.db   interconnected {
+           172.18.255.211 test.kind-e2e-cluster-1.interconnected
+           172.18.255.211 multi-cluster-replica-set-0-0.kind-e2e-cluster-1.interconnected
+           172.18.255.212 multi-cluster-replica-set-0-1.kind-e2e-cluster-1.interconnected
+           172.18.255.213 multi-cluster-replica-set-0-2.kind-e2e-cluster-1.interconnected
+           172.18.255.221 test.kind-e2e-cluster-2.interconnected
+           172.18.255.221 multi-cluster-replica-set-1-0.kind-e2e-cluster-2.interconnected
+           172.18.255.222 multi-cluster-replica-set-1-1.kind-e2e-cluster-2.interconnected
+           172.18.255.223 multi-cluster-replica-set-1-2.kind-e2e-cluster-2.interconnected
+           172.18.255.231 test.kind-e2e-cluster-3.interconnected
+           172.18.255.231 multi-cluster-replica-set-2-0.kind-e2e-cluster-3.interconnected
+           172.18.255.232 multi-cluster-replica-set-2-1.kind-e2e-cluster-3.interconnected
+           172.18.255.233 multi-cluster-replica-set-2-2.kind-e2e-cluster-3.interconnected
+           fallthrough
+        }
+    }
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system

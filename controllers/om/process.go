@@ -116,7 +116,7 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.Additi
 }
 
 // NewMongodProcess
-func NewMongodProcess(name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+func NewMongodProcess(idx int, name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
@@ -147,8 +147,8 @@ func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongod
 }
 
 // DeepCopy
-func (s Process) DeepCopy() (Process, error) {
-	return util.MapDeepCopy(s)
+func (p Process) DeepCopy() (Process, error) {
+	return util.MapDeepCopy(p)
 }
 
 // Name returns the name of the process.
@@ -186,8 +186,8 @@ func (p Process) SetWiredTigerCache(cacheSizeGb float32) Process {
 }
 
 // WiredTigerCache returns wired tiger cache as pointer as it may be absent
-func (s Process) WiredTigerCache() *float32 {
-	value := maputil.ReadMapValueAsInterface(s.Args(), "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
+func (p Process) WiredTigerCache() *float32 {
+	value := maputil.ReadMapValueAsInterface(p.Args(), "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
 	if value == nil {
 		return nil
 	}
@@ -196,16 +196,16 @@ func (s Process) WiredTigerCache() *float32 {
 }
 
 // SetLogPath
-func (s Process) SetLogPath(logPath string) Process {
-	sysLogMap := util.ReadOrCreateMap(s.Args(), "systemLog")
+func (p Process) SetLogPath(logPath string) Process {
+	sysLogMap := util.ReadOrCreateMap(p.Args(), "systemLog")
 	sysLogMap["destination"] = "file"
 	sysLogMap["path"] = logPath
-	return s
+	return p
 }
 
 // LogPath
-func (s Process) LogPath() string {
-	return maputil.ReadMapValueAsString(s.Args(), "systemLog", "path")
+func (p Process) LogPath() string {
+	return maputil.ReadMapValueAsString(p.Args(), "systemLog", "path")
 }
 
 // Args returns the "args" attribute in the form of a map, creates if it doesn't exist
@@ -297,11 +297,19 @@ func (p Process) HasInternalClusterAuthentication() bool {
 	return p.ClusterAuthMode() != ""
 }
 
-func (s Process) FeatureCompatibilityVersion() string {
-	if s["featureCompatibilityVersion"] == nil {
+func (p Process) FeatureCompatibilityVersion() string {
+	if p["featureCompatibilityVersion"] == nil {
 		return ""
 	}
-	return s["featureCompatibilityVersion"].(string)
+	return p["featureCompatibilityVersion"].(string)
+}
+
+func (p Process) Alias() string {
+	if alias, ok := p["alias"].(string); ok {
+		return alias
+	}
+
+	return ""
 }
 
 // String
@@ -359,6 +367,14 @@ func WithAdditionalMongodConfig(additionalConfig mdbv1.AdditionalMongodConfig) P
 		// Applying the user-defined options if any
 		process["args2_6"] = additionalConfig.ToMap()
 		process.EnsureNetConfig()["port"] = additionalConfig.GetPortOrDefault()
+	}
+}
+
+func WithProcessAlias(idx int, aliases []string) ProcessOption {
+	return func(process Process) {
+		if aliases != nil && idx < len(aliases) {
+			process["alias"] = aliases[idx]
+		}
 	}
 }
 
@@ -467,9 +483,9 @@ func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[s
 	}
 }
 
-func (s Process) setName(name string) Process {
-	s["name"] = name
-	return s
+func (p Process) setName(name string) Process {
+	p["name"] = name
+	return p
 }
 
 func (p Process) setClusterFile(filePath string) Process {
@@ -482,19 +498,19 @@ func (p Process) setClusterAuthMode(authMode string) Process {
 	return p
 }
 
-func (s Process) authSchemaVersion() int {
-	return s["authSchemaVersion"].(int)
+func (p Process) authSchemaVersion() int {
+	return p["authSchemaVersion"].(int)
 }
 
 // These methods are ONLY FOR REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during replica set building
-func (s Process) setReplicaSetName(rsName string) Process {
-	util.ReadOrCreateMap(s.Args(), "replication")["replSetName"] = rsName
-	return s
+func (p Process) setReplicaSetName(rsName string) Process {
+	util.ReadOrCreateMap(p.Args(), "replication")["replSetName"] = rsName
+	return p
 }
 
-func (s Process) replicaSetName() string {
-	return maputil.ReadMapValueAsString(s.Args(), "replication", "replSetName")
+func (p Process) replicaSetName() string {
+	return maputil.ReadMapValueAsString(p.Args(), "replication", "replSetName")
 }
 
 func (p Process) security() map[string]interface{} {
@@ -514,24 +530,24 @@ func (p Process) ClusterAuthMode() string {
 
 // These methods are ONLY FOR CONFIG SERVER REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during sharded cluster merge
-func (s Process) setClusterRoleConfigSrv() Process {
-	util.ReadOrCreateMap(s.Args(), "sharding")["clusterRole"] = "configsvr"
-	return s
+func (p Process) setClusterRoleConfigSrv() Process {
+	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = "configsvr"
+	return p
 }
 
 // These methods are ONLY FOR MONGOS types!
 // external packages are not supposed to call this method directly as it should be called during sharded cluster building
-func (s Process) setCluster(clusterName string) Process {
-	s["cluster"] = clusterName
-	return s
+func (p Process) setCluster(clusterName string) Process {
+	p["cluster"] = clusterName
+	return p
 }
 
-func (s Process) cluster() string {
-	return s["cluster"].(string)
+func (p Process) cluster() string {
+	return p["cluster"].(string)
 }
 
-func (s Process) json() string {
-	b, err := json.MarshalIndent(s, "", "  ")
+func (p Process) json() string {
+	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		fmt.Println("error:", err)
 	}

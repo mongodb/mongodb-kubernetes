@@ -644,16 +644,16 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(conn om.C
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
 func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator certs.X509CertConfigurator, currentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
-	authSpec := configurator.GetSecurity().Authentication
-	if authSpec == nil || !configurator.GetSecurity().Authentication.Enabled {
+	authSpec := configurator.GetDbCommonSpec().GetSecurity().Authentication
+	if authSpec == nil || !configurator.GetDbCommonSpec().GetSecurity().Authentication.Enabled {
 		return workflow.OK()
 	}
 
-	if configurator.GetSecurity().ShouldUseX509(currentAuthMechanism) {
-		if !configurator.GetSecurity().IsTLSEnabled() {
+	if configurator.GetDbCommonSpec().GetSecurity().ShouldUseX509(currentAuthMechanism) {
+		if !configurator.GetDbCommonSpec().GetSecurity().IsTLSEnabled() {
 			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
 		}
-		agentSecretName := configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name
+		agentSecretName := configurator.GetDbCommonSpec().GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name
 		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
 			configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(),
 			kube.ObjectKey(configurator.GetNamespace(), agentSecretName),
@@ -663,7 +663,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 		}
 	}
 
-	if configurator.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+	if configurator.GetDbCommonSpec().GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
 		errors := make([]error, 0)
 		for _, certOption := range configurator.GetCertOptions() {
 			err := r.validateInternalClusterCertsAndCheckTLSType(configurator, certOption, log)
@@ -677,8 +677,8 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 	}
 
 	// if client certificate is configured for the agent, create corresponding concatenated pem certs
-	if configurator.GetSecurity().ShouldUseClientCertificates() {
-		agentSecretName := configurator.GetSecurity().AgentClientCertificateSecretName(configurator.GetName())
+	if configurator.GetDbCommonSpec().GetSecurity().ShouldUseClientCertificates() {
+		agentSecretName := configurator.GetDbCommonSpec().GetSecurity().AgentClientCertificateSecretName(configurator.GetName())
 		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(),
 			kube.ObjectKey(configurator.GetNamespace(), agentSecretName.Name), log)
 		if err != nil {

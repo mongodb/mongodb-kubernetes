@@ -76,6 +76,10 @@ type AppDBSpec struct {
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }
 
+func (m *AppDBSpec) GetExternalDomain() *string {
+	return nil
+}
+
 func (m *AppDBSpec) GetMongodConfiguration() mdbcv1.MongodConfiguration {
 	mongodConfig := mdbcv1.NewMongodConfiguration()
 	for k, v := range m.AdditionalMongodConfig.Object {

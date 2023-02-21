@@ -122,4 +122,4 @@ require (
 
 go 1.19
 
-//replace github.com/mongodb/mongodb-kubernetes-operator => ../repos/mongodb-kubernetes-operator
+//replace github.com/mongodb/mongodb-kubernetes-operator => github.com/mongodb/mongodb-kubernetes-operator v0.7.9-0.20230209092905-1f64cf199633

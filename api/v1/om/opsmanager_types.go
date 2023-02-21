@@ -686,12 +686,12 @@ func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
 }
 
 func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
-	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
+	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
 	return podnames
 }
 
 func (m MongoDBOpsManager) BackupDaemonFQDNs() []string {
-	hostnames, _ := dns.GetDNSNames(m.BackupStatefulSetName(), m.BackupServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members)
+	hostnames, _ := dns.GetDNSNames(m.BackupStatefulSetName(), m.BackupServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
 	return hostnames
 }
 

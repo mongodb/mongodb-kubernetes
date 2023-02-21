@@ -85,13 +85,22 @@ func (m MongoDBMulti) GetMultiClusterAgentHostnames() ([]string, error) {
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
 	}
 	return hostnames, nil
 }
 
 func (m MongoDBMulti) MultiStatefulsetName(clusterNum int) string {
 	return fmt.Sprintf("%s-%d", m.Name, clusterNum)
+}
+
+func (m MongoDBMulti) ExternalMemberClusterDomain(clusterName string) *string {
+	for _, csl := range m.Spec.ClusterSpecList {
+		if csl.ClusterName == clusterName {
+			return csl.ExternalAccessConfiguration.ExternalDomain
+		}
+	}
+	return nil
 }
 
 func (m MongoDBMulti) GetBackupSpec() *mdbv1.Backup {
@@ -283,7 +292,6 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
 func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	clusterSpecs := m.GetDesiredSpecList()
-
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
 		return nil, err
@@ -603,7 +611,7 @@ func (m *MongoDBMulti) ClusterNum(clusterName string) int {
 func (m MongoDBMulti) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members)...)
+		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).

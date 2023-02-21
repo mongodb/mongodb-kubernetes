@@ -582,7 +582,7 @@ func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient
 	// Scaledown amount of replicas in ConfigServer
 	if r.isConfigServerScaleDown() {
 		sts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log))
-		_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.ConfigServerCount)
+		_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.ConfigServerCount, nil)
 		membersToScaleDown[sc.ConfigRsName()] = podNames[r.getConfigSrvCountThisReconciliation():sc.Status.ConfigServerCount]
 	}
 
@@ -590,7 +590,7 @@ func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient
 	if r.isShardsSizeScaleDown() {
 		for i := 0; i < sc.Spec.ShardCount; i++ {
 			sts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log))
-			_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.MongodsPerShardCount)
+			_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.MongodsPerShardCount, nil)
 			membersToScaleDown[sc.ShardRsName(i)] = podNames[r.getMongodsPerShardCountThisReconciliation():sc.Status.MongodsPerShardCount]
 		}
 	}
@@ -632,7 +632,7 @@ type deploymentOptions struct {
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
 func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(sc, conn, opts, log)
+	err := r.waitForAgentsToRegister(sc, conn, opts, log, sc)
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}
@@ -824,21 +824,21 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 }
 
 func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, opts deploymentOptions,
-	log *zap.SugaredLogger) error {
+	log *zap.SugaredLogger, mdb *mdbv1.MongoDB) error {
 
 	mongosStatefulSet := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, opts, log))
-	if err := agents.WaitForRsAgentsToRegister(mongosStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
+	if err := agents.WaitForRsAgentsToRegister(mongosStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 		return err
 	}
 
 	configSrvStatefulSet := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log))
-	if err := agents.WaitForRsAgentsToRegister(configSrvStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
+	if err := agents.WaitForRsAgentsToRegister(configSrvStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 		return err
 	}
 
 	for i := 0; i < sc.Spec.ShardCount; i++ {
 		shardStatefulSet := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log))
-		if err := agents.WaitForRsAgentsToRegister(shardStatefulSet, sc.Spec.GetClusterDomain(), conn, log); err != nil {
+		if err := agents.WaitForRsAgentsToRegister(shardStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 			return err
 		}
 	}
@@ -858,21 +858,21 @@ func getMaxShardedClusterSizeConfig(specConfig mdbv1.MongodbShardedClusterSizeCo
 func getAllHosts(c *mdbv1.MongoDB, sizeConfig mdbv1.MongodbShardedClusterSizeConfig) []string {
 	ans := make([]string, 0)
 
-	hosts, _ := dns.GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.MongosCount)
+	hosts, _ := dns.GetDNSNames(c.MongosRsName(), c.ServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.MongosCount, nil)
 	ans = append(ans, hosts...)
 
-	hosts, _ = dns.GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.ConfigServerCount)
+	hosts, _ = dns.GetDNSNames(c.ConfigRsName(), c.ConfigSrvServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.ConfigServerCount, nil)
 	ans = append(ans, hosts...)
 
 	for i := 0; i < sizeConfig.ShardCount; i++ {
-		hosts, _ = dns.GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.MongodsPerShardCount)
+		hosts, _ = dns.GetDNSNames(c.ShardRsName(i), c.ShardServiceName(), c.Namespace, c.Spec.GetClusterDomain(), sizeConfig.MongodsPerShardCount, nil)
 		ans = append(ans, hosts...)
 	}
 	return ans
 }
 
 func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
+	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
@@ -898,12 +898,11 @@ func createShardProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificat
 	return createMongodProcessForShardedCluster(set, shardAdditionalConfig, mdb, certificateFilePath)
 }
 func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain())
+	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, additionalMongodConfig, &mdb.Spec, certificateFilePath)
+		processes[idx] = om.NewMongodProcess(idx, names[idx], hostname, additionalMongodConfig, &mdb.Spec, certificateFilePath)
 	}
 
 	return processes

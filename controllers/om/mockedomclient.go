@@ -81,6 +81,7 @@ type MockedOmConnection struct {
 	UpdateBackupStatusFunc  func(clusterId string, status backup.Status) error
 	AgentAuthMechanism      string
 	SnapshotSchedules       map[string]*backup.SnapshotSchedule
+	Hostnames               []string
 
 	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
 	UpdateMonitoringAgentConfigFunc func(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)

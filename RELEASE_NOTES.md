@@ -5,11 +5,17 @@
 
 ## Improvements
 
+* New guidance for multi-Kubernetes-cluster deployments without a Service Mesh. It covers use of a Load Balancer Service 
+to expose ReplicaSet members on an externally reachable domain (`spec.externalAccess.externalDomain`). 
+This leverages setting the `process.hostname` field in the Automation Config. 
+[This tutorial](ttps://www.mongodb.com/docs/kubernetes-operator/v1.19/tutorial/proper_link) provides full guidance.
 *  `spec.security.authentication.ldap.transportSecurity`: "none" is now a valid configuration to use no transportSecurity.
 
 ## Breaking changes and deprecations
+
 * Making the field orgID in the project configmap a requirement. **Note**: If explicitly an empty `orgID = ""` has been chosen then OM will try to create an ORG with the project name.
 * Ubuntu-based images were deprecated in favor of UBI-based images in operator version 1.17.0. In the 1.19.0 release we are removing the support for Ubuntu-based images. The ubuntu based images won't be rebuilt daily with updates. Please upgrade to the UBI-based images by following these instructions: https://www.mongodb.com/docs/kubernetes-operator/master/tutorial/migrate-k8s-images/#migrate-k8s-images
+* The `spec.exposedExternally` option becomes deprecated in favor of `spec.externalAccess`. The deprecated option will be removed in MongoDB Enterprise Operator 1.22.0. 
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.18.0

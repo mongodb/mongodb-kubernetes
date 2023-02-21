@@ -184,10 +184,8 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 
 	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
 		if client.debug {
-			if !strings.Contains(path, "automationConfig") {
-				dumpRequest, _ := httputil.DumpRequest(request, true)
-				zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
-			}
+			dumpRequest, _ := httputil.DumpRequest(request, true)
+			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
 		} else {
 			zap.S().Debugf("Ops Manager request: %s %s", method, url)
 		}
@@ -198,6 +196,8 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 			if !strings.Contains(path, "automationConfig") {
 				dumpRequest, _ := httputil.DumpResponse(response, true)
 				zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpRequest)
+			} else {
+				zap.S().Debugf("Ops Manager response: %s %s\n", method, path)
 			}
 		}
 	}

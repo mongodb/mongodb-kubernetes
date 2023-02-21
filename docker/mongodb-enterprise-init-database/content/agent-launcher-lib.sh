@@ -73,7 +73,10 @@ ensure_certs_symlinks() {
         fi
     else
         script_log "Using Kubernetes CA file"
-        ln -sf "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "${pod_secrets_dir}/ca.pem"
+
+        if [[ ! -f "${pod_secrets_dir}/ca.pem" ]]; then
+          ln -sf "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "${pod_secrets_dir}/ca.pem"
+        fi
     fi
 }
 

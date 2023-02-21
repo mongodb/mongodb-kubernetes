@@ -607,7 +607,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(opsManager *omv
 		return err
 	}
 
-	hostnames, _ := dns.GetDnsForStatefulSet(appDbStatefulSet, opsManager.Spec.AppDB.GetClusterDomain())
+	hostnames, _ := dns.GetDnsForStatefulSet(appDbStatefulSet, opsManager.Spec.AppDB.GetClusterDomain(), nil)
 	getHostsResult, err := conn.GetHosts()
 	if err != nil {
 		return fmt.Errorf("error fetching existing hosts: %s", err)

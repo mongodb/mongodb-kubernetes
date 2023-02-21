@@ -87,6 +87,9 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (
 	for i := range getPodNames(opts) {
 		additionalDomains = append(additionalDomains, GetAdditionalCertDomainsForMember(opts, i)...)
 	}
+	if opts.ExternalDomain != nil {
+		additionalDomains = append(additionalDomains, "*."+*opts.ExternalDomain)
+	}
 
 	if err := validatePemData(data, additionalDomains); err != nil {
 		return "", err
@@ -129,6 +132,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 	}
 
 	if needToCreatePEM {
+
 		data, err := VerifyTLSSecretForStatefulSet(secretData, opts)
 		if err != nil {
 			return err
@@ -141,12 +145,18 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 
 	if opts.ClusterMode == multi {
 		// get the pod names and get the service FQDN for each of the service hostnames
-		mdbmName, clusterNum := multicluster.GetRsNamefromMultiStsName(opts.ResourceName),
-			multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)
+		mdbmName := multicluster.GetRsNamefromMultiStsName(opts.ResourceName)
+		clusterNum := multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)
+		externalDomain := opts.ExternalDomain
+
 		for podNum := 0; podNum < opts.Replicas; podNum++ {
 			podName, serviceFQDN := dns.GetMultiPodName(mdbmName, clusterNum, podNum), dns.GetMultiServiceFQDN(mdbmName, opts.Namespace, clusterNum, podNum)
 			pem := fmt.Sprintf("%s-pem", podName)
-			if err := validatePemSecret(s, pem, []string{serviceFQDN}); err != nil {
+			additionalDomains := []string{serviceFQDN}
+			if externalDomain != nil {
+				additionalDomains = append(additionalDomains, "*."+*externalDomain)
+			}
+			if err := validatePemSecret(s, pem, additionalDomains); err != nil {
 				errs = multierror.Append(errs, err)
 			}
 		}
@@ -165,12 +175,12 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 
 // getPodNames returns the pod names based on the Cert Options provided.
 func getPodNames(opts Options) []string {
-	_, podnames := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	_, podnames := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
 	return podnames
 }
 
 func GetDNSNames(opts Options) (hostnames, podnames []string) {
-	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas)
+	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
 }
 
 // GetAdditionalCertDomainsForMember gets any additional domains that the
@@ -286,8 +296,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secr
 		return CreatePEMSecretClient(secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database, log)
 	}
 
-	additionalDomains := []string{} // agents have no additional domains
-	return validatePemSecret(s, util.AutomationAgentPemSecretKey, additionalDomains)
+	return validatePemSecret(s, util.AutomationAgentPemSecretKey, nil)
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the

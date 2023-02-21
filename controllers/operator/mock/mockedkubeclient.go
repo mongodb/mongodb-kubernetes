@@ -576,14 +576,18 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	set.Status.ReadyReplicas = *set.Spec.Replicas
 
 	if om.CurrMockedConnection != nil {
-		// check first if it's multi-cluster STS
-		var hostnames []string
-		if val, ok := set.Annotations[handler.MongoDBMultiResourceAnnotation]; ok {
-			hostnames = dns.GetMultiClusterAgentHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas))
-		} else {
-			// We also "register" automation agents.
-			// So far we don't support custom cluster name
-			hostnames, _ = dns.GetDnsForStatefulSet(*set, "")
+		// For tests with external domains we set hostnames externally in test,
+		// as we don't have ExternalAccessConfiguration object in stateful set.
+		// For tests that don't set hostnames we preserve old behaviour.
+		hostnames := om.CurrMockedConnection.Hostnames
+		if hostnames == nil {
+			if val, ok := set.Annotations[handler.MongoDBMultiResourceAnnotation]; ok {
+				hostnames = dns.GetMultiClusterAgentHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas), nil)
+			} else {
+				// We also "register" automation agents.
+				// So far we don't support custom cluster name
+				hostnames, _ = dns.GetDnsForStatefulSet(*set, "", nil)
+			}
 		}
 		om.CurrMockedConnection.AddHosts(hostnames)
 	}

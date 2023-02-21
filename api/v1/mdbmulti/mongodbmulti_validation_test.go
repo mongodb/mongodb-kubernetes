@@ -1,6 +1,7 @@
 package mdbmulti
 
 import (
+	"k8s.io/utils/pointer"
 	"testing"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -26,6 +27,31 @@ func TestUniqueClusterNames(t *testing.T) {
 
 	err := mrs.ValidateCreate()
 	assert.Equal(t, "Multiple clusters with the same name (abc) are not allowed", err.Error())
+}
+
+func TestUniqueExternalDomains(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+	mrs.Spec.ClusterSpecList = []ClusterSpecItem{
+		{
+			ClusterName:                 "1",
+			Members:                     1,
+			ExternalAccessConfiguration: mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+		},
+		{
+			ClusterName:                 "2",
+			Members:                     1,
+			ExternalAccessConfiguration: mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+		},
+		{
+			ClusterName:                 "3",
+			Members:                     1,
+			ExternalAccessConfiguration: mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+		},
+	}
+
+	err := mrs.ValidateCreate()
+	assert.Equal(t, "Multiple externalDomains with the same name (test) are not allowed", err.Error())
 }
 
 func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {

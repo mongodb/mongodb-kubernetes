@@ -20,7 +20,9 @@ func Contains(slice []string, s string) bool {
 }
 
 // CheckCertificateAddresses determines if the provided FQDN can match any of the addresses or
-// SubjectAltNames (SAN) in an array of FQDNs/wildcards/shortnames
+// SubjectAltNames (SAN) in an array of FQDNs/wildcards/shortnames.
+// Both the availableAddressNames and the testAddressName can contain wildcards, e.g. *.cluster-1.example.com
+// Once a wildcard is found on any tested argument, only a domain-level comparison is checked.
 func CheckCertificateAddresses(availableAddressNames []string, testAddressName string) bool {
 	checkedTestAddressName := CheckWithLevelDomain(testAddressName)
 	star := "*"
@@ -36,6 +38,17 @@ func CheckCertificateAddresses(availableAddressNames []string, testAddressName s
 		}
 		if availableAddress == testAddressName {
 			return true
+		}
+		// This is the multi-cluster with an external domain case.
+		// We do not want to deal if this is per-member cert or a wildcard, that's why we will only
+		// compare the domains.
+		if testAddressName[0:1] == star {
+			domainOnlyTestAddress := CheckWithLevelDomain(testAddressName)
+			domainOnlyAvailableAddress := CheckWithLevelDomain(availableAddress)
+
+			if domainOnlyAvailableAddress == domainOnlyTestAddress {
+				return true
+			}
 		}
 	}
 	return false

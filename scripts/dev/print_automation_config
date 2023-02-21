@@ -3,7 +3,7 @@
 set -euo pipefail
 
 source ~/.operator-dev/om
-source ~/.operator-dev/contexts/$(cat ~/.operator-dev/current)
+source ~/.operator-dev/context
 
 file_name="$(mktemp).json"
 group_id=$(curl -u "${OM_USER}:${OM_API_KEY}" "${OM_HOST}/api/public/v1.0/groups/byName/${PROJECT_NAMESPACE}" --digest -sS | jq -r .id)

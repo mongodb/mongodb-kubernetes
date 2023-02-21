@@ -275,7 +275,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
-	if err := agents.WaitForRsAgentsToRegister(set, s.Spec.GetClusterDomain(), conn, log); err != nil {
+	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
 		return workflow.Failed(err.Error())
 	}
 
@@ -360,7 +360,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 		return err
 	}
 
-	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1)
+	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1, nil)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
 	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
@@ -376,7 +376,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 }
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
-	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain())
-	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec(), "")
+	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain(), nil)
+	process := om.NewMongodProcess(0, s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec(), "")
 	return process
 }
