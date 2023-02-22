@@ -49,7 +49,7 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMulti, certFileNa
 
 	processes := make([]om.Process, len(hostnames))
 	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcess(idx, fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.AdditionalMongodConfig, &mrs.Spec, certFileName)
+		processes[idx] = om.NewMongodProcess(idx, fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName)
 	}
 
 	return processes, nil

@@ -95,12 +95,16 @@ func NewProcessFromInterface(i interface{}) Process {
 }
 
 // NewMongosProcess
-func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+	if additionalMongodConfig == nil {
+		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	}
+
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongos),
-		WithAdditionalMongodConfig(additionalMongodConfig),
+		WithAdditionalMongodConfig(*additionalMongodConfig),
 		WithResourceSpec(spec),
 	)
 
@@ -110,18 +114,22 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig mdbv1.Additi
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
 
-	p.ConfigureTLS(getTLSMode(spec, additionalMongodConfig), certificateFilePath)
+	p.ConfigureTLS(getTLSMode(spec, *additionalMongodConfig), certificateFilePath)
 
 	return p
 }
 
 // NewMongodProcess
-func NewMongodProcess(idx int, name, hostName string, additionalConfig mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+func NewMongodProcess(idx int, name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+	if additionalConfig == nil {
+		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
+	}
+
 	p := createProcess(
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
-		WithAdditionalMongodConfig(additionalConfig),
+		WithAdditionalMongodConfig(*additionalConfig),
 		WithResourceSpec(spec),
 	)
 
@@ -133,7 +141,7 @@ func NewMongodProcess(idx int, name, hostName string, additionalConfig mdbv1.Add
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
-	p.ConfigureTLS(getTLSMode(spec, additionalConfig), certificateFilePath)
+	p.ConfigureTLS(getTLSMode(spec, *additionalConfig), certificateFilePath)
 
 	return p
 }
@@ -142,8 +150,8 @@ func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongod
 	if !spec.IsSecurityTLSConfigEnabled() {
 		return tls.Disabled
 	}
+	return tls.GetTLSModeFromMongodConfig(additionalMongodConfig.ToMap())
 
-	return tls.GetTLSModeFromMongodConfig(additionalMongodConfig.Object)
 }
 
 // DeepCopy
@@ -378,7 +386,7 @@ func WithProcessAlias(idx int, aliases []string) ProcessOption {
 	}
 }
 
-// ConfigureTLS enable TLS for this process. TLS will be always enabled after calling this. This function expects
+// ConfigureTLS enable TLS for this process. TLS will always be enabled after calling this. This function expects
 // the value of "mode" to be an allowed ssl.mode from OM API perspective.
 func (p Process) ConfigureTLS(mode tls.Mode, pemKeyFileLocation string) {
 	// Initializing SSL configuration if it's necessary

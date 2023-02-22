@@ -10,7 +10,7 @@ import (
 )
 
 // TODO this file is intentionally created separately and duplicates the functions without "AppDB" suffix
-// This is intended for the Ops Manager alpha, later the proper abstractions refacroring should be done
+// This is intended for the Ops Manager alpha, later the proper abstractions refactoring should be done
 // (when all MongoDB fields are supported for AppDB):
 // - both MongoDBSpec and AppDB objects implement the same interface to get access/mutate the same fields
 // - both MongoDBSpec and AppDB include some common struct with all fields and all methods implementation. This is the
@@ -23,7 +23,7 @@ func NewMongodProcessAppDB(name, hostName string, appdb *omv1.AppDBSpec) Process
 		WithName(name),
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
-		WithAdditionalMongodConfig(appdb.AdditionalMongodConfig),
+		WithAdditionalMongodConfig(*appdb.GetAdditionalMongodConfig()),
 		WithResourceSpec(appdb),
 	)
 

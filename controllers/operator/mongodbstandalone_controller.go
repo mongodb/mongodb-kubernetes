@@ -377,6 +377,6 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(0, s.Name, hostnames[0], s.Spec.AdditionalMongodConfig, s.GetSpec(), "")
+	process := om.NewMongodProcess(0, s.Name, hostnames[0], s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "")
 	return process
 }

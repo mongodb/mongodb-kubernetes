@@ -412,7 +412,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 				return err
 			}
 
-			d.MergeReplicaSet(replicaSet, rs.Spec.AdditionalMongodConfig.ToMap(), lastRsConfig.ToMap(), nil)
+			d.MergeReplicaSet(replicaSet, rs.Spec.GetAdditionalMongodConfig().ToMap(), lastRsConfig.ToMap(), nil)
 			d.AddMonitoringAndBackup(log, rs.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
 			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
 			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode(), internalClusterPath)

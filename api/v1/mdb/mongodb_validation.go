@@ -116,7 +116,7 @@ func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
 
 func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 	if ms.ResourceType == ShardedCluster {
-		if ms.AdditionalMongodConfig.Object != nil && len(ms.AdditionalMongodConfig.Object) > 0 {
+		if ms.AdditionalMongodConfig != nil && ms.AdditionalMongodConfig.object != nil && len(ms.AdditionalMongodConfig.object) > 0 {
 			return v1.ValidationError("'spec.additionalMongodConfig' cannot be specified if type of MongoDB is %s", ShardedCluster)
 		}
 		return v1.ValidationSuccess()

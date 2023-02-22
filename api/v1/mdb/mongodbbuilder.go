@@ -63,12 +63,12 @@ func (b *MongoDBBuilder) SetClusterDomain(m string) *MongoDBBuilder {
 	return b
 }
 
-func (b *MongoDBBuilder) SetAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+func (b *MongoDBBuilder) SetAdditionalConfig(c *AdditionalMongodConfig) *MongoDBBuilder {
 	b.mdb.Spec.AdditionalMongodConfig = c
 	return b
 }
 
-func (b *MongoDBBuilder) SetMongosAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+func (b *MongoDBBuilder) SetMongosAdditionalConfig(c *AdditionalMongodConfig) *MongoDBBuilder {
 	if b.mdb.Spec.MongosSpec == nil {
 		b.mdb.Spec.MongosSpec = &ShardedClusterComponentSpec{}
 	}
@@ -76,7 +76,7 @@ func (b *MongoDBBuilder) SetMongosAdditionalConfig(c AdditionalMongodConfig) *Mo
 	return b
 }
 
-func (b *MongoDBBuilder) SetConfigSrvAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+func (b *MongoDBBuilder) SetConfigSrvAdditionalConfig(c *AdditionalMongodConfig) *MongoDBBuilder {
 	if b.mdb.Spec.ConfigSrvSpec == nil {
 		b.mdb.Spec.ConfigSrvSpec = &ShardedClusterComponentSpec{}
 	}
@@ -84,7 +84,7 @@ func (b *MongoDBBuilder) SetConfigSrvAdditionalConfig(c AdditionalMongodConfig) 
 	return b
 }
 
-func (b *MongoDBBuilder) SetShardAdditionalConfig(c AdditionalMongodConfig) *MongoDBBuilder {
+func (b *MongoDBBuilder) SetShardAdditionalConfig(c *AdditionalMongodConfig) *MongoDBBuilder {
 	if b.mdb.Spec.ShardSpec == nil {
 		b.mdb.Spec.ShardSpec = &ShardedClusterComponentSpec{}
 	}
@@ -154,7 +154,7 @@ func (b *MongoDBBuilder) SetMongosCountSpec(count int) *MongoDBBuilder {
 }
 
 func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *MongoDBBuilder {
-	b.mdb.Spec.AdditionalMongodConfig = config
+	b.mdb.Spec.AdditionalMongodConfig = &config
 	return b
 }
 
