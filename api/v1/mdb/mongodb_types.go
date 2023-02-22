@@ -177,23 +177,23 @@ const (
 )
 
 // GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
-func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (AdditionalMongodConfig, error) {
+func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
 	lastSpec, err := m.GetLastSpec()
 	if err != nil || lastSpec == nil {
-		return AdditionalMongodConfig{}, err
+		return &AdditionalMongodConfig{}, err
 	}
 
 	switch configType {
 	case ReplicaSetConfig, StandaloneConfig:
-		return lastSpec.AdditionalMongodConfig, nil
+		return lastSpec.GetAdditionalMongodConfig(), nil
 	case MongosConfig:
-		return lastSpec.MongosSpec.AdditionalMongodConfig, nil
+		return lastSpec.MongosSpec.GetAdditionalMongodConfig(), nil
 	case ConfigServerConfig:
-		return lastSpec.ConfigSrvSpec.AdditionalMongodConfig, nil
+		return lastSpec.ConfigSrvSpec.GetAdditionalMongodConfig(), nil
 	case ShardConfig:
-		return lastSpec.ShardSpec.AdditionalMongodConfig, nil
+		return lastSpec.ShardSpec.GetAdditionalMongodConfig(), nil
 	}
-	return AdditionalMongodConfig{}, nil
+	return &AdditionalMongodConfig{}, nil
 }
 
 // +kubebuilder:object:generate=false
@@ -206,7 +206,7 @@ type DbSpec interface {
 	IsSecurityTLSConfigEnabled() bool
 	GetFeatureCompatibilityVersion() *string
 	GetHorizonConfig() []MongoDBHorizonConfig
-	GetAdditionalMongodConfig() AdditionalMongodConfig
+	GetAdditionalMongodConfig() *AdditionalMongodConfig
 	GetExternalDomain() *string
 }
 
@@ -298,7 +298,7 @@ type DbCommonSpec struct {
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
-	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -326,8 +326,11 @@ func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 	return s.Connectivity.ReplicaSetHorizons
 }
 
-func (s *MongoDbSpec) GetAdditionalMongodConfig() AdditionalMongodConfig {
-	return s.AdditionalMongodConfig
+func (s *MongoDbSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
+	if s.AdditionalMongodConfig != nil {
+		return s.AdditionalMongodConfig
+	}
+	return &AdditionalMongodConfig{}
 }
 
 type SnapshotSchedule struct {
@@ -863,7 +866,7 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 		return nil, err
 	}
 	if conf != nil {
-		lastSpec.AdditionalMongodConfig.Object = conf
+		lastSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
 	}
 
 	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalMongosOptions)
@@ -871,7 +874,7 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 		return nil, err
 	}
 	if conf != nil {
-		lastSpec.MongosSpec.AdditionalMongodConfig.Object = conf
+		lastSpec.MongosSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
 	}
 
 	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalConfigServerOptions)
@@ -879,7 +882,7 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 		return nil, err
 	}
 	if conf != nil {
-		lastSpec.ConfigSrvSpec.AdditionalMongodConfig.Object = conf
+		lastSpec.ConfigSrvSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
 	}
 
 	conf, err = getMapFromAnnotation(m, util.LastAchievedMongodAdditionalShardOptions)
@@ -887,7 +890,7 @@ func (m *MongoDB) GetLastSpec() (*MongoDbSpec, error) {
 		return nil, err
 	}
 	if conf != nil {
-		lastSpec.ShardSpec.AdditionalMongodConfig.Object = conf
+		lastSpec.ShardSpec.AdditionalMongodConfig = &AdditionalMongodConfig{object: conf}
 	}
 	return &lastSpec, nil
 }

@@ -156,7 +156,7 @@ func (b *OpsManagerBuilder) SetBackupMembers(members int) *OpsManagerBuilder {
 	return b
 }
 
-func (b *OpsManagerBuilder) SetAdditionalMongodbConfig(config mdbv1.AdditionalMongodConfig) *OpsManagerBuilder {
+func (b *OpsManagerBuilder) SetAdditionalMongodbConfig(config *mdbv1.AdditionalMongodConfig) *OpsManagerBuilder {
 	b.om.Spec.AppDB.AdditionalMongodConfig = config
 	return b
 }

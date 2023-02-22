@@ -18,17 +18,17 @@ type ShardedClusterSpec struct {
 
 type ShardedClusterComponentSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
-	AdditionalMongodConfig AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
-	Agent                  AgentConfig            `json:"agent,omitempty"`
+	AdditionalMongodConfig *AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	Agent                  AgentConfig             `json:"agent,omitempty"`
 }
 
-func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() AdditionalMongodConfig {
+func (s *ShardedClusterComponentSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	if s == nil {
-		return AdditionalMongodConfig{Object: nil}
+		return &AdditionalMongodConfig{}
 	}
 
-	if s.AdditionalMongodConfig.Object == nil {
-		return AdditionalMongodConfig{Object: nil}
+	if s.AdditionalMongodConfig == nil {
+		return &AdditionalMongodConfig{}
 	}
 
 	return s.AdditionalMongodConfig

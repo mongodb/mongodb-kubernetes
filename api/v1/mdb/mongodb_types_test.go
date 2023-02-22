@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -334,4 +335,22 @@ func TestGetTransportSecurity(t *testing.T) {
 			assert.Equalf(t, tt.want, GetTransportSecurity(tt.mdbLdap), "GetTransportSecurity(%v)", tt.mdbLdap)
 		})
 	}
+}
+
+func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
+	mdb := MongoDB{Spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: "4.2.1"}}}
+	mdb.InitDefaults()
+	mdb.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": "30000"}}}
+
+	marshal, err := json.Marshal(mdb.Spec)
+	assert.NoError(t, err)
+
+	unmarshalledSpec := MongoDbSpec{}
+
+	err = json.Unmarshal(marshal, &unmarshalledSpec)
+	assert.NoError(t, err)
+
+	expected := mdb.Spec.GetAdditionalMongodConfig().ToMap()
+	actual := unmarshalledSpec.AdditionalMongodConfig.ToMap()
+	assert.Equal(t, expected, actual)
 }

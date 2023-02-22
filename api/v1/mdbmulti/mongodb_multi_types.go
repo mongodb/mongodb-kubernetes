@@ -434,7 +434,7 @@ func (m *MongoDBMulti) GetLastAdditionalMongodConfig() map[string]interface{} {
 	if lastSpec == nil || err != nil {
 		return map[string]interface{}{}
 	}
-	return lastSpec.AdditionalMongodConfig.ToMap()
+	return lastSpec.GetAdditionalMongodConfig().ToMap()
 }
 
 // when unmarshaling a MongoDBMulti instance, we don't want to have any nil references
@@ -467,8 +467,8 @@ func (m *MongoDBMulti) InitDefaults() {
 		m.Spec.Agent.StartupParameters = map[string]string{}
 	}
 
-	if m.Spec.AdditionalMongodConfig.Object == nil {
-		m.Spec.AdditionalMongodConfig.Object = map[string]interface{}{}
+	if m.Spec.AdditionalMongodConfig == nil || m.Spec.AdditionalMongodConfig.ToMap() == nil {
+		m.Spec.AdditionalMongodConfig = &mdbv1.AdditionalMongodConfig{}
 	}
 
 	if m.Spec.CloudManagerConfig == nil {
@@ -533,8 +533,11 @@ func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 	return m.Connectivity.ReplicaSetHorizons
 }
 
-func (m *MongoDBMultiSpec) GetAdditionalMongodConfig() mdbv1.AdditionalMongodConfig {
-	return m.AdditionalMongodConfig
+func (m *MongoDBMultiSpec) GetAdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
+	if m.AdditionalMongodConfig != nil {
+		return m.AdditionalMongodConfig
+	}
+	return &mdbv1.AdditionalMongodConfig{}
 }
 
 func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {

@@ -882,22 +882,12 @@ func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certifica
 	return processes
 }
 func createConfigSrvProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	var configSrvAdditionalConfig mdbv1.AdditionalMongodConfig
-	if mdb.Spec.ConfigSrvSpec != nil {
-		configSrvAdditionalConfig = mdb.Spec.ConfigSrvSpec.AdditionalMongodConfig
-	}
-
-	return createMongodProcessForShardedCluster(set, configSrvAdditionalConfig, mdb, certificateFilePath)
+	return createMongodProcessForShardedCluster(set, mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
 }
 func createShardProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
-	var shardAdditionalConfig mdbv1.AdditionalMongodConfig
-	if mdb.Spec.ShardSpec != nil {
-		shardAdditionalConfig = mdb.Spec.ShardSpec.AdditionalMongodConfig
-	}
-
-	return createMongodProcessForShardedCluster(set, shardAdditionalConfig, mdb, certificateFilePath)
+	return createMongodProcessForShardedCluster(set, mdb.Spec.ShardSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
 }
-func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
+func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig *mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 

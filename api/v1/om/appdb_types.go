@@ -43,7 +43,7 @@ type AppDBSpec struct {
 	// https://docs.mongodb.com/manual/reference/configuration-options/
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
-	AdditionalMongodConfig mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
+	AdditionalMongodConfig *mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 
 	// specify startup flags for the AutomationAgent and MonitoringAgent
 	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
@@ -82,7 +82,10 @@ func (m *AppDBSpec) GetExternalDomain() *string {
 
 func (m *AppDBSpec) GetMongodConfiguration() mdbcv1.MongodConfiguration {
 	mongodConfig := mdbcv1.NewMongodConfiguration()
-	for k, v := range m.AdditionalMongodConfig.Object {
+	if m.GetAdditionalMongodConfig() == nil || m.AdditionalMongodConfig.ToMap() == nil {
+		return mongodConfig
+	}
+	for k, v := range m.AdditionalMongodConfig.ToMap() {
 		mongodConfig.SetOption(k, v)
 	}
 	return mongodConfig
@@ -92,8 +95,11 @@ func (m *AppDBSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 	return nil // no horizon support for AppDB currently
 }
 
-func (m *AppDBSpec) GetAdditionalMongodConfig() mdbv1.AdditionalMongodConfig {
-	return m.AdditionalMongodConfig
+func (m *AppDBSpec) GetAdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
+	if m.AdditionalMongodConfig != nil {
+		return m.AdditionalMongodConfig
+	}
+	return &mdbv1.AdditionalMongodConfig{}
 }
 
 // GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret
