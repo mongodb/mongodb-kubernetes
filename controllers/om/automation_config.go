@@ -2,14 +2,14 @@ package om
 
 import (
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/api/equality"
 
-	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
 )
 

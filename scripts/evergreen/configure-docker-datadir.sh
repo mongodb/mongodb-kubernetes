@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
-
+set -x
 echo "Configuring Docker data directory"
 
 if docker info 2>/dev/null | grep "Docker Root Dir" | grep -q "/var/lib/docker"; then

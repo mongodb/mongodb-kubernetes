@@ -3,12 +3,15 @@ package om
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"k8s.io/utils/pointer"
 	"net/url"
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	diff "github.com/r3labs/diff/v3"
+
+	"k8s.io/utils/pointer"
 
 	apierror "github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
@@ -322,15 +325,17 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 		if util.ShouldLogAutomationConfigDiff() {
 			originalDeployment, err := oc.ReadDeployment()
 			if err != nil {
-				return err
+				return apierror.New(err)
 			}
-			log.Debug("Current Automation Config")
-			originalDeployment.Debug(log)
-			log.Debug("Invalid Automation Config")
-			deployment.Debug(log)
-		}
 
-		return err
+			changelog, err := diff.Diff(originalDeployment, deployment, diff.AllowTypeMismatch(true))
+			if err != nil {
+				return apierror.New(err)
+			}
+
+			log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
+		}
+		return apierror.New(err)
 	}
 	return nil
 }

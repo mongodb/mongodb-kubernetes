@@ -14,7 +14,8 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from kubetester import (
     assert_pod_container_security_context,
-    assert_pod_security_context, create_or_update,
+    assert_pod_security_context,
+    create_or_update,
 )
 from pytest import fixture
 
@@ -62,13 +63,21 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     return resource
 
 
+@pytest.fixture(scope="class")
+def config_version():
+    class ConfigVersion:
+        def __init__(self):
+            self.version = 0
+
+    return ConfigVersion()
+
+
 @pytest.mark.e2e_replica_set
 class TestReplicaSetCreation(KubernetesTester):
-    def __init__(self):
-        # In order to avoid false-positives, we need to pull the initial config version
-        # This is just in case we're not running in a fresh namespace/project.
+    def test_initialize_config_version(self, config_version):
+        self.ensure_group(self.get_om_org_id(), self.namespace)
         config = self.get_automation_config()
-        self.initial_config_version = config["version"]
+        config_version.version = config["version"]
 
     def test_mdb_created(self, replica_set: MongoDB):
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -197,6 +206,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert_pod_security_context(pod, managed)
             assert_pod_container_security_context(pod.spec.containers[0], managed)
 
+    @skip_if_local
     def test_security_context_operator(
         self, operator_installation_config: Dict[str, str]
     ):
@@ -306,11 +316,11 @@ class TestReplicaSetCreation(KubernetesTester):
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
-    def test_proper_automation_config_version(self):
+    def test_proper_automation_config_version(self, config_version):
         config = self.get_automation_config()
-        # We create 3 members of the replicaset here, so there will be 3 changes only
-        # Anything more would indicate that we're sending more things to the Ops/Cloud Manager than we should
-        assert (config["version"] - self.initial_config_version) == 3
+        # We create 3 members of the replicaset here, so there will be 2 changes.
+        # Anything more than 2 changes indicates that we're sending more things to the Ops/Cloud Manager than we should.
+        assert (config["version"] - config_version.version) == 2
 
     @skip_if_local
     def test_replica_set_was_configured(self):
