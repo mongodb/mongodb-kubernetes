@@ -260,7 +260,9 @@ class KubernetesTester(object):
         )
 
     @classmethod
-    def create_or_update_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):
+    def create_or_update_pvc(
+        cls, namespace: str, body: Dict, storage_class_name: str = "gp2"
+    ):
         if storage_class_name is not None:
             body["spec"]["storageClassName"] = storage_class_name
         try:
@@ -877,6 +879,15 @@ class KubernetesTester(object):
         )
 
         return response.json()["id"]
+
+    @staticmethod
+    def ensure_group(org_id, group_name):
+        try:
+            return KubernetesTester.get_om_group_id(
+                group_name=group_name, org_id=org_id
+            )
+        except:
+            return KubernetesTester.create_group(org_id, group_name)
 
     @staticmethod
     def query_group(group_name, org_id=None):
