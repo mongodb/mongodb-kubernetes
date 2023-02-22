@@ -16,6 +16,8 @@ import (
 // AdditionalMongodConfig contains a private non exported object with a json tag.
 // Because we implement the Json marshal and unmarshal interface, json is still able to convert this object into its write-type.
 // Making this field private enables us to make sure we don't directly access this field, making sure it is always initialized.
+// The space is on purpose to not generate the comment in the CRD.
+
 type AdditionalMongodConfig struct {
 	object map[string]interface{} `json:"-"`
 }
