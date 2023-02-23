@@ -224,7 +224,9 @@ def test_create_namespaces(
     image_pull_secret_name = multi_cluster_operator_installation_config[
         "registry.imagePullSecrets"
     ]
-    image_pull_secret_data = read_secret(namespace, image_pull_secret_name)
+    image_pull_secret_data = read_secret(
+        namespace, image_pull_secret_name, api_client=central_cluster_client
+    )
 
     create_namespace(
         central_cluster_client,

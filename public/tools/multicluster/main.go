@@ -85,7 +85,7 @@ func parseSetupFlags() (flags, error) {
 	setupCmd.BoolVar(&flags.cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
 	setupCmd.BoolVar(&flags.clusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
 	setupCmd.BoolVar(&flags.installDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
-	setupCmd.BoolVar(&flags.createServiceAccountSecrets, "create-service-account-secrets", false, "Create service account token secrets. [optional default: false]")
+	setupCmd.BoolVar(&flags.createServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	setupCmd.StringVar(&memberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 
 	setupCmd.Parse(os.Args[2:])
