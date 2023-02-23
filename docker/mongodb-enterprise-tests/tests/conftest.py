@@ -859,7 +859,7 @@ def run_kube_config_creation_tool(
             )
 
     if cluster_scoped:
-        args.extend(["-cluster-scoped", "true"])
+        args.append("-cluster-scoped")
 
     try:
         print(f"Running multi-cluster cli setup tool: {' '.join(args)}")
