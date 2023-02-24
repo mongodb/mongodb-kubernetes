@@ -189,6 +189,7 @@ def create_tls_certs(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
     common_name: Optional[str] = None,
+    hostname_aliases: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     if service_name is None:
         service_name = resource_name + "-svc"
@@ -208,8 +209,11 @@ def create_tls_certs(
     pod_dns = []
     pods = []
     for idx in range(replicas):
-        pod_dns.append(pod_fqdn_fstring.format(idx))
-        pods.append(f"{resource_name}-{idx}")
+        if hostname_aliases is not None:
+            pod_dns.append(hostname_aliases[idx])
+        else:
+            pod_dns.append(pod_fqdn_fstring.format(idx))
+            pods.append(f"{resource_name}-{idx}")
 
     spec["dnsNames"] = pods + pod_dns
     if additional_domains is not None:
@@ -309,6 +313,7 @@ def create_mongodb_tls_certs(
     additional_domains: Optional[List[str]] = None,
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
+    hostname_aliases: Optional[List[str]] = None,
 ) -> str:
     cert_and_pod_names = create_tls_certs(
         issuer=issuer,
@@ -321,19 +326,38 @@ def create_mongodb_tls_certs(
         secret_name=bundle_secret_name,
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
+        hostname_aliases=hostname_aliases,
     )
 
     return cert_and_pod_names
 
 
 def multi_cluster_service_fqdns(
-    resource_name: str, namespace: str, cluster_index: str, replicas: int
-) -> Dict[str, str]:
+    resource_name: str, namespace: str, external_domain: str, cluster_index: int, replicas: int
+) -> List[str]:
+    service_fqdns = []
+
+    for n in range(replicas):
+        if external_domain is None:
+            service_fqdns.append(
+                f"{resource_name}-{cluster_index}-{n}-svc.{namespace}.svc.cluster.local"
+            )
+        else:
+            service_fqdns.append(
+                f"{resource_name}-{cluster_index}-{n}.{external_domain}"
+            )
+
+    return service_fqdns
+
+
+def multi_cluster_external_service_fqdns(
+        resource_name: str, namespace: str, cluster_index: int, replicas: int
+) -> List[str]:
     service_fqdns = []
 
     for n in range(replicas):
         service_fqdns.append(
-            f"{resource_name}-{cluster_index}-{n}-svc.{namespace}.svc.cluster.local"
+            f"{resource_name}-{cluster_index}-{n}-svc-external.{namespace}.svc.cluster.local"
         )
 
     return service_fqdns
@@ -347,22 +371,29 @@ def create_multi_cluster_tls_certs(
     mongodb_multi: MongoDBMulti,
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
+    service_fqdns: Optional[List[str]] = None,
     clusterwide: bool = False,
 ) -> str:
-    service_fqdns = [
-        f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"
-    ]
+    if service_fqdns is None:
+        service_fqdns = [
+            f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"
+        ]
 
-    for client in member_clients:
-        cluster_spec = mongodb_multi.get_item_spec(client.cluster_name)
-        service_fqdns.extend(
-            multi_cluster_service_fqdns(
-                mongodb_multi.name,
-                mongodb_multi.namespace,
-                client.cluster_index,
-                cluster_spec["members"],
+        for client in member_clients:
+            cluster_spec = mongodb_multi.get_item_spec(client.cluster_name)
+            try:
+                external_domain = cluster_spec["externalAccess"]["externalDomain"]
+            except KeyError:
+                external_domain = None
+            service_fqdns.extend(
+                multi_cluster_service_fqdns(
+                    mongodb_multi.name,
+                    mongodb_multi.namespace,
+                    external_domain,
+                    client.cluster_index,
+                    cluster_spec["members"],
+                )
             )
-        )
 
     generate_cert(
         namespace=mongodb_multi.namespace,
@@ -420,6 +451,7 @@ def create_multi_cluster_mongodb_tls_certs(
     central_cluster_client: kubernetes.client.ApiClient,
     mongodb_multi: MongoDBMulti,
     additional_domains: Optional[List[str]] = None,
+    service_fqdns: Optional[List[str]] = None,
     clusterwide: bool = False,
 ) -> str:
     # create the "source-of-truth" tls cert in central cluster
@@ -430,6 +462,7 @@ def create_multi_cluster_mongodb_tls_certs(
         secret_name=bundle_secret_name,
         mongodb_multi=mongodb_multi,
         additional_domains=additional_domains,
+        service_fqdns=service_fqdns,
         clusterwide=clusterwide,
     )
 
