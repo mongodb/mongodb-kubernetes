@@ -79,6 +79,18 @@ def create_service_account(namespace: str, name: str) -> str:
     return name
 
 
+def create_or_update_service(namespace: str, name: str, spec: client.V1ServiceSpec, api_client: Optional[kubernetes.client.ApiClient] = None):
+    """Creates a service with `name` in `namespace`"""
+    service = client.V1Service(metadata=client.V1ObjectMeta(name=name, namespace=namespace), spec=spec)
+    try:
+        client.CoreV1Api(api_client=api_client).create_namespaced_service(namespace=namespace, body=service)
+    except kubernetes.client.ApiException as e:
+        if e.status == 409:
+            client.CoreV1Api(api_client=api_client).patch_namespaced_service(name, namespace, body=service)
+        else:
+            raise e
+
+
 def delete_service_account(namespace: str, name: str) -> str:
     """Deletes a service account with `name` in `namespace`"""
     sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))

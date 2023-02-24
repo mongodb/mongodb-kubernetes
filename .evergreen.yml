@@ -1286,6 +1286,16 @@ tasks:
   commands:
   - func: "e2e_test"
 
+- name: e2e_replica_set_tls_process_hostnames
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_replica_set_process_hostnames
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replica_set_tls_allow
   tags: ["patch-run"]
   commands:
@@ -1781,6 +1791,12 @@ tasks:
   commands:
     - func: e2e_test
 
+
+- name: e2e_multi_cluster_tls_no_mesh
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_backup_restore
   tags: ["patch-run"]
   commands:
@@ -1975,6 +1991,7 @@ task_groups:
     - e2e_standalone_upgrade_downgrade
     - e2e_standalone_custom_podspec
     - e2e_standalone_agent_flags
+    - e2e_replica_set_process_hostnames
     # e2e_tls_task_group
     - e2e_replica_set_tls_allow
     - e2e_replica_set_tls_prefer
@@ -2008,6 +2025,7 @@ task_groups:
     - e2e_tls_x509_configure_all_options_sc
     - e2e_tls_x509_user_connectivity
     - e2e_tls_x509_users_addition_removal
+    - e2e_replica_set_tls_process_hostnames
     # e2e_ldap_task_group
     - e2e_replica_set_ldap
     - e2e_sharded_cluster_ldap
@@ -2154,6 +2172,7 @@ task_groups:
     - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_clusterwide
     - e2e_multi_cluster_specific_namespaces
+    - e2e_multi_cluster_tls_no_mesh
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
