@@ -10,7 +10,7 @@ from kubetester import (
     get_pod_when_ready,
     create_or_update_configmap,
     is_pod_ready,
-    read_secret,
+    read_secret, create_configmap,
 )
 
 from kubetester.awss3client import AwsS3Client

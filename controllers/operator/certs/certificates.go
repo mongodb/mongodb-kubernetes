@@ -83,7 +83,7 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (
 
 	data := append(crt, key...)
 
-	additionalDomains := []string{}
+	var additionalDomains []string
 	for i := range getPodNames(opts) {
 		additionalDomains = append(additionalDomains, GetAdditionalCertDomainsForMember(opts, i)...)
 	}
@@ -175,20 +175,20 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 
 // getPodNames returns the pod names based on the Cert Options provided.
 func getPodNames(opts Options) []string {
-	_, podnames := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
-	return podnames
+	_, podNames := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
+	return podNames
 }
 
-func GetDNSNames(opts Options) (hostnames, podnames []string) {
+func GetDNSNames(opts Options) (hostnames, podNames []string) {
 	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
 }
 
 // GetAdditionalCertDomainsForMember gets any additional domains that the
 // certificate for the given member of the stateful set should be signed for.
 func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []string) {
-	_, podnames := GetDNSNames(opts)
+	_, podNames := GetDNSNames(opts)
 	for _, certDomain := range opts.additionalCertificateDomains {
-		hostnames = append(hostnames, podnames[member]+"."+certDomain)
+		hostnames = append(hostnames, podNames[member]+"."+certDomain)
 	}
 	if len(opts.horizons) > 0 {
 		//at this point len(ss.ReplicaSetHorizons) should be equal to the number

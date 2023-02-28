@@ -405,7 +405,7 @@ func (r *ReconcileMongoDbShardedCluster) ensureSSLCertificates(s *mdbv1.MongoDB,
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	configSrvOpts := r.getConfigServerOptions(*s, opts, log)
-	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts)
+	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, nil)
 	if err := create.DatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
 		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
 	}
@@ -421,7 +421,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		shardsNames[i] = s.ShardRsName(i)
 		shardOpts := r.getShardOptions(*s, i, opts, log)
-		shardSts := construct.DatabaseStatefulSet(*s, shardOpts)
+		shardSts := construct.DatabaseStatefulSet(*s, shardOpts, nil)
 
 		if err := create.DatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log); err != nil {
 			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", shardsNames[i], err)
@@ -435,7 +435,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
 
 	mongosOpts := r.getMongosOptions(*s, opts, log)
-	mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts)
+	mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, nil)
 
 	if err := create.DatabaseInKubernetes(r.client, *s, mongosSts, mongosOpts, log); err != nil {
 		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
@@ -581,7 +581,7 @@ func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient
 
 	// Scaledown amount of replicas in ConfigServer
 	if r.isConfigServerScaleDown() {
-		sts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log))
+		sts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log), nil)
 		_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.ConfigServerCount, nil)
 		membersToScaleDown[sc.ConfigRsName()] = podNames[r.getConfigSrvCountThisReconciliation():sc.Status.ConfigServerCount]
 	}
@@ -589,7 +589,7 @@ func (r *ReconcileMongoDbShardedCluster) prepareScaleDownShardedCluster(omClient
 	// Scaledown size of each shard
 	if r.isShardsSizeScaleDown() {
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			sts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log))
+			sts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log), nil)
 			_, podNames := dns.GetDnsForStatefulSetReplicasSpecified(sts, clusterName, sc.Status.MongodsPerShardCount, nil)
 			membersToScaleDown[sc.ShardRsName(i)] = podNames[r.getMongodsPerShardCountThisReconciliation():sc.Status.MongodsPerShardCount]
 		}
@@ -704,13 +704,13 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 
 	// mongos
-	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, *opts, log))
+	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, *opts, log), nil)
 	mongosInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 	mongosMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	mongosProcesses := createMongosProcesses(sts, sc, mongosMemberCertPath)
 
 	// config server
-	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, *opts, log))
+	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, *opts, log), nil)
 	configInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 	configMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sc, configMemberCertPath), sc)
@@ -719,7 +719,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
 	shardsInternalClusterPath := make([]string, len(shards))
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, *opts, log))
+		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, *opts, log), nil)
 		shardsInternalClusterPath[i] = statefulset.GetFilePathFromAnnotationOrDefault(shardSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
 		shardMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(shardSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sc, shardMemberCertPath), sc)
@@ -826,18 +826,18 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, opts deploymentOptions,
 	log *zap.SugaredLogger, mdb *mdbv1.MongoDB) error {
 
-	mongosStatefulSet := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, opts, log))
+	mongosStatefulSet := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, opts, log), nil)
 	if err := agents.WaitForRsAgentsToRegister(mongosStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 		return err
 	}
 
-	configSrvStatefulSet := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log))
+	configSrvStatefulSet := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, opts, log), nil)
 	if err := agents.WaitForRsAgentsToRegister(configSrvStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 		return err
 	}
 
 	for i := 0; i < sc.Spec.ShardCount; i++ {
-		shardStatefulSet := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log))
+		shardStatefulSet := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, opts, log), nil)
 		if err := agents.WaitForRsAgentsToRegister(shardStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 			return err
 		}

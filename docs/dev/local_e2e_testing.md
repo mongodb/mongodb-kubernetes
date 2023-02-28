@@ -59,13 +59,14 @@ source ~/.operator-dev/contexts/multi-kind
     * `~/.operator-dev/context.export.env` - same as above, but with exported form : `export VAR="VALUE"`, which can be sourced to current session.
     * `~/.operator-dev/context.operator.env` - env variables from the context required by the operator binary in not-exported env form.
     * `~/.operator-dev/context.operator.export.env` - same as above, but in exported form.
+* `source ~/.operator-dev/context.env` - below scripts assumes env vars set by above `make switch`
 * `scripts/dev/recreate_kind_clusters.sh` - recreates all kind clusters for multi-cluster
 * `make aws_login` - important to make sure you have up-to-date tokens for ECR.
 * `scripts/dev/prepare_local_e2e_run.sh` - cleans/creates current namespace in central and all member clusters; executes multi-cluster cli; installs CRD in central cluster.
 
 #### Run the operator locally
 
-Make sure you have `LOCAL_OPERATOR=true` set in context. Otherwise, the tests will assume the operator is running in a pod. Also when running the operator locally, some additional
+Make sure you have `LOCAL_OPERATOR=true` set in context. Otherwise, the tests will assume the operator is running in a pod. Also, when running the operator locally, some additional
 steps are performed when preparing the environment in `scripts/dev/scripts/dev/prepare_local_e2e_run.sh`, e.g. executing multi-cluster cli tool.
 
 ##### From the command line

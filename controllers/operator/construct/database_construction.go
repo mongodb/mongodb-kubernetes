@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"os"
 	"sort"
 	"strconv"
@@ -266,9 +267,9 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 	}
 }
 
-func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions) appsv1.StatefulSet {
+func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
-	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions)
+	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 
 	if len(stsOptions.Annotations) > 0 {
 		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
@@ -285,8 +286,8 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	return dbSts
 }
 
-func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	allSources := getAllMongoDBVolumeSources(mdb, *stsOpts)
+func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+	allSources := getAllMongoDBVolumeSources(mdb, *stsOpts, nil)
 
 	var extraEnvs []corev1.EnvVar
 	for _, source := range allSources {
@@ -298,7 +299,7 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 	stsOpts.ExtraEnvs = extraEnvs
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts)
-	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts))
+	return statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
 }
 
 // buildVaultDatabaseSecretsToInject fully constructs the DatabaseSecretsToInject required to
@@ -341,7 +342,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 }
 
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
-func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions) statefulset.Modification {
+func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
 		ControllerLabelName:     util.OperatorName,
@@ -359,7 +360,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	secretsToInject := buildVaultDatabaseSecretsToInject(mdb, opts)
 	volumes, volumeMounts := getVolumesAndVolumeMounts(mdb, opts, secretsToInject.AgentCerts, secretsToInject.InternalClusterAuth)
 
-	allSources := getAllMongoDBVolumeSources(mdb, opts)
+	allSources := getAllMongoDBVolumeSources(mdb, opts, log)
 	for _, source := range allSources {
 		if source.ShouldBeAdded() {
 			volumes = append(volumes, source.GetVolumes()...)
@@ -520,11 +521,18 @@ func getTLSPrometheusVolumeAndVolumeMount(prom *mdbcv1.Prometheus) ([]corev1.Vol
 
 // getAllMongoDBVolumeSources returns a slice of  MongoDBVolumeSource. These are used to determine which volumes
 // and volume mounts should be added to the StatefulSet.
-func getAllMongoDBVolumeSources(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions) []MongoDBVolumeSource {
-	caVolume := &caVolumeSource{opts: databaseOpts}
+func getAllMongoDBVolumeSources(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions, log *zap.SugaredLogger) []MongoDBVolumeSource {
+	if log == nil {
+		log = zap.S()
+	}
+	caVolume := &caVolumeSource{
+		opts:   databaseOpts,
+		logger: log,
+	}
 	tlsVolume := &tlsVolumeSource{
 		security:     mdb.GetSecurity(),
 		databaseOpts: databaseOpts,
+		logger:       log,
 	}
 
 	var allVolumeSources []MongoDBVolumeSource

@@ -51,7 +51,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		os.Setenv(util.AutomationAgentImage, "")
 		rs := mdbv1.NewReplicaSetBuilder().Build()
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()))
+			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
 		})
 	})
 
@@ -60,13 +60,13 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		os.Setenv(util.AutomationAgentImagePullPolicy, "")
 		sc := mdbv1.NewClusterBuilder().Build()
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ShardOptions(0))
+			DatabaseStatefulSet(*sc, ShardOptions(0), nil)
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions())
+			DatabaseStatefulSet(*sc, ConfigServerOptions(), nil)
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, MongosOptions())
+			DatabaseStatefulSet(*sc, MongosOptions(), nil)
 		})
 	})
 }
@@ -75,7 +75,7 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 	start := time.Now()
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 
-	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()))
+	_ = DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
 	assert.True(t, time.Since(start) < time.Second*4) // we waited only a little (considering 2 seconds of wait as well)
 }
 
@@ -134,7 +134,7 @@ func TestAgentFlags(t *testing.T) {
 	}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()))
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
@@ -147,7 +147,7 @@ func TestLabelsAndAnotations(t *testing.T) {
 	annotations := map[string]string{"a1": "val1", "a2": "val2"}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(annotations).SetLabels(labels).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()))
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
 
 	// add the default label to the map
 	labels["app"] = "test-mdb-svc"
@@ -220,7 +220,7 @@ func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
 	_ = os.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
 
 	rs := mdbv1.NewReplicaSetBuilder().Build()
-	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()))
+	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
 
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)

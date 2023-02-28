@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"os"
 	"path"
 	"strings"
@@ -113,7 +114,7 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 	)
 
 	// the appdb will have a single init container,
-	// all of the necessary binaries will be copied into the various
+	// all the necessary binaries will be copied into the various
 	// volumes of different containers.
 	updateInitContainers := func(templateSpec *corev1.PodTemplateSpec) {
 		templateSpec.Spec.InitContainers = []corev1.Container{}
@@ -149,9 +150,12 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 	)
 }
 
-// getTLSVolumesAndVolumeMounts returns the slices of volumes and volumemounts
+// getTLSVolumesAndVolumeMounts returns the slices of volumes and volume-mounts
 // that the AppDB STS needs for TLS resources.
-func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) ([]corev1.Volume, []corev1.VolumeMount) {
+	if log == nil {
+		log = zap.S()
+	}
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
@@ -166,7 +170,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, o
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	tlsConfig := appDb.GetSecurity().TLSConfig
+	tlsConfig := appDb.GetTLSConfig()
 	secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
 
 	secretName += certs.OperatorGeneratedCertSuffix
@@ -187,7 +191,10 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, o
 
 	if tlsConfig.CA != "" {
 		caName = tlsConfig.CA
+	} else {
+		log.Debugf("No CA name has been supplied, defaulting to: %s", caName)
 	}
+
 	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
 		MountPath: util.ConfigMapVolumeCAMountPath,
@@ -205,9 +212,9 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, o
 
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
 // and volumemounts for TLS.
-func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) podtemplatespec.Modification {
+func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
 
-	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, opts)
+	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumesToAdd {
 			podtemplatespec.WithVolume(v)(spec)
@@ -327,14 +334,14 @@ func customPersistenceConfig(om om.MongoDBOpsManager) statefulset.Modification {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
 	monitoringModification := podtemplatespec.NOOP()
 	monitorAppDB := env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
 	if monitorAppDB && podVars != nil && podVars.ProjectID != "" {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -382,7 +389,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(*appDb),
 				monitoringModification,
-				tlsVolumes(*appDb, podVars, opts),
+				tlsVolumes(*appDb, podVars, log),
 			),
 		),
 		appDbLabels(opsManager),
@@ -433,7 +440,7 @@ func getVolumeMountIndexByName(mounts []corev1.VolumeMount, name string) int {
 // addMonitoringContainer returns a podtemplatespec modification that adds the monitoring container to the AppDB Statefulset.
 // Note that this replicates some code from the functions that do this for the base AppDB Statefulset. After many iterations
 // this was deemed to be an acceptable compromise to make code clearer and more maintainable.
-func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions) podtemplatespec.Modification {
+func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) podtemplatespec.Modification {
 	var monitoringAcVolume corev1.Volume
 	var monitoringACFunc podtemplatespec.Modification
 
@@ -485,7 +492,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 
 	// 4. Custom startup parameters provided in the CR
 	// By default appDB.AutomationAgent.StartupParameters apply to both agents
-	// if appDB.MonitoringAgent.StartupParamters is specified, it overrides the former
+	// if appDB.MonitoringAgent.StartupParameters is specified, it overrides the former
 	monitoringStartupParams := appDB.AutomationAgent.StartupParameters
 	if appDB.MonitoringAgent.StartupParameters != nil {
 		monitoringStartupParams = appDB.MonitoringAgent.StartupParameters
@@ -499,7 +506,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
-	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, opts)
+	_, monitoringMounts := getTLSVolumesAndVolumeMounts(appDB, &podVars, log)
 
 	return podtemplatespec.Apply(
 		monitoringACFunc,

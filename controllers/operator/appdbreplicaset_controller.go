@@ -201,7 +201,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts)
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, log)
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed("can't construct AppDB Statefulset: %s", err), log, omStatusOption)
 	}
@@ -308,7 +308,7 @@ func getDomain(service, namespace, clusterName string) string {
 
 // ensureTLSSecretAndCreatePEMIfNeeded checks that the needed TLS secrets are present, and creates the concatenated PEM if needed.
 // This means that the secret referenced can either already contain a concatenation of certificate and private key
-// or it can be of type kubernetes.io/tls. In this case the operator will read the tls.crt and tls.key entries and it will
+// or it can be of type kubernetes.io/tls. In this case the operator will read the tls.crt and tls.key entries, and it will
 // generate a new secret containing their concatenation
 func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
 	rs := om.Spec.AppDB
