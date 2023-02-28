@@ -25,7 +25,7 @@ func CreateFromReplicaSet(rs *mdbv1.MongoDB) om.Deployment {
 			options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
 
 		},
-	))
+	), nil)
 	d := om.NewDeployment()
 
 	lastConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)

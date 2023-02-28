@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"go.uber.org/zap"
 	"path"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -21,7 +22,8 @@ type MongoDBVolumeSource interface {
 }
 
 type caVolumeSource struct {
-	opts DatabaseStatefulSetOptions
+	opts   DatabaseStatefulSetOptions
+	logger *zap.SugaredLogger
 }
 
 func (c *caVolumeSource) GetVolumes() []corev1.Volume {
@@ -57,6 +59,7 @@ func (c *caVolumeSource) ShouldBeAdded() bool {
 type tlsVolumeSource struct {
 	security     *mdbv1.Security
 	databaseOpts DatabaseStatefulSetOptions
+	logger       *zap.SugaredLogger
 }
 
 func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.VolumeMount) {
@@ -66,7 +69,7 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	security := c.security
 	databaseOpts := c.databaseOpts
 
-	// We default each value to the the "old-design"
+	// We default each value to the "old-design"
 	tlsConfig := security.TLSConfig
 	if !security.IsTLSEnabled() {
 		return volumes, volumeMounts
@@ -79,8 +82,10 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	volumeSecretName := secretName
 
 	caName := fmt.Sprintf("%s-ca", databaseOpts.Name)
-	if tlsConfig.CA != "" {
+	if tlsConfig != nil && tlsConfig.CA != "" {
 		caName = tlsConfig.CA
+	} else {
+		c.logger.Debugf("No CA name has been supplied, defaulting to: %s", caName)
 	}
 
 	// This two functions modify the volumes to be optional (the absence of the referenced

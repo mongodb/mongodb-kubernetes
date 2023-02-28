@@ -198,20 +198,25 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 
 func AppDBReplicaSetConfig(om omv1.MongoDBOpsManager) Options {
 	mdb := om.Spec.AppDB
-	return Options{
-		ResourceName:                 mdb.Name(),
-		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.Name()),
-		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name()),
-		Namespace:                    mdb.Namespace,
-		Replicas:                     scale.ReplicasThisReconciliation(&om),
-		ServiceName:                  mdb.ServiceName(),
-		ClusterDomain:                mdb.ClusterDomain,
-		additionalCertificateDomains: mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               om.GetOwnerReferences(),
+	opts := Options{
+		ResourceName:              mdb.Name(),
+		CertSecretName:            mdb.GetSecurity().MemberCertificateSecretName(mdb.Name()),
+		InternalClusterSecretName: mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name()),
+		Namespace:                 mdb.Namespace,
+		Replicas:                  scale.ReplicasThisReconciliation(&om),
+		ServiceName:               mdb.ServiceName(),
+		ClusterDomain:             mdb.ClusterDomain,
+		OwnerReference:            om.GetOwnerReferences(),
 	}
+
+	if mdb.GetSecurity().TLSConfig != nil {
+		opts.additionalCertificateDomains = append(opts.additionalCertificateDomains, mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
+	}
+
+	return opts
 }
 
-// ShardConfig returns a struct which provides all of the configuration options required for the given shard.
+// ShardConfig returns a struct which provides all the configuration options required for the given shard.
 func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler) Options {
 	return Options{
 		ResourceName:                 mdb.ShardRsName(shardNum),

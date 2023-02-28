@@ -8,7 +8,7 @@ from kubetester.mongotester import ReplicaSetTester
 from kubetester.mongodb import MongoDB, Phase
 
 from kubetester.kubetester import fixture as load_fixture
-from kubetester import create_secret, find_fixture
+from kubetester import create_secret, find_fixture, create_or_update
 from kubetester.certs import (
     Certificate,
     ISSUER_CA_NAME,
@@ -58,7 +58,7 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
         load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace
     )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    return create_or_update(res)
 
 
 @pytest.fixture(scope="module")

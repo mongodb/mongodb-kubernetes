@@ -193,7 +193,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, workflow.Failed("Failed to reconcileHostnameOverrideConfigMap: %s", err), log)
 	}
 
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig)
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 	if status := ensureRoles(rs.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
 		return r.updateStatus(rs, status, log)
 	}

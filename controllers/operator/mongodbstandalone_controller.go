@@ -223,7 +223,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		WithVaultConfig(vaultConfig),
 	)
 
-	sts := construct.DatabaseStatefulSet(*s, standaloneOpts)
+	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, nil)
 
 	status := workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
