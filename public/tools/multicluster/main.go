@@ -602,7 +602,7 @@ func getCentralRules() []rbacv1.PolicyRule {
 		{
 			Verbs: []string{"*"},
 			Resources: []string{
-				"mongodbmulti", "mongodbmulti/finalizers", "mongodbmulti/status",
+				"mongodbmulticluster", "mongodbmulticluster/finalizers", "mongodbmulticluster/status",
 				"mongodbusers", "mongodbusers/status",
 				"opsmanagers", "opsmanagers/finalizers", "opsmanagers/status",
 				"mongodb", "mongodb/finalizers", "mongodb/status"},

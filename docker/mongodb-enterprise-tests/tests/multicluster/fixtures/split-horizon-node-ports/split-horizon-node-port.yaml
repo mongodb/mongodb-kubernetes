@@ -5,7 +5,7 @@ metadata:
   name: my-service
   labels:
     controller: mongodb-enterprise-operator
-    mongodbmulti: <NAMESPACE>-multi-cluster-replica-set
+    mongodbmulticluster: <NAMESPACE>-multi-cluster-replica-set
     statefulset.kubernetes.io/pod-name: multi-cluster-replica-set-0-0
 spec:
   type: NodePort

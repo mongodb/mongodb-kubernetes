@@ -92,7 +92,7 @@ echo "Installing/Upgrading all CRDs"
 kubectl replace -f helm_chart/crds || kubectl apply -f helm_chart/crds
 
 if [[ "${kube_environment_name}" = "multi" ]]; then
-    kubectl apply --context "${central_cluster}" -f config/crd/bases/mongodb.com_mongodbmulti.yaml
+    kubectl apply --context "${central_cluster}" -f config/crd/bases/mongodb.com_mongodbmulticluster.yaml
 fi
 
 if [[ "${OM_EXTERNALLY_CONFIGURED:-}" != "true" ]] && [[ -n "${ops_manager_namespace}" ]]; then

@@ -53,7 +53,7 @@ plural_map = {
     "MongoDB": "mongodb",
     "MongoDBUser": "mongodbusers",
     "MongoDBOpsManager": "opsmanagers",
-    "MongoDBMulti": "mongodbmulti",
+    "MongoDBMultiCluster": "mongodbmulticluster",
 }
 
 

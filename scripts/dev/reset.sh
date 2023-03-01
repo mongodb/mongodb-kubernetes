@@ -30,8 +30,8 @@ reset_context() {
 
   # shellcheck disable=SC2016,SC2086
   timeout "30s" bash -c \
-            'while [[ $(kubectl -n '${namespace}' get pods | grep "backup-daemon-0" | wc -l) -gt 0 ]]; do sleep 1; done' \
-             || echo "Warning: failed to remove backup daemon statefulset"
+    'while [[ $(kubectl -n '${namespace}' get pods | grep "backup-daemon-0" | wc -l) -gt 0 ]]; do sleep 1; done' ||
+    echo "Warning: failed to remove backup daemon statefulset"
 
   kubectl delete --context "${context}" sts --all -n "${namespace}"
   kubectl delete --context "${context}" deployments --all -n "${namespace}" || true
@@ -40,7 +40,7 @@ reset_context() {
 
   # shellcheck disable=SC2046
   for csr in $(kubectl get csr -o name | grep "${namespace}"); do
-      kubectl delete --context "${context}" "${csr}"
+    kubectl delete --context "${context}" "${csr}"
   done
   # note, that "kubectl delete --context "${context}" .. -all" always enables "--ignore-not-found=true" option so there's no need to tolerate
   # failures explicitly (" || true")
@@ -68,14 +68,17 @@ if [[ "${kube_environment_name}" == "multi" ]]; then
     reset_context "${CENTRAL_CLUSTER}" "${ns}" 2>&1 | prepend "${CENTRAL_CLUSTER}:${ns}" &
   done
 
-  # reset member clusters
-  for member_cluster in ${MEMBER_CLUSTERS}; do
-    member_cluster_namespaces=$(get_test_namespaces "${member_cluster}")
-    echo "${member_cluster}: resetting namespaces: ${member_cluster_namespaces}"
-    for ns in ${member_cluster_namespaces}; do
-      reset_context "${member_cluster}" "${ns}" 2>&1 | prepend "${member_cluster}:${ns}" &
+# we are in our static cluster, lets skip!
+  if [[ "${central_cluster}" != "e2e.operator.mongokubernetes.com" ]]; then
+    # reset member clusters
+    for member_cluster in ${MEMBER_CLUSTERS}; do
+      member_cluster_namespaces=$(get_test_namespaces "${member_cluster}")
+      echo "${member_cluster}: resetting namespaces: ${member_cluster_namespaces}"
+      for ns in ${member_cluster_namespaces}; do
+        reset_context "${member_cluster}" "${ns}" 2>&1 | prepend "${member_cluster}:${ns}" &
+      done
     done
-  done
+  fi
   echo "Waiting for background jobs to complete..."
   wait
 else

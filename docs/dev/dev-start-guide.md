@@ -333,20 +333,11 @@ it's possible to debug problems with Ops Manager 4.0. The test will be run in an
 isolated namespace (`anton` for this example) and won't affect the existing
 namespaces
 
-#### Multi Cluster
+#### Static Multi Cluster
 
-In order to run e2e test for multi cluster, you will need to create a multi cluster context file.
+In order to run e2e test for multi cluster, you will need to copy and edit the following static multi cluster context [file](../../scripts/dev/samples/multi).
 
-Add the following to this context file.
-
-```bash
-export kube_environment_name=multi
-export member_clusters="e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
-export central_cluster=e2e.operator.mongokubernetes.com
-export test_pod_cluster=e2e.cluster1.mongokubernetes.com
-```
-
-Run a test with
+Run the following command to run a test:
 
 ```bash
 make e2e test=e2e_multi_cluster_replica_set
@@ -355,17 +346,9 @@ make e2e test=e2e_multi_cluster_replica_set
 This test will deploy the operator in the `central_cluster`, the test pod in `test_pod_cluster` and configure
 the operator to have api access to all clusters in `member_clusters`
 
-If you want to run tests using pytest locally without building the test image. You can run tests using:
+If you want to run tests using pytest locally without relying on the e2e make target.
 
-```bash
-make e2e test=e2e_multi_cluster_replica_set local=true
-```
-
-You will need to ensure that you have the following env var set in your context
-
-```bash
-export MULTI_CLUSTER_CONFIG_DIR=/absolute/path/to/directory/ops-manager-kubernetes/.multi_cluster_local_test_files
-```
+You should be able to find more here: [local_e2e_testing](../../docs/dev/local_e2e_testing.md#running-tests-against-our-static-multi-cluster)
 
 ### Troubleshooting
 

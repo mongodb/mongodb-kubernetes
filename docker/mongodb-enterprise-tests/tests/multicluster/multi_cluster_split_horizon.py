@@ -129,7 +129,7 @@ def test_create_node_ports(
 
             # configure labels and selectors
             service_body["metadata"]["labels"][
-                "mongodbmulti"
+                "mongodbmulticluster"
             ] = f"{mongodb_multi.namespace}-{mongodb_multi.name}"
             service_body["metadata"]["labels"][
                 "statefulset.kubernetes.io/pod-name"

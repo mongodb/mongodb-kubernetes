@@ -24,7 +24,7 @@ func init() {
 	mock.InitDefaultEnvVariables()
 }
 
-func getMultiClusterMongoDB() mdbmulti.MongoDBMulti {
+func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 	spec := mdbmulti.MongoDBMultiSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version: "5.0.0",
@@ -53,7 +53,7 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMulti {
 		},
 	}
 
-	return mdbmulti.MongoDBMulti{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "pod-aff", Namespace: mock.TestNamespace}}
+	return mdbmulti.MongoDBMultiCluster{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "pod-aff", Namespace: mock.TestNamespace}}
 }
 
 func TestMultiClusterStatefulSet(t *testing.T) {

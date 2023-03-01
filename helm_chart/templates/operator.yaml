@@ -49,7 +49,7 @@ spec:
             - -watch-resource={{ . }}
             {{- end }}
             {{- if .Values.multiCluster.clusters }}
-            - -watch-resource=mongodbmulti
+            - -watch-resource=mongodbmulticluster
             - -cluster-names={{ join "," .Values.multiCluster.clusters }}
             {{- end }}
           command:

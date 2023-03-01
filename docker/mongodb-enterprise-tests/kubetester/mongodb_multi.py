@@ -22,8 +22,8 @@ class MultiClusterClient:
 class MongoDBMulti(MongoDB):
     def __init__(self, *args, **kwargs):
         with_defaults = {
-            "plural": "mongodbmulti",
-            "kind": "MongoDBMulti",
+            "plural": "mongodbmulticluster",
+            "kind": "MongoDBMultiCluster",
             "group": "mongodb.com",
             "version": "v1",
         }

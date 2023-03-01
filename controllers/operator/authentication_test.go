@@ -512,8 +512,8 @@ func addKubernetesTlsResources(client kubernetesClient.Client, mdb *mdbv1.MongoD
 }
 
 // createMockCertAndKeyBytesMulti generates a random key and certificate and returns
-// them as bytes with the MongoDBMulti service FQDN in the dns names of the certificate.
-func createMockCertAndKeyBytesMulti(mdbm mdbmulti.MongoDBMulti, clusterNum, podNum int) []byte {
+// them as bytes with the MongoDBMultiCluster service FQDN in the dns names of the certificate.
+func createMockCertAndKeyBytesMulti(mdbm mdbmulti.MongoDBMultiCluster, clusterNum, podNum int) []byte {
 	return createMockCertAndKeyBytesWithDNSName(dns.GetMultiServiceFQDN(mdbm.Name, mock.TestNamespace, clusterNum, podNum))
 }
 func createMockCertAndKeyBytesWithDNSName(dnsName string) []byte {
@@ -739,8 +739,8 @@ func createShardedClusterTLSData(client kubernetesClient.Client, mdb *mdbv1.Mong
 
 }
 
-// createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMulti ReplicaSet.
-func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmulti.MongoDBMulti, caName string) {
+// createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMultiCluster ReplicaSet.
+func createMultiClusterReplicaSetTLSData(client *mock.MockedClient, mdbm *mdbmulti.MongoDBMultiCluster, caName string) {
 	// Create CA configmap
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

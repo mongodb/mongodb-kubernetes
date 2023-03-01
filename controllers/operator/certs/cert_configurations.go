@@ -109,7 +109,7 @@ func (s StandaloneX509CertConfigurator) GetDbCommonSpec() mdbv1.DbCommonSpec {
 }
 
 type MongoDBMultiX509CertConfigurator struct {
-	*mdbmulti.MongoDBMulti
+	*mdbmulti.MongoDBMultiCluster
 	ClusterNum        int
 	ClusterName       string
 	Replicas          int
@@ -120,7 +120,7 @@ type MongoDBMultiX509CertConfigurator struct {
 var _ X509CertConfigurator = MongoDBMultiX509CertConfigurator{}
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetCertOptions() []Options {
-	return []Options{MultiReplicaSetConfig(*mdbm.MongoDBMulti, mdbm.ClusterNum, mdbm.ClusterName, mdbm.Replicas)}
+	return []Options{MultiReplicaSetConfig(*mdbm.MongoDBMultiCluster, mdbm.ClusterNum, mdbm.ClusterName, mdbm.Replicas)}
 }
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
@@ -233,7 +233,7 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 }
 
 // MultiReplicaSetConfig returns a struct which provides all of thr configuration required for a given MongoDB Multi Replicaset.
-func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMulti, clusterNum int, clusterName string, replicas int) Options {
+func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, clusterName string, replicas int) Options {
 	return Options{
 		ResourceName:              mdbm.MultiStatefulsetName(clusterNum),
 		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),

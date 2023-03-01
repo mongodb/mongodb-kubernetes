@@ -74,7 +74,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 	var failurePolicy = admissionv1.Ignore
 	var port int32 = 443
 	dbPath := "/validate-mongodb-com-v1-mongodb"
-	dbmultiPath := "/validate-mongodb-com-v1-mongodbmulti"
+	dbmultiPath := "/validate-mongodb-com-v1-mongodbmulticluster"
 	omPath := "/validate-mongodb-com-v1-mongodbopsmanager"
 	return admissionv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
@@ -132,7 +132,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 						Rule: admissionv1.Rule{
 							APIGroups:   []string{"mongodb.com"},
 							APIVersions: []string{"*"},
-							Resources:   []string{"mongodbmulti"},
+							Resources:   []string{"mongodbmulticluster"},
 							Scope:       &scope,
 						},
 					},

@@ -138,8 +138,8 @@ spec:
       version: v1
     - description: MongoDB Multi Deployment
       displayName: MongoDB Multi Deployment
-      kind: MongoDBMulti
-      name: mongodbmulti.mongodb.com
+      kind: MongoDBMultiCluster
+      name: mongodbmulticluster.mongodb.com
       resources:
       - kind: StatefulSet
         name: StatefulSet holding the Pod with MongoDB

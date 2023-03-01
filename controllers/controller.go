@@ -20,7 +20,7 @@ var (
 	mdb      = &mdbv1.MongoDB{}
 	mdbu     = &user.MongoDBUser{}
 	om       = &omv1.MongoDBOpsManager{}
-	mdbmulti = &mdbmultiv1.MongoDBMulti{}
+	mdbmulti = &mdbmultiv1.MongoDBMultiCluster{}
 )
 
 func init() {

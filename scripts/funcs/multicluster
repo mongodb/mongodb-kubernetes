@@ -81,7 +81,7 @@ EOF
 
   helm template "scripts/evergreen/deployments/multi-cluster-roles" "${params[@]}" >"${helm_template_file}" || exit 1
 
-  echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}}"
+  echo "Creating KubeConfig secret for test pod in namespace ${PROJECT_NAMESPACE}"
   secret_kubeconfig=${KUBECONFIG}
   if [[ "${CLUSTER_TYPE}" == "kind" ]]; then
     secret_kubeconfig=${kind_kubeconfig}
@@ -187,8 +187,10 @@ EOF
     ((INDEX++))
   done
 
-  if [[ -f "${kind_kubeconfig}" ]]; then
-    rm "${kind_kubeconfig}"
+  if [[ "${CLUSTER_TYPE}" == "kind" ]]; then
+    if [[ -f "${kind_kubeconfig}" ]]; then
+      rm "${kind_kubeconfig}"
+    fi
   fi
 
   kubectl --context "${test_pod_cluster}" delete secret test-pod-multi-cluster-config -n "${PROJECT_NAMESPACE}" --ignore-not-found

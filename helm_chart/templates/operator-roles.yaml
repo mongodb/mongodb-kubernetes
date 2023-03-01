@@ -84,13 +84,13 @@ rules:
       - mongodbusers
       - opsmanagers
       - opsmanagers/finalizers
-      - mongodbmulti
-      - mongodbmulti/finalizers
+      - mongodbmulticluster
+      - mongodbmulticluster/finalizers
     {{- if .Values.subresourceEnabled }}
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
-      - mongodbmulti/status
+      - mongodbmulticluster/status
     {{- end }}
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
