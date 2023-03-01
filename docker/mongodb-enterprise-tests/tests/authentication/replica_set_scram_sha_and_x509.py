@@ -1,18 +1,17 @@
+import tempfile
+
 import pytest
 
-from kubetester.kubetester import KubernetesTester
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.mongodb import MongoDB, Phase
-from kubetester.omtester import get_rs_cert_names
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
-    create_agent_tls_certs,
     create_x509_user_cert,
 )
-import tempfile
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongotester import ReplicaSetTester
 
 MDB_RESOURCE = "replica-set-scram-256-and-x509"
 USER_NAME = "mms-user-1"

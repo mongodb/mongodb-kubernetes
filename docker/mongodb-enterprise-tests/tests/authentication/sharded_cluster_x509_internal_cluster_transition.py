@@ -1,18 +1,12 @@
-from kubetester.mongodb import MongoDB
-from kubetester import find_fixture
-from kubetester.certs import approve_certificate, yield_existing_csrs
-from kubetester.mongodb import Phase
-from kubetester import create_secret, read_secret
-from kubetester.omtester import get_sc_cert_names
 from pytest import mark, fixture
 
-from kubetester.kubetester import fixture as load_fixture
+from kubetester import find_fixture
 from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_x509_mongodb_tls_certs,
     create_x509_agent_tls_certs,
     create_sharded_cluster_certs,
 )
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb import Phase
 
 MDB_RESOURCE_NAME = "sc-internal-cluster-auth-transition"
 

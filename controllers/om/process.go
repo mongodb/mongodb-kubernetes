@@ -280,7 +280,7 @@ func (p Process) EnsureSecurity() map[string]interface{} {
 // Only accepted value for now is X509.
 // internalClusterAuth is a parameter that overrides where the cert is located.
 // If provided with an empty string, the operator will set it to
-// a concatenation of the default mounth path and the name of the process-pem
+// a concatenation of the default mount path and the name of the process-pem
 func (p Process) ConfigureClusterAuthMode(clusterAuthMode string, internalClusterPath string) Process {
 	if strings.ToUpper(clusterAuthMode) == util.X509 { // Ops Manager value is "x509"
 		// the individual key per pod will be podname-pem e.g. my-replica-set-0-pem

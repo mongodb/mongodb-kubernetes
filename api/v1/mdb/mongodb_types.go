@@ -326,13 +326,6 @@ func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 	return s.Connectivity.ReplicaSetHorizons
 }
 
-func (s *MongoDbSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
-	if s.AdditionalMongodConfig != nil {
-		return s.AdditionalMongodConfig
-	}
-	return &AdditionalMongodConfig{}
-}
-
 type SnapshotSchedule struct {
 	// Number of hours between snapshots.
 	// +kubebuilder:validation:Enum=6;8;12;24
@@ -574,6 +567,9 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 }
 
 func (d DbCommonSpec) GetSecurity() *Security {
+	if d.Security == nil {
+		return &Security{}
+	}
 	return d.Security
 }
 
@@ -582,6 +578,13 @@ func (d DbCommonSpec) GetExternalDomain() *string {
 		return d.ExternalAccessConfiguration.ExternalDomain
 	}
 	return nil
+}
+
+func (d DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
+	if d.AdditionalMongodConfig != nil {
+		return d.AdditionalMongodConfig
+	}
+	return &AdditionalMongodConfig{}
 }
 
 func (s *Security) IsTLSEnabled() bool {

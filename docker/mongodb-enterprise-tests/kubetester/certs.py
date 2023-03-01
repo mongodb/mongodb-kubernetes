@@ -3,12 +3,17 @@ Certificate Custom Resource Definition.
 """
 
 import collections
-
-from kubetester.mongodb import MongoDB
+import copy
+import random
+import time
 from datetime import datetime, timezone
+from typing import Optional, Dict, List, Generator
+
+import kubernetes
+from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester.kubetester import KubernetesTester
+
 from kubetester import (
     random_k8s_name,
     create_secret,
@@ -16,16 +21,7 @@ from kubetester import (
     delete_secret,
     create_or_update,
 )
-from typing import Optional, Dict, List, Generator
-from kubeobject import CustomObject
-import copy
-import time
-import random
-from pytest import fixture, mark
-import os
-import tempfile
-
-import kubernetes
+from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from tests.vaultintegration import (
     store_secret_in_vault,
@@ -373,6 +369,7 @@ def create_multi_cluster_tls_certs(
     additional_domains: Optional[List[str]] = None,
     service_fqdns: Optional[List[str]] = None,
     clusterwide: bool = False,
+    spec: Optional[dict] = None
 ) -> str:
     if service_fqdns is None:
         service_fqdns = [
@@ -407,6 +404,7 @@ def create_multi_cluster_tls_certs(
         secret_name=secret_name,
         vault_subpath="database",
         dns_list=service_fqdns,
+        spec=spec,
         clusterwide=clusterwide,
     )
 
@@ -430,6 +428,29 @@ def create_multi_cluster_agent_certs(
     }
     spec["dnsNames"] = agents
     spec["commonName"] = "mms-automation-agent"
+    return generate_cert(
+        namespace=mongodb_multi.namespace,
+        pod="tmp",
+        dns="",
+        issuer=multi_cluster_issuer,
+        spec=spec,
+        multi_cluster_mode=True,
+        api_client=central_cluster_client,
+        secret_backend=secret_backend,
+        secret_name=secret_name,
+        vault_subpath="database",
+    )
+
+
+def create_multi_cluster_x509_agent_certs(
+    multi_cluster_issuer: str,
+    secret_name: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    mongodb_multi: MongoDBMulti,
+    secret_backend: Optional[str] = None,
+) -> str:
+    spec = get_agent_x509_subject(mongodb_multi.namespace)
+
     return generate_cert(
         namespace=mongodb_multi.namespace,
         pod="tmp",
@@ -469,6 +490,34 @@ def create_multi_cluster_mongodb_tls_certs(
     return bundle_secret_name
 
 
+def create_multi_cluster_mongodb_x509_tls_certs(
+    multi_cluster_issuer: str,
+    bundle_secret_name: str,
+    member_cluster_clients: List[MultiClusterClient],
+    central_cluster_client: kubernetes.client.ApiClient,
+    mongodb_multi: MongoDBMulti,
+    additional_domains: Optional[List[str]] = None,
+    service_fqdns: Optional[List[str]] = None,
+    clusterwide: bool = False,
+) -> str:
+    spec = get_mongodb_x509_subject(mongodb_multi.namespace)
+
+    # create the "source-of-truth" tls cert in central cluster
+    create_multi_cluster_tls_certs(
+        multi_cluster_issuer=multi_cluster_issuer,
+        central_cluster_client=central_cluster_client,
+        member_clients=member_cluster_clients,
+        secret_name=bundle_secret_name,
+        mongodb_multi=mongodb_multi,
+        additional_domains=additional_domains,
+        service_fqdns=service_fqdns,
+        clusterwide=clusterwide,
+        spec=spec
+    )
+
+    return bundle_secret_name
+
+
 def create_x509_mongodb_tls_certs(
     issuer: str,
     namespace: str,
@@ -480,22 +529,7 @@ def create_x509_mongodb_tls_certs(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
 ) -> str:
-    subject = {}
-    subject["countries"] = ["US"]
-    subject["provinces"] = ["NY"]
-    subject["localities"] = ["NY"]
-    subject["organizations"] = ["cluster.local-server"]
-    subject["organizationalUnits"] = [namespace]
-
-    spec = {
-        "subject": subject,
-        "usages": [
-            "digital signature",
-            "key encipherment",
-            "client auth",
-            "server auth",
-        ],
-    }
+    spec = get_mongodb_x509_subject(namespace)
 
     return create_mongodb_tls_certs(
         issuer=issuer,
@@ -509,6 +543,36 @@ def create_x509_mongodb_tls_certs(
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
     )
+
+
+def get_mongodb_x509_subject(namespace):
+    """
+    x509 certificates need a subject, more here: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes
+    """
+    subject = {"countries": ["US"], "provinces": ["NY"], "localities": ["NY"],
+               "organizations": ["cluster.local-server"], "organizationalUnits": [namespace]}
+    spec = {
+        "subject": subject,
+        "usages": [
+            "digital signature",
+            "key encipherment",
+            "client auth",
+            "server auth",
+        ],
+    }
+    return spec
+
+
+def get_agent_x509_subject(namespace):
+    """
+    x509 certificates need a subject, more here: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes
+    """
+    agents = ["automation", "monitoring", "backup"]
+    subject = {"countries": ["US"], "provinces": ["NY"], "localities": ["NY"], "organizations": ["cluster.local-agent"],
+               "organizationalUnits": [namespace]}
+    spec = {"subject": subject, "usages": ["digital signature", "key encipherment", "client auth"], "dnsNames": agents,
+            "commonName": "mms-automation-agent"}
+    return spec
 
 
 def create_agent_tls_certs(
@@ -654,22 +718,8 @@ def create_sharded_cluster_certs(
 def create_x509_agent_tls_certs(
     issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None
 ) -> str:
-    agents = ["automation", "monitoring", "backup"]
-    subject = {}
-    subject["countries"] = ["US"]
-    subject["provinces"] = ["NY"]
-    subject["localities"] = ["NY"]
-    subject["organizations"] = ["cluster.local-agent"]
-    subject["organizationalUnits"] = [namespace]
-
-    spec = {
-        "subject": subject,
-        "usages": ["digital signature", "key encipherment", "client auth"],
-    }
-
-    spec["dnsNames"] = agents
-    spec["commonName"] = "mms-automation-agent"
-    secret = generate_cert(
+    spec = get_agent_x509_subject(namespace)
+    return generate_cert(
         namespace=namespace,
         pod=[],
         dns=[],

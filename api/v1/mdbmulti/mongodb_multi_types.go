@@ -437,7 +437,7 @@ func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]interfa
 	return lastSpec.GetAdditionalMongodConfig().ToMap()
 }
 
-// when unmarshaling a MongoDBMultiCluster instance, we don't want to have any nil references
+// when unmarshalling a MongoDBMultiCluster instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references
 func (m *MongoDBMultiCluster) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *MongoDBMultiCluster
@@ -506,13 +506,6 @@ func (m *MongoDBMultiSpec) GetMongoDBVersion() string {
 	return m.Version
 }
 
-func (m *MongoDBMultiSpec) GetSecurity() *mdbv1.Security {
-	if m.Security == nil {
-		return &mdbv1.Security{}
-	}
-	return m.Security
-}
-
 func (m *MongoDBMultiSpec) GetSecurityAuthenticationModes() []string {
 	return m.GetSecurity().Authentication.GetModes()
 }
@@ -531,13 +524,6 @@ func (m *MongoDBMultiSpec) GetFeatureCompatibilityVersion() *string {
 
 func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 	return m.Connectivity.ReplicaSetHorizons
-}
-
-func (m *MongoDBMultiSpec) GetAdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
-	if m.AdditionalMongodConfig != nil {
-		return m.AdditionalMongodConfig
-	}
-	return &mdbv1.AdditionalMongodConfig{}
 }
 
 func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {
