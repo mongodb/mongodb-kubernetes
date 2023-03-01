@@ -351,12 +351,6 @@ bundle: manifests kustomize
 	operator-sdk bundle validate ./bundle/$(VERSION)
 
 
-.PHONY: bundle-annotated
-bundle-annotated: bundle
-	mv bundle.Dockerfile ./bundle/$(VERSION)/bundle.Dockerfile
-	tar -czvf ./bundle/operator-$(VERSION).tgz ./bundle/$(VERSION)
-
-
 # Build the bundle image.
 .PHONY: bundle-build
 bundle-build:

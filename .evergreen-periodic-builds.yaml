@@ -7,6 +7,12 @@ parameters:
   value: 00:00
   description: Pin tags at this time of the day. Midnight by default.
 
+variables:
+  - &go_bin
+      "/opt/golang/go1.19/bin"
+  - &go_options
+    GOROOT: "/opt/golang/go1.19"
+
 ### All the functions in this file are copies of what is in
 ### .evergreen.yml. If there's any modification on these, it should be also
 ### modified in there.
@@ -40,6 +46,26 @@ functions:
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         command: ${workdir}/venv/bin/python -m pip install -r requirements.txt
+
+  setup_prepare_openshift_bundles:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - workdir
+        command: scripts/evergreen/setup_yq.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - workdir
+        command: scripts/evergreen/setup_prepare_openshift_bundles.sh
 
   preflight_image:
     - command: subprocess.exec
@@ -128,6 +154,79 @@ functions:
       add_to_path:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+
+# Updates current expansions with variables from release.json file.
+# Use e.g. ${mongoDbOperator} afterwards.
+  update_evergreen_expansions:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command: "scripts/evergreen/generate_evergreen_expansions.sh"
+    - command: expansions.update
+      params:
+        file: "src/github.com/10gen/ops-manager-kubernetes/evergreen_expansions.yaml"
+
+# Uploads openshift bundle specified by bundle_file_name argument.
+  upload_openshift_bundle:
+    - command: s3.put
+      params:
+        aws_key: ${enterprise_aws_access_key_id}
+        aws_secret: ${enterprise_aws_secret_access_key}
+        local_file: src/github.com/10gen/ops-manager-kubernetes/bundle/${bundle_file_name}
+        remote_file: bundles/${bundle_file_name}
+        bucket: operator-e2e-bundles
+        permissions: public-read
+        content_type: application/x-binary
+
+  prepare_openshift_bundles:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+          - *go_bin # make bundle uses go install to install controller-gen and kustomize
+        include_expansions_in_env:
+          - workdir
+        env:
+          <<: [ *go_options ]
+        command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
+
+  # This is a generic function for conditionally running given task.
+  # It works by appending <task> to <variant> if <condition_script> returns no error.
+  #
+  # It has 3 input parameters:
+  #  - condition_script: path to the script that will be executed.
+  #     Error code == 0 resulting from the scripts indicates that <task> should be added dynamically to <variant>
+  #     Error code != 0 means that the task will not be executed
+  #  - variant: variant to which task will be appended
+  #  - task: task name to be executed
+  #
+  # Example usage:
+  #  - func: run_task_conditionally
+  #    vars:
+  #      condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+  #      variant: prepare_openshift_bundles
+  #      task: prepare_and_upload_openshift_bundles
+  run_task_conditionally:
+    - command: shell.exec
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          if ${condition_script}; then
+            echo "Adding ${task} task to ${variant} variant"
+            scripts/evergreen/add_evergreen_task.sh ${variant} ${task}
+          else 
+            echo "skipping task ${task} due to ${condition_script} result: $?" 
+          fi
+    - command: generate.tasks
+      params:
+        files:
+          - evergreen_tasks.json
+        optional: true
 
 tasks:
 - name: preflight_images
@@ -253,7 +352,6 @@ tasks:
       vars:
         image_name: mongodb-kubernetes-operator-daily
 
-
 - name: periodic_build_appdb_database
   commands:
     - func: clone
@@ -261,6 +359,30 @@ tasks:
       vars:
         project_id: ${rhc_appdb_database_pid}
     - func: build_and_push_appdb_database
+
+- name: prepare_and_upload_openshift_bundles
+  commands:
+    - func: clone
+    - func: configure_docker_auth
+    - func: setup_prepare_openshift_bundles
+    - func: prepare_openshift_bundles
+    - func: update_evergreen_expansions
+    - func: upload_openshift_bundle
+      vars:
+        # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
+        bundle_file_name: "operator-community-${mongodbOperator}.tgz"
+    - func: upload_openshift_bundle
+      vars:
+        bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
+
+- name: run_conditionally_prepare_and_upload_openshift_bundles
+  commands:
+    - func: clone
+    - func: run_task_conditionally
+      vars:
+        condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+        variant: prepare_openshift_bundles
+        task: prepare_and_upload_openshift_bundles
 
 task_groups:
   - name: periodic_build_task_group
@@ -319,3 +441,33 @@ buildvariants:
     preflight_submit: true
   tasks:
     - name: preflight_images_task_group
+
+- name: prepare_openshift_bundles
+  display_name: prepare_openshift_bundles
+  depends_on:
+    # We have to add every task in the periodic build variant here
+    # because otherwise evergreen moves on to the preflight task after
+    # a single task in the referenced task group succeeds.
+    - name: periodic_build_operator
+      variant: periodic_build
+    - name: periodic_build_init_appdb
+      variant: periodic_build
+    - name: periodic_build_init_database
+      variant: periodic_build
+    - name: periodic_build_init_opsmanager
+      variant: periodic_build
+    - name: periodic_build_ops_manager_5
+      variant: periodic_build
+    - name: periodic_build_ops_manager_6
+      variant: periodic_build
+    - name: periodic_build_database
+      variant: periodic_build
+    - name: periodic_build_agent
+      variant: periodic_build
+    - name: periodic_build_appdb_database
+      variant: periodic_build
+  run_on:
+    - ubuntu2004-small
+  tasks:
+    - name: run_conditionally_prepare_and_upload_openshift_bundles
+
