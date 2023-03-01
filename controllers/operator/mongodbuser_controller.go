@@ -96,7 +96,7 @@ func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (project.Rea
 	}
 
 	// Try the multi-cluster next
-	mdbm := &mdbmulti.MongoDBMulti{}
+	mdbm := &mdbmulti.MongoDBMultiCluster{}
 	err := r.client.Get(context.TODO(), name, mdbm)
 	return mdbm, err
 }
@@ -112,7 +112,7 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(user userv1.MongoDBU
 	}
 
 	// Try the multi-cluster next
-	mdbm := &mdbmulti.MongoDBMulti{}
+	mdbm := &mdbmulti.MongoDBMultiCluster{}
 	err := r.client.Get(context.TODO(), name, mdbm)
 	return mdbm, err
 }

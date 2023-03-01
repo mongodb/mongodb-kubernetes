@@ -890,16 +890,16 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
-  name: mongodbmulti.mongodb.com
+  name: mongodbmulticluster.mongodb.com
 spec:
   group: mongodb.com
   names:
-    kind: MongoDBMulti
+    kind: MongoDBMultiCluster
     listKind: MongoDBMultiList
-    plural: mongodbmulti
+    plural: mongodbmulticluster
     shortNames:
     - mdbm
-    singular: mongodbmulti
+    singular: mongodbmulticluster
   scope: Namespaced
   versions:
   - additionalPrinterColumns:

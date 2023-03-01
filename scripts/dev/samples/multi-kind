@@ -1,7 +1,6 @@
-export NAMESPACE=your-namespace
+export NAMESPACE=your-namespace # <UPDATE ME>
 # absolute path to ops-manager-kubernetes dir
 export PROJECT_DIR=/path/to/ops-manager-kubernetes # <UPDATE ME>
-export RED_HAT_TOKEN=eyJhb... # <UPDATE ME>
 export AWS_ACCESS_KEY_ID=ABC... # <UPDATE ME>
 export AWS_SECRET_ACCESS_KEY=e4af... # <UPDATE ME>
 export CURRENT_NAMESPACE=evg-namespace # <UPDATE ME>

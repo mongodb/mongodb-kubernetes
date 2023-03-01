@@ -90,9 +90,9 @@ rules:
 - apiGroups:
   - mongodb.com
   resources:
-  - mongodbmulti
-  - mongodbmulti/finalizers
-  - mongodbmulti/status
+  - mongodbmulticluster
+  - mongodbmulticluster/finalizers
+  - mongodbmulticluster/status
   verbs:
   - '*'
 - apiGroups:

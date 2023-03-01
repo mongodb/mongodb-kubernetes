@@ -180,7 +180,7 @@ dump_diagnostics() {
     dump_objects mongodb "MongoDB Resources" "${namespace}"
     dump_objects mongodbusers "MongoDBUser Resources" "${namespace}"
     dump_objects opsmanagers "MongoDBOpsManager Resources" "${namespace}"
-    dump_objects mongodbmulti "MongoDB Multi Resources" "${namespace}"
+    dump_objects mongodbmulticluster "MongoDB Multi Resources" "${namespace}"
 
     header "All namespace resources"
     kubectl get all -n "${namespace}"

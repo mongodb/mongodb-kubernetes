@@ -12,7 +12,7 @@ import (
 )
 
 type MultiReplicaSetBuilder struct {
-	*MongoDBMulti
+	*MongoDBMultiCluster
 }
 
 func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
@@ -41,13 +41,13 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 		DuplicateServiceObjects: util.BooleanRef(false),
 	}
 
-	mrs := &MongoDBMulti{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}
+	mrs := &MongoDBMultiCluster{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "temple", Namespace: mock.TestNamespace}}
 	return &MultiReplicaSetBuilder{mrs}
 }
 
-func (m *MultiReplicaSetBuilder) Build() *MongoDBMulti {
+func (m *MultiReplicaSetBuilder) Build() *MongoDBMultiCluster {
 	// initialize defaults
-	res := m.MongoDBMulti.DeepCopy()
+	res := m.MongoDBMultiCluster.DeepCopy()
 	res.InitDefaults()
 	return res
 }

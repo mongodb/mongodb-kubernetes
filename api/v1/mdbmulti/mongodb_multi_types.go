@@ -28,7 +28,7 @@ import (
 )
 
 func init() {
-	v1.SchemeBuilder.Register(&MongoDBMulti{}, &MongoDBMultiList{})
+	v1.SchemeBuilder.Register(&MongoDBMultiCluster{}, &MongoDBMultiClusterList{})
 }
 
 type TransportSecurity string
@@ -39,16 +39,16 @@ const (
 	TransportSecurityTLS  TransportSecurity = "tls"
 )
 
-// The MongoDBMulti resource allows users to create MongoDB deployment spread over
+// The MongoDBMultiCluster resource allows users to create MongoDB deployment spread over
 // multiple clusters
 
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path= mongodbmulti,scope=Namespaced,shortName=mdbm
+// +kubebuilder:resource:path= mongodbmulticluster,scope=Namespaced,shortName=mdbm
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBMulti resource was created."
-type MongoDBMulti struct {
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBMultiCluster resource was created."
+type MongoDBMultiCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// +optional
@@ -56,27 +56,27 @@ type MongoDBMulti struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
-func (m *MongoDBMulti) AddValidationToManager(mgr manager.Manager, clt map[string]cluster.Cluster) error {
+func (m *MongoDBMultiCluster) AddValidationToManager(mgr manager.Manager, clt map[string]cluster.Cluster) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 
-func (m MongoDBMulti) GetProjectConfigMapNamespace() string {
+func (m MongoDBMultiCluster) GetProjectConfigMapNamespace() string {
 	return m.Namespace
 }
 
-func (m MongoDBMulti) GetCredentialsSecretNamespace() string {
+func (m MongoDBMultiCluster) GetCredentialsSecretNamespace() string {
 	return m.Namespace
 }
 
-func (m MongoDBMulti) GetProjectConfigMapName() string {
+func (m MongoDBMultiCluster) GetProjectConfigMapName() string {
 	return m.Spec.OpsManagerConfig.ConfigMapRef.Name
 }
 
-func (m MongoDBMulti) GetCredentialsSecretName() string {
+func (m MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
 }
 
-func (m MongoDBMulti) GetMultiClusterAgentHostnames() ([]string, error) {
+func (m MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	hostnames := make([]string, 0)
 
 	clusterSpecList, err := m.GetClusterSpecItems()
@@ -90,11 +90,11 @@ func (m MongoDBMulti) GetMultiClusterAgentHostnames() ([]string, error) {
 	return hostnames, nil
 }
 
-func (m MongoDBMulti) MultiStatefulsetName(clusterNum int) string {
+func (m MongoDBMultiCluster) MultiStatefulsetName(clusterNum int) string {
 	return fmt.Sprintf("%s-%d", m.Name, clusterNum)
 }
 
-func (m MongoDBMulti) ExternalMemberClusterDomain(clusterName string) *string {
+func (m MongoDBMultiCluster) ExternalMemberClusterDomain(clusterName string) *string {
 	for _, csl := range m.Spec.ClusterSpecList {
 		if csl.ClusterName == clusterName {
 			return csl.ExternalAccessConfiguration.ExternalDomain
@@ -103,38 +103,38 @@ func (m MongoDBMulti) ExternalMemberClusterDomain(clusterName string) *string {
 	return nil
 }
 
-func (m MongoDBMulti) GetBackupSpec() *mdbv1.Backup {
+func (m MongoDBMultiCluster) GetBackupSpec() *mdbv1.Backup {
 	return m.Spec.Backup
 }
 
-func (m MongoDBMulti) GetResourceType() mdbv1.ResourceType {
+func (m MongoDBMultiCluster) GetResourceType() mdbv1.ResourceType {
 	return m.Spec.ResourceType
 }
 
-func (m MongoDBMulti) GetResourceName() string {
+func (m MongoDBMultiCluster) GetResourceName() string {
 	return m.Name
 }
 
-func (m *MongoDBMulti) GetSecurity() *mdbv1.Security {
+func (m *MongoDBMultiCluster) GetSecurity() *mdbv1.Security {
 	return m.Spec.Security
 }
 
-func (m *MongoDBMulti) GetPrometheus() *mdbc.Prometheus {
+func (m *MongoDBMultiCluster) GetPrometheus() *mdbc.Prometheus {
 	return m.Spec.Prometheus
 }
 
-func (m *MongoDBMulti) GetMinimumMajorVersion() uint64 {
+func (m *MongoDBMultiCluster) GetMinimumMajorVersion() uint64 {
 	return m.Spec.MinimumMajorVersion()
 }
 
-func (m *MongoDBMulti) IsLDAPEnabled() bool {
+func (m *MongoDBMultiCluster) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
 	return stringutil.Contains(m.Spec.GetSecurityAuthenticationModes(), util.LDAP)
 }
 
-func (m *MongoDBMulti) GetLDAP(password, caContents string) *ldap.Ldap {
+func (m *MongoDBMultiCluster) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
 	}
@@ -164,22 +164,22 @@ func (m *MongoDBMulti) GetLDAP(password, caContents string) *ldap.Ldap {
 	}
 }
 
-func (m MongoDBMulti) GetHostNameOverrideConfigmapName() string {
+func (m MongoDBMultiCluster) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
 }
 
-func (m MongoDBMulti) ObjectKey() client.ObjectKey {
+func (m MongoDBMultiCluster) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type MongoDBMultiList struct {
+type MongoDBMultiClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
-	Items           []MongoDBMulti `json:"items"`
+	Items           []MongoDBMultiCluster `json:"items"`
 }
 
-func (m MongoDBMulti) GetClusterSpecByName(clusterName string) *ClusterSpecItem {
+func (m MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *ClusterSpecItem {
 	for _, csi := range m.Spec.ClusterSpecList {
 		if csi.ClusterName == clusterName {
 			return &csi
@@ -253,23 +253,23 @@ type MongoDBMultiSpec struct {
 	Mapping map[string]int `json:"-"`
 }
 
-func (m MongoDBMulti) GetPlural() string {
-	return "mongodbmulti"
+func (m MongoDBMultiCluster) GetPlural() string {
+	return "mongodbmulticluster"
 }
 
-func (m *MongoDBMulti) GetStatus(...status.Option) interface{} {
+func (m *MongoDBMultiCluster) GetStatus(...status.Option) interface{} {
 	return m.Status
 }
 
-func (m *MongoDBMulti) GetStatusPath(...status.Option) string {
+func (m *MongoDBMultiCluster) GetStatusPath(...status.Option) string {
 	return "/status"
 }
 
-func (m *MongoDBMulti) SetWarnings(warnings []status.Warning, _ ...status.Option) {
+func (m *MongoDBMultiCluster) SetWarnings(warnings []status.Warning, _ ...status.Option) {
 	m.Status.Warnings = warnings
 }
 
-func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BackupStatusOption{}); exists {
@@ -290,7 +290,7 @@ func (m *MongoDBMulti) UpdateStatus(phase status.Phase, statusOptions ...status.
 // should be added to the automation config and which services need to be created and how many replicas
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
-func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
+func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	clusterSpecs := m.GetDesiredSpecList()
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
@@ -363,7 +363,7 @@ func (m *MongoDBMulti) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	return specsForThisReconciliation, nil
 }
 
-// HasClustersToFailOver checks if the MongoDBMulti CR has ""clusterSpecOverride" annotation which is put when one or more clusters
+// HasClustersToFailOver checks if the MongoDBMultiCluster CR has ""clusterSpecOverride" annotation which is put when one or more clusters
 // are not reachable.
 func HasClustersToFailOver(annotations map[string]string) (string, bool) {
 	if annotations == nil {
@@ -373,8 +373,8 @@ func HasClustersToFailOver(annotations map[string]string) (string, bool) {
 	return val, ok
 }
 
-// GetFailedClusters returns the current set of failed clusters for the MongoDBMulti CR.
-func (m *MongoDBMulti) GetFailedClusters() ([]failedcluster.FailedCluster, error) {
+// GetFailedClusters returns the current set of failed clusters for the MongoDBMultiCluster CR.
+func (m *MongoDBMultiCluster) GetFailedClusters() ([]failedcluster.FailedCluster, error) {
 	if m.Annotations == nil {
 		return nil, nil
 	}
@@ -390,8 +390,8 @@ func (m *MongoDBMulti) GetFailedClusters() ([]failedcluster.FailedCluster, error
 	return failedClusters, err
 }
 
-// GetFailedClusterNames returns the current set of failed cluster names for the MongoDBMulti CR.
-func (m *MongoDBMulti) GetFailedClusterNames() ([]string, error) {
+// GetFailedClusterNames returns the current set of failed cluster names for the MongoDBMultiCluster CR.
+func (m *MongoDBMultiCluster) GetFailedClusterNames() ([]string, error) {
 	failedClusters, err := m.GetFailedClusters()
 	if err != nil {
 		return nil, err
@@ -413,7 +413,7 @@ func clusterSpecItemListToMap(clusterSpecItems []ClusterSpecItem) map[string]Clu
 }
 
 // ReadLastAchievedSpec fetches the previously achieved spec.
-func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
+func (m *MongoDBMultiCluster) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
 	if m.Annotations == nil {
 		return nil, nil
 	}
@@ -429,7 +429,7 @@ func (m *MongoDBMulti) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) {
 	return prevSpec, nil
 }
 
-func (m *MongoDBMulti) GetLastAdditionalMongodConfig() map[string]interface{} {
+func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]interface{} {
 	lastSpec, err := m.ReadLastAchievedSpec()
 	if lastSpec == nil || err != nil {
 		return map[string]interface{}{}
@@ -437,10 +437,10 @@ func (m *MongoDBMulti) GetLastAdditionalMongodConfig() map[string]interface{} {
 	return lastSpec.GetAdditionalMongodConfig().ToMap()
 }
 
-// when unmarshaling a MongoDBMulti instance, we don't want to have any nil references
+// when unmarshaling a MongoDBMultiCluster instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references
-func (m *MongoDBMulti) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON *MongoDBMulti
+func (m *MongoDBMultiCluster) UnmarshalJSON(data []byte) error {
+	type MongoDBJSON *MongoDBMultiCluster
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
@@ -449,12 +449,12 @@ func (m *MongoDBMulti) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// InitDefaults makes sure the MongoDBMulti resource has correct state after initialization:
+// InitDefaults makes sure the MongoDBMultiCluster resource has correct state after initialization:
 // - prevents any references from having nil values.
 // - makes sure the spec is in correct state
 //
 // should not be called directly, used in tests and unmarshalling
-func (m *MongoDBMulti) InitDefaults() {
+func (m *MongoDBMultiCluster) InitDefaults() {
 	m.Spec.Security = mdbv1.EnsureSecurity(m.Spec.Security)
 
 	// TODO: add more default if need be
@@ -566,7 +566,7 @@ func (m *MongoDBMultiSpec) GetClusterSpecList() []ClusterSpecItem {
 
 // GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.
 // Returns the failerOver annotation if present else reads the cluster spec list from the CR.
-func (m *MongoDBMulti) GetDesiredSpecList() []ClusterSpecItem {
+func (m *MongoDBMultiCluster) GetDesiredSpecList() []ClusterSpecItem {
 	clusterSpecList := m.Spec.ClusterSpecList
 
 	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
@@ -584,7 +584,7 @@ func (m *MongoDBMulti) GetDesiredSpecList() []ClusterSpecItem {
 // ClusterNum returns the index associated with a given clusterName, it assigns a unique id to each
 // clustername taking into account addition and removal of clusters. We don't reuse cluster indexes since
 // the clusters can be removed and then added back.
-func (m *MongoDBMulti) ClusterNum(clusterName string) int {
+func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 	if m.Spec.Mapping == nil {
 		m.Spec.Mapping = make(map[string]int)
 	}
@@ -611,7 +611,7 @@ func (m *MongoDBMulti) ClusterNum(clusterName string) int {
 //
 // Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
 // to complete.
-func (m MongoDBMulti) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
 		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)

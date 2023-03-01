@@ -41,7 +41,7 @@ var (
 	clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
 )
 
-func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMulti, client *mock.MockedClient, shouldRequeue bool) {
+func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMultiCluster, client *mock.MockedClient, shouldRequeue bool) {
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(m))
 	assert.NoError(t, e)
 	if shouldRequeue {
@@ -693,7 +693,7 @@ func TestClusterNumbering(t *testing.T) {
 	})
 }
 
-func getClusterNumMapping(m *mdbmulti.MongoDBMulti) map[string]int {
+func getClusterNumMapping(m *mdbmulti.MongoDBMultiCluster) map[string]int {
 	clusterMapping := make(map[string]int)
 	bytes := m.Annotations[mdbmulti.LastClusterNumMapping]
 	json.Unmarshal([]byte(bytes), &clusterMapping)
@@ -841,7 +841,7 @@ func assertClusterpresent(t *testing.T, m map[string]int, specs []mdbmulti.Clust
 	assert.Equal(t, arr, tmp)
 }
 
-func assertStatefulSetReplicas(t *testing.T, mrs *mdbmulti.MongoDBMulti, memberClusters map[string]cluster.Cluster, expectedReplicas ...int) {
+func assertStatefulSetReplicas(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, memberClusters map[string]cluster.Cluster, expectedReplicas ...int) {
 	statefulSets := readStatefulSets(mrs, memberClusters)
 
 	for i := range expectedReplicas {
@@ -851,7 +851,7 @@ func assertStatefulSetReplicas(t *testing.T, mrs *mdbmulti.MongoDBMulti, memberC
 	}
 }
 
-func readStatefulSets(mrs *mdbmulti.MongoDBMulti, memberClusters map[string]cluster.Cluster) map[string]appsv1.StatefulSet {
+func readStatefulSets(mrs *mdbmulti.MongoDBMultiCluster, memberClusters map[string]cluster.Cluster) map[string]appsv1.StatefulSet {
 	allStatefulSets := map[string]appsv1.StatefulSet{}
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -887,7 +887,7 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	return bytes.Equal(spec1Bytes, spec2Bytes), nil
 }
 
-func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
+func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMultiCluster, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	connection := func(ctx *om.OMContext) om.Connection {
 		ret := om.NewEmptyMockedOmConnection(ctx)
 		ret.(*om.MockedOmConnection).Hostnames = calculateHostNames(m)
@@ -897,7 +897,7 @@ func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMulti, t *testing.T) (*
 	return multiReplicaSetReconcilerWithConnection(m, connection, t)
 }
 
-func calculateHostNames(m *mdbmulti.MongoDBMulti) []string {
+func calculateHostNames(m *mdbmulti.MongoDBMultiCluster) []string {
 	if m.Spec.ExternalAccessConfiguration == nil || m.Spec.ExternalAccessConfiguration.ExternalDomain == nil {
 		return nil
 	}
@@ -911,7 +911,7 @@ func calculateHostNames(m *mdbmulti.MongoDBMulti) []string {
 	return expectedHostnames
 }
 
-func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMulti,
+func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMultiCluster,
 	connectionFunc func(ctx *om.OMContext) om.Connection, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	manager := mock.NewManager(m)
 	manager.Client.AddDefaultMdbConfigResources()

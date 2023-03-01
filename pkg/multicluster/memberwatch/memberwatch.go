@@ -22,10 +22,8 @@ type MemberClusterMap struct {
 }
 
 // WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enques the
-// MongoDBMulti resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
-func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watchChannel chan event.GenericEvent,
-	memberClients map[string]kubernetesClient.Client,
-	centralClient kubernetesClient.Client) {
+// MongoDBMultiCluster resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
+func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client) {
 
 	// check if the local cache is populated if not let's do that
 	if len(m.Cache) == 0 {
@@ -62,11 +60,11 @@ func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watc
 
 	for {
 		log.Info("Running member cluster healthcheck")
-		mdbmList := &mdbmulti.MongoDBMultiList{}
+		mdbmList := &mdbmulti.MongoDBMultiClusterList{}
 
 		err := centralClient.List(context.TODO(), mdbmList, &client.ListOptions{Namespace: ""})
 		if err != nil {
-			log.Errorf("Failed to fetch MongoDBMultiList from Kubernetes : %w", err)
+			log.Errorf("Failed to fetch MongoDBMultiClusterList from Kubernetes : %s", err)
 		}
 
 		// check the cluster health status corresponding to each member cluster
@@ -171,9 +169,9 @@ func distributeFailedMembers(clusters []mdbmulti.ClusterSpecItem, clustername st
 	return clusters
 }
 
-// AddFailoverAnnotation adds the failed cluster spec to the annotation of the MongoDBMulti CR for it to be used
+// AddFailoverAnnotation adds the failed cluster spec to the annotation of the MongoDBMultiCluster CR for it to be used
 // while performing the reconcilliation
-func AddFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
+func AddFailoverAnnotation(mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}
@@ -192,7 +190,7 @@ func AddFailoverAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client
 
 }
 
-func addFailedClustersAnnotation(mrs mdbmulti.MongoDBMulti, clustername string, client kubernetesClient.Client) error {
+func addFailedClustersAnnotation(mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}

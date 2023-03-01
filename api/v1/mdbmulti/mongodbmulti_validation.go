@@ -10,20 +10,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
-var _ webhook.Validator = &MongoDBMulti{}
+var _ webhook.Validator = &MongoDBMultiCluster{}
 
-func (m *MongoDBMulti) ValidateCreate() error {
+func (m *MongoDBMultiCluster) ValidateCreate() error {
 	return m.ProcessValidationsOnReconcile(nil)
 }
 
-func (m *MongoDBMulti) ValidateUpdate(old runtime.Object) error {
-	return m.ProcessValidationsOnReconcile(old.(*MongoDBMulti))
+func (m *MongoDBMultiCluster) ValidateUpdate(old runtime.Object) error {
+	return m.ProcessValidationsOnReconcile(old.(*MongoDBMultiCluster))
 }
-func (m *MongoDBMulti) ValidateDelete() error {
+func (m *MongoDBMultiCluster) ValidateDelete() error {
 	return nil
 }
 
-func (m *MongoDBMulti) ProcessValidationsOnReconcile(old *MongoDBMulti) error {
+func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiCluster) error {
 	for _, res := range m.RunValidations(old) {
 		if res.Level == v1.ErrorLevel {
 			return errors.New(res.Msg)
@@ -32,7 +32,7 @@ func (m *MongoDBMulti) ProcessValidationsOnReconcile(old *MongoDBMulti) error {
 	return nil
 }
 
-func (m *MongoDBMulti) RunValidations(old *MongoDBMulti) []v1.ValidationResult {
+func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.ValidationResult {
 	multiClusterValidators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
 		validateUniqueClusterNames,
 		validateUniqueExternalDomains,

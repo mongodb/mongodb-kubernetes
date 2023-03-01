@@ -12,8 +12,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
-func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMulti) construct.DatabaseStatefulSetOptions {
-	return func(mdbm mdbmultiv1.MongoDBMulti) construct.DatabaseStatefulSetOptions {
+func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
+	return func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
 		stsSpec := appsv1.StatefulSetSpec{}
 		if mdbm.Spec.StatefulSetConfiguration != nil {
 			stsSpec = mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec
@@ -68,8 +68,8 @@ func statefulSetName(mdbmName string, clusterNum int) string {
 
 func statefulSetLabels(mdbmName, mdbmNamespace string) map[string]string {
 	return map[string]string{
-		"controller":   "mongodb-enterprise-operator",
-		"mongodbmulti": fmt.Sprintf("%s-%s", mdbmName, mdbmNamespace),
+		"controller":          "mongodb-enterprise-operator",
+		"mongodbmulticluster": fmt.Sprintf("%s-%s", mdbmName, mdbmNamespace),
 	}
 }
 
@@ -87,7 +87,7 @@ func PodLabel(mdbmName string) map[string]string {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMulti, stsOptFunc func(mdbm mdbmultiv1.MongoDBMulti) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
+func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdbm)
 	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
 

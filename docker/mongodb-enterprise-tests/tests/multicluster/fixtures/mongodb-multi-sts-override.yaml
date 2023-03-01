@@ -1,6 +1,6 @@
 ---
 apiVersion: mongodb.com/v1
-kind: MongoDBMulti
+kind: MongoDBMultiCluster
 metadata:
   name: multi-replica-set
 spec:

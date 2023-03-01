@@ -89,7 +89,7 @@ func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
 // IsMultiClusterMode checks if the operator is running in multi-cluster mode.
 // In multi-cluster mode the operator is passsed the name of the CRD in command line arguments.
 func IsMultiClusterMode(crdsToWatch string) bool {
-	return strings.Contains(crdsToWatch, "mongodbmulti")
+	return strings.Contains(crdsToWatch, "mongodbmulticluster")
 }
 
 // shouldPerformFailover checks if the operator is configured to perform automatic failover
@@ -152,7 +152,7 @@ func MustGetClusterNumFromMultiStsName(name string) int {
 	return n
 }
 
-// GetRsNamefromMultiStsName parese the statefulset object name and returns the name of MongoDBMulti object name
+// GetRsNamefromMultiStsName parese the statefulset object name and returns the name of MongoDBMultiCluster object name
 func GetRsNamefromMultiStsName(name string) string {
 	ss := strings.Split(name, "-")
 	if len(ss) <= 1 || ss[0] == "" {

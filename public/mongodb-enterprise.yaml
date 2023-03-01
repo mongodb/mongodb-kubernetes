@@ -108,12 +108,12 @@ rules:
       - mongodbusers
       - opsmanagers
       - opsmanagers/finalizers
-      - mongodbmulti
-      - mongodbmulti/finalizers
+      - mongodbmulticluster
+      - mongodbmulticluster/finalizers
       - mongodb/status
       - mongodbusers/status
       - opsmanagers/status
-      - mongodbmulti/status
+      - mongodbmulticluster/status
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
 kind: RoleBinding
