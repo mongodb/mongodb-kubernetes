@@ -12,6 +12,9 @@
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "12.0.15.7646-1",
   "communityOperatorVersion": "0.7.9-0.20230209092905-1f64cf199633",
+  "openshift": {
+    "minimumSupportedVersion": "4.6"
+  },
   "supportedImages": {
     "ops-manager": {
       "versions": [

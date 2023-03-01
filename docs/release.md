@@ -65,39 +65,53 @@ After PCT runs again, it will TAG the Enterprise repository, which will trigger
 a new Evergreen run (with additional "_release_" variants). You will find this
 run in the Evergreen [Waterfall](https://evergreen.mongodb.com/waterfall/ops-manager-kubernetes).
 
-## Releasing Images
+## Releasing Context Images
 
-This process still needs to be done manually; after finding the Evergreen run
-that was triggered after the previous step, look for the release variant and
+Context images contains binaries built at release time in tag build. 
+
+Process of building them is manual: 
+* after finding the Evergreen run that was triggered after the previous step, look for the release variant and
 unlock *only the relevant release tasks*. This is going to always be the
 "_Operator_" image plus some others.
 
 To unlock a task, click *Override Dependencies* in the blocked task's page in EVG (e.g.: [release_database_task](https://evergreen.mongodb.com/task/ops_manager_kubernetes_release_release_database__1.16.4_22_08_01_10_12_02)
 ).
 
-In case you need these images to be published earlier, you can trigger a manual
-rebuild (causing the new images to be published) following the [docs](./running-manual-periodic-builds.md).
+## Trigger periodic build manually
 
-### Note on Published Images
+In order to speed up release don't wait for daily build triggered by cron, but execute periodic build manually:
+[running-manual-periodic-builds.md](running-manual-periodic-builds.md)
 
-The current process releases new images to [Quay.io](https://quay.io/organization/mongodb).
-Later it is required to pre-flight the images by running:
+## Publish to public repo
 
-```
-evergreen patch -p ops-manager-kubernetes -v preflight_release_images -t all -y -f -d "Pre-flight release images" -u --browse
-```
+After successfully executing periodic build, we'll have every image published in quay.
+We can proceed with the release by publishing PRs to public repositories. 
 
-After the task succeeded, visit:
-Note: These projects are needed for certification of the images we push to quay
+* `/pct k8s ok-to-publish <RELEASE-TICKET>`
 
-* https://connect.redhat.com/projects/633fcdfaade0e891294196ac/overview (Operator)
-* https://connect.redhat.com/projects/633fcc2982f7934b1ad3be46/overview (Init Database)
-* https://connect.redhat.com/projects/633fccb16f43719c9df934a0/overview (Init Ops Manager)
-* https://connect.redhat.com/projects/633fcb576f43719c9df9349f/overview (Init AppDB)
-* https://connect.redhat.com/projects/633fc9e582f7934b1ad3be45/overview (Database)
-* https://connect.redhat.com/projects/633fc9e582f7934b1ad3be45/overview (MongoDB Agent)
+The next task for `pct` will be to create a release PR in the following public repositories:
+* [mongodb/mongodb-enterprise-kubernetes](https://github.com/mongodb/mongodb-enterprise-kubernetes)
+  * ([Example](https://github.com/mongodb/mongodb-enterprise-kubernetes/pull/201)).
+* [mongodb/helm-charts](https://github.com/mongodb/helm-charts)
 
-And make sure the relevant images are set to published.
+Take a look at this PR, and correct anything that needs correction.
+Both PRs have to merged in order to proceed with the release.
+
+Once this PR is merged, a new draft release with the operator version tag will be created for the multicluster CLI binary in https://github.com/mongodb/mongodb-enterprise-kubernetes/releases . Please check and publish this release.
+
+### Generating openshift bundles and digest pinning
+Generating openshift bundles and digest pinning is performed automatically **in the first** periodic (daily) after tag build, which publishes -context images.
+
+In case of problems, the following places are to be checked:
+* `.evergreen-periodic-builds.yaml`: 
+  * variant `prepare_openshift_bundles`
+  * task `run_conditionally_prepare_and_upload_openshift_bundles`, which checks if it should generate bundles
+    * executes condition script to check if bundle files exists in S3: `scripts/evergeen/should_prepare_openshift_bundles.sh` 
+  * if there are no generated bundles, then `prepare_and_upload_openshift_bundles` task is executed 
+
+In order to force generating bundles again, delete both files manually from S3:
+* certified_bundle: `https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-certified-${version}.tgz`
+* community_bundle: `https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-certified-${version}.tgz`
 
 ## Verify the Community and Certified bundles
 
@@ -106,36 +120,9 @@ PCT will create two Pull Request that should get merged automatically. Look them
 * https://github.com/k8s-operatorhub/community-operators/tree/main/operators/pulls
 
 The former is used for the OpenShift Marketplace available in OpenShift admin console. The latter is used for OLM
-installed on vanilla Kubernetes. 
+installed on vanilla Kubernetes.
 
-### Run digest pinning for certified operator bundle
-Certified operator bundle needs to be pinned to the image digests. To do that, do the following steps:
-
-Prerequisites:
-* Install skopeo: `brew install skopeo`
-* Download latest [operator-manifest-tools binary](https://github.com/operator-framework/operator-manifest-tools/releases)
-* Log in to redhat registry: `make aws_login`
-
-Steps:
-* Checkout newly published PR in [certified-operators repo](https://github.com/redhat-openshift-ecosystem/certified-operators/pulls?q=is%3Apr+is%3Aopen+mongodb-enterprise)
-* Run `operator-manifest-tools pinning pin -v -r skopeo -a ~/.docker/config.json <certified-operators-repo>/operators/mongodb-enterprise/bundle/<version>/manifests`
-* Check that CSV contains sha256 digests for all images in env variables and relatedImages section.
-* Commit changes and push to PR branch.
-* Merge branch when passed all checks.
-
-## Publish to public repo
-
-Because how our release process works, we'll have to wait until *next day*
-before continuing the process (after daily rebuilds have run at ~4am). Check
-that the relevant images have been pushed to Quay and then run:
-
-* `/pct k8s ok-to-publish <RELEASE-TICKET>`
-
-The next task for `pct` will be to create a release PR on the public repository
-([Example](https://github.com/mongodb/mongodb-enterprise-kubernetes/pull/201)).
-Take a look at this PR, and correct anything that needs correction.
-
-Once this PR is merged, a new draft release with the operator version tag will be created for the multicluster CLI binary in https://github.com/mongodb/mongodb-enterprise-kubernetes/releases . Please check and publish this release.
+Check if `manifests/mongodb-enterprise.clusterserviceversion.yaml` in certified operator contains `sha256` digests instead of versions. 
 
 ## Publish release notes
 
@@ -152,16 +139,6 @@ What you have to do now is to check that draft release, and _Publish_ it. Also
 alert the DOCS team that the release notes are ready for them.
 
 - _The release notes ticket will be linked to the release ticket_
-
-## Publish to Community And Certified Operators
-
-`PCT` will create 2 PRs over "k8s-operatorhub/community-operators" and
-"redhat-openshift-ecosystem/certified-operators", for the new version of the
-operator, that integrates with Operator Hub and Openshift Operators.
-
-These PRs will be tested and merged by Redhat so there should not be any more
-interaction between us. If the PRs test fail, the "approvers" in
-(`operators/mongob-enterprise/ci.yaml`) will be notified.
 
 ## Finalize release
 

@@ -10,4 +10,5 @@ echo "Installed operator-sdk ${version} in ${operator_sdk_bin}"
 
 tag="${triggered_by_git_tag:-$(git describe --tags)}"
 
-make bundle-annotated VERSION="${tag}" IMG="quay.io/mongodb/mongodb-enterprise-operator:${tag}"
+make bundle VERSION="${tag}" IMG="quay.io/mongodb/mongodb-enterprise-operator:${tag}"
+
