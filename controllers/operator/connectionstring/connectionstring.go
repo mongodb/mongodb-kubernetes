@@ -126,9 +126,6 @@ func (b *builder) SetConnectionParams(cParams map[string]string) *builder {
 }
 
 // Build builds a new connection string from the builder.
-//
-// This is a really rough implementation that should be replaced eventually by
-// https://jira.mongodb.org/browse/GODRIVER-2226 when that's ready.
 func (b builder) Build() string {
 	var userAuth string
 	if stringutil.Contains(b.authenticationModes, util.SCRAM) &&

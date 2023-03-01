@@ -1,22 +1,22 @@
 import tempfile
-import kubernetes
-
-from pytest import mark, fixture
 from typing import List
+
+import kubernetes
+from pytest import mark, fixture
+
+from kubetester import create_or_update
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    create_multi_cluster_mongodb_tls_certs,
-    create_multi_cluster_agent_certs,
-    create_multi_cluster_x509_user_cert,
+    create_multi_cluster_mongodb_x509_tls_certs,
+    create_multi_cluster_x509_user_cert, create_multi_cluster_x509_agent_certs,
 )
-
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.kubetester import skip_if_local
-from kubetester.mongotester import with_tls
-from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongodb_user import MongoDBUser
-
+from kubetester.operator import Operator
+from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
@@ -26,10 +26,12 @@ CLUSTER_BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-clusterfile"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
     )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+
     return resource
 
 
@@ -40,9 +42,27 @@ def server_certs(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return create_multi_cluster_mongodb_tls_certs(
+
+    return create_multi_cluster_mongodb_x509_tls_certs(
+            multi_cluster_issuer,
+            BUNDLE_SECRET_NAME,
+            member_cluster_clients,
+            central_cluster_client,
+            mongodb_multi_unmarshalled,
+        )
+
+
+@fixture(scope="module")
+def cluster_certs(
+        multi_cluster_issuer: str,
+        mongodb_multi_unmarshalled: MongoDBMulti,
+        member_cluster_clients: List[MultiClusterClient],
+        central_cluster_client: kubernetes.client.ApiClient,
+):
+
+    return create_multi_cluster_mongodb_x509_tls_certs(
         multi_cluster_issuer,
-        BUNDLE_SECRET_NAME,
+        CLUSTER_BUNDLE_SECRET_NAME,
         member_cluster_clients,
         central_cluster_client,
         mongodb_multi_unmarshalled,
@@ -56,26 +76,9 @@ def agent_certs(
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return create_multi_cluster_agent_certs(
+    return create_multi_cluster_x509_agent_certs(
         multi_cluster_issuer,
         AGENT_BUNDLE_SECRET_NAME,
-        central_cluster_client,
-        mongodb_multi_unmarshalled,
-    )
-
-
-@fixture(scope="module")
-def cluster_certs(
-    multi_cluster_issuer: str,
-    mongodb_multi_unmarshalled: MongoDBMulti,
-    member_cluster_clients: List[MultiClusterClient],
-    central_cluster_client: kubernetes.client.ApiClient,
-):
-
-    return create_multi_cluster_mongodb_tls_certs(
-        multi_cluster_issuer,
-        CLUSTER_BUNDLE_SECRET_NAME,
-        member_cluster_clients,
         central_cluster_client,
         mongodb_multi_unmarshalled,
     )
@@ -87,6 +90,7 @@ def mongodb_multi(
     server_certs: str,
     mongodb_multi_unmarshalled: MongoDBMulti,
     multi_cluster_issuer_ca_configmap: str,
+    member_cluster_names
 ) -> MongoDBMulti:
 
     resource = mongodb_multi_unmarshalled
@@ -96,8 +100,11 @@ def mongodb_multi(
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
+
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+    create_or_update(resource)
+
+    return resource
 
 
 @fixture(scope="module")
@@ -109,7 +116,10 @@ def mongodb_x509_user(
     )
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    return resource.create()
+
+    create_or_update(resource)
+
+    return resource
 
 
 @mark.e2e_multi_cluster_tls_with_x509
@@ -120,8 +130,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_tls_with_x509
 def test_deploy_mongodb_multi_with_tls(
     mongodb_multi: MongoDBMulti,
-    namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
+    namespace: str
 ):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -177,7 +186,7 @@ def test_x509_user_connectivity(
 
 @mark.e2e_multi_cluster_tls_with_x509
 def test_mongodb_multi_tls_enable_internal_cluster_x509(
-    mongodb_multi: MongoDBMulti, namespace: str, cluster_certs: str
+    mongodb_multi: MongoDBMulti, namespace: str, cluster_certs: str, agent_certs: str,
 ):
     mongodb_multi.load()
 
@@ -186,3 +195,11 @@ def test_mongodb_multi_tls_enable_internal_cluster_x509(
 
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
+
+
+@mark.e2e_multi_cluster_tls_with_x509
+def test_ops_manager_state_was_updated_correctly(mongodb_multi: MongoDBMulti):
+    ac_tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    ac_tester.assert_authentication_enabled()
+    ac_tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+    ac_tester.assert_internal_cluster_authentication_enabled()

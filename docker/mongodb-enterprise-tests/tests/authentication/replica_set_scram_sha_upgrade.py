@@ -4,16 +4,16 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.automation_config_tester import AutomationConfigTester
 
-MDB_RESOURCE = "my-replica-set-scram-sha-1"
+MDB_RESOURCE = "my-replica-set-scram"
 
 
 @pytest.mark.e2e_replica_set_scram_sha_1_upgrade
 class TestCreateScramSha1ReplicaSet(KubernetesTester):
     """
     description: |
-      Creates a Replica Set with SCRAM-SHA-1 authentication
+      Creates a Replica Set with SCRAM authentication. Defaulting to sha 256 if non-specific provided.
     create:
-      file: replica-set-scram-sha-1.yaml
+      file: replica-set-scram.yaml
       wait_until: in_running_state
     """
 
@@ -35,7 +35,7 @@ class TestReplicaSetDeleted(KubernetesTester):
     description: |
       Deletes the Replica Set.
     delete:
-      file: replica-set-scram-sha-1.yaml
+      file: replica-set-scram.yaml
       wait_until: mongo_resource_deleted
       timeout: 120
     """

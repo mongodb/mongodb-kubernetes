@@ -2115,7 +2115,6 @@ task_groups:
     - e2e_multi_cluster_replica_set_scale_down
     - e2e_multi_cluster_scale_down_cluster
     - e2e_multi_cluster_mtls_test
-    - e2e_multi_cluster_scram
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_member_cluster_watch
@@ -2123,7 +2122,6 @@ task_groups:
     - e2e_multi_cluster_upgrade_downgrade
     - e2e_multi_cluster_tls_cert_rotation
     - e2e_multi_cluster_backup_restore
-    - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_with_ldap
     - e2e_multi_cluster_disaster_recovery
     - e2e_multi_cluster_multi_disaster_recovery
@@ -2153,6 +2151,8 @@ task_groups:
     - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_clusterwide
     - e2e_multi_cluster_specific_namespaces
+    - e2e_multi_cluster_scram
+    - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_tls_no_mesh
   teardown_task:
     - func: upload_e2e_logs

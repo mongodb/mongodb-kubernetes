@@ -182,7 +182,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 
 	needToRequeue := !reflect.DeepEqual(desiredSpecList, effectiveSpecList)
 	if needToRequeue {
-		return r.updateStatus(&mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeing reconciliation."), log)
+		return r.updateStatus(&mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
@@ -296,7 +296,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv
 		return workflow.Failed(err.Error())
 	}
 
-	// create configmap with the hostnameoverride
+	// create configmap with the hostname-override
 	err = r.reconcileHostnameOverrideConfigMap(log, mrs)
 	if err != nil {
 		return workflow.Failed(err.Error())
@@ -403,7 +403,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		// get cert hash of tls secret if it exists
 		certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.CertSecretName, "", log)
-
+		internalCertHash := enterprisepem.ReadHashFromSecret(r.SecretClient, mrs.Namespace, mrsConfig.InternalClusterSecretName, "", log)
 		log.Debugf("Creating StatefulSet %s with %d replicas in cluster: %s", mrs.MultiStatefulsetName(clusterNum), replicasThisReconciliation, item.ClusterName)
 
 		stsOverride := appsv1.StatefulSetSpec{}
@@ -419,6 +419,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.ConnectionSpec)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
+			InternalClusterHash(internalCertHash),
 			WithLabels(mongoDBMultiLabels(mrs.Name, mrs.Namespace)),
 		)
 
@@ -546,8 +547,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return err
 	}
 
-	//len:8, cap:8
-
 	processIds, err := getExistingProcessIds(conn, mrs)
 	if err != nil {
 		return err
@@ -555,12 +554,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	log.Debugf("Existing process Ids: %+v", processIds)
 
 	certificateFileName := ""
+	internalClusterPath := ""
 
 	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the
 	// correct certFilePath, with the new tls design, this path has the certHash in it(so that cert can be rotated
-	//	without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
+	// without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
 	if mrs.Spec.Security.IsTLSEnabled() {
 		firstStatefulSet, err := r.firstStatefulSet(&mrs)
+
+		if hash, ok := firstStatefulSet.Annotations[util.InternalCertAnnotationKey]; ok {
+			internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
+		}
 
 		if err != nil {
 			return err
@@ -579,17 +583,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
+	// We do not provide an agentCertSecretName on purpose because then we will default to the non pem secret on the central cluster.
+	// Below method has special code handling reading certificates from the central cluster in that case.
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, log)
 	if !status.IsOK() {
 		return fmt.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
 
+	lastMongodbConfig := mrs.GetLastAdditionalMongodConfig()
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			d.MergeReplicaSet(rs, mrs.Spec.AdditionalMongodConfig.ToMap(), mrs.GetLastAdditionalMongodConfig(), log)
-			d.AddMonitoringAndBackup(log, mrs.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
-			d.ConfigureTLS(mrs.Spec.GetSecurity(), caFilePath)
-			return nil
+			return ReconcileReplicaSetAC(d, processes, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.Name, rs, caFilePath, internalClusterPath, nil, log)
 		},
 		log,
 	)

@@ -396,37 +396,26 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	if hash, ok := set.Annotations[util.InternalCertAnnotationKey]; ok {
 		internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
 	}
+	lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
+	if err != nil {
+		return workflow.Failed(err.Error())
+	}
+
+	p := PrometheusConfiguration{
+		prometheus:         rs.GetPrometheus(),
+		conn:               conn,
+		secretsClient:      r.SecretClient,
+		namespace:          rs.GetNamespace(),
+		prometheusCertHash: prometheusCertHash,
+	}
+
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
-			// it is not possible to disable internal cluster authentication once enabled
-			if d.ExistingProcessesHaveInternalClusterAuthentication(replicaSet.Processes) && rs.Spec.Security.GetInternalClusterAuthenticationMode() == "" {
-				return fmt.Errorf("cannot disable x509 internal cluster authentication")
-			}
-			excessProcesses := d.GetNumberOfExcessProcesses(rs.Name)
-			if excessProcesses > 0 {
-				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
-			}
-
-			lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
-			if err != nil {
-				return err
-			}
-
-			d.MergeReplicaSet(replicaSet, rs.Spec.GetAdditionalMongodConfig().ToMap(), lastRsConfig.ToMap(), nil)
-			d.AddMonitoringAndBackup(log, rs.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
-			d.ConfigureTLS(rs.Spec.GetSecurity(), caFilePath)
-			d.ConfigureInternalClusterAuthentication(processNames, rs.Spec.Security.GetInternalClusterAuthenticationMode(), internalClusterPath)
-
-			// At this point we won't bubble-up the error we got from this
-			// function, we don't want to fail the MongoDB resource because
-			// Prometheus can't be enabled.
-
-			UpdatePrometheus(&d, conn, rs, r.SecretClient, prometheusCertHash, log)
-
-			return nil
+			return ReconcileReplicaSetAC(d, replicaSet.Processes, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterPath, &p, log)
 		},
 		log,
 	)
+
 	if err != nil {
 		return workflow.Failed(err.Error())
 	}

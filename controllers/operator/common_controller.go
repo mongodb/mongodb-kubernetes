@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"reflect"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
@@ -514,8 +515,10 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 			}
 			// If the agent secret is of type TLS, we can find the certificate under the standard key,
 			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
-			// Key identifying the agent. In single cluster workloads this path is working with the concatenated PEM secret,
-			// while in multi cluster it is working with the TLS secret in the central cluster.
+			// Key identifying the agent.
+			// In single cluster workloads this path is working with the concatenated PEM secret,
+			//
+			// Important: In multi cluster it is working with the TLS secret in the central cluster, hence below selector update.
 			if agentSecret.Type == corev1.SecretTypeTLS {
 				agentSecretSelector.Key = corev1.TLSCertKey
 			}
@@ -599,9 +602,8 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 		return userOpts, err
 	}
 
-	var automationAgentCert string
-	var ok bool
-	if automationAgentCert, ok = agentCerts[secretKeySelector.Key]; !ok {
+	automationAgentCert, ok := agentCerts[secretKeySelector.Key]
+	if !ok {
 		return userOpts, fmt.Errorf("could not find certificate with name %s", secretKeySelector.Key)
 	}
 
@@ -703,9 +705,9 @@ func isPrometheusSupported(conn om.Connection) bool {
 
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
 //
-// This has been moved to this function so we can use it from Sharded Clusters and AppDB when I get to work on those resources.
-func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, sClient secrets.SecretClient, certName string, log *zap.SugaredLogger) error {
-	if mdb.Spec.Prometheus == nil {
+// This has been moved to this function, so we can use it from Sharded Clusters and AppDB when I get to work on those resources.
+func UpdatePrometheus(d *om.Deployment, conn om.Connection, prometheus *mdbcv1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
+	if prometheus == nil {
 		return nil
 	}
 
@@ -716,12 +718,11 @@ func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, 
 
 	var err error
 	var password string
-	prometheus := mdb.Spec.Prometheus
 
 	secretName := prometheus.PasswordSecretRef.Name
 	if vault.IsVaultSecretBackend() {
 		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
-		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, mdb.GetNamespace(), secretName)
+		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, namespace, secretName)
 		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
 		if err != nil {
 			log.Infof("Prometheus can't be enabled, %s", err)
@@ -736,7 +737,7 @@ func UpdatePrometheus(d *om.Deployment, conn om.Connection, mdb *mdbv1.MongoDB, 
 			return fmt.Errorf(errMsg)
 		}
 	} else {
-		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: mdb.Namespace}
+		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: namespace}
 		password, err = secret.ReadKey(sClient, prometheus.GetPasswordKey(), secretNamespacedName)
 		if err != nil {
 			log.Infof("Prometheus can't be enabled, %s", err)
@@ -972,4 +973,39 @@ func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
 
 	}
 	return finalAnnotations, nil
+}
+
+type PrometheusConfiguration struct {
+	prometheus         *mdbcv1.Prometheus
+	conn               om.Connection
+	secretsClient      secrets.SecretClient
+	namespace          string
+	prometheusCertHash string
+}
+
+func ReconcileReplicaSetAC(d om.Deployment, processes []om.Process, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+	// it is not possible to disable internal cluster authentication once enabled
+	if d.ExistingProcessesHaveInternalClusterAuthentication(processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
+		return fmt.Errorf("cannot disable x509 internal cluster authentication")
+	}
+
+	excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
+	if excessProcesses > 0 {
+		return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+	}
+
+	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, log)
+	d.AddMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
+	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
+	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
+
+	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
+	if pc != nil {
+		// At this point we won't bubble-up the error we got from this
+		// function, we don't want to fail the MongoDB resource because
+		// Prometheus can't be enabled.
+		_ = UpdatePrometheus(&d, pc.conn, pc.prometheus, pc.secretsClient, pc.namespace, pc.prometheusCertHash, log)
+	}
+
+	return nil
 }

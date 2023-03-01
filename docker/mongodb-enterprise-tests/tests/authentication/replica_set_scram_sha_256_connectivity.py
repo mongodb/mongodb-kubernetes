@@ -117,6 +117,7 @@ class TestReplicaSetIsUpdatedWithNewUser(KubernetesTester):
             auth_mechanism="SCRAM-SHA-256",
         )
 
+
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 class TestCanChangePassword(KubernetesTester):
     def test_user_can_authenticate_with_new_password(
