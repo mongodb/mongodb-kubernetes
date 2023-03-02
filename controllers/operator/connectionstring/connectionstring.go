@@ -39,6 +39,7 @@ type builder struct {
 	username string
 	password string
 	replicas int
+	port     int32
 	service  string
 	version  string
 
@@ -80,6 +81,11 @@ func (b *builder) SetReplicas(replicas int) *builder {
 
 func (b *builder) SetService(service string) *builder {
 	b.service = service
+	return b
+}
+
+func (b *builder) SetPort(port int32) *builder {
+	b.port = port
 	return b
 }
 
@@ -146,7 +152,7 @@ func (b builder) Build() string {
 		} else {
 			hostnames, _ = dns.GetDNSNames(b.name, b.service, b.namespace, b.clusterDomain, b.replicas, nil)
 			for i, h := range hostnames {
-				hostnames[i] = fmt.Sprintf("%s:%d", h, util.MongoDbDefaultPort)
+				hostnames[i] = fmt.Sprintf("%s:%d", h, b.port)
 			}
 		}
 		uri += strings.Join(hostnames, ",")
@@ -187,6 +193,7 @@ func (b builder) Build() string {
 
 func Builder() *builder {
 	return &builder{
+		port:             util.MongoDbDefaultPort,
 		connectionParams: map[string]string{"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"},
 	}
 }

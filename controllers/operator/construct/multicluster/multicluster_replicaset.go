@@ -20,7 +20,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 		}
 		opts := construct.DatabaseStatefulSetOptions{
 			Name:                          mdbm.Name,
-			ServicePort:                   mdbm.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+			ServicePort:                   mdbm.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
 			Persistent:                    mdbm.Spec.Persistent,
 			AgentConfig:                   mdbm.Spec.Agent,
 			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),

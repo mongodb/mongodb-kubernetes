@@ -16,6 +16,8 @@ from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
 from tests.multicluster.conftest import cluster_spec_list
 
+MONGODB_PORT = 30000
+
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
@@ -28,6 +30,21 @@ def mongodb_multi(
     )
     resource["spec"]["persistent"] = False
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+
+    additional_mongod_config = {
+        "systemLog": {
+            "logAppend": True,
+            "verbosity": 4
+        },
+        "operationProfiling": {
+            "mode": "slowOp"
+        },
+        "net": {
+            "port": MONGODB_PORT
+        }
+    }
+
+    resource["spec"]["additionalMongodConfig"] = additional_mongod_config
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -55,7 +72,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2000)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
@@ -95,7 +112,7 @@ def test_pvc_not_created(
 @skip_if_local
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
-    tester = mongodb_multi.tester()
+    tester = mongodb_multi.tester(port=MONGODB_PORT)
     tester.assert_connectivity()
 
 
@@ -108,6 +125,41 @@ def test_statefulset_overrides(
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
     assert_container_in_sts("sidecar1", cluster_one_sts)
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_mongodb_options(mongodb_multi: MongoDBMulti):
+    automation_config_tester = mongodb_multi.get_automation_config_tester()
+    for process in automation_config_tester.get_replica_set_processes(mongodb_multi.name):
+        assert process["args2_6"]["systemLog"]["verbosity"] == 4
+        assert process["args2_6"]["systemLog"]["logAppend"]
+        assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
+        assert process["args2_6"]["net"]["port"] == MONGODB_PORT
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_client: kubernetes.client.ApiClient):
+    mongodb_multi["spec"]["additionalMongodConfig"]["systemLog"]["verbosity"] = 2
+    mongodb_multi["spec"]["additionalMongodConfig"]["net"]["maxIncomingConnections"] = 100
+    # update uses json merge+patch which means that deleting keys is done by setting them to None
+    mongodb_multi["spec"]["additionalMongodConfig"]["operationProfiling"] = None
+
+    mongodb_multi.update()
+
+    mongodb_multi.assert_abandons_phase(Phase.Running)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_mongodb_options_were_updated(mongodb_multi: MongoDBMulti):
+    automation_config_tester = mongodb_multi.get_automation_config_tester()
+    for process in automation_config_tester.get_replica_set_processes(mongodb_multi.name):
+        assert process["args2_6"]["systemLog"]["verbosity"] == 2
+        assert process["args2_6"]["systemLog"]["logAppend"]
+        assert process["args2_6"]["net"]["maxIncomingConnections"] == 100
+        assert process["args2_6"]["net"]["port"] == MONGODB_PORT
+        # the mode setting has been removed
+        assert "mode" not in process["args2_6"]["operationProfiling"]
 
 
 @pytest.mark.e2e_multi_cluster_replica_set

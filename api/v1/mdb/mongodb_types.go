@@ -1357,6 +1357,7 @@ func (m MongoDB) BuildConnectionString(username, password string, scheme connect
 		SetPassword(password).
 		SetReplicas(m.Spec.Replicas()).
 		SetService(m.ServiceName()).
+		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
 		SetVersion(m.Spec.GetMongoDBVersion()).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).

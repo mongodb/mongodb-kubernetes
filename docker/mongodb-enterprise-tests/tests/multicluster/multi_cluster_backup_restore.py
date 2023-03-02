@@ -1,9 +1,12 @@
+import datetime
+import time
 from typing import List
 
 import kubernetes.client
 from pymongo.errors import ServerSelectionTimeoutError
+from pytest import fixture, mark
 
-from kubetester import read_secret, create_secret, delete_secret, read_service, create_or_update, try_load, \
+from kubetester import read_secret, create_secret, delete_secret, read_service, create_or_update, \
     create_or_update_configmap
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester, skip_if_local
 from kubetester.mongodb import Phase
@@ -11,9 +14,6 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, mark
-import time
-import datetime
 
 TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
 
@@ -114,6 +114,9 @@ def mongodb_multi_one(
             "members": 2
         },
     ]
+
+    # creating a cluster with backup should work with custom ports
+    resource["spec"]["additionalMongodConfig"]["net"]["port"] = 30000
 
     # TODO: use a full 3 cluster RS with backup once the required agent changes have been made. Remove the below 3 lines
     spec_item_with_one_member = resource["spec"]["clusterSpecList"][0]

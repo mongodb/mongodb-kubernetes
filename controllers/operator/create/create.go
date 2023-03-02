@@ -231,7 +231,7 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 	case corev1.ServiceTypeClusterIP:
 		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None")
 		// Service will have a named Port
-		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port), Name: "mongodb"})
+		svcBuilder.AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"})
 	default:
 		// Service will have a regular Port (unnamed)
 		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port)})

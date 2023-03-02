@@ -232,7 +232,7 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, scaler scale.ReplicaSetScaler)
 	}
 }
 
-// MultiReplicaSetConfig returns a struct which provides all of thr configuration required for a given MongoDB Multi Replicaset.
+// MultiReplicaSetConfig returns a struct which provides all of the configuration required for a given MongoDB Multi Replicaset.
 func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, clusterName string, replicas int) Options {
 	return Options{
 		ResourceName:              mdbm.MultiStatefulsetName(clusterNum),

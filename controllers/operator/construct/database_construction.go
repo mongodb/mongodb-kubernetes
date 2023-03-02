@@ -63,7 +63,7 @@ const (
 	AgentAPIKeyVolumeName = "agent-api-key"
 )
 
-// DatabaseStatefulSetOptions contains all of the different values that are variable between
+// DatabaseStatefulSetOptions contains all the different values that are variable between
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
 type DatabaseStatefulSetOptions struct {
@@ -435,7 +435,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
 			podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 			podtemplatespec.WithPodLabels(podLabels),
-			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*opts.PodSpec, volumeMounts, configureContainerSecurityContext)),
+			podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(*opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
 			volumesFunc,
 			configurePodSpecSecurityContext,
 			configureImagePullSecrets,
@@ -469,10 +469,10 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	return claims, mounts
 }
 
-func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMounts []corev1.VolumeMount, configureContainerSecurityContext container.Modification) container.Modification {
+func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMounts []corev1.VolumeMount, configureContainerSecurityContext container.Modification, port int32) container.Modification {
 	return container.Apply(
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(podSpecWrapper)),
-		container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
+		container.WithPorts([]corev1.ContainerPort{{ContainerPort: port}}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 		container.WithImage(env.ReadOrPanic(util.AutomationAgentImage)),
 		container.WithVolumeMounts(volumeMounts),
@@ -664,7 +664,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 		podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
-				container.WithPorts([]corev1.ContainerPort{{ContainerPort: util.MongoDbDefaultPort}}),
+				container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),

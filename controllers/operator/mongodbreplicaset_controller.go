@@ -495,7 +495,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.ReplicaSet{}, rs.Name)
-			// error means that replica set is not in the deployment - it's ok and we can proceed (could happen if
+			// error means that replica set is not in the deployment - it's ok, and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
 			if e := d.RemoveReplicaSetByName(rs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
