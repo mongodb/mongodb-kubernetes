@@ -136,3 +136,16 @@ func TestScramSha1AuthValidation(t *testing.T) {
 
 	}
 }
+
+func TestReplicasetMemberIsSpecified(t *testing.T) {
+	rs := NewDefaultReplicaSetBuilder().Build()
+	err := rs.ProcessValidationsOnReconcile(nil)
+	require.Error(t, err)
+	assert.Errorf(t, err, "'spec.members' must be specified if type of MongoDB is ReplicaSet")
+
+	rs = NewReplicaSetBuilder().Build()
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+	}
+	require.NoError(t, rs.ProcessValidationsOnReconcile(nil))
+}

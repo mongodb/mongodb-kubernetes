@@ -128,6 +128,13 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
+	if ms.ResourceType == ReplicaSet && ms.Members == 0 {
+		return v1.ValidationError("'spec.members' must be specified if type of MongoDB is %s", ms.ResourceType)
+	}
+	return v1.ValidationSuccess()
+}
+
 func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.ValidationResult {
 	if d.Security == nil || d.Security.Authentication == nil {
 		return v1.ValidationSuccess()
@@ -194,6 +201,7 @@ func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	singleClusterValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
 		additionalMongodConfig,
+		replicasetMemberIsSpecified,
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{

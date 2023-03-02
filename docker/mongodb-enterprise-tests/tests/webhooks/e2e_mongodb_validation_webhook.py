@@ -85,6 +85,22 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)",
         )
 
+    def test_replicaset_members_is_specified(self):
+        resource = yaml.safe_load(open(yaml_fixture("invalid_mdb_member_count.yaml")))
+
+        self.create_custom_resource_from_object(
+            self.get_namespace(),
+            resource,
+            exception_reason="'spec.members' must be specified if type of MongoDB is ReplicaSet",
+        )
+
+    def test_replicaset_members_is_specified_without_webhook(self):
+        self._assert_validates_without_webhook(
+            "mdbpolicy.mongodb.com",
+            "invalid_mdb_member_count.yaml",
+            "'spec.members' must be specified if type of MongoDB is ReplicaSet",
+        )
+
     def test_horizons_without_tls_validates_without_webhook(self):
         self._assert_validates_without_webhook(
             "mdbpolicy.mongodb.com",

@@ -15,6 +15,10 @@ func NewReplicaSetBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ReplicaSet).SetMembers(3)
 }
 
+func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
+	return defaultMongoDB(ReplicaSet)
+}
+
 func NewStandaloneBuilder() *MongoDBBuilder {
 	return defaultMongoDB(Standalone)
 }
