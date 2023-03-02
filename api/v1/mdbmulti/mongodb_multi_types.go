@@ -609,6 +609,7 @@ func (m MongoDBMultiCluster) BuildConnectionString(username, password string, sc
 		SetPassword(password).
 		SetReplicas(m.Spec.Replicas()).
 		SetService(m.Name + "-svc").
+		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
 		SetVersion(m.Spec.GetMongoDBVersion()).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).

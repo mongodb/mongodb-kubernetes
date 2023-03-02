@@ -98,6 +98,7 @@ class MongoDBMulti(MongoDB):
         srv: bool = False,
         use_ssl: Optional[bool] = None,
         service_names: Optional[List[str]] = None,
+        port="27017",
     ) -> MongoTester:
         if service_names is None:
             service_names = self.service_names()
@@ -105,5 +106,6 @@ class MongoDBMulti(MongoDB):
         return MultiReplicaSetTester(
             service_names=service_names,
             namespace=self.namespace,
+            port=port
             # TODO: tls, ca_path
         )

@@ -308,9 +308,14 @@ def unconfigure():
     try:
         env = read_env_file()
     except Exception as e:
+        print("Got an exception trying to read env-file", e)
         env_file_exists = False
 
-    namespace = read_namespace()
+    namespace = None
+    try:
+        namespace = read_namespace()
+    except Exception as e:
+        print("Got an exception trying to read namespace", e)
 
     # The "group" needs to be removed using the user's API credentials
     if namespace is not None:

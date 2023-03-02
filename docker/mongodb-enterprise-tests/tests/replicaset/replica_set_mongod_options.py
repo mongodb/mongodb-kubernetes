@@ -55,16 +55,11 @@ def test_replica_set_feature_controls(replica_set: MongoDB):
 def test_replica_set_updated(replica_set: MongoDB):
     replica_set["spec"]["additionalMongodConfig"]["systemLog"]["verbosity"] = 2
     replica_set["spec"]["additionalMongodConfig"]["net"]["maxIncomingConnections"] = 100
-    del replica_set["spec"]["additionalMongodConfig"]["operationProfiling"]
-    # TODO add replace() method to kubeobject (removing spec element doesn't work ok with patch)
-    client.CustomObjectsApi().replace_namespaced_custom_object(
-        replica_set.group,
-        replica_set.version,
-        replica_set.namespace,
-        replica_set.plural,
-        replica_set.name,
-        replica_set.backing_obj,
-    )
+
+    # update uses json merge+patch which means that deleting keys is done by setting them to None
+    replica_set["spec"]["additionalMongodConfig"]["operationProfiling"] = None
+
+    replica_set.update()
     replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running)
 

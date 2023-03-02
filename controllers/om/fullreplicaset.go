@@ -42,7 +42,7 @@ func determineNextProcessIdStartingPoint(desiredProcesses []Process, existingPro
 }
 
 // NewMultiClusterReplicaSetWithProcesses Creates processes for a multi cluster deployment.
-// This function ensures that new proccesses which are added never have an overlapping _id with any existing process.
+// This function ensures that new processes which are added never have an overlapping _id with any existing process.
 // existing _ids are re-used, and when new processes are added, a new higher number is used.
 func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, existingProcessIds map[string]int, connectivity *mdbv1.MongoDBConnectivity) ReplicaSetWithProcesses {
 	newId := determineNextProcessIdStartingPoint(processes, existingProcessIds)

@@ -267,13 +267,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(mrs *mdbmultiv1.Mongo
 	items := mrs.Spec.ClusterSpecList
 	var firstMemberClient kubernetesClient.Client
 	var firstMemberIdx int
+	foundOne := false
 	for idx, item := range items {
 		client, ok := r.memberClusterClientsMap[item.ClusterName]
 		if ok {
 			firstMemberClient = client
 			firstMemberIdx = idx
+			foundOne = true
 			break
 		}
+	}
+	if !foundOne {
+		return appsv1.StatefulSet{}, fmt.Errorf("was not able to find given member clusters in client map")
 	}
 	stsName := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(items[firstMemberIdx].ClusterName)))
 
@@ -646,14 +651,17 @@ func mongoDBMultiLabels(name, namespace string) map[string]string {
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
 	svcLabels := mongoDBMultiLabels(mrs.Name, mrs.Namespace)
 
+	additionalConfig := mrs.Spec.GetAdditionalMongodConfig()
+	port := additionalConfig.GetPortOrDefault()
+
 	svc := service.Builder().
 		SetName(fmt.Sprintf("%s-svc", mrs.Name)).
 		SetNamespace(mrs.Namespace).
 		SetSelector(mconstruct.PodLabel(mrs.Name)).
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
-		AddPort(&corev1.ServicePort{Port: 27017, Name: "mongodb"}).
-		AddPort(&corev1.ServicePort{Port: 27018, Name: "backup", TargetPort: intstr.IntOrString{IntVal: 27018}}).
+		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
+		AddPort(&corev1.ServicePort{Port: port + 1, Name: "backup", TargetPort: intstr.IntOrString{IntVal: port + 1}}).
 		Build()
 
 	return svc
@@ -699,14 +707,19 @@ func getService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string, podNum 
 		"controller":                         "mongodb-enterprise-operator",
 	}
 
+	additionalConfig := mrs.Spec.GetAdditionalMongodConfig()
+	port := additionalConfig.GetPortOrDefault()
+
 	svc := service.Builder().
 		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterNum(clusterName), podNum)).
 		SetNamespace(mrs.Namespace).
 		SetSelector(labelSelectors).
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
-		AddPort(&corev1.ServicePort{Port: 27017, Name: "mongodb"}).
-		AddPort(&corev1.ServicePort{Port: 27018, Name: "backup", TargetPort: intstr.IntOrString{IntVal: 27018}}).
+		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
+		// Note: in the agent-launcher.sh We explicitly pass an offset of 1. When port N is exposed
+		// the agent would use port N+1 for the spinning up of the ephemeral mongod process, which is used for backup
+		AddPort(&corev1.ServicePort{Port: port + 1, Name: "backup", TargetPort: intstr.IntOrString{IntVal: port + 1}}).
 		Build()
 
 	return svc

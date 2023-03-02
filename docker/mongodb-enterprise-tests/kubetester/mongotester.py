@@ -104,7 +104,7 @@ class MongoTester:
         attempts: int = 20,
         db: str = "admin",
         col: str = "myCol",
-        opts: Optional[List[Dict[str, str]]] = None,
+        opts: Optional[List[Dict[str, any]]] = None,
     ):
         if opts is None:
             opts = []
@@ -314,11 +314,12 @@ class StandaloneTester(MongoTester):
         ssl: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
+        port="27017"
     ):
         if namespace is None:
             namespace = KubernetesTester.get_namespace()
 
-        self.cnx_string = build_mongodb_connection_uri(mdb_resource_name, namespace, 1)
+        self.cnx_string = build_mongodb_connection_uri(mdb_resource_name, namespace, 1, port)
         super().__init__(self.cnx_string, ssl, ca_path)
 
 
@@ -331,6 +332,7 @@ class ReplicaSetTester(MongoTester):
         srv: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
+        port="27017"
     ):
         if namespace is None:
             # backward compatibility with docstring tests
@@ -344,6 +346,7 @@ class ReplicaSetTester(MongoTester):
             replicas_count,
             servicename=None,
             srv=srv,
+            port=port
         )
 
         super().__init__(self.cnx_string, ssl, ca_path)
@@ -382,10 +385,11 @@ class MultiReplicaSetTester(MongoTester):
     def __init__(
         self,
         service_names: List[str],
+        port: str,
         namespace: Optional[str] = None,
     ):
         super().__init__(
-            build_mongodb_multi_connection_uri(namespace, service_names),
+            build_mongodb_multi_connection_uri(namespace, service_names, port),
             use_ssl=False,
             ca_path=None,
         )
@@ -400,6 +404,7 @@ class ShardedClusterTester(MongoTester):
         srv: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
+        port="27017"
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
@@ -412,7 +417,8 @@ class ShardedClusterTester(MongoTester):
             mdb_name,
             namespace,
             mongos_count,
-            servicename,
+            port=port,
+            servicename=servicename,
             srv=srv,
         )
         super().__init__(self.cnx_string, ssl, ca_path)
@@ -549,6 +555,7 @@ def build_mongodb_connection_uri(
     mdb_resource: str,
     namespace: str,
     members: int,
+    port: str,
     servicename: str = None,
     srv: bool = False,
 ) -> str:
@@ -559,37 +566,37 @@ def build_mongodb_connection_uri(
         return build_mongodb_uri(build_host_srv(servicename, namespace), srv)
     else:
         return build_mongodb_uri(
-            build_list_of_hosts(mdb_resource, namespace, members, servicename)
+            build_list_of_hosts(mdb_resource, namespace, members, servicename, port)
         )
 
 
-def build_mongodb_multi_connection_uri(namespace: str, service_names: List[str]) -> str:
-    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names))
+def build_mongodb_multi_connection_uri(namespace: str, service_names: List[str], port: str) -> str:
+    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port))
 
 
 def build_list_of_hosts(
-    mdb_resource: str, namespace: str, members: int, servicename: str
+    mdb_resource: str, namespace: str, members: int, servicename: str, port: str
 ) -> List[str]:
     return [
-        build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename)
+        build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename, port)
         for idx in range(members)
     ]
 
 
-def build_list_of_multi_hosts(namespace: str, service_names: List[str]) -> List[str]:
+def build_list_of_multi_hosts(namespace: str, service_names: List[str], port) -> List[str]:
     return [
-        build_host_service_fqdn(namespace, service_name)
+        build_host_service_fqdn(namespace, service_name, port)
         for service_name in service_names
     ]
 
 
-def build_host_service_fqdn(namespace: str, servicename: str) -> str:
-    return f"{servicename}.{namespace}.svc.cluster.local:27017"
+def build_host_service_fqdn(namespace: str, servicename: str, port) -> str:
+    return f"{servicename}.{namespace}.svc.cluster.local:{port}"
 
 
-def build_host_fqdn(hostname: str, namespace: str, servicename: str) -> str:
-    return "{hostname}.{servicename}.{namespace}.svc.cluster.local:27017".format(
-        hostname=hostname, servicename=servicename, namespace=namespace
+def build_host_fqdn(hostname: str, namespace: str, servicename: str, port) -> str:
+    return "{hostname}.{servicename}.{namespace}.svc.cluster.local:{port}".format(
+        hostname=hostname, servicename=servicename, namespace=namespace, port=port
     )
 
 

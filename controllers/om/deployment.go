@@ -142,7 +142,7 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 }
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
-// with the same name - update some fields there. Otherwise add the new one
+// with the same name - update some fields there. Otherwise, add the new one
 func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
