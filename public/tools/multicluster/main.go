@@ -25,7 +25,7 @@ import (
 type clusterType string
 
 // This tool handles the creation of ServiceAccounts and roles across multiple clusters.
-// Service Accounts, Roles and RoleBindings are created in all of the member clusters and the central cluster.
+// Service Accounts, Roles and RoleBindings are created in all the member clusters and the central cluster.
 // The Service Account token secrets from the member clusters are merged into a KubeConfig file which is then
 // created in the central cluster.
 
@@ -35,7 +35,7 @@ const (
 	memberCluster  clusterType = "MEMBER"
 )
 
-// flags holds all of the fields provided by the user.
+// flags holds all the fields provided by the user.
 type flags struct {
 	memberClusters              []string
 	memberClusterApiServerUrls  []string
@@ -52,14 +52,15 @@ type flags struct {
 }
 
 const (
-	kubeConfigSecretName       = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
-	kubeConfigSecretKey        = "kubeconfig"
-	appdbServiceAccount        = "mongodb-enterprise-appdb"
-	databasePodsServiceAccount = "mongodb-enterprise-database-pods"
-	opsManagerServiceAccount   = "mongodb-enterprise-ops-manager"
-	appdbRole                  = "mongodb-enterprise-appdb"
-	appdbRoleBinding           = "mongodb-enterprise-appdb"
-	defaultOperatorName        = "mongodb-enterprise-operator"
+	kubeConfigSecretName         = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
+	kubeConfigSecretKey          = "kubeconfig"
+	appdbServiceAccount          = "mongodb-enterprise-appdb"
+	databasePodsServiceAccount   = "mongodb-enterprise-database-pods"
+	opsManagerServiceAccount     = "mongodb-enterprise-ops-manager"
+	appdbRole                    = "mongodb-enterprise-appdb"
+	appdbRoleBinding             = "mongodb-enterprise-appdb"
+	defaultOperatorName          = "mongodb-enterprise-operator"
+	defaultOperatorConfigMapName = defaultOperatorName + "-member-list"
 )
 
 func contains(s []string, str string) bool {
@@ -71,7 +72,7 @@ func contains(s []string, str string) bool {
 	return false
 }
 
-// parseFlags returns a struct containing all of the flags provided by the user.
+// parseSetupFlags returns a struct containing all the flags provided by the user.
 func parseSetupFlags() (flags, error) {
 	var memberClusters string
 	var memberClustersApiServers string
@@ -88,7 +89,9 @@ func parseSetupFlags() (flags, error) {
 	setupCmd.BoolVar(&flags.createServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	setupCmd.StringVar(&memberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 
-	setupCmd.Parse(os.Args[2:])
+	if err := setupCmd.Parse(os.Args[2:]); err != nil {
+		return flags, err
+	}
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace) {
 		return flags, fmt.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace]")
 	}
@@ -231,10 +234,21 @@ func mainWithContext(ctx context.Context) {
 		flags, err := parseSetupFlags()
 		if err != nil {
 			fmt.Printf("error parsing flags: %s\n", err)
-
 			os.Exit(1)
 		}
-		if err := ensureMultiClusterResources(ctx, flags, getKubernetesClient); err != nil {
+
+		clientMap, err := createClientMap(flags.memberClusters, flags.centralCluster, loadKubeConfigFilePath(), getKubernetesClient)
+		if err != nil {
+			fmt.Printf("failed to create clientset map: %s", err)
+			os.Exit(1)
+		}
+
+		if err := ensureMultiClusterResources(ctx, flags, clientMap); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		if err := ReplaceClusterMembersConfigMap(ctx, clientMap[flags.centralCluster], flags); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -245,20 +259,22 @@ func mainWithContext(ctx context.Context) {
 
 			os.Exit(1)
 		}
-		if err := ensureMultiClusterResources(ctx, flags, getKubernetesClient); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
 		clientMap, err := createClientMap(flags.memberClusters, flags.centralCluster, loadKubeConfigFilePath(), getKubernetesClient)
 		if err != nil {
 			fmt.Printf("failed to create clientset map: %s\n", err)
 			os.Exit(1)
 		}
 
-		if err := patchOperatorDeployment(ctx, clientMap, flags); err != nil {
+		if err := ensureMultiClusterResources(ctx, flags, clientMap); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+		if err := patchClusterMembersConfigMap(ctx, clientMap[flags.centralCluster], flags); err != nil {
 			fmt.Printf("failed to patch operator deployment: %s", err)
 			os.Exit(1)
 		}
+
 		fmt.Println("Patched operator to use new member clusters.")
 	default:
 		fmt.Println("expected 'setup' or 'recover' subcommands")
@@ -501,12 +517,7 @@ func ensureAllClusterNamespacesExist(ctx context.Context, clientSets map[string]
 // ensureMultiClusterResources copies the ServiceAccount Secret tokens from the specified
 // member clusters, merges them into a KubeConfig file and creates a Secret in the central cluster
 // with the contents.
-func ensureMultiClusterResources(ctx context.Context, flags flags, getClient func(clusterName, kubeConfigPath string) (kubernetes.Interface, error)) error {
-	clientMap, err := createClientMap(flags.memberClusters, flags.centralCluster, loadKubeConfigFilePath(), getClient)
-	if err != nil {
-		return fmt.Errorf("failed to create clientset map: %s", err)
-	}
-
+func ensureMultiClusterResources(ctx context.Context, flags flags, clientMap map[string]kubernetes.Interface) error {
 	if flags.cleanup {
 		if err := performCleanup(ctx, clientMap, flags); err != nil {
 			return fmt.Errorf("failed performing cleanup of resources: %s", err)
@@ -542,7 +553,7 @@ func ensureMultiClusterResources(ctx context.Context, flags flags, getClient fun
 		return fmt.Errorf("failed to marshal kubeconfig: %s", err)
 	}
 
-	centralClusterClient, err := getClient(flags.centralCluster, loadKubeConfigFilePath())
+	centralClusterClient := clientMap[flags.centralCluster]
 	if err != nil {
 		return fmt.Errorf("failed to get central cluster clientset: %s", err)
 	}
@@ -1183,29 +1194,60 @@ func setupDatabaseRoles(ctx context.Context, clientSet map[string]kubernetes.Int
 	return nil
 }
 
-// patchOperatorDeployment updates the operator deployment with configurations required for
-// dataplane recovery, currently this only includes the names of the member clusters.
-func patchOperatorDeployment(ctx context.Context, clientMap map[string]kubernetes.Interface, flags flags) error {
-	c := clientMap[flags.centralCluster]
-	operator, err := c.AppsV1().Deployments(flags.centralClusterNamespace).Get(ctx, flags.operatorName, metav1.GetOptions{})
+// patchClusterMembersConfigMap updates the configmap used by the operator to know which clusters are members of the multi-cluster setup.
+// with configurations required for dataplane recovery, currently this only includes the names of the member clusters.
+// NOTE: the configmap is hardcoded to be defaultOperatorConfigMapName
+func patchClusterMembersConfigMap(ctx context.Context, centralClusterClient kubernetes.Interface, flags flags) error {
+	fmt.Printf("Patching Member list Configmap %s/%s in cluster %s\n", flags.centralClusterNamespace, defaultOperatorConfigMapName, flags.centralCluster)
+
+	cm, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Get(ctx, defaultOperatorConfigMapName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 
-	newArgs := []string{}
+	convertToSet(flags.memberClusters, cm)
 
-	for _, arg := range operator.Spec.Template.Spec.Containers[0].Args {
-		if strings.HasPrefix(arg, "-cluster-names") {
-			newArgs = append(newArgs, fmt.Sprintf("-cluster-names=%s", strings.Join(flags.memberClusters, ",")))
-		} else {
-			newArgs = append(newArgs, arg)
+	if _, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("error updating configmap: %s", err)
+	}
+
+	return nil
+}
+
+func convertToSet(memberClusters []string, into *corev1.ConfigMap) {
+	// override or add
+	for _, memberCluster := range memberClusters {
+		into.Data[memberCluster] = ""
+	}
+}
+
+// ReplaceClusterMembersConfigMap creates the configmap used by the operator to know which clusters are members of the multi-cluster setup.
+// This will replace the existing configmap.
+// NOTE: the configmap is hardcoded to be defaultOperatorConfigMapName
+func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient kubernetes.Interface, flags flags) error {
+	members := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      defaultOperatorConfigMapName,
+			Namespace: flags.centralClusterNamespace,
+			Labels:    multiClusterLabels(),
+		},
+		Data: map[string]string{},
+	}
+
+	convertToSet(flags.memberClusters, &members)
+
+	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.centralClusterNamespace, defaultOperatorConfigMapName, flags.centralCluster)
+	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
+
+	if err != nil && !errors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed creating secret: %s", err)
+	}
+
+	if errors.IsAlreadyExists(err) {
+		if _, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Update(ctx, &members, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("error creating configmap: %s", err)
 		}
 	}
-	operator.Spec.Template.Spec.Containers[0].Args = newArgs
 
-	_, err = c.AppsV1().Deployments(flags.centralClusterNamespace).Update(ctx, operator, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
 	return nil
 }
