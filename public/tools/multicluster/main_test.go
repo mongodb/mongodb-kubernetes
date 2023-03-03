@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ghodss/yaml"
@@ -375,6 +376,99 @@ func TestMemberClusterUris(t *testing.T) {
 
 		assert.NoError(t, err)
 	})
+}
+
+// TestPrintingOutRolesServiceAccountsAndRoleBindings is used for extracting RBAC settings for customer who won't
+// be able to use the CLI tool.
+func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
+	sb := &strings.Builder{}
+
+	flags := testFlags(t, false)
+	flags.clusterScoped = true
+	flags.installDatabaseRoles = true
+
+	{
+		sb.WriteString("# Below you can find the resources for Central Cluster in Clustered-scoped configuration\n")
+		clientMap := getClientResources(flags)
+		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+
+		cr, err := clientMap[flags.centralCluster].RbacV1().ClusterRoles().List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		crb, err := clientMap[flags.centralCluster].RbacV1().ClusterRoleBindings().List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		sa, err := clientMap[flags.centralCluster].CoreV1().ServiceAccounts(flags.centralClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+
+		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRole", cr.Items)
+		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
+		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "v1", "ServiceAccount", sa.Items)
+	}
+
+	{
+		sb.WriteString("# Below you can find the resources for Member Cluster in Clustered-scoped configuration\n")
+		clientMap := getClientResources(flags)
+		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+
+		cr, err := clientMap[flags.memberClusters[0]].RbacV1().ClusterRoles().List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		crb, err := clientMap[flags.memberClusters[0]].RbacV1().ClusterRoleBindings().List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		sa, err := clientMap[flags.memberClusters[0]].CoreV1().ServiceAccounts(flags.memberClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+
+		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRole", cr.Items)
+		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
+		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "v1", "ServiceAccount", sa.Items)
+	}
+
+	{
+		sb.WriteString("# Below you can find the resources for Central Cluster in Namespaced-scoped configuration\n")
+		flags.clusterScoped = false
+
+		clientMap := getClientResources(flags)
+		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+
+		r, err := clientMap[flags.centralCluster].RbacV1().Roles(flags.centralClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		rb, err := clientMap[flags.centralCluster].RbacV1().RoleBindings(flags.centralClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		sa, err := clientMap[flags.centralCluster].CoreV1().ServiceAccounts(flags.centralClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+
+		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
+		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
+		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
+	}
+
+	{
+		sb.WriteString("# Below you can find the resources for Member Cluster in Namespaced-scoped configuration\n")
+		flags.clusterScoped = false
+
+		clientMap := getClientResources(flags)
+		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+
+		r, err := clientMap[flags.memberClusters[0]].RbacV1().Roles(flags.memberClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		rb, err := clientMap[flags.memberClusters[0]].RbacV1().RoleBindings(flags.memberClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+		assert.NoError(t, err)
+		sa, err := clientMap[flags.memberClusters[0]].CoreV1().ServiceAccounts(flags.memberClusterNamespace).List(context.TODO(), metav1.ListOptions{})
+
+		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
+		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
+		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
+	}
+
+	fmt.Printf(sb.String())
+}
+
+func marshalToYaml[T interface{}](t *testing.T, sb *strings.Builder, comment string, apiVersion string, kind string, items []T) *strings.Builder {
+	sb.WriteString(fmt.Sprintf("# %s\n", comment))
+	for _, cr := range items {
+		sb.WriteString(fmt.Sprintf("apiVersion: %s\n", apiVersion))
+		sb.WriteString(fmt.Sprintf("kind: %s\n", kind))
+		bytes, err := yaml.Marshal(cr)
+		assert.NoError(t, err)
+		sb.WriteString(string(bytes))
+		sb.WriteString("\n---\n")
+	}
+	return sb
 }
 
 // assertMemberClusterNamespacesExist asserts the Namespace in the member clusters exists.
