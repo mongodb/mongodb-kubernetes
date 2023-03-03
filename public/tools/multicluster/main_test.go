@@ -84,7 +84,7 @@ func testFlags(t *testing.T, cleanup bool) flags {
 func TestNamespaces_GetsCreated_WhenTheyDoNotExit(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 
@@ -95,7 +95,7 @@ func TestNamespaces_GetsCreated_WhenTheyDoNotExit(t *testing.T) {
 func TestExistingNamespaces_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags, namespaceResourceType)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 
@@ -106,7 +106,7 @@ func TestExistingNamespaces_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 func TestServiceAccount_GetsCreate_WhenTheyDoNotExit(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertServiceAccountsExist(t, clientMap, flags)
@@ -115,7 +115,7 @@ func TestServiceAccount_GetsCreate_WhenTheyDoNotExit(t *testing.T) {
 func TestExistingServiceAccounts_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags, serviceAccountResourceType)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertServiceAccountsExist(t, clientMap, flags)
@@ -127,7 +127,7 @@ func TestDatabaseRoles_GetCreated(t *testing.T) {
 	flags.installDatabaseRoles = true
 
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertDatabaseRolesExist(t, clientMap, flags)
@@ -136,7 +136,7 @@ func TestDatabaseRoles_GetCreated(t *testing.T) {
 func TestRoles_GetsCreated_WhenTheyDoesNotExit(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertMemberRolesExist(t, clientMap, flags)
@@ -145,7 +145,7 @@ func TestRoles_GetsCreated_WhenTheyDoesNotExit(t *testing.T) {
 func TestExistingRoles_DoNotCause_AlreadyExistsErrors(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags, roleResourceType)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertMemberRolesExist(t, clientMap, flags)
@@ -156,7 +156,7 @@ func TestClusterRoles_DoNotGetCreated_WhenNotSpecified(t *testing.T) {
 	flags.clusterScoped = false
 
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertMemberRolesExist(t, clientMap, flags)
@@ -168,7 +168,7 @@ func TestClusterRoles_GetCreated_WhenSpecified(t *testing.T) {
 	flags.clusterScoped = true
 
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertMemberRolesDoNotExist(t, clientMap, flags)
@@ -180,7 +180,7 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenClusterScoped_IsSpecified(t *
 	flags.clusterScoped = true
 
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 }
@@ -190,7 +190,7 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenNonClusterScoped_IsSpecified(
 	flags.clusterScoped = false
 
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 	assert.NoError(t, err)
 	assertCentralRolesExist(t, clientMap, flags)
@@ -201,7 +201,7 @@ func TestPerformCleanup(t *testing.T) {
 	flags.clusterScoped = true
 
 	clientMap := getClientResources(flags)
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 	assert.NoError(t, err)
 
 	t.Run("Resources get created with labels", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestCreateKubeConfig_IsComposedOf_ServiceAccountTokens_InAllClusters(t *tes
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 	assert.NoError(t, err)
 
 	kubeConfig, err := readKubeConfig(clientMap[flags.centralCluster], flags.centralClusterNamespace)
@@ -265,7 +265,7 @@ func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 	assert.NoError(t, err)
 
 	centralClusterClient := clientMap[flags.centralCluster]
@@ -279,7 +279,7 @@ func TestKubeConfigSecret_IsNotCreated_InMemberClusters(t *testing.T) {
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 	assert.NoError(t, err)
 
 	for _, memberCluster := range flags.memberClusters {
@@ -294,7 +294,7 @@ func TestChangingOneServiceAccountToken_ChangesOnlyThatEntry_InKubeConfig(t *tes
 	flags := testFlags(t, false)
 	clientMap := getClientResources(flags)
 
-	err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 	assert.NoError(t, err)
 
 	kubeConfigBefore, err := readKubeConfig(clientMap[flags.centralCluster], flags.centralClusterNamespace)
@@ -317,7 +317,7 @@ func TestChangingOneServiceAccountToken_ChangesOnlyThatEntry_InKubeConfig(t *tes
 	_, err = firstClusterClient.CoreV1().Secrets(flags.memberClusterNamespace).Update(context.TODO(), &newServiceAccountToken, metav1.UpdateOptions{})
 	assert.NoError(t, err)
 
-	err = ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+	err = ensureMultiClusterResources(context.TODO(), flags, clientMap)
 	assert.NoError(t, err)
 
 	kubeConfigAfter, err := readKubeConfig(clientMap[flags.centralCluster], flags.centralClusterNamespace)
@@ -364,7 +364,7 @@ func TestMemberClusterUris(t *testing.T) {
 		flags.memberClusterApiServerUrls = []string{"cluster1-url", "cluster2-url", "cluster3-url"}
 		clientMap := getClientResources(flags)
 
-		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 		assert.NoError(t, err)
 
 		kubeConfig, err := readKubeConfig(clientMap[flags.centralCluster], flags.centralClusterNamespace)
@@ -390,7 +390,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 	{
 		sb.WriteString("# Below you can find the resources for Central Cluster in Clustered-scoped configuration\n")
 		clientMap := getClientResources(flags)
-		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 		cr, err := clientMap[flags.centralCluster].RbacV1().ClusterRoles().List(context.TODO(), metav1.ListOptions{})
 		assert.NoError(t, err)
@@ -406,7 +406,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 	{
 		sb.WriteString("# Below you can find the resources for Member Cluster in Clustered-scoped configuration\n")
 		clientMap := getClientResources(flags)
-		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 		cr, err := clientMap[flags.memberClusters[0]].RbacV1().ClusterRoles().List(context.TODO(), metav1.ListOptions{})
 		assert.NoError(t, err)
@@ -424,7 +424,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		flags.clusterScoped = false
 
 		clientMap := getClientResources(flags)
-		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 		r, err := clientMap[flags.centralCluster].RbacV1().Roles(flags.centralClusterNamespace).List(context.TODO(), metav1.ListOptions{})
 		assert.NoError(t, err)
@@ -442,7 +442,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		flags.clusterScoped = false
 
 		clientMap := getClientResources(flags)
-		err := ensureMultiClusterResources(context.TODO(), flags, getFakeClientFunction(clientMap, nil))
+		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
 		r, err := clientMap[flags.memberClusters[0]].RbacV1().Roles(flags.memberClusterNamespace).List(context.TODO(), metav1.ListOptions{})
 		assert.NoError(t, err)
@@ -469,6 +469,49 @@ func marshalToYaml[T interface{}](t *testing.T, sb *strings.Builder, comment str
 		sb.WriteString("\n---\n")
 	}
 	return sb
+}
+
+func TestConvertToSet(t *testing.T) {
+	type args struct {
+		memberClusters []string
+		cm             *corev1.ConfigMap
+	}
+	tests := []struct {
+		name     string
+		args     args
+		expected map[string]string
+	}{
+		{
+			name: "new members",
+			args: args{
+				memberClusters: []string{"kind-1", "kind-2", "kind-3"},
+				cm:             &corev1.ConfigMap{Data: map[string]string{}},
+			},
+			expected: map[string]string{"kind-1": "", "kind-2": "", "kind-3": ""},
+		},
+		{
+			name: "one override and one new",
+			args: args{
+				memberClusters: []string{"kind-1", "kind-2", "kind-3"},
+				cm:             &corev1.ConfigMap{Data: map[string]string{"kind-1": "", "kind-0": ""}},
+			},
+			expected: map[string]string{"kind-1": "", "kind-2": "", "kind-3": "", "kind-0": ""},
+		},
+		{
+			name: "one new ones",
+			args: args{
+				memberClusters: []string{},
+				cm:             &corev1.ConfigMap{Data: map[string]string{"kind-1": "", "kind-0": ""}},
+			},
+			expected: map[string]string{"kind-1": "", "kind-0": ""},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			convertToSet(tt.args.memberClusters, tt.args.cm)
+			assert.Equal(t, tt.expected, tt.args.cm.Data)
+		})
+	}
 }
 
 // assertMemberClusterNamespacesExist asserts the Namespace in the member clusters exists.
@@ -760,13 +803,6 @@ func getClientResources(flags flags, resourceTypes ...resourceType) map[string]k
 	clientMap[flags.centralCluster] = fake.NewSimpleClientset(resources...)
 
 	return clientMap
-}
-
-// getFakeClientFunction returns a function which will return the fake.Clientset corresponding to the given cluster.
-func getFakeClientFunction(clientResources map[string]kubernetes.Interface, err error) func(clusterName, kubeConfigPath string) (kubernetes.Interface, error) {
-	return func(clusterName, kubeConfigPath string) (kubernetes.Interface, error) {
-		return clientResources[clusterName], err
-	}
 }
 
 // containsResourceType returns true if r is in resourceTypes, otherwise false.
