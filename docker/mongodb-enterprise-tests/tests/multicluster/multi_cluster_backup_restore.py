@@ -6,9 +6,19 @@ import kubernetes.client
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 
-from kubetester import read_secret, create_secret, delete_secret, read_service, create_or_update, \
-    create_or_update_configmap
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester, skip_if_local
+from kubetester import (
+    read_secret,
+    create_secret,
+    delete_secret,
+    read_service,
+    create_or_update,
+    create_or_update_configmap,
+)
+from kubetester.kubetester import (
+    fixture as yaml_fixture,
+    KubernetesTester,
+    skip_if_local,
+)
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
@@ -16,6 +26,7 @@ from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 
 TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
+MONGODB_PORT = 30000
 
 
 @fixture(scope="module")
@@ -47,7 +58,7 @@ def project_one(
 
 @fixture(scope="module")
 def mongodb_multi_one_collection(mongodb_multi_one: MongoDBMulti):
-    collection = mongodb_multi_one.tester().client["testdb"]
+    collection = mongodb_multi_one.tester(port=MONGODB_PORT).client["testdb"]
     return collection["testcollection"]
 
 
@@ -89,7 +100,7 @@ def mongodb_multi_one(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
     base_url: str,
-    member_cluster_names:  List[str]
+    member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"),
@@ -101,23 +112,13 @@ def mongodb_multi_one(
     )
 
     resource["spec"]["clusterSpecList"] = [
-        {
-            "clusterName": member_cluster_names[0],
-            "members": 2
-        },
-        {
-            "clusterName": member_cluster_names[1],
-            "members": 1
-        },
-        {
-            "clusterName": member_cluster_names[2],
-            "members": 2
-        },
+        {"clusterName": member_cluster_names[0], "members": 2},
+        {"clusterName": member_cluster_names[1], "members": 1},
+        {"clusterName": member_cluster_names[2], "members": 2},
     ]
 
     # creating a cluster with backup should work with custom ports
-    resource["spec"]["additionalMongodConfig"]["net"]["port"] = 30000
-
+    resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
     # TODO: use a full 3 cluster RS with backup once the required agent changes have been made. Remove the below 3 lines
     spec_item_with_one_member = resource["spec"]["clusterSpecList"][0]
     spec_item_with_one_member["members"] = 1
@@ -199,7 +200,8 @@ def test_data_got_restored(mongodb_multi_one_collection):
     """The data in the db has been restored to the initial state. Note, that this happens eventually - so
     we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a
     specific snapshot (see the previous class) where the FINISHED restore job means the data has been restored.
-    For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually"""
+    For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually
+    """
     print("\nWaiting until the db data is restored")
     retries = 120
     while retries > 0:
