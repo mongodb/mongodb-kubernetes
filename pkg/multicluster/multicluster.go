@@ -87,7 +87,7 @@ func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
 }
 
 // IsMultiClusterMode checks if the operator is running in multi-cluster mode.
-// In multi-cluster mode the operator is passsed the name of the CRD in command line arguments.
+// In multi-cluster mode the operator is passed the name of the CRD in command line arguments.
 func IsMultiClusterMode(crdsToWatch string) bool {
 	return strings.Contains(crdsToWatch, "mongodbmulticluster")
 }

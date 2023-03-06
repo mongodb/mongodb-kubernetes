@@ -44,8 +44,7 @@ prepare_operator_config_map() {
      # shellcheck disable=SC2154
     if [[ "${kube_environment_name-}" = "multi" ]]; then
        # shellcheck disable=SC2154
-       comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
-       config+=("--from-literal" "multiCluster.clusters={${comma_separated_list}}")
+       config+=("--from-literal" "multiCluster.enabled=true")
     fi
 
     if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then

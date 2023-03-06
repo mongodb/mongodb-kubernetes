@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"reflect"
 	"sort"
@@ -940,10 +941,10 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 		}
 	}
 
-	// the operator watches the member clusters' API servers to determine whether the clsters are healthy or not
+	// the operator watches the member clusters' API servers to determine whether the clusters are healthy or not
 	eventChannel := make(chan event.GenericEvent)
-	memberClusterMap := memberwatch.MemberClusterMap{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
-	go memberClusterMap.WatchMemberClusterHealth(zap.S(), eventChannel, reconciler.client)
+	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+	go memberClusterHealthChecker.WatchMemberClusterHealth(zap.S(), eventChannel, reconciler.client, memberClustersMap)
 
 	err = c.Watch(
 		&source.Channel{Source: eventChannel},
@@ -951,6 +952,17 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	)
 	if err != nil {
 		zap.S().Errorf("failed to watch for member cluster healthcheck: %w", err)
+	}
+
+	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
+		watch.ConfigMapEventHandler{
+			ConfigMapName:      util.MemberListConfigMapName,
+			ConfigMapNamespace: env.ReadOrPanic(util.CurrentNamespace),
+		},
+		predicate.ResourceVersionChangedPredicate{},
+	)
+	if err != nil {
+		return err
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)

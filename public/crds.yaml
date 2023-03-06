@@ -895,7 +895,7 @@ spec:
   group: mongodb.com
   names:
     kind: MongoDBMultiCluster
-    listKind: MongoDBMultiList
+    listKind: MongoDBMultiClusterList
     plural: mongodbmulticluster
     shortNames:
     - mdbm
@@ -907,7 +907,7 @@ spec:
       jsonPath: .status.phase
       name: Phase
       type: string
-    - description: The time since the MongoDBMulti resource was created.
+    - description: The time since the MongoDBMultiCluster resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
       type: date

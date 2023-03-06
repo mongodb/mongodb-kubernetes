@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
@@ -17,13 +18,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
-type MemberClusterMap struct {
+type MemberClusterHealthChecker struct {
 	Cache map[string]*MemberHeathCheck
 }
 
-// WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enques the
+// WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enqueues the
 // MongoDBMultiCluster resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
-func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client) {
+func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client, clustersMap map[string]cluster.Cluster) {
 
 	// check if the local cache is populated if not let's do that
 	if len(m.Cache) == 0 {
@@ -42,7 +43,11 @@ func (m *MemberClusterMap) WatchMemberClusterHealth(log *zap.SugaredLogger, watc
 		}
 
 		for n := range kubeConfig.Contexts {
+
 			clusterName := kubeConfig.Contexts[n].Name
+			if _, ok := clustersMap[clusterName]; !ok {
+				continue
+			}
 
 			server := kubeConfig.Clusters[n].Cluster.Server
 			certificateAuthority, err := base64.StdEncoding.DecodeString(kubeConfig.Clusters[n].Cluster.CertificateAuthority)

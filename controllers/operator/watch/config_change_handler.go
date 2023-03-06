@@ -2,7 +2,9 @@ package watch
 
 import (
 	"fmt"
+	"github.com/google/go-cmp/cmp"
 	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -84,3 +86,47 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimi
 func (c *ResourcesHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {}
 
 func (c *ResourcesHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {}
+
+// ConfigMapEventHandler is an EventHandler implementation that is used to watch for events on a given ConfigMap and ConfigMapNamespace
+// The handler will force a panic on Update and Delete.
+// As of right now it is only used to watch for events for the configmap pertaining the member list of multi-cluster.
+type ConfigMapEventHandler struct {
+	ConfigMapName      string
+	ConfigMapNamespace string
+}
+
+func (m ConfigMapEventHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+	return
+}
+
+func (m ConfigMapEventHandler) Update(e event.UpdateEvent, _ workqueue.RateLimitingInterface) {
+	if m.isMemberListCM(e.ObjectOld) {
+		switch v := e.ObjectOld.(type) {
+		case *corev1.ConfigMap:
+			changelog := cmp.Diff(v.Data, e.ObjectNew.(*corev1.ConfigMap).Data)
+			errMsg := fmt.Sprintf("%s/%s has changed! Will kill the pod to source the changes! Changelog: %s", m.ConfigMapNamespace, m.ConfigMapName, changelog)
+			panic(errMsg)
+		}
+	}
+
+}
+
+func (m ConfigMapEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+	if m.isMemberListCM(e.Object) {
+		errMsg := fmt.Sprintf("%s/%s has been deleted! Note we will need the configmap otherwise the operator will not work", m.ConfigMapNamespace, m.ConfigMapName)
+		panic(errMsg)
+	}
+}
+
+func (m ConfigMapEventHandler) Generic(e event.GenericEvent, _ workqueue.RateLimitingInterface) {
+	return
+}
+
+func (m ConfigMapEventHandler) isMemberListCM(o client.Object) bool {
+	name := o.GetName()
+	ns := o.GetNamespace()
+	if name == m.ConfigMapName && ns == m.ConfigMapNamespace {
+		return true
+	}
+	return false
+}

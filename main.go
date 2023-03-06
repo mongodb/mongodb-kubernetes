@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -56,8 +57,7 @@ func init() {
 
 // commandLineFlags struct holds the command line arguments passed to the operator deployment
 type commandLineFlags struct {
-	crdsToWatch    string
-	memberClusters []string
+	crdsToWatch string
 }
 
 // crdsToWatch is a custom Value implementation which can be
@@ -73,31 +73,15 @@ func (c *crdsToWatch) String() string {
 	return strings.Join(*c, ",")
 }
 
-// memberClusterNames gets the name of all the member clusters where
-// the operator should deploy the MongoDB Replicaset.
-type memberClusterNames []string
-
-func (m *memberClusterNames) String() string {
-	return fmt.Sprintln(*m)
-}
-
-func (m *memberClusterNames) Set(s string) error {
-	*m = strings.Split(s, ",")
-	return nil
-}
-
 // parseCommandLineArgs parses the command line arguments passed in the operator deployment specs
 func parseCommandLineArgs() commandLineFlags {
 	crds := crdsToWatch{}
-	clusterNames := memberClusterNames{}
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
-	flag.Var(&clusterNames, "cluster-names", "The list of cluster names where the operator should deploy the mongoDB ReplicaSet")
 	flag.Parse()
 
 	return commandLineFlags{
-		crdsToWatch:    crds.String(),
-		memberClusters: clusterNames,
+		crdsToWatch: crds.String(),
 	}
 }
 
@@ -152,13 +136,6 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if multicluster.IsMultiClusterMode(crdsToWatch) {
-		memberClustersNames := commandLineFlags.memberClusters
-		log.Infof("Watching Member clusters: %s", memberClustersNames)
-		// get cluster clients for the member clusters
-		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames)
-		if err != nil {
-			log.Fatal(err)
-		}
 
 		kubeConfigFile, err := multicluster.NewKubeConfigFile()
 		if err != nil {
@@ -168,6 +145,22 @@ func main() {
 		kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()
 		if err != nil {
 			log.Fatal("failed reading KubeConfig file: %s", err)
+		}
+
+		memberClustersNames, err := getMemberClusters(cfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Infof("Watching Member clusters: %s", memberClustersNames)
+
+		if len(memberClustersNames) == 0 {
+			log.Warnf("The operator did not detect any member clusters")
+		}
+
+		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames)
+		if err != nil {
+			log.Fatal(err)
 		}
 
 		// Add the cluster object to the manager corresponding to each member clusters.
@@ -220,6 +213,27 @@ func main() {
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// getMemberClusters retrieves the member cluster from the configmap util.MemberListConfigMapName
+func getMemberClusters(cfg *rest.Config) ([]string, error) {
+	c, err := client.New(cfg, client.Options{})
+	if err != nil {
+		panic(err)
+	}
+
+	m := corev1.ConfigMap{}
+	err = c.Get(context.Background(), types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: env.ReadOrPanic(util.CurrentNamespace)}, &m)
+	if err != nil {
+		return nil, err
+	}
+
+	var members []string
+	for member, _ := range m.Data {
+		members = append(members, member)
+	}
+
+	return members, nil
 }
 
 func isInLocalMode() bool {

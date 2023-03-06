@@ -48,14 +48,13 @@ spec:
             {{- range .Values.operator.watchedResources }}
             - -watch-resource={{ . }}
             {{- end }}
-            {{- if .Values.multiCluster.clusters }}
+          {{- if .Values.multiCluster.enabled}}
             - -watch-resource=mongodbmulticluster
-            - -cluster-names={{ join "," .Values.multiCluster.clusters }}
             {{- end }}
           command:
             - /usr/local/bin/mongodb-enterprise-operator
           {{- end }}
-          {{- if .Values.multiCluster.clusters }}
+          {{- if .Values.multiCluster.enabled}}
           volumeMounts:
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
@@ -175,7 +174,7 @@ spec:
               value: '{{ (split "=" .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.clusters }}
+{{- if .Values.multiCluster.enabled }}
       volumes:
         - name: kube-config-volume
           secret:
