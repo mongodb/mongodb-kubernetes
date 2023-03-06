@@ -12,8 +12,8 @@ const MongoDBMultiResourceAnnotation = "MongoDBMultiResource"
 
 var _ handler.EventHandler = &EnqueueRequestForOwnerMultiCluster{}
 
-// EnqueueRequestForOwnerMultiCluster implements the EventHanlder interface for multi-cluster callbacks.
-// We cannot reuse the "EnqueueRequestForOwne" because it uses OwnerReferance which doesn't work across clusters
+// EnqueueRequestForOwnerMultiCluster implements the EventHandler interface for multi-cluster callbacks.
+// We cannot reuse the "EnqueueRequestForOwner" because it uses OwnerReference which doesn't work across clusters
 type EnqueueRequestForOwnerMultiCluster struct {
 }
 

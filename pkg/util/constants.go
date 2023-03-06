@@ -165,12 +165,15 @@ const (
 	AutomationAgentImagePullPolicy = "IMAGE_PULL_POLICY"
 	ImagePullSecrets               = "IMAGE_PULL_SECRETS"
 	OmOperatorEnv                  = "OPERATOR_ENV"
-	BackupDisableWaitSecondsEnv    = "BACKUP_WAIT_SEC"
-	BackupDisableWaitRetriesEnv    = "BACKUP_WAIT_RETRIES"
-	ManagedSecurityContextEnv      = "MANAGED_SECURITY_CONTEXT"
-	CurrentNamespace               = "CURRENT_NAMESPACE"
-	WatchNamespace                 = "WATCH_NAMESPACE"
-	OpsManagerMonitorAppDB         = "OPS_MANAGER_MONITOR_APPDB"
+
+	MemberListConfigMapName = "mongodb-enterprise-operator-member-list"
+
+	BackupDisableWaitSecondsEnv = "BACKUP_WAIT_SEC"
+	BackupDisableWaitRetriesEnv = "BACKUP_WAIT_RETRIES"
+	ManagedSecurityContextEnv   = "MANAGED_SECURITY_CONTEXT"
+	CurrentNamespace            = "CURRENT_NAMESPACE"
+	WatchNamespace              = "WATCH_NAMESPACE"
+	OpsManagerMonitorAppDB      = "OPS_MANAGER_MONITOR_APPDB"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestClusterWithMinimumMmber(t *testing.T) {
+func TestClusterWithMinimumNumber(t *testing.T) {
 	tests := []struct {
 		inp []mdbmulti.ClusterSpecItem
 		out int
@@ -42,7 +42,7 @@ func TestClusterWithMinimumMmber(t *testing.T) {
 func TestDistributeFailedMembers(t *testing.T) {
 	tests := []struct {
 		inp         []mdbmulti.ClusterSpecItem
-		clustername string
+		clusterName string
 		out         []mdbmulti.ClusterSpecItem
 	}{
 		{
@@ -52,7 +52,7 @@ func TestDistributeFailedMembers(t *testing.T) {
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
-			clustername: "cluster1",
+			clusterName: "cluster1",
 			out: []mdbmulti.ClusterSpecItem{
 				{ClusterName: "cluster2", Members: 2},
 				{ClusterName: "cluster3", Members: 4},
@@ -66,7 +66,7 @@ func TestDistributeFailedMembers(t *testing.T) {
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
-			clustername: "cluster2",
+			clusterName: "cluster2",
 			out: []mdbmulti.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster3", Members: 4},
@@ -80,7 +80,7 @@ func TestDistributeFailedMembers(t *testing.T) {
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
-			clustername: "cluster3",
+			clusterName: "cluster3",
 			out: []mdbmulti.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 3},
 				{ClusterName: "cluster2", Members: 3},
@@ -94,7 +94,7 @@ func TestDistributeFailedMembers(t *testing.T) {
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
-			clustername: "cluster4",
+			clusterName: "cluster4",
 			out: []mdbmulti.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 2},
@@ -104,7 +104,7 @@ func TestDistributeFailedMembers(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.out, distributeFailedMembers(tt.inp, tt.clustername))
+		assert.Equal(t, tt.out, distributeFailedMembers(tt.inp, tt.clusterName))
 	}
 
 }
@@ -123,27 +123,27 @@ func getFailedClusterList(clusters []string) string {
 func TestShouldAddFailedClusterAnnotation(t *testing.T) {
 	tests := []struct {
 		annotations map[string]string
-		clustername string
+		clusterName string
 		out         bool
 	}{
 		{
 			annotations: nil,
-			clustername: "cluster1",
+			clusterName: "cluster1",
 			out:         true,
 		},
 		{
 			annotations: map[string]string{failedcluster.FailedClusterAnnotation: getFailedClusterList([]string{"cluster1", "cluster2"})},
-			clustername: "cluster1",
+			clusterName: "cluster1",
 			out:         false,
 		},
 		{
 			annotations: map[string]string{failedcluster.FailedClusterAnnotation: getFailedClusterList([]string{"cluster1", "cluster2", "cluster4"})},
-			clustername: "cluster3",
+			clusterName: "cluster3",
 			out:         true,
 		},
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, shouldAddFailedClusterAnnotation(tt.annotations, tt.clustername), tt.out)
+		assert.Equal(t, shouldAddFailedClusterAnnotation(tt.annotations, tt.clusterName), tt.out)
 	}
 }

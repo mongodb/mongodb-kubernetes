@@ -551,7 +551,7 @@ def install_multi_cluster_operator_set_members_fn(
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
-                "multiCluster.clusters": ",".join(member_cluster_names),
+                "multiCluster.enabled": "true",
             },
             central_cluster_name,
         )
