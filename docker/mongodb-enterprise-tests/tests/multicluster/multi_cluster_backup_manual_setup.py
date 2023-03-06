@@ -52,6 +52,7 @@ def create_project_config_map(
         "baseUrl": om.om_status().get_url(),
         "projectName": project_name,
         "sslMMSCAConfigMap": custom_ca,
+        "orgId": "",
     }
 
     create_configmap(om.namespace, name, data, client)
@@ -105,7 +106,6 @@ def ops_manager(
     ops_manager_certs: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> MongoDBOpsManager:
-
     create_om_admin_secret(namespace, central_cluster_client)
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace
