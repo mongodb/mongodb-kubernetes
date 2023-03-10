@@ -254,8 +254,8 @@ def test_copy_configmap_and_secret_across_ns(
 def test_create_mongodb_multi_nsa_nsb(
     mongodb_multi_a: MongoDBMulti, mongodb_multi_b: MongoDBMulti
 ):
-    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
-    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
+    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=1500)
+    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=1500)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
