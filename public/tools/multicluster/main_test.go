@@ -378,6 +378,43 @@ func TestMemberClusterUris(t *testing.T) {
 	})
 }
 
+func TestReplaceClusterMembersConfigMap(t *testing.T) {
+	flags := testFlags(t, false)
+
+	clientMap := getClientResources(flags)
+	client := clientMap[flags.centralCluster]
+
+	{
+		flags.memberClusters = []string{"member-1", "member-2", "member-3", "member-4"}
+		err := replaceClusterMembersConfigMap(context.Background(), client, flags)
+		assert.NoError(t, err)
+
+		cm, err := client.CoreV1().ConfigMaps(flags.centralClusterNamespace).Get(context.Background(), defaultOperatorConfigMapName, metav1.GetOptions{})
+		assert.NoError(t, err)
+
+		expected := map[string]string{}
+		for _, cluster := range flags.memberClusters {
+			expected[cluster] = ""
+		}
+		assert.Equal(t, cm.Data, expected)
+	}
+
+	{
+		flags.memberClusters = []string{"member-1", "member-2"}
+		err := replaceClusterMembersConfigMap(context.Background(), client, flags)
+		cm, err := client.CoreV1().ConfigMaps(flags.centralClusterNamespace).Get(context.Background(), defaultOperatorConfigMapName, metav1.GetOptions{})
+		assert.NoError(t, err)
+
+		expected := map[string]string{}
+		for _, cluster := range flags.memberClusters {
+			expected[cluster] = ""
+		}
+
+		assert.Equal(t, cm.Data, expected)
+	}
+
+}
+
 // TestPrintingOutRolesServiceAccountsAndRoleBindings is used for extracting RBAC settings for customer who won't
 // be able to use the CLI tool.
 func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
@@ -508,7 +545,7 @@ func TestConvertToSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			convertToSet(tt.args.memberClusters, tt.args.cm)
+			addToSet(tt.args.memberClusters, tt.args.cm)
 			assert.Equal(t, tt.expected, tt.args.cm.Data)
 		})
 	}

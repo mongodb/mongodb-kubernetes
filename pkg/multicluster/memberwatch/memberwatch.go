@@ -45,6 +45,7 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLo
 		for n := range kubeConfig.Contexts {
 
 			clusterName := kubeConfig.Contexts[n].Name
+
 			if _, ok := clustersMap[clusterName]; !ok {
 				continue
 			}

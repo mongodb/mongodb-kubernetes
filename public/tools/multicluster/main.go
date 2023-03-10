@@ -248,7 +248,7 @@ func mainWithContext(ctx context.Context) {
 			os.Exit(1)
 		}
 
-		if err := ReplaceClusterMembersConfigMap(ctx, clientMap[flags.centralCluster], flags); err != nil {
+		if err := replaceClusterMembersConfigMap(ctx, clientMap[flags.centralCluster], flags); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -270,7 +270,7 @@ func mainWithContext(ctx context.Context) {
 			os.Exit(1)
 		}
 
-		if err := patchClusterMembersConfigMap(ctx, clientMap[flags.centralCluster], flags); err != nil {
+		if err := replaceClusterMembersConfigMap(ctx, clientMap[flags.centralCluster], flags); err != nil {
 			fmt.Printf("failed to patch operator deployment: %s", err)
 			os.Exit(1)
 		}
@@ -1194,37 +1194,10 @@ func setupDatabaseRoles(ctx context.Context, clientSet map[string]kubernetes.Int
 	return nil
 }
 
-// patchClusterMembersConfigMap updates the configmap used by the operator to know which clusters are members of the multi-cluster setup.
-// with configurations required for dataplane recovery, currently this only includes the names of the member clusters.
-// NOTE: the configmap is hardcoded to be defaultOperatorConfigMapName
-func patchClusterMembersConfigMap(ctx context.Context, centralClusterClient kubernetes.Interface, flags flags) error {
-	fmt.Printf("Patching Member list Configmap %s/%s in cluster %s\n", flags.centralClusterNamespace, defaultOperatorConfigMapName, flags.centralCluster)
-
-	cm, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Get(ctx, defaultOperatorConfigMapName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-
-	convertToSet(flags.memberClusters, cm)
-
-	if _, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Update(ctx, cm, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("error updating configmap: %s", err)
-	}
-
-	return nil
-}
-
-func convertToSet(memberClusters []string, into *corev1.ConfigMap) {
-	// override or add
-	for _, memberCluster := range memberClusters {
-		into.Data[memberCluster] = ""
-	}
-}
-
-// ReplaceClusterMembersConfigMap creates the configmap used by the operator to know which clusters are members of the multi-cluster setup.
+// replaceClusterMembersConfigMap creates the configmap used by the operator to know which clusters are members of the multi-cluster setup.
 // This will replace the existing configmap.
 // NOTE: the configmap is hardcoded to be defaultOperatorConfigMapName
-func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient kubernetes.Interface, flags flags) error {
+func replaceClusterMembersConfigMap(ctx context.Context, centralClusterClient kubernetes.Interface, flags flags) error {
 	members := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      defaultOperatorConfigMapName,
@@ -1234,7 +1207,7 @@ func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient ku
 		Data: map[string]string{},
 	}
 
-	convertToSet(flags.memberClusters, &members)
+	addToSet(flags.memberClusters, &members)
 
 	fmt.Printf("Creating Member list Configmap %s/%s in cluster %s\n", flags.centralClusterNamespace, defaultOperatorConfigMapName, flags.centralCluster)
 	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
@@ -1250,4 +1223,11 @@ func ReplaceClusterMembersConfigMap(ctx context.Context, centralClusterClient ku
 	}
 
 	return nil
+}
+
+func addToSet(memberClusters []string, into *corev1.ConfigMap) {
+	// override or add
+	for _, memberCluster := range memberClusters {
+		into.Data[memberCluster] = ""
+	}
 }
