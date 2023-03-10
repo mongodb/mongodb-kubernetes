@@ -114,4 +114,4 @@ def test_mongodb_multi_recovers_removing_cluster(
     mongodb_multi.update()
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)

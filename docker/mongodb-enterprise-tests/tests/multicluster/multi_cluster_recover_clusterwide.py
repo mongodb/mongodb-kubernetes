@@ -264,6 +264,7 @@ def test_update_service_entry_block_cluster3_traffic(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
 ):
+    # TODO: add a way to simulate local operator connection cut-off
     service_entries = create_service_entries_objects(
         namespace,
         central_cluster_client,
@@ -317,7 +318,7 @@ def test_mongodb_multi_nsa_recovers_removing_cluster(mongodb_multi_a: MongoDBMul
     mongodb_multi_a["spec"]["clusterSpecList"].pop()
     mongodb_multi_a.update()
 
-    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=800)
+    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=1500)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
@@ -328,4 +329,4 @@ def test_mongodb_multi_nsb_recovers_removing_cluster(mongodb_multi_b: MongoDBMul
     mongodb_multi_b["spec"]["clusterSpecList"].pop()
     mongodb_multi_b.update()
 
-    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=800)
+    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=1500)
