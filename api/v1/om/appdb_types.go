@@ -102,6 +102,10 @@ func (m *AppDBSpec) GetAdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	return &mdbv1.AdditionalMongodConfig{}
 }
 
+func (m *AppDBSpec) GetMemberOptions() []mdbv1.MemberOptions {
+	return nil // no support for AppDB member options currently
+}
+
 // GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret
 // which contains the Automation Agent's password.
 func (m AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {

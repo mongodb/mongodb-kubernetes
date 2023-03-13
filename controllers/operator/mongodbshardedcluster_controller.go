@@ -902,7 +902,7 @@ func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMong
 // for sharded cluster (config server, shards)
 func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.MongoDB) om.ReplicaSetWithProcesses {
 	replicaSet := om.NewReplicaSet(name, mdb.Spec.GetMongoDBVersion())
-	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members)
+	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, mdb.Spec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	return rsWithProcesses
 }

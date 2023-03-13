@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"reflect"
 	"sort"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
@@ -181,7 +184,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 	sortClusterSpecList(desiredSpecList)
 	sortClusterSpecList(effectiveSpecList)
 
-	needToRequeue := !reflect.DeepEqual(desiredSpecList, effectiveSpecList)
+	needToRequeue := !clusterSpecListsEqual(effectiveSpecList, desiredSpecList)
 	if needToRequeue {
 		return r.updateStatus(&mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
 	}
@@ -585,7 +588,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return err
 	}
 
-	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, processIds, mrs.Spec.Connectivity)
+	if len(processes) != len(mrs.Spec.GetMemberOptions()) {
+		log.Warnf("the number of member options is different than the number of mongod processes to be created: %d processes - %d replica set member options", len(processes), len(mrs.Spec.GetMemberOptions()))
+	}
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
@@ -1103,4 +1109,11 @@ func sortClusterSpecList(clusterSpecList []mdbmultiv1.ClusterSpecItem) {
 	sort.SliceStable(clusterSpecList, func(i, j int) bool {
 		return clusterSpecList[i].ClusterName < clusterSpecList[j].ClusterName
 	})
+}
+
+func clusterSpecListsEqual(effective, desired []mdbmultiv1.ClusterSpecItem) bool {
+	comparer := cmp.Comparer(func(x, y mdbv1.MemberOptions) bool {
+		return true
+	})
+	return cmp.Equal(effective, desired, comparer)
 }

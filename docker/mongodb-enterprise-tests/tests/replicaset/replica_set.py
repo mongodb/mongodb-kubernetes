@@ -277,10 +277,10 @@ class TestReplicaSetCreation(KubernetesTester):
             assert m["_id"] == idx
             assert m["arbiterOnly"] is False
             assert m["hidden"] is False
-            assert m["priority"] == 1
-            assert m["votes"] == 1
             assert m["buildIndexes"] is True
             assert m["host"] == f"my-replica-set-{idx}"
+            assert m["votes"] == 1
+            assert m["priority"] == 1.0
 
     def test_monitoring_versions(self):
         config = self.get_automation_config()
@@ -490,7 +490,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert m["_id"] == idx
             assert m["arbiterOnly"] is False
             assert m["hidden"] is False
-            assert m["priority"] == 1
+            assert m["priority"] == 1.0
             assert m["votes"] == 1
             assert m["buildIndexes"] is True
             assert m["host"] == f"my-replica-set-{idx}"

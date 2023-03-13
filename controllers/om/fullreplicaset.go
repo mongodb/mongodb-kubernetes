@@ -18,12 +18,17 @@ type ReplicaSetWithProcesses struct {
 func NewReplicaSetWithProcesses(
 	rs ReplicaSet,
 	processes []Process,
+	memberOptions []mdbv1.MemberOptions,
 ) ReplicaSetWithProcesses {
 	rs.clearMembers()
 
-	for _, p := range processes {
+	for idx, p := range processes {
 		p.setReplicaSetName(rs.Name())
-		rs.addMember(p, "")
+		var options mdbv1.MemberOptions
+		if len(memberOptions) > idx {
+			options = memberOptions[idx]
+		}
+		rs.addMember(p, "", options)
 	}
 	return ReplicaSetWithProcesses{rs, processes}
 }
@@ -44,17 +49,21 @@ func determineNextProcessIdStartingPoint(desiredProcesses []Process, existingPro
 // NewMultiClusterReplicaSetWithProcesses Creates processes for a multi cluster deployment.
 // This function ensures that new processes which are added never have an overlapping _id with any existing process.
 // existing _ids are re-used, and when new processes are added, a new higher number is used.
-func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, existingProcessIds map[string]int, connectivity *mdbv1.MongoDBConnectivity) ReplicaSetWithProcesses {
+func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, memberOptions []mdbv1.MemberOptions, existingProcessIds map[string]int, connectivity *mdbv1.MongoDBConnectivity) ReplicaSetWithProcesses {
 	newId := determineNextProcessIdStartingPoint(processes, existingProcessIds)
 	rs.clearMembers()
-	for _, p := range processes {
+	for idx, p := range processes {
 		p.setReplicaSetName(rs.Name())
+		var options mdbv1.MemberOptions
+		if len(memberOptions) > idx {
+			options = memberOptions[idx]
+		}
 		// ensure the process id is not changed if it already exists
 		if existingId, ok := existingProcessIds[p.Name()]; ok {
-			rs.addMember(p, strconv.Itoa(existingId))
+			rs.addMember(p, strconv.Itoa(existingId), options)
 		} else {
 			// otherwise add a new id which is always incrementing
-			rs.addMember(p, strconv.Itoa(newId))
+			rs.addMember(p, strconv.Itoa(newId), options)
 			newId++
 		}
 	}

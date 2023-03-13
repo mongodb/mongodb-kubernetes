@@ -65,6 +65,7 @@ func init() {
 	gob.Register(tls.Allow)
 	gob.Register(tls.Disabled)
 	gob.Register([]mdbv1.MongoDbRole{})
+	gob.Register([]mdbv1.MemberOptions{})
 }
 
 // Deployment is a map representing the automation agent's cluster configuration.
@@ -170,7 +171,6 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	log := l.With("replicaSet", operatorRs.Rs.Name())
 
 	r := d.getReplicaSetByName(operatorRs.Rs.Name())
-
 	// If the new replica set is bigger than old one - we need to copy first member to positions of new members so that
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).

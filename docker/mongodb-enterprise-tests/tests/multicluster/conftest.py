@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import re
 import urllib
-from typing import Generator, List
+from typing import Generator, List, Dict
 from urllib import parse
 
 import kubernetes
@@ -235,8 +235,20 @@ def create_service_entries_objects(
     return service_entries
 
 
-def cluster_spec_list(member_cluster_names: List[str], members: List[int]):
-    return [
-        {"clusterName": name, "members": members}
-        for (name, members) in zip(member_cluster_names, members)
-    ]
+def cluster_spec_list(
+    member_cluster_names: List[str],
+    members: List[int],
+    member_configs: List[Dict] = None,
+):
+    if member_configs is None:
+        return [
+            {"clusterName": name, "members": members}
+            for (name, members) in zip(member_cluster_names, members)
+        ]
+    else:
+        return [
+            {"clusterName": name, "members": members, "memberConfig": memberConfig}
+            for (name, members, memberConfig) in zip(
+                member_cluster_names, members, member_configs
+            )
+        ]

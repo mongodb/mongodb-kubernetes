@@ -205,6 +205,10 @@ type ClusterSpecItem struct {
 	ExternalAccessConfiguration mdbv1.ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	Members int `json:"members"`
+	// MemberConfig
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	MemberConfig []mdbv1.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
 	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
@@ -249,6 +253,7 @@ type MongoDBMultiSpec struct {
 	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
 	DuplicateServiceObjects *bool             `json:"duplicateServiceObjects,omitempty"`
 	ClusterSpecList         []ClusterSpecItem `json:"clusterSpecList,omitempty"`
+
 	// Mapping stores the deterministic index for a given cluster-name.
 	Mapping map[string]int `json:"-"`
 }
@@ -524,6 +529,15 @@ func (m *MongoDBMultiSpec) GetFeatureCompatibilityVersion() *string {
 
 func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 	return m.Connectivity.ReplicaSetHorizons
+}
+
+func (m *MongoDBMultiSpec) GetMemberOptions() []mdbv1.MemberOptions {
+	specList := m.GetClusterSpecList()
+	options := []mdbv1.MemberOptions{}
+	for _, item := range specList {
+		options = append(options, item.MemberConfig...)
+	}
+	return options
 }
 
 func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {

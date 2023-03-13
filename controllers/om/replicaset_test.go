@@ -13,12 +13,13 @@ func makeMinimalRsWithProcesses() ReplicaSetWithProcesses {
 	mdb := mdbv1.MongoDB{Spec: mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
 	var processes []Process = make([]Process, 3)
+	var memberOptions []mdbv1.MemberOptions = make([]mdbv1.MemberOptions, 3)
 	for i := range processes {
 		proc := NewMongodProcess(i, "my-test-repl-"+strconv.Itoa(i), "my-test-repl-"+strconv.Itoa(i), &mdbv1.AdditionalMongodConfig{}, &mdb.Spec, "")
 		processes[i] = proc
-		replicaSetWithProcesses.addMember(proc, "")
+		replicaSetWithProcesses.addMember(proc, "", memberOptions[i])
 	}
-	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes)
+	return NewReplicaSetWithProcesses(replicaSetWithProcesses, processes, memberOptions)
 }
 
 // TestMergeHorizonsAdd checks that horizon configuration is appropriately

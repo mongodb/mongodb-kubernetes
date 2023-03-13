@@ -21,7 +21,9 @@ MONGODB_PORT = 30000
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
-        central_cluster_client: kubernetes.client.ApiClient, namespace: str, member_cluster_names
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-central-sts-override.yaml"),
@@ -29,7 +31,9 @@ def mongodb_multi(
         namespace,
     )
     resource["spec"]["persistent"] = False
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     additional_mongod_config = {
         "systemLog": {
@@ -77,8 +81,8 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_statefulset_is_created_across_multiple_clusters(
-        mongodb_multi: MongoDBMulti,
-        member_cluster_clients: List[MultiClusterClient],
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
 ):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     cluster_one_client = member_cluster_clients[0]
@@ -96,9 +100,9 @@ def test_statefulset_is_created_across_multiple_clusters(
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_pvc_not_created(
-        mongodb_multi: MongoDBMulti,
-        member_cluster_clients: List[MultiClusterClient],
-        namespace: str,
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    namespace: str,
 ):
     with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
         client.CoreV1Api(
@@ -118,7 +122,7 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_statefulset_overrides(
-        mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
 ):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     # assert sts.podspec override in cluster1
