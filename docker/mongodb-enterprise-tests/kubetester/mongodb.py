@@ -71,7 +71,6 @@ class MongoDB(CustomObject, MongoDBCommon):
         super(MongoDB, self).__init__(*args, **with_defaults)
 
     def assert_state_transition_happens(self, last_transition, timeout=None):
-
         def transition_changed(mdb: MongoDB):
             return mdb.get_status_last_transition_time() != last_transition
 
@@ -109,7 +108,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         )
 
     def assert_abandons_phase(self, phase: Phase, timeout=None):
-        """ This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
+        """This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
         happens during the time we call this method. If there is not a lot of work, then the phase can already finished
         transitioning during the modification call before calling this method.
         """
@@ -123,6 +122,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 return mdb["status"]["backup"]["statusName"] == expected_status
             except KeyError:
                 return False
+
         self.wait_for(reaches_backup_status, timeout=timeout)
 
     def assert_status_resource_not_ready(

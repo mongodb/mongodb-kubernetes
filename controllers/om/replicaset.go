@@ -92,8 +92,12 @@ func (r ReplicaSetMember) Votes() int {
 	return cast.ToInt(r["votes"])
 }
 
-func (r ReplicaSetMember) Priority() int {
-	return cast.ToInt(r["priority"])
+func (r ReplicaSetMember) Priority() float32 {
+	return cast.ToFloat32(r["priority"])
+}
+
+func (r ReplicaSetMember) Tags() map[string]string {
+	return r["tags"].(map[string]string)
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
@@ -158,7 +162,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
-func (r ReplicaSet) addMember(process Process, id string) {
+func (r ReplicaSet) addMember(process Process, id string, options mdbv1.MemberOptions) {
 	members := r.Members()
 	lastIndex := -1
 	if len(members) > 0 {
@@ -174,7 +178,7 @@ func (r ReplicaSet) addMember(process Process, id string) {
 
 	// We always set this member to have vote (it will be set anyway on creation of deployment in OM), though this can
 	// be overriden by OM during merge and corrected in the end (as rs can have only 7 voting members)
-	rsMember.setVotes(1).setPriority(1)
+	rsMember.setVotes(options.GetVotes()).setPriority(options.GetPriority()).setTags(options.GetTags())
 	r.setMembers(append(members, rsMember))
 }
 
@@ -193,6 +197,9 @@ func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
 		if otherValue, ok := operatorMap[k]; ok {
 			currentValue["host"] = otherValue.Name()
 			currentValue["_id"] = otherValue.Id()
+			currentValue["votes"] = otherValue.Votes()
+			currentValue["priority"] = otherValue.Priority()
+			currentValue["tags"] = otherValue.Tags()
 			horizons := otherValue.getHorizonConfig()
 			if len(horizons) > 0 {
 				currentValue["horizons"] = horizons
@@ -291,9 +298,18 @@ func (r ReplicaSetMember) setVotes(votes int) ReplicaSetMember {
 	return r
 }
 
-func (r ReplicaSetMember) setPriority(priority int) ReplicaSetMember {
+func (r ReplicaSetMember) setPriority(priority float32) ReplicaSetMember {
 	r["priority"] = priority
 
+	return r
+}
+
+func (r ReplicaSetMember) setTags(tags map[string]string) ReplicaSetMember {
+	finalTags := make(map[string]string)
+	for k, v := range tags {
+		finalTags[k] = v
+	}
+	r["tags"] = finalTags
 	return r
 }
 

@@ -52,9 +52,7 @@ func TestMergeStandalone(t *testing.T) {
 // Second merge performs real merge operation
 func TestMergeReplicaSet(t *testing.T) {
 	d := NewDeployment()
-
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
-
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
 
 	assert.Len(t, d.getProcesses(), 3)
@@ -70,7 +68,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
 	d.getReplicaSets()[0]["protocolVersion"] = 10                          // this field will be overriden by Operator
 	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].Members()[0:2]) // "removing" the last node in replicaset
-	d.getReplicaSets()[0].addMember(newProcess, "")                        // "adding" some new node
+	d.getReplicaSets()[0].addMember(newProcess, "", mdbv1.MemberOptions{}) // "adding" some new node
 	d.getReplicaSets()[0].Members()[0]["arbiterOnly"] = true               // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
@@ -186,17 +184,25 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	checkNumberOfVotingMembers(t, rs, 5, 8)
 
 	// Now operator scales up by one - the "OM votes" should not suffer, but total number of votes will increase by one
-	omDeployment.MergeReplicaSet(buildRsByProcesses("my-rs", createReplicaSetProcessesCount(9, "my-rs")), nil, nil, zap.S())
+	rsToMerge := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(9, "my-rs"))
+	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
+	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
+	rsToMerge.Rs.Members()[7].setVotes(0).setPriority(0)
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 6, 9)
 
 	// Now operator scales up by two - the "OM votes" should not suffer, but total number of votes will increase by one
 	// only as 7 is the upper limit
-	omDeployment.MergeReplicaSet(buildRsByProcesses("my-rs", createReplicaSetProcessesCount(11, "my-rs")), nil, nil, zap.S())
+	rsToMerge = buildRsByProcesses("my-rs", createReplicaSetProcessesCount(11, "my-rs"))
+	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
+	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
+
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 7, 11)
 	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[2].Votes())
 	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[4].Votes())
-	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[2].Priority())
-	assert.Equal(t, 0, omDeployment.getReplicaSets()[0].Members()[4].Priority())
+	assert.Equal(t, float32(0), omDeployment.getReplicaSets()[0].Members()[2].Priority())
+	assert.Equal(t, float32(0), omDeployment.getReplicaSets()[0].Members()[4].Priority())
 }
 
 func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
@@ -709,18 +715,22 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 	shards := make([]ReplicaSetWithProcesses, countShards)
 	for i := 0; i < countShards; i++ {
 		rsName := fmt.Sprintf("%s-%d", name, i)
+		options := make([]mdbv1.MemberOptions, countMongods)
 		shards[i] = NewReplicaSetWithProcesses(
 			NewReplicaSet(rsName, "3.6.3"),
 			createReplicaSetProcessesCount(countMongods, rsName),
+			options,
 		)
 	}
 	return shards
 }
 
 func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProcesses {
+	options := make([]mdbv1.MemberOptions, len(processes))
 	return NewReplicaSetWithProcesses(
 		NewReplicaSet(rsName, "3.6.3"),
 		processes,
+		options,
 	)
 }
 
@@ -766,9 +776,11 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 }
 
 func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
+	options := make([]mdbv1.MemberOptions, 3)
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(
 		NewReplicaSet(name, "3.6.3"),
 		createReplicaSetProcesses(name),
+		options,
 	)
 
 	if check {
@@ -780,9 +792,11 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 }
 
 func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
+	options := make([]mdbv1.MemberOptions, count)
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(
 		NewReplicaSet(name, "3.6.3"),
 		createReplicaSetProcessesCount(count, name),
+		options,
 	)
 
 	if check {

@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"k8s.io/utils/pointer"
 )
 
 func TestDetermineNextProcessIdStartingPoint(t *testing.T) {
@@ -55,4 +58,151 @@ func TestDetermineNextProcessIdStartingPoint(t *testing.T) {
 
 		assert.Equal(t, 6, determineNextProcessIdStartingPoint(desiredProcesses, existingIds))
 	})
+}
+
+func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
+	tests := []struct {
+		name          string
+		processes     []Process
+		memberOptions []mdbv1.MemberOptions
+		expected      ReplicaSetWithProcesses
+	}{
+		{
+			name: "Same number of processes and member options",
+			processes: []Process{
+				{
+					"name": "p-0",
+				},
+				{
+					"name": "p-1",
+				},
+			},
+			memberOptions: []mdbv1.MemberOptions{
+				{
+					Votes:    pointer.Int(1),
+					Priority: pointer.String("1.3"),
+				},
+				{
+					Votes:    pointer.Int(0),
+					Priority: pointer.String("0.7"),
+				},
+			},
+			expected: ReplicaSetWithProcesses{
+				Rs: ReplicaSet{"_id": "mdb-multi", "members": []ReplicaSetMember{
+					ReplicaSetMember{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+					ReplicaSetMember{"_id": "1", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0}},
+					"protocolVersion": "1"},
+				Processes: []Process{
+					Process{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					Process{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}}}},
+		},
+		{
+			name: "More member options than processes",
+			processes: []Process{
+				{
+					"name": "p-0",
+				},
+				{
+					"name": "p-1",
+				},
+			},
+			memberOptions: []mdbv1.MemberOptions{
+				{
+					Votes:    pointer.Int(1),
+					Priority: pointer.String("1.3"),
+				},
+				{
+					Votes:    pointer.Int(0),
+					Priority: pointer.String("0.7"),
+				},
+				{
+					Votes: pointer.Int(1),
+					Tags: map[string]string{
+						"env": "dev",
+					},
+				},
+			},
+			expected: ReplicaSetWithProcesses{
+				Rs: ReplicaSet{"_id": "mdb-multi", "members": []ReplicaSetMember{
+					ReplicaSetMember{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+					ReplicaSetMember{"_id": "1", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0}},
+					"protocolVersion": "1"},
+				Processes: []Process{
+					Process{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					Process{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}}}},
+		},
+		{
+			name: "Less member options than processes",
+			processes: []Process{
+				{
+					"name": "p-0",
+				},
+				{
+					"name": "p-1",
+				},
+			},
+			memberOptions: []mdbv1.MemberOptions{
+				{
+					Votes:    pointer.Int(1),
+					Priority: pointer.String("1.3"),
+				},
+			},
+			expected: ReplicaSetWithProcesses{
+				Rs: ReplicaSet{"_id": "mdb-multi", "members": []ReplicaSetMember{
+					ReplicaSetMember{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+					// Defaulting priority 1.0 and votes to 1 when no member options are present
+					ReplicaSetMember{"_id": "1", "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1}},
+					"protocolVersion": "1"},
+				Processes: []Process{
+					Process{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					Process{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}}}},
+		},
+		{
+			name: "No member options",
+			processes: []Process{
+				{
+					"name": "p-0",
+				},
+				{
+					"name": "p-1",
+				},
+			},
+			memberOptions: []mdbv1.MemberOptions{},
+			expected: ReplicaSetWithProcesses{
+				Rs: ReplicaSet{"_id": "mdb-multi", "members": []ReplicaSetMember{
+					// Defaulting priority 1.0 and votes to 1 when no member options are present
+					ReplicaSetMember{"_id": "0", "host": "p-0", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+					// Defaulting priority 1.0 and votes to 1 when no member options are present
+					ReplicaSetMember{"_id": "1", "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1}},
+					"protocolVersion": "1"},
+				Processes: []Process{
+					Process{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					Process{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}}}},
+		},
+		{
+			name:      "No processes",
+			processes: []Process{},
+			memberOptions: []mdbv1.MemberOptions{
+				{
+					Votes:    pointer.Int(1),
+					Priority: pointer.String("1.3"),
+				},
+				{
+					Votes:    pointer.Int(0),
+					Priority: pointer.String("0.7"),
+				},
+			},
+			expected: ReplicaSetWithProcesses{
+				Rs:        ReplicaSet{"_id": "mdb-multi", "members": []ReplicaSetMember{}, "protocolVersion": "1"},
+				Processes: []Process{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "5.0.5"), tt.processes, tt.memberOptions, map[string]int{}, nil)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
 }

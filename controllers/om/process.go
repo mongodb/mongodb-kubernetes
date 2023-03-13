@@ -169,6 +169,38 @@ func (p Process) HostName() string {
 	return p["hostname"].(string)
 }
 
+// GetVotes returns the number of votes requested for the member using this process.
+func (p Process) GetVotes() int {
+	if votes, ok := p["votes"]; ok {
+		return cast.ToInt(votes)
+	}
+	return 1
+}
+
+// GetPriority returns the requested priority for the member using this process.
+func (p Process) GetPriority() float32 {
+	if priority, ok := p["priority"]; ok {
+		return cast.ToFloat32(priority)
+	}
+	return 1.0
+}
+
+// GetTags returns the requested tags for the member using this process.
+func (p Process) GetTags() map[string]string {
+	if tags, ok := p["tags"]; ok {
+		tagMap, ok := tags.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		result := make(map[string]string)
+		for k, v := range tagMap {
+			result[k] = cast.ToString(v)
+		}
+		return result
+	}
+	return nil
+}
+
 // SetDbPath sets the DbPath for this process.
 func (p Process) SetDbPath(dbPath string) Process {
 	util.ReadOrCreateMap(p.Args(), "storage")["dbPath"] = dbPath
@@ -367,6 +399,18 @@ func WithHostname(hostname string) ProcessOption {
 func WithProcessType(processType MongoType) ProcessOption {
 	return func(process Process) {
 		process["processType"] = processType
+	}
+}
+
+func WithMemberOptions(memberOptions mdbv1.MemberOptions) ProcessOption {
+	return func(process Process) {
+		if memberOptions.Votes != nil {
+			process["votes"] = cast.ToInt(memberOptions.Votes)
+		}
+		if memberOptions.Priority != nil {
+			process["priority"] = cast.ToFloat32(memberOptions.Priority)
+		}
+		process["tags"] = memberOptions.Tags
 	}
 }
 

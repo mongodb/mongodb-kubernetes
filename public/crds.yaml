@@ -333,6 +333,21 @@ spec:
                 - ERROR
                 - FATAL
                 type: string
+              memberConfig:
+                description: MemberConfig
+                items:
+                  properties:
+                    priority:
+                      type: string
+                    tags:
+                      additionalProperties:
+                        type: string
+                      type: object
+                    votes:
+                      type: integer
+                  type: object
+                type: array
+                x-kubernetes-preserve-unknown-fields: true
               members:
                 description: Amount of members for this MongoDB Replica Set
                 type: integer
@@ -1121,6 +1136,21 @@ spec:
                               x-kubernetes-preserve-unknown-fields: true
                           type: object
                       type: object
+                    memberConfig:
+                      description: MemberConfig
+                      items:
+                        properties:
+                          priority:
+                            type: string
+                          tags:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          votes:
+                            type: integer
+                        type: object
+                      type: array
+                      x-kubernetes-preserve-unknown-fields: true
                     members:
                       description: Amount of members for this MongoDB Replica Set
                       type: integer

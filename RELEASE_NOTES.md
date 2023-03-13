@@ -3,6 +3,16 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.19.0
 
+## MongoDB Resource
+* Added support for setting replica set member votes by introducing the `spec.memberOptions.[*].votes` field.
+* Added support for setting replica set member priority by introducing the `spec.memberOptions.[*].priority` field.
+* Added support for setting replica set member tags by introducing the `spec.memberOptions.[*].tags` field.
+
+## MongoDBMulti Resouce
+* Added support for setting replica set member votes by introducing the `spec.clusterSpecList.[*].memberOptions.[*].votes` field.
+* Added support for setting replica set member priority by introducing the `spec.clusterSpecList.[*].memberOptions.[*].priority` field.
+* Added support for setting replica set member tags by introducing the `spec.clusterSpecList.[*].memberOptions.[*].tags` field.
+
 ## Improvements
 
 * New guidance for multi-Kubernetes-cluster deployments without a Service Mesh. It covers use of a Load Balancer Service
