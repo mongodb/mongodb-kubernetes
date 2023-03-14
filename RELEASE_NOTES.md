@@ -27,6 +27,18 @@ This leverages setting the `process.hostname` field in the Automation Config.
 * Ubuntu-based images were deprecated in favor of UBI-based images in operator version 1.17.0. In the 1.19.0 release we are removing the support for Ubuntu-based images. The ubuntu based images won't be rebuilt daily with updates. Please upgrade to the UBI-based images by following these instructions: https://www.mongodb.com/docs/kubernetes-operator/master/tutorial/migrate-k8s-images/#migrate-k8s-images
 * The `spec.exposedExternally` option becomes deprecated in favor of `spec.externalAccess`. The deprecated option will be removed in MongoDB Enterprise Operator 1.22.0.
 
+## Bug fixes
+* Fixed handling of `WATCH_NAMESPACE='*'` environment variable for multi-cluster deployments with cluster-wide operator. In some specific circumstances, API clients for member clusters were configured incorrectly resulting in deployment errors.
+  * Example error in this case:
+    * `The secret object 'mdb-multi-rs-cert' does not contain all the valid certificates needed: secrets "mdb-multi-rs-cert-pem" already exists`
+  * These specific circumstances were:
+    * `WATCH_NAMESPACE='*'` environment variable passed to the operator deployment
+    * specific namespace set in kubeconfig for member clusters
+    * not using multi-cluster cli tool for configuring
+  * Possible workarounds:
+    * set WATCH_NAMESPACE environment variable to specific namespaces instead of '*'
+    * make sure that kubeconfigs for member clusters doesn't specify a namespace
+  
 ## Breaking changes
 * Renaming of the multicluster CRD `MongoDBMulti` to `MongoDBMultiCluster`
 
