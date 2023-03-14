@@ -170,7 +170,9 @@ func main() {
 			// but if we are watching a subset of namespaces we need to initialize the cache with specific namespaces only
 			if len(namespacesToWatch) == 1 {
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
-					options.Namespace = kubeConfig.GetMemberClusterNamespace()
+					if namespacesToWatch[0] != "" {
+						options.Namespace = kubeConfig.GetMemberClusterNamespace()
+					}
 				})
 				if err != nil {
 					// don't panic here but rather log the error, for example, error might happen when one of the cluster is

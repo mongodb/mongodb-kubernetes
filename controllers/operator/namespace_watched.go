@@ -17,6 +17,8 @@ import (
 //
 // If `WATCH_NAMESPACE` is set, it watches over that namespace, unless there are commas in there, in which
 // the namespaces to watch will be a comma-separated list.
+//
+// If `WATCH_NAMESPACE` is '*' it will return []string{""}, which means all namespaces will be watched.
 func GetWatchedNamespace() []string {
 	// get watch namespace from environment variable
 	watchNamespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
