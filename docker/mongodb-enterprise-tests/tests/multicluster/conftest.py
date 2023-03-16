@@ -10,6 +10,7 @@ from kubernetes import client
 from kubernetes.client import V1ObjectMeta
 from pytest import fixture
 
+from kubetester import create_or_update_namespace
 from kubetester.certs import generate_cert
 from kubetester.ldap import (
     OpenLDAP,
@@ -18,6 +19,7 @@ from kubetester.ldap import (
     ensure_organizational_unit,
     ensure_group,
     add_user_to_group,
+    ldap_initialize,
 )
 from kubetester.mongodb_multi import MultiClusterClient
 from tests.authentication.conftest import (
@@ -30,9 +32,26 @@ from tests.authentication.conftest import (
 from tests.conftest import (
     get_api_servers_from_test_pod_kubeconfig,
     get_clients_for_clusters,
+    create_issuer,
 )
 
 import ipaddress
+
+
+@fixture(scope="module")
+def multi_cluster_ldap_issuer(
+    cert_manager: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    member_cluster_one = member_cluster_clients[0]
+    # create openldap namespace if it doesn't exist
+    create_or_update_namespace(
+        "openldap",
+        {"istio-injection": "enabled"},
+        api_client=member_cluster_one.api_client,
+    )
+
+    return create_issuer("openldap", member_cluster_one.api_client)
 
 
 @fixture(scope="module")
@@ -42,14 +61,6 @@ def multicluster_openldap_cert(
     """Returns a new secret to be used to enable TLS on LDAP."""
 
     member_cluster_one = member_cluster_clients[0]
-    # create openldap namespace if it doesn't exist
-    ns = client.V1Namespace(metadata=V1ObjectMeta(name="openldap"))
-
-    try:
-        client.CoreV1Api(api_client=member_cluster_one.api_client).create_namespace(ns)
-    except client.rest.ApiException as e:
-        if e.status == 409:
-            print("Namespace openldap already exists")
 
     host = ldap_host("openldap", LDAP_NAME)
     return generate_cert(
@@ -65,7 +76,7 @@ def multicluster_openldap_cert(
 def multicluster_openldap_tls(
     member_cluster_clients: List[MultiClusterClient],
     multicluster_openldap_cert: str,
-    namespace: str,
+    ca_path: str,
 ) -> Generator[OpenLDAP, None, None]:
     member_cluster_one = member_cluster_clients[0]
     helm_args = {
@@ -73,9 +84,8 @@ def multicluster_openldap_tls(
         "tls.secret": multicluster_openldap_cert,
         # Do not require client certificates
         "env.LDAP_TLS_VERIFY_CLIENT": "never",
-        "namespace": namespace,
     }
-    return openldap_install(
+    server = openldap_install(
         "openldap",
         LDAP_NAME,
         helm_args=helm_args,
@@ -83,6 +93,11 @@ def multicluster_openldap_tls(
         cluster_name=member_cluster_one.cluster_name,
         tls=True,
     )
+    # When creating a new OpenLDAP container with TLS enabled, the container is ready, but the server is not accepting
+    # requests, as it's generating DH parameters for the TLS config. Only using retries!=0 for ldap_initialize when creating
+    # the OpenLDAP server.
+    ldap_initialize(server, ca_path=ca_path, retries=10)
+    return server
 
 
 @fixture(scope="module")
@@ -110,7 +125,7 @@ def ldap_mongodb_users(
 ) -> List[LDAPUser]:
     user_list = [LDAPUser("mdb0", LDAP_PASSWORD)]
     for user in user_list:
-        create_user(multicluster_openldap_tls, user, ca_path=ca_path)
+        create_user(multicluster_openldap_tls, user, ou="groups", ca_path=ca_path)
     return user_list
 
 

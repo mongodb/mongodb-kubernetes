@@ -297,7 +297,9 @@ class MongoTester:
             hosts_unreachable = 0
             attempts -= 1
             hosts = KubernetesTester.get_hosts()
+            print(f"hosts: {hosts}")
             for host in hosts["results"]:
+                print(f"current host: {host}")
                 if host["typeName"] == "NO_DATA":
                     hosts_unreachable += 1
             if hosts_unreachable == 0:
@@ -314,12 +316,14 @@ class StandaloneTester(MongoTester):
         ssl: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
-        port="27017"
+        port="27017",
     ):
         if namespace is None:
             namespace = KubernetesTester.get_namespace()
 
-        self.cnx_string = build_mongodb_connection_uri(mdb_resource_name, namespace, 1, port)
+        self.cnx_string = build_mongodb_connection_uri(
+            mdb_resource_name, namespace, 1, port
+        )
         super().__init__(self.cnx_string, ssl, ca_path)
 
 
@@ -332,7 +336,7 @@ class ReplicaSetTester(MongoTester):
         srv: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
-        port="27017"
+        port="27017",
     ):
         if namespace is None:
             # backward compatibility with docstring tests
@@ -346,7 +350,7 @@ class ReplicaSetTester(MongoTester):
             replicas_count,
             servicename=None,
             srv=srv,
-            port=port
+            port=port,
         )
 
         super().__init__(self.cnx_string, ssl, ca_path)
@@ -404,7 +408,7 @@ class ShardedClusterTester(MongoTester):
         srv: bool = False,
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
-        port="27017"
+        port="27017",
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
@@ -570,7 +574,9 @@ def build_mongodb_connection_uri(
         )
 
 
-def build_mongodb_multi_connection_uri(namespace: str, service_names: List[str], port: str) -> str:
+def build_mongodb_multi_connection_uri(
+    namespace: str, service_names: List[str], port: str
+) -> str:
     return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port))
 
 
@@ -583,7 +589,9 @@ def build_list_of_hosts(
     ]
 
 
-def build_list_of_multi_hosts(namespace: str, service_names: List[str], port) -> List[str]:
+def build_list_of_multi_hosts(
+    namespace: str, service_names: List[str], port
+) -> List[str]:
     return [
         build_host_service_fqdn(namespace, service_name, port)
         for service_name in service_names

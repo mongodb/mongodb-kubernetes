@@ -18,7 +18,6 @@ from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 from kubetester.operator import Operator
 from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
 from tests.multicluster.conftest import cluster_spec_list
-from tests.opsmanager.conftest import ensure_ent_version
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-replica-set-ldap"
@@ -32,15 +31,11 @@ LDAP_NAME = "openldap"
 def mongodb_multi_unmarshalled(
     namespace: str,
     member_cluster_names,
-    custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
     )
-    resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    # Setting the initial clusterSpecList to more members than we need to generate
-    # the certificates for all the members once the RS is scaled up.
     resource["spec"]["clusterSpecList"] = cluster_spec_list(
         member_cluster_names, [2, 1, 2]
     )
@@ -68,7 +63,6 @@ def server_certs(
 def mongodb_multi(
     mongodb_multi_unmarshalled: MongoDBMulti,
     central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_names,
     member_cluster_clients: List[MultiClusterClient],
     namespace: str,
     multi_cluster_issuer_ca_configmap: str,
@@ -78,7 +72,6 @@ def mongodb_multi(
     issuer_ca_configmap: str,
 ) -> MongoDBMulti:
     resource = mongodb_multi_unmarshalled
-
     secret_name = "bind-query-password"
     create_secret(
         namespace,
@@ -93,9 +86,6 @@ def mongodb_multi(
         {"automationConfigPassword": ldap_mongodb_agent_user.password},
         api_client=central_cluster_client,
     )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [1, 1, 1]
-    )
 
     resource["spec"]["security"] = {
         "certsSecretPrefix": CERT_SECRET_PREFIX,
@@ -105,7 +95,7 @@ def mongodb_multi(
         },
         "authentication": {
             "enabled": True,
-            "modes": ["LDAP"],
+            "modes": ["LDAP", "SCRAM"],
             "ldap": {
                 "servers": [multicluster_openldap_tls.servers],
                 "bindQueryUser": "cn=admin,dc=example,dc=org",
@@ -114,19 +104,29 @@ def mongodb_multi(
                 "validateLDAPServerConfig": True,
                 "caConfigMapRef": {"name": issuer_ca_configmap, "key": "ca-pem"},
                 "userToDNMapping": '[{match: "(.+)",substitution: "uid={0},ou=groups,dc=example,dc=org"}]',
+                "authzQueryTemplate": "{USER}?memberOf?base",
             },
             "agents": {
-                "mode": "LDAP",
-                "automationPasswordSecretRef": {
-                    "name": ac_secret_name,
-                    "key": "automationConfigPassword",
-                },
-                "automationUserName": ldap_mongodb_agent_user.uid,
-                "automationLdapGroupDN": "cn=agents,ou=groups,dc=example,dc=org",
+                "mode": "SCRAM",
             },
         },
+        "roles": [
+            {
+                "role": "cn=users,ou=groups,dc=example,dc=org",
+                "db": "admin",
+                "privileges": [
+                    {
+                        "actions": ["insert"],
+                        "resource": {"collection": "foo", "db": "foo"},
+                    },
+                    {
+                        "actions": ["insert", "find"],
+                        "resource": {"collection": "", "db": "admin"},
+                    },
+                ],
+            },
+        ],
     }
-    resource["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "preferSSL"}}}
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     create_or_update(resource)
@@ -148,40 +148,33 @@ def user_ldap(
         password=mongodb_user.password,
         mongodb_resource=mongodb_multi,
     )
-    user.add_roles(
-        [
-            Role(db="admin", role="clusterAdmin"),
-            Role(db="admin", role="readWriteAnyDatabase"),
-            Role(db="admin", role="dbAdminAnyDatabase"),
-        ]
-    )
     user.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     create_or_update(user)
     return user
 
 
-@mark.e2e_multi_cluster_with_ldap
+@mark.e2e_multi_cluster_with_ldap_custom_roles
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_multi_cluster_with_ldap
+@mark.e2e_multi_cluster_with_ldap_custom_roles
 def test_create_mongodb_multi_with_ldap(mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
-@mark.e2e_multi_cluster_with_ldap
+@mark.e2e_multi_cluster_with_ldap_custom_roles
 def test_create_ldap_user(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser):
     user_ldap.assert_reaches_phase(Phase.Updated)
     ac = AutomationConfigTester(KubernetesTester.get_automation_config())
     ac.assert_authentication_mechanism_enabled(
-        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True
+        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
     )
     ac.assert_expected_users(1)
 
 
-@mark.e2e_multi_cluster_with_ldap
-def test_ldap_user_created_and_can_authenticate(
+@mark.e2e_multi_cluster_with_ldap_custom_roles
+def test_ldap_user_can_write_to_database(
     mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
 ):
     tester = mongodb_multi.tester()
@@ -189,74 +182,61 @@ def test_ldap_user_created_and_can_authenticate(
         username=user_ldap["spec"]["username"],
         password=user_ldap.password,
         ssl_ca_certs=ca_path,
+        db="foo",
+        collection="foo",
         attempts=10,
     )
 
 
-@mark.e2e_multi_cluster_with_ldap
-def test_ops_manager_state_correctly_updated(
-    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser
+@mark.e2e_multi_cluster_with_ldap_custom_roles
+@mark.xfail(
+    reason="The user should not be able to write to a database/collection it is not authorized to write on"
+)
+def test_ldap_user_can_write_to_other_collection(
+    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
 ):
-    expected_roles = {
-        ("admin", "clusterAdmin"),
-        ("admin", "readWriteAnyDatabase"),
-        ("admin", "dbAdminAnyDatabase"),
+    tester = mongodb_multi.tester()
+    tester.assert_ldap_authentication(
+        username=user_ldap["spec"]["username"],
+        password=user_ldap.password,
+        ssl_ca_certs=ca_path,
+        db="foo",
+        collection="foo2",
+        attempts=10,
+    )
+
+
+@mark.e2e_multi_cluster_with_ldap_custom_roles
+@mark.xfail(
+    reason="The user should not be able to write to a database/collection it is not authorized to write on"
+)
+def test_ldap_user_can_write_to_other_database(
+    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
+):
+    tester = mongodb_multi.tester()
+    tester.assert_ldap_authentication(
+        username=user_ldap["spec"]["username"],
+        password=user_ldap.password,
+        ssl_ca_certs=ca_path,
+        db="foo2",
+        collection="foo",
+        attempts=10,
+    )
+
+
+@mark.e2e_multi_cluster_with_ldap_custom_roles
+def test_automation_config_has_roles(mongodb_multi: MongoDBMulti):
+    tester = mongodb_multi.get_automation_config_tester()
+    role = {
+        "role": "cn=users,ou=groups,dc=example,dc=org",
+        "db": "admin",
+        "privileges": [
+            {"actions": ["insert"], "resource": {"collection": "foo", "db": "foo"}},
+            {
+                "actions": ["insert", "find"],
+                "resource": {"collection": "", "db": "admin"},
+            },
+        ],
+        "authenticationRestrictions": [],
     }
-    ac = AutomationConfigTester(KubernetesTester.get_automation_config())
-    ac.assert_expected_users(1)
-    ac.assert_has_user(user_ldap["spec"]["username"])
-    ac.assert_user_has_roles(user_ldap["spec"]["username"], expected_roles)
-    ac.assert_authentication_mechanism_enabled("PLAIN", active_auth_mechanism=True)
-    ac.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=1)
-
-
-@mark.e2e_multi_cluster_with_ldap
-def test_deployment_is_reachable_with_ldap_agent(mongodb_multi: MongoDBMulti):
-    tester = mongodb_multi.tester()
-    tester.assert_deployment_reachable(attempts=10)
-
-
-@mark.e2e_multi_cluster_with_ldap
-def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_names):
-    mongodb_multi.reload()
-    mongodb_multi["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
-    mongodb_multi.update()
-    mongodb_multi.assert_abandons_phase(Phase.Running)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
-
-
-@mark.e2e_multi_cluster_with_ldap
-def test_new_ldap_user_can_authenticate_after_scaling(
-    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
-):
-    tester = mongodb_multi.tester()
-    tester.assert_ldap_authentication(
-        username=user_ldap["spec"]["username"],
-        password=user_ldap.password,
-        ssl_ca_certs=ca_path,
-        attempts=10,
-    )
-
-
-@mark.e2e_multi_cluster_with_ldap
-def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
-    mongodb_multi.reload()
-    mongodb_multi["spec"]["security"]["authentication"]["enabled"] = False
-    mongodb_multi["spec"]["security"]["authentication"]["agents"]["enabled"] = False
-    mongodb_multi.update()
-    mongodb_multi.assert_abandons_phase(Phase.Running)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
-
-
-@mark.e2e_multi_cluster_with_ldap
-def test_mongodb_multi_connectivity_with_no_auth(mongodb_multi: MongoDBMulti):
-    tester = mongodb_multi.tester()
-    tester.assert_connectivity()
-
-
-@mark.e2e_multi_cluster_with_ldap
-def test_deployment_is_reachable_with_no_auth(mongodb_multi: MongoDBMulti):
-    tester = mongodb_multi.tester()
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_expected_role(role_index=0, expected_value=role)
