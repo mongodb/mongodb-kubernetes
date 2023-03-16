@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import ldap
 import ldap.modlist
+import time
 from typing import Optional
 
 LDAP_BASE = "dc=example,dc=org"
@@ -145,7 +146,7 @@ def add_user_to_group(
         pass
 
 
-def ldap_initialize(server: OpenLDAP, ca_path: Optional[str] = None):
+def ldap_initialize(server: OpenLDAP, ca_path: Optional[str] = None, retries=0):
     con = ldap.initialize(server.host)
 
     if server.host.startswith("ldaps://") and ca_path is not None:
@@ -153,8 +154,14 @@ def ldap_initialize(server: OpenLDAP, ca_path: Optional[str] = None):
         con.set_option(ldap.OPT_X_TLS_NEWCTX, 0)
 
     dn_admin = build_dn(cn="admin", base=server.ldap_base)
-    con.simple_bind_s(dn_admin, server.admin_password)
-    return con
+    r = retries
+    while r >= 0:
+        try:
+            con.simple_bind_s(dn_admin, server.admin_password)
+            return con
+        except ldap.SERVER_DOWN as e:
+            r -= 1
+            time.sleep(5)
 
 
 def build_dn(base: Optional[str] = None, **kwargs):

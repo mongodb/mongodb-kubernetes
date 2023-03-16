@@ -318,6 +318,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv
 			return workflow.Failed(err.Error())
 		}
 	}
+	// Ensure custom roles are created in OM
+	if status := ensureRoles(mrs.GetSecurity().Roles, conn, log); !status.IsOK() {
+		return status
+	}
 
 	return r.reconcileStatefulSets(mrs, log, conn, projectConfig)
 }
@@ -433,7 +437,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(mrs, opts)
-
 		deleteSts, err := shouldDeleteStatefulSet(mrs, item)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf(errorStringFormatStr, item.ClusterName, err))

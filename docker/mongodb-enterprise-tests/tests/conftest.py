@@ -10,7 +10,8 @@ from kubetester import (
     get_pod_when_ready,
     create_or_update_configmap,
     is_pod_ready,
-    read_secret, create_configmap,
+    read_secret,
+    create_configmap,
 )
 
 from kubetester.awss3client import AwsS3Client
@@ -186,15 +187,6 @@ def multi_cluster_cert_manager(
 @fixture(scope="module")
 def issuer(cert_manager: str, namespace: str) -> str:
     return create_issuer(namespace=namespace)
-
-
-@fixture(scope="module")
-def multi_cluster_ldap_issuer(
-    cert_manager: str,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    member_cluster_one = member_cluster_clients[0]
-    return create_issuer("openldap", member_cluster_one.api_client)
 
 
 @fixture(scope="module")

@@ -15,6 +15,7 @@ from kubetester.ldap import (
     add_user_to_group,
     OpenLDAP,
     LDAPUser,
+    ldap_initialize,
 )
 from pytest import fixture
 
@@ -64,7 +65,7 @@ def openldap_install(
             namespace=namespace,
             helm_args=helm_args,
             helm_chart_path="vendor/openldap",
-            helm_override_path=True
+            helm_override_path=True,
         )
         get_pod_when_ready(namespace, f"app={name}", api_client=cluster_client)
 
@@ -84,6 +85,7 @@ def openldap_install(
 def openldap_tls(
     namespace: str,
     openldap_cert: str,
+    ca_path: str,
 ) -> Generator[OpenLDAP, None, None]:
     """Installs an OpenLDAP server with TLS configured and returns a reference to it.
 
@@ -98,7 +100,12 @@ def openldap_tls(
         "env.LDAP_TLS_VERIFY_CLIENT": "never",
         "namespace": namespace,
     }
-    return openldap_install(namespace, name=LDAP_NAME, helm_args=helm_args, tls=True)
+    server = openldap_install(namespace, name=LDAP_NAME, helm_args=helm_args, tls=True)
+    # When creating a new OpenLDAP container with TLS enabled, the container is ready, but the server is not accepting
+    # requests, as it's generating DH parameters for the TLS config. Only using retries!=0 for ldap_initialize when creating
+    # the OpenLDAP server.
+    ldap_initialize(server, ca_path=ca_path, retries=10)
+    return server
 
 
 @fixture(scope="module")

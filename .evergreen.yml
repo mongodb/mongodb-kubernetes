@@ -1804,6 +1804,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_with_ldap_custom_roles
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+
 - name: e2e_multi_cluster_specific_namespaces
   tags: ["patch-run"]
   commands:
@@ -2130,11 +2136,9 @@ task_groups:
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_member_cluster_watch
-    - e2e_multi_cluster_enable_tls
     - e2e_multi_cluster_upgrade_downgrade
     - e2e_multi_cluster_tls_cert_rotation
     - e2e_multi_cluster_backup_restore
-    - e2e_multi_cluster_with_ldap
     - e2e_multi_cluster_disaster_recovery
     - e2e_multi_cluster_multi_disaster_recovery
     - e2e_multi_cluster_recover_network_partition
@@ -2167,6 +2171,9 @@ task_groups:
     - e2e_multi_cluster_scram
     - e2e_multi_cluster_tls_with_x509
     - e2e_multi_cluster_tls_no_mesh
+    - e2e_multi_cluster_enable_tls
+    - e2e_multi_cluster_with_ldap
+    - e2e_multi_cluster_with_ldap_custom_roles
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

@@ -1,6 +1,6 @@
 from pytest import mark, fixture
 
-from kubetester import create_secret, find_fixture
+from kubetester import create_secret, find_fixture, create_or_update
 
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user
@@ -31,7 +31,8 @@ def replica_set(
         "authzQueryTemplate": "{USER}?memberOf?base",
     }
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -50,7 +51,8 @@ def ldap_user_mongodb(
         password=ldap_mongodb_user.password,
     )
 
-    return user.create()
+    create_or_update(user)
+    return user
 
 
 @mark.e2e_replica_set_custom_roles
@@ -109,6 +111,7 @@ def test_new_ldap_users_can_write_to_other_collection(
 def test_new_ldap_users_can_write_to_other_database(
     replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
 ):
+    tester = replica_set.tester()
     tester.assert_ldap_authentication(
         username=ldap_user_mongodb["spec"]["username"],
         password=ldap_user_mongodb.password,

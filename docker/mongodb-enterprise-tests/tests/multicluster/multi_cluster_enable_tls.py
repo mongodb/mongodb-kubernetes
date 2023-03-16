@@ -11,6 +11,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester import create_secret
+from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
@@ -22,9 +23,15 @@ USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
+def mongodb_multi_unmarshalled(
+    namespace: str, member_cluster_names, custom_mdb_version: str
+) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
+    )
+    resource.set_version(custom_mdb_version)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
     )
     return resource
 
