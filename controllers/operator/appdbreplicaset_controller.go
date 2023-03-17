@@ -357,7 +357,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om omv1.M
 		}
 
 		secretHash := enterprisepem.ReadHashFromSecret(r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
-		err = certs.CreatePEMSecretClient(r.SecretClient, kube.ObjectKey(om.Namespace, secretName), map[string]string{secretHash: data}, om.GetOwnerReferences(), certs.AppDB, log)
+		err = certs.CreatePEMSecretClient(r.SecretClient, kube.ObjectKey(om.Namespace, secretName), map[string]string{secretHash: data}, om.GetOwnerReferences(), certs.AppDB)
 		if err != nil {
 			return workflow.Failed(fmt.Sprintf("can't create concatenated PEM certificate: %s", err))
 		}
@@ -665,7 +665,7 @@ func (r OpsManagerReconciler) generatePasswordAndCreateSecret(opsManager omv1.Mo
 	appDbPasswordSecret := secret.Builder().
 		SetName(secretObjectKey.Name).
 		SetNamespace(secretObjectKey.Namespace).
-		SetStringData(passwordData).
+		SetStringMapToData(passwordData).
 		SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 		Build()
 

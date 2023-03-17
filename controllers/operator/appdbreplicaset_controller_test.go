@@ -195,7 +195,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// publishing changed config will result in update
-	fcv := "4.4.2"
+	fcv := "4.4"
 	opsManager.Spec.AppDB.FeatureCompatibilityVersion = &fcv
 	kubeManager.Client.Update(context.TODO(), &opsManager)
 
@@ -334,7 +334,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	apiKeySecret := secret.Builder().
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
-		SetStringData(data).
+		SetStringMapToData(data).
 		Build()
 
 	err = reconciler.client.CreateSecret(apiKeySecret)
@@ -598,7 +598,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	apiKeySecret := secret.Builder().
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
-		SetStringData(data).
+		SetStringMapToData(data).
 		Build()
 
 	err = reconciler.client.CreateSecret(apiKeySecret)

@@ -975,7 +975,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 	s := secret.Builder().
 		SetName(opsManager.Spec.AdminSecret).
 		SetNamespace(opsManager.Namespace).
-		SetStringData(data).
+		SetStringMapToData(data).
 		SetLabels(map[string]string{}).
 		SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 		Build()

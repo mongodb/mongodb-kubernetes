@@ -178,7 +178,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 	certHash := enterprisepem.ReadHashFromSecret(secretGetterCreattor, opts.Namespace, opts.HTTPSCertSecretName, opsManagerSecretPath, log)
 
 	// The operator concatenates the two fields of the secret into a PEM secret
-	err = certs.CreatePEMSecretClient(secretGetterCreattor, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, certs.OpsManager, log)
+	err = certs.CreatePEMSecretClient(secretGetterCreattor, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, certs.OpsManager)
 	if err != nil {
 		return err
 	}

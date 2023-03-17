@@ -368,7 +368,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	err := secret.CreateOrUpdate(r.client, secret.Builder().
 		SetName("bind-query-password").
 		SetNamespace(mock.TestNamespace).
-		SetStringData(data).
+		SetStringMapToData(data).
 		Build(),
 	)
 	assert.NoError(t, err)
@@ -423,7 +423,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	err := secret.CreateOrUpdate(r.client, secret.Builder().
 		SetName("bind-query-password").
 		SetNamespace(mock.TestNamespace).
-		SetStringData(data).
+		SetStringMapToData(data).
 		Build(),
 	)
 	assert.NoError(t, err)
@@ -477,7 +477,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 	err := secret.CreateOrUpdate(r.client, secret.Builder().
 		SetName("bind-query-password").
 		SetNamespace(mock.TestNamespace).
-		SetStringData(data).
+		SetStringMapToData(data).
 		Build(),
 	)
 	assert.NoError(t, err)
