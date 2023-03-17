@@ -73,7 +73,7 @@ func newShardedClusterReconciler(mgr manager.Manager, omFunc om.ConnectionFactor
 	}
 }
 
-func (r *ReconcileMongoDbShardedCluster) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	agents.UpgradeAllIfNeeded(r.client, r.SecretClient, r.omConnectionFactory, GetWatchedNamespace())
 
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
@@ -536,15 +536,6 @@ func AddShardedClusterController(mgr manager.Manager) error {
 	if err != nil {
 		return err
 	}
-
-	// TODO CLOUDP-35240
-	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-	  	IsController: true,
-	  	OwnerType:    &mdbv1.MongoDbShardedCluster{},
-	  })
-	  if err != nil {
-	  	return err
-	  }*/
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})

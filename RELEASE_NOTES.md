@@ -20,6 +20,7 @@ to expose ReplicaSet members on an externally reachable domain (`spec.externalAc
 This leverages setting the `process.hostname` field in the Automation Config.
 [This tutorial](ttps://www.mongodb.com/docs/kubernetes-operator/v1.19/tutorial/proper_link) provides full guidance.
 *  `spec.security.authentication.ldap.transportSecurity`: "none" is now a valid configuration to use no transportSecurity.
+* Allows you to configure `podSpec` per shard in a MongoDB Sharded cluster by specifying an array of `podSpecs` under `spec.shardSpecificPodSpec` for each shard.
 
 ## Deprecations
 
@@ -38,7 +39,7 @@ This leverages setting the `process.hostname` field in the Automation Config.
   * Possible workarounds:
     * set WATCH_NAMESPACE environment variable to specific namespaces instead of '*'
     * make sure that kubeconfigs for member clusters doesn't specify a namespace
-  
+
 ## Breaking changes
 * Renaming of the multicluster CRD `MongoDBMulti` to `MongoDBMultiCluster`
 

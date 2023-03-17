@@ -797,6 +797,62 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
+              shardSpecificPodSpec:
+                description: ShardSpecificPodSpec allows you to provide a Statefulset
+                  override per shard.
+                items:
+                  properties:
+                    persistence:
+                      properties:
+                        multiple:
+                          properties:
+                            data:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                            journal:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                            logs:
+                              properties:
+                                labelSelector:
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                storage:
+                                  type: string
+                                storageClass:
+                                  type: string
+                              type: object
+                          type: object
+                        single:
+                          properties:
+                            labelSelector:
+                              type: object
+                              x-kubernetes-preserve-unknown-fields: true
+                            storage:
+                              type: string
+                            storageClass:
+                              type: string
+                          type: object
+                      type: object
+                    podTemplate:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                  type: object
+                type: array
               statefulSet:
                 description: StatefulSetConfiguration provides the statefulset override
                   for each of the cluster's statefulset if  "StatefulSetConfiguration"

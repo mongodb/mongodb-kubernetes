@@ -9,11 +9,11 @@ type ShardedClusterSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ShardSpec *ShardedClusterComponentSpec `json:"shard,omitempty"`
 
-	// TODO should pod/statefulset specs for ShardedCluster be moved to "mongos,shard,configSrv" sections above?
-
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`
 	ShardPodSpec     *MongoDbPodSpec `json:"shardPodSpec,omitempty"`
+	// ShardSpecificPodSpec allows you to provide a Statefulset override per shard.
+	ShardSpecificPodSpec []MongoDbPodSpec `json:"shardSpecificPodSpec,omitempty"`
 }
 
 type ShardedClusterComponentSpec struct {
