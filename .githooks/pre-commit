@@ -71,6 +71,14 @@ if git diff --cached --name-only --diff-filter=ACM | grep -q 'go.mod'; then
   git add licenses.csv
 fi
 
+if git diff --name-only --diff-filter=ACM | grep -q 'public/tools/multicluster'; then
+  echo 'regenerating multicluster RBAC public example'
+  pushd public/tools/multicluster
+  EXPORT_RBAC_SAMPLES="true" go test -run TestPrintingOutRolesServiceAccountsAndRoleBindings
+  popd
+  git add public/samples/multi-cluster-cli-gitops
+fi
+
 if find . -name "Makefile"|grep -v vendor|xargs grep "\${"
 then
     echo 'ERROR: Makefiles should NEVER contain curly brackets variables'

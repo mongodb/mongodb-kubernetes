@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -415,17 +416,20 @@ func TestReplaceClusterMembersConfigMap(t *testing.T) {
 
 }
 
-// TestPrintingOutRolesServiceAccountsAndRoleBindings is used for extracting RBAC settings for customer who won't
-// be able to use the CLI tool.
+// TestPrintingOutRolesServiceAccountsAndRoleBindings is not an ordinary test. It updates the RBAC samples in the
+// samples/multi-cluster-cli-gitops/resources/rbac directory. By default, this test is not executed. If you indent to run
+// it, please set EXPORT_RBAC_SAMPLES variable to "true".
 func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
-	sb := &strings.Builder{}
+	if os.Getenv("EXPORT_RBAC_SAMPLES") != "true" {
+		t.Skip("Skipping as EXPORT_RBAC_SAMPLES is false")
+	}
 
 	flags := testFlags(t, false)
 	flags.clusterScoped = true
 	flags.installDatabaseRoles = true
 
 	{
-		sb.WriteString("# Below you can find the resources for Central Cluster in Clustered-scoped configuration\n")
+		sb := &strings.Builder{}
 		clientMap := getClientResources(flags)
 		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
@@ -438,10 +442,12 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRole", cr.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, cluster-scoped resources", "v1", "ServiceAccount", sa.Items)
+
+		os.WriteFile("../../samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_central_cluster.yaml", []byte(sb.String()), os.ModePerm)
 	}
 
 	{
-		sb.WriteString("# Below you can find the resources for Member Cluster in Clustered-scoped configuration\n")
+		sb := &strings.Builder{}
 		clientMap := getClientResources(flags)
 		err := ensureMultiClusterResources(context.TODO(), flags, clientMap)
 
@@ -454,10 +460,12 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRole", cr.Items)
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "rbac.authorization.k8s.io/v1", "ClusterRoleBinding", crb.Items)
 		sb = marshalToYaml(t, sb, "Member Cluster, cluster-scoped resources", "v1", "ServiceAccount", sa.Items)
+
+		os.WriteFile("../../samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml", []byte(sb.String()), os.ModePerm)
 	}
 
 	{
-		sb.WriteString("# Below you can find the resources for Central Cluster in Namespaced-scoped configuration\n")
+		sb := &strings.Builder{}
 		flags.clusterScoped = false
 
 		clientMap := getClientResources(flags)
@@ -472,10 +480,12 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
 		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
+
+		os.WriteFile("../../samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_central_cluster.yaml", []byte(sb.String()), os.ModePerm)
 	}
 
 	{
-		sb.WriteString("# Below you can find the resources for Member Cluster in Namespaced-scoped configuration\n")
+		sb := &strings.Builder{}
 		flags.clusterScoped = false
 
 		clientMap := getClientResources(flags)
@@ -487,12 +497,12 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 		assert.NoError(t, err)
 		sa, err := clientMap[flags.memberClusters[0]].CoreV1().ServiceAccounts(flags.memberClusterNamespace).List(context.TODO(), metav1.ListOptions{})
 
-		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
-		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
-		sb = marshalToYaml(t, sb, "Central Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
-	}
+		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "Role", r.Items)
+		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "rbac.authorization.k8s.io/v1", "RoleBinding", rb.Items)
+		sb = marshalToYaml(t, sb, "Member Cluster, namespace-scoped resources", "v1", "ServiceAccount", sa.Items)
 
-	fmt.Printf(sb.String())
+		os.WriteFile("../../samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml", []byte(sb.String()), os.ModePerm)
+	}
 }
 
 func marshalToYaml[T interface{}](t *testing.T, sb *strings.Builder, comment string, apiVersion string, kind string, items []T) *strings.Builder {
