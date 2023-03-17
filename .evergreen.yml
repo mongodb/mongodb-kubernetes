@@ -231,22 +231,6 @@ functions:
       - ${workdir}/bin
       command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
 
-  add_supported_release:
-  - *python_venv
-  - *python_requirements
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      include_expansions_in_env:
-      - atlas_connection_string
-      - atlas_password
-      - atlas_database
-      - om_version
-      add_to_path:
-      - ${workdir}/bin
-      command: "${workdir}/venv/bin/python scripts/add_supported_release.py --image ${image_name}"
-
   upload_dockerfiles:
   - command: s3.put
     params:
@@ -714,9 +698,6 @@ tasks:
   - func: pipeline
     vars:
       image_name: operator
-  - func: add_supported_release
-    vars:
-      image_name: operator
 
 - name: upload_dockerfiles
   git_tag_only: true
@@ -736,9 +717,6 @@ tasks:
   - func: pipeline
     vars:
       image_name: init-appdb
-  - func: add_supported_release
-    vars:
-      image_name: init-appdb
 
 - name: release_init_database
   git_tag_only: true
@@ -747,9 +725,6 @@ tasks:
   - func: setup_building_host
   - func: quay_login
   - func: pipeline
-    vars:
-      image_name: init-database
-  - func: add_supported_release
     vars:
       image_name: init-database
 
@@ -763,9 +738,6 @@ tasks:
     vars:
       image_name: init-ops-manager
       include_tags: release
-  - func: add_supported_release
-    vars:
-      image_name: init-ops-manager
 
 - name: prerelease_master_images
   commands:
@@ -1905,9 +1877,6 @@ tasks:
   - func: pipeline
     vars:
       image_name: database
-  - func: add_supported_release
-    vars:
-      image_name: database
 
 - name: build_om_images
   commands:
@@ -1928,9 +1897,6 @@ tasks:
     vars:
       image_name: ops-manager
       include_tags: release
-  - func: add_supported_release
-    vars:
-      image_name: ops-manager
 
 task_groups:
 - name: unit_task_group
