@@ -6,14 +6,17 @@ from pytest import fixture, mark
 SHARD_WEIGHT = 50
 MONGOS_WEIGHT = 40
 CONFIG_WEIGHT = 30
+SHARD0_WEIGHT = 100
 
 SHARD_GRACE_PERIOD = 30
 MONGOS_GRACE_PERIOD = 20
 CONFIG_GRACE_PERIOD = 50
+SHARD0_GRACE_PERIOD = 60
 
 SHARD_TOPOLOGY_KEY = "shard"
 MONGOS_TOPOLOGY_KEY = "mongos"
 CONFIG_TOPOLOGY_KEY = "config"
+SHARD0_TOPLOGY_KEY = "shardoverride"
 
 
 @fixture(scope="module")
@@ -39,8 +42,11 @@ def test_stateful_sets_spec_updated(sharded_cluster, namespace):
     mongos_sts = appsv1.read_namespaced_stateful_set(
         f"{sharded_cluster.name}-mongos", namespace
     )
-    shard_sts = appsv1.read_namespaced_stateful_set(
+    shard0_sts = appsv1.read_namespaced_stateful_set(
         f"{sharded_cluster.name}-0", namespace
+    )
+    shard_sts = appsv1.read_namespaced_stateful_set(
+        f"{sharded_cluster.name}-1", namespace
     )
 
     assert_stateful_set_podspec(
@@ -62,11 +68,22 @@ def test_stateful_sets_spec_updated(sharded_cluster, namespace):
         topology_key=SHARD_TOPOLOGY_KEY,
     )
 
+    assert_stateful_set_podspec(
+        shard0_sts.spec.template.spec,
+        weight=SHARD0_WEIGHT,
+        grace_period_seconds=SHARD0_GRACE_PERIOD,
+        topology_key=SHARD0_TOPLOGY_KEY,
+    )
     containers = shard_sts.spec.template.spec.containers
 
     assert len(containers) == 2
     assert containers[0].name == "mongodb-enterprise-database"
     assert containers[1].name == "sharded-cluster-sidecar"
+
+    containers = shard0_sts.spec.template.spec.containers
+    assert len(containers) == 2
+    assert containers[0].name == "mongodb-enterprise-database"
+    assert containers[1].name == "sharded-cluster-sidecar-override"
 
     resources = containers[1].resources
 

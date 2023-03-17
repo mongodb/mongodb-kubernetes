@@ -3,10 +3,11 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -351,19 +352,19 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 }
 
 func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").SetPodSpecTemplate(corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			NodeName: "some-node-name",
-			Hostname: "some-host-name",
-			Containers: []corev1.Container{{
-				Name:  "my-custom-container",
-				Image: "my-custom-image",
-				VolumeMounts: []corev1.VolumeMount{{
-					Name: "my-volume-mount",
-				}},
+	podSpec := corev1.PodSpec{NodeName: "some-node-name",
+		Hostname: "some-host-name",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
 			}},
-			RestartPolicy: corev1.RestartPolicyAlways,
-		},
+		}},
+		RestartPolicy: corev1.RestartPolicyAlways}
+
+	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").SetPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: podSpec,
 	}).Build()
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
@@ -376,7 +377,7 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	statefulSet, err := client.GetStatefulSet(mock.ObjectKeyFromApiObject(rs))
 	assert.NoError(t, err)
 
-	assertPodSpecSts(t, &statefulSet)
+	assertPodSpecSts(t, &statefulSet, podSpec.NodeName, podSpec.Hostname, podSpec.RestartPolicy)
 
 	podSpecTemplate := statefulSet.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.Containers, 2, "Should have 2 containers now")

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
@@ -357,46 +356,52 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
+	shardPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name",
+		Hostname: "some-host-name",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-sc",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
+
+	mongosPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name-mongos",
+		Hostname: "some-host-name-mongos",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-mongos",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyNever,
+	}
+
+	configSrvPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name-config",
+		Hostname: "some-host-name-config",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-config",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyOnFailure,
+	}
+
 	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
 		SetShardPodSpec(corev1.PodTemplateSpec{
-			Spec: corev1.PodSpec{
-				NodeName: "some-node-name",
-				Hostname: "some-host-name",
-				Containers: []corev1.Container{{
-					Name:  "my-custom-container-sc",
-					Image: "my-custom-image",
-					VolumeMounts: []corev1.VolumeMount{{
-						Name: "my-volume-mount",
-					}},
-				}},
-				RestartPolicy: corev1.RestartPolicyAlways,
-			},
+			Spec: shardPodSpec,
 		}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			NodeName: "some-node-name-mongos",
-			Hostname: "some-host-name-mongos",
-			Containers: []corev1.Container{{
-				Name:  "my-custom-container-mongos",
-				Image: "my-custom-image",
-				VolumeMounts: []corev1.VolumeMount{{
-					Name: "my-volume-mount",
-				}},
-			}},
-			RestartPolicy: corev1.RestartPolicyNever,
-		},
+		Spec: mongosPodSpec,
 	}).SetPodConfigSvrSpecTemplate(corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			NodeName: "some-node-name-config",
-			Hostname: "some-host-name-config",
-			Containers: []corev1.Container{{
-				Name:  "my-custom-container-config",
-				Image: "my-custom-image",
-				VolumeMounts: []corev1.VolumeMount{{
-					Name: "my-volume-mount",
-				}},
-			}},
-			RestartPolicy: corev1.RestartPolicyOnFailure,
-		},
+		Spec: configSrvPodSpec,
 	}).Build()
 
 	reconciler, client := defaultClusterReconciler(sc)
@@ -415,10 +420,15 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	statefulSetMongoS, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-mongos"))
 	assert.NoError(t, err)
 
-	assertPodSpecSts(t, &statefulSetSc0)
-	assertPodSpecSts(t, &statefulSetSc1)
-	assertMongosSts(t, &statefulSetMongoS)
-	assertConfigSvrSts(t, &statefulSetScConfig)
+	// assert Pod Spec for Sharded cluster
+	assertPodSpecSts(t, &statefulSetSc0, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy)
+	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy)
+
+	// assert Pod Spec for Mongos
+	assertPodSpecSts(t, &statefulSetMongoS, mongosPodSpec.NodeName, mongosPodSpec.Hostname, mongosPodSpec.RestartPolicy)
+
+	// assert Pod Spec for ConfigServer
+	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
 	assert.Len(t, podSpecTemplateSc0.Containers, 2, "Should have 2 containers now")
@@ -902,19 +912,60 @@ func TestTlsConfigPrefix_ForShardedCluster(t *testing.T) {
 	checkReconcileSuccessful(t, reconciler, sc, client)
 }
 
-func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name", "some-host-name", corev1.RestartPolicyAlways, sts)
+func TestShardSpecificPodSpec(t *testing.T) {
+	shardPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name",
+		Hostname: "some-host-name",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-sc",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
+
+	shard0PodSpec := corev1.PodSpec{
+		NodeName: "shard0-node-name",
+		Containers: []corev1.Container{{
+			Name:  "shard0-container",
+			Image: "shard0-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "shard0-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
+
+	sc := DefaultClusterBuilder().SetName("shard-specific-pod-spec").EnableTLS().SetTLSCA("custom-ca").
+		SetShardPodSpec(corev1.PodTemplateSpec{
+			Spec: shardPodSpec,
+		}).SetShardSpecificPodSpecTemplate([]corev1.PodTemplateSpec{
+		{
+			Spec: shard0PodSpec,
+		},
+	}).Build()
+
+	reconciler, client := defaultClusterReconciler(sc)
+	addKubernetesTlsResources(client, sc)
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	// read the statefulsets from the cluster
+	statefulSetSc0, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "shard-specific-pod-spec-0"))
+	assert.NoError(t, err)
+	statefulSetSc1, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "shard-specific-pod-spec-1"))
+	assert.NoError(t, err)
+
+	// shard0 should have the override
+	assertPodSpecSts(t, &statefulSetSc0, shard0PodSpec.NodeName, shard0PodSpec.Hostname, shard0PodSpec.RestartPolicy)
+
+	// shard1 should have the common one
+	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy)
 }
 
-func assertMongosSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name-mongos", "some-host-name-mongos", corev1.RestartPolicyNever, sts)
-}
+func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName string, restartPolicy corev1.RestartPolicy) {
 
-func assertConfigSvrSts(t *testing.T, sts *appsv1.StatefulSet) {
-	assertPodSpecTemplate(t, "some-node-name-config", "some-host-name-config", corev1.RestartPolicyOnFailure, sts)
-}
-
-func assertPodSpecTemplate(t *testing.T, nodeName, hostName string, restartPolicy corev1.RestartPolicy, sts *appsv1.StatefulSet) {
 	podSpecTemplate := sts.Spec.Template.Spec
 	// ensure values were passed to the stateful set
 	assert.Equal(t, nodeName, podSpecTemplate.NodeName)
@@ -1144,6 +1195,23 @@ func (b *ClusterBuilder) SetMongosPodSpecTemplate(spec corev1.PodTemplateSpec) *
 		b.Spec.MongosPodSpec = &mdbv1.MongoDbPodSpec{}
 	}
 	b.Spec.MongosPodSpec.PodTemplateWrapper.PodTemplate = &spec
+	return b
+}
+
+func (b *ClusterBuilder) SetShardSpecificPodSpecTemplate(specs []corev1.PodTemplateSpec) *ClusterBuilder {
+	if b.Spec.ShardSpecificPodSpec == nil {
+		b.Spec.ShardSpecificPodSpec = make([]mdbv1.MongoDbPodSpec, 0)
+	}
+
+	mongoDBPodSpec := make([]mdbv1.MongoDbPodSpec, len(specs))
+
+	for n, e := range specs {
+		mongoDBPodSpec[n] = mdbv1.MongoDbPodSpec{PodTemplateWrapper: mdbv1.PodTemplateSpecWrapper{
+			PodTemplate: &e,
+		}}
+	}
+
+	b.Spec.ShardSpecificPodSpec = mongoDBPodSpec
 	return b
 }
 

@@ -186,6 +186,14 @@ func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStateful
 			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.ShardPodSpec.PodTemplateWrapper.PodTemplate}
 		}
 
+		// provide shard override per shard if specified
+		if mdb.Spec.ShardSpecificPodSpec != nil && len(mdb.Spec.ShardSpecificPodSpec) > shardNum {
+			shardOverride := mdb.Spec.ShardSpecificPodSpec[shardNum]
+			if shardOverride.PodTemplateWrapper.PodTemplate != nil {
+				stsSpec = &appsv1.StatefulSetSpec{Template: *shardOverride.PodTemplateWrapper.PodTemplate}
+			}
+		}
+
 		opts := DatabaseStatefulSetOptions{
 			Name:                    mdb.ShardRsName(shardNum),
 			ServiceName:             mdb.ShardServiceName(),
