@@ -555,7 +555,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager omv1.Mongo
 	connectionStringSecret := secret.Builder().
 		SetName(opsManager.AppDBMongoConnectionStringSecretName()).
 		SetNamespace(opsManager.Namespace).
-		SetStringData(connectionStringSecretData).Build()
+		SetStringMapToData(connectionStringSecretData).Build()
 	log.Debugf("Connection string secret already exists, updating %s", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 	return r.PutSecret(connectionStringSecret, opsManagerSecretPath)
 }
@@ -916,7 +916,7 @@ func (r OpsManagerReconciler) getAppDBPassword(opsManager omv1.MongoDBOpsManager
 		appDbPasswordSecret := secret.Builder().
 			SetName(secretObjectKey.Name).
 			SetNamespace(secretObjectKey.Namespace).
-			SetStringData(passwordData).
+			SetStringMapToData(passwordData).
 			SetOwnerReferences(kube.BaseOwnerReference(&opsManager)).
 			Build()
 
@@ -1021,7 +1021,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 			adminSecretBuilder := secret.Builder().
 				SetNamespace(adminKeySecretName.Namespace).
 				SetName(adminKeySecretName.Name).
-				SetStringData(secretData).
+				SetStringMapToData(secretData).
 				SetLabels(map[string]string{})
 
 			if opsManager.Namespace == operatorNamespace() {

@@ -63,7 +63,7 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 			return nil, err
 		}
 		for k, v := range stringData {
-			secrets[k] = strings.TrimSuffix(string(v[:]), "\n")
+			secrets[k] = strings.TrimSuffix(v[:], "\n")
 		}
 	}
 	return secrets, nil
@@ -129,7 +129,7 @@ func SecretNotExist(err error) bool {
 }
 
 // These methods implement the secretGetterUpdateCreateDeleter interface from community.
-// We hardcode here the AppDB subpath for Vault since community is used only to deploy
+// We hardcode here the AppDB sub-path for Vault since community is used only to deploy
 // AppDB pods. This allows us to minimize the changes to Community.
 
 func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret, error) {

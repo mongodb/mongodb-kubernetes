@@ -41,14 +41,14 @@ const (
 )
 
 // CreatePEMSecretClient creates a PEM secret from the original secretName.
-func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, data map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination, log *zap.SugaredLogger) error {
+func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, data map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
 	operatorGeneratedSecret := secretNamespacedName
 	operatorGeneratedSecret.Name = fmt.Sprintf("%s%s", secretNamespacedName.Name, OperatorGeneratedCertSuffix)
 
 	secretBuilder := secret.Builder().
 		SetName(operatorGeneratedSecret.Name).
 		SetNamespace(operatorGeneratedSecret.Namespace).
-		SetStringData(data).
+		SetStringMapToData(data).
 		SetOwnerReferences(ownerReferences)
 
 	var path string
@@ -139,7 +139,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 		}
 
 		secretHash := enterprisepem.ReadHashFromSecret(secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
-		return CreatePEMSecretClient(secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database, log)
+		return CreatePEMSecretClient(secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), map[string]string{secretHash: data}, opts.OwnerReference, Database)
 	}
 	var errs error
 
@@ -293,7 +293,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(secretReadClient, secr
 		dataMap := map[string]string{
 			util.AutomationAgentPemSecretKey: data,
 		}
-		return CreatePEMSecretClient(secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database, log)
+		return CreatePEMSecretClient(secretWriteClient, secret, dataMap, []metav1.OwnerReference{}, Database)
 	}
 
 	return validatePemSecret(s, util.AutomationAgentPemSecretKey, nil)
@@ -372,7 +372,7 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace st
 	// we can improve this function by providing the Secret Data contents,
 	// instead of `secretClient`.
 	secretHash := enterprisepem.ReadHashFromSecret(secretClient, namespace, prom.TLSSecretRef.Name, secretPath, log)
-	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, podType, log)
+	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, podType)
 	if err != nil {
 		return "", fmt.Errorf("error creating hashed Secret: %s", err)
 	}
