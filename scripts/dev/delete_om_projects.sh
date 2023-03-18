@@ -24,7 +24,7 @@ delete_project() {
 
 delete_project "${NAMESPACE}"
 
-if [[ "${WATCH_NAMESPACE:-}" != "" ]]; then
+if [[ "${WATCH_NAMESPACE:-}" != "" && "${WATCH_NAMESPACE:-}" != "*" ]]; then
   for ns in ${WATCH_NAMESPACE/,// }; do
     delete_project "${ns}" || true
   done

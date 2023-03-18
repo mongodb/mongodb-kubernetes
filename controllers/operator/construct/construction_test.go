@@ -4,6 +4,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
@@ -291,6 +295,52 @@ func TestService_NodePortIsNotOverwritten(t *testing.T) {
 
 	dst = service.Merge(dst, src)
 	assert.Equal(t, int32(30030), dst.Spec.Ports[0].NodePort)
+}
+
+func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDefined(t *testing.T) {
+	port1 := corev1.ServicePort{
+		Name:       "port1",
+		Port:       1000,
+		TargetPort: intstr.IntOrString{IntVal: 1001},
+		NodePort:   30030,
+	}
+
+	port2 := corev1.ServicePort{
+		Name:       "port2",
+		Port:       2000,
+		TargetPort: intstr.IntOrString{IntVal: 2001},
+		NodePort:   40040,
+	}
+
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
+
+	existingService := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1, port2}}}
+
+	err := service.CreateOrUpdateService(manager.Client, existingService)
+	assert.NoError(t, err)
+
+	port1WithNodePortZero := port1
+	port1WithNodePortZero.NodePort = 0
+	port2WithNodePortZero := port2
+	port2WithNodePortZero.NodePort = 0
+
+	newServiceWithoutNodePorts := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1WithNodePortZero, port2WithNodePortZero}}}
+
+	err = service.CreateOrUpdateService(manager.Client, newServiceWithoutNodePorts)
+	assert.NoError(t, err)
+
+	changedService, err := manager.Client.GetService(types.NamespacedName{Name: "my-service", Namespace: "my-namespace"})
+	require.NoError(t, err)
+	require.NotNil(t, changedService)
+	require.Len(t, changedService.Spec.Ports, 2)
+
+	assert.Equal(t, port1.NodePort, changedService.Spec.Ports[0].NodePort)
+	assert.Equal(t, port2.NodePort, changedService.Spec.Ports[1].NodePort)
 }
 
 func TestService_NodePortIsNotOverwrittenIfNoNodePortIsSpecified(t *testing.T) {
