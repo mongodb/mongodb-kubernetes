@@ -791,12 +791,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 			continue
 		}
 
-		svc := getSRVService(mrs)
-		err = service.CreateOrUpdateService(client, svc)
+		srvService := getSRVService(mrs)
+		err = service.CreateOrUpdateService(client, srvService)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create service: %s in cluster: %s, err :%v", svc.Name, e.ClusterName, err)
+			return fmt.Errorf("failed to create srv service: %s in cluster: %s, err :%v", srvService.Name, e.ClusterName, err)
 		}
-		log.Infof("Successfully created service: %s in cluster: %s", svc.Name, e.ClusterName)
+		log.Infof("Successfully created srv service: %s in cluster: %s", srvService.Name, e.ClusterName)
 
 		for podNum := 0; podNum < e.Members; podNum++ {
 			var svc corev1.Service

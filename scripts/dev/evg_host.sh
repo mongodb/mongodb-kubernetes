@@ -107,6 +107,9 @@ tunnel() {
   for api_server in ${api_servers}; do
     host=$(echo "${api_server}" | cut -d ':' -f1)
     port=$(echo "${api_server}" | cut -d ':' -f2)
+    if [[ "${port}" == "${host}" ]]; then
+      port="443"
+    fi
     port_forwards+=("-L" "${port}:${host}:${port}")
   done
 

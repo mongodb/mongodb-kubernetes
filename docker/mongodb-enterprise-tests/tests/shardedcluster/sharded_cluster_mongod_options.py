@@ -1,5 +1,6 @@
 from pytest import fixture, mark
 
+from kubetester import create_or_update
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubernetes import client
@@ -11,7 +12,8 @@ def sharded_cluster(namespace: str) -> MongoDB:
         yaml_fixture("sharded-cluster-mongod-options.yaml"),
         namespace=namespace,
     )
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_mongod_options
