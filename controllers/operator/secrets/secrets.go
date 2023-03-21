@@ -69,13 +69,11 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 	return secrets, nil
 }
 
+// PutSecret copies secret.Data into vault. Note: we don't rely on secret.StringData since our builder does not use the field.
 func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
 		secretData := map[string]interface{}{}
-		for k, v := range s.StringData {
-			secretData[k] = v
-		}
 		for k, v := range s.Data {
 			secretData[k] = string(v)
 		}
@@ -88,6 +86,7 @@ func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
 	return secret.CreateOrUpdate(r.KubeClient, s)
 }
 
+// PutBinarySecret copies secret.Data as base64 into vault.
 func (r SecretClient) PutBinarySecret(s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
@@ -104,8 +103,7 @@ func (r SecretClient) PutBinarySecret(s corev1.Secret, basePath string) error {
 	return secret.CreateOrUpdate(r.KubeClient, s)
 }
 
-// PutSecretIfChanged updates a Secret only if it has changed.
-//
+// PutSecretIfChanged updates a Secret only if it has changed. Equality is based on s.Data.
 // `basePath` is only used when Secrets backend is `Vault`.
 func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
@@ -113,7 +111,7 @@ func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error
 		if err != nil && !strings.Contains(err.Error(), "not found") {
 			return err
 		}
-		if err != nil || !reflect.DeepEqual(secret, s.StringData) {
+		if err != nil || !reflect.DeepEqual(secret, DataToStringData(s.Data)) {
 			return r.PutSecret(s, basePath)
 		}
 	}
@@ -140,7 +138,6 @@ func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret,
 		if err != nil {
 			return s, err
 		}
-		s.StringData = data
 		s.Data = make(map[string][]byte)
 		for k, v := range data {
 			s.Data[k] = []byte(v)
@@ -171,4 +168,12 @@ func (r SecretClient) DeleteSecret(secretName types.NamespacedName) error {
 		return nil
 	}
 	return r.KubeClient.DeleteSecret(secretName)
+}
+
+func DataToStringData(data map[string][]byte) map[string]string {
+	stringData := make(map[string]string)
+	for k, v := range data {
+		stringData[k] = string(v)
+	}
+	return stringData
 }

@@ -100,22 +100,27 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 
 	// Need to read the secrets one by one and create a new one which contains
 	// the concatenation of the generated key and crt
-	data := map[string]string{}
+	stringData := map[string]string{}
+	data := map[string][]byte{}
+
 	for i := 0; i < 3; i++ {
 		secretStringData, err := getSecretStringData(c, secretNames[i])
 		if err != nil {
 			return fmt.Errorf("can't read secret data: %s", err)
 		}
-		data[fmt.Sprintf("%s-%d-pem", replicaSetName, i)] = secretStringData["tls.key"] + secretStringData["tls.crt"]
+		stringData[fmt.Sprintf("%s-%d-pem", replicaSetName, i)] = secretStringData["tls.key"] + secretStringData["tls.crt"]
 	}
 
+	for s, s2 := range stringData {
+		data[s] = []byte(s2)
+	}
 	_, err = c.CoreV1().Secrets("mongodb").Create(context.TODO(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      releaseName,
 			Namespace: "mongodb",
 			Labels:    map[string]string{"app.kubernetes.io/managed-by": "runtest"},
 		},
-		StringData: data}, metav1.CreateOptions{})
+		Data: data}, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("can't create secret: %s", err)
 	}
