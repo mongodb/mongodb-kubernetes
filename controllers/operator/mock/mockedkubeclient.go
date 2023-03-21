@@ -325,9 +325,16 @@ func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *
 
 // AddCredentialsSecret creates the Secret that stores Ops Manager credentials for the test environment.
 func (m *MockedClient) AddCredentialsSecret(publicKey, privateKey string) *MockedClient {
+	stringData := map[string]string{util.OmPublicApiKey: publicKey, util.OmPrivateKey: privateKey}
+	data := map[string][]byte{}
+	for s, s2 := range stringData {
+		data[s] = []byte(s2)
+	}
 	credentials := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
-		StringData: map[string]string{util.OmPublicApiKey: publicKey, util.OmPrivateKey: privateKey}}
+		// we are using Data and not SecretData because our internal secret.Builder only writes information into
+		// secret.Data not secret.StringData.
+		Data: data}
 	err := m.Create(context.TODO(), credentials)
 	if err != nil {
 		panic(err)
@@ -437,21 +444,6 @@ func (k *MockedClient) Create(ctx context.Context, obj client.Object, opts ...cl
 
 	if err := k.Get(ctx, key, obj); err == nil {
 		return fmt.Errorf("%T %s already exists!", obj, key)
-	}
-
-	// for secrets we perform some additional manipulation with data - copying it from string field to binary one
-	switch s := obj.(type) {
-	case *corev1.Secret:
-		{
-			if s.Data == nil {
-				s.Data = make(map[string][]byte)
-			}
-			for k, v := range s.StringData {
-				// seems the in-memory bytes are already decoded
-				//sDec, _ := b64.StdEncoding.DecodeString(v)
-				s.Data[k] = []byte(v)
-			}
-		}
 	}
 
 	resMap[key] = obj

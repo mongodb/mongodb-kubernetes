@@ -34,17 +34,9 @@ func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name strin
 			return ""
 		}
 
-		secretData = dataToStringData(s.Data)
+		secretData = secrets.DataToStringData(s.Data)
 	}
 	return ReadHashFromData(secretData, log)
-}
-
-func dataToStringData(data map[string][]byte) map[string]string {
-	stringData := make(map[string]string)
-	for k, v := range data {
-		stringData[k] = string(v)
-	}
-	return stringData
 }
 
 func ReadHashFromData(secretData map[string]string, log *zap.SugaredLogger) string {
