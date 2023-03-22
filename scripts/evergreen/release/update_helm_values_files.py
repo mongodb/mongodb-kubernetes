@@ -33,31 +33,11 @@ def load_release() -> Dict[str, str]:
         return json.load(fd)
 
 
-def set_community_operator_library_version(version: str):
-    with open("go.mod") as f:
-        go_mod_contents = f.read()
-
-    # update go mod with the new version
-    with open("go.mod", "w+") as f:
-        subbed = re.sub(
-            r"github.com/mongodb/mongodb-kubernetes-operator v.*$",
-            f"github.com/mongodb/mongodb-kubernetes-operator v{version}",
-            go_mod_contents,
-            flags=re.MULTILINE,
-        )
-        f.write(subbed)
-
-    print("Running 'go mod download'")
-    os.system("go mod download")
-
-
 def main() -> int:
     release = load_release()
     for k in release:
         if k in RELEASE_JSON_TO_HELM_KEY:
             update_all_helm_values_files(RELEASE_JSON_TO_HELM_KEY[k], release[k])
-
-    set_community_operator_library_version(release["communityOperatorVersion"])
 
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
