@@ -1,11 +1,11 @@
 package versionutil
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/blang/semver"
+	"golang.org/x/xerrors"
 )
 
 var semverRegex *regexp.Regexp
@@ -23,7 +23,7 @@ func StringToSemverVersion(version string) (semver.Version, error) {
 		}
 		result := semverRegex.FindStringSubmatch(version)
 		if result == nil || len(result) < 4 {
-			return semver.Version{}, fmt.Errorf("Ops Manager Status spec.version %s is invalid", version)
+			return semver.Version{}, xerrors.Errorf("Ops Manager Status spec.version %s is invalid", version)
 		}
 		// Concatenate Major.Minor.Patch
 		v, err = semver.Make(result[1] + "." + result[2] + "." + result[3])

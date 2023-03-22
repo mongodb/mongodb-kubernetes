@@ -9,6 +9,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 	"github.com/blang/semver"
+	"golang.org/x/xerrors"
 )
 
 // This is a separate om functionality needed for OM controller
@@ -85,7 +86,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 	resp, err := client.Post(endpoint, "application/json; charset=UTF-8", buffer)
 
 	if err != nil {
-		return OpsManagerKeyPair{}, fmt.Errorf("Error sending POST request to %s: %v", omUrl, err)
+		return OpsManagerKeyPair{}, xerrors.Errorf("Error sending POST request to %s: %w", omUrl, err)
 	}
 
 	var body []byte
@@ -93,7 +94,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 		defer resp.Body.Close()
 		body, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return OpsManagerKeyPair{}, fmt.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)
+			return OpsManagerKeyPair{}, xerrors.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)
 		}
 	}
 
@@ -151,7 +152,7 @@ func fetchOMCredentialsFromResponse(body []byte, omVersion string, user User) (O
 			return apiKey.ProgrammaticAPIKey, nil
 		}
 
-		return OpsManagerKeyPair{}, fmt.Errorf("Could not fetch credentials from Ops Manager")
+		return OpsManagerKeyPair{}, xerrors.Errorf("Could not fetch credentials from Ops Manager")
 	}
 
 	// OpsManager up to 4.4.x return a user API key
@@ -161,7 +162,7 @@ func fetchOMCredentialsFromResponse(body []byte, omVersion string, user User) (O
 	}
 
 	if u.ApiKey == "" {
-		return OpsManagerKeyPair{}, fmt.Errorf("Could not find a Global API key from Ops Manager")
+		return OpsManagerKeyPair{}, xerrors.Errorf("Could not find a Global API key from Ops Manager")
 	}
 
 	return OpsManagerKeyPair{

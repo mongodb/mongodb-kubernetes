@@ -20,7 +20,7 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
         mrs = KubernetesTester.get_resource()
         assert mrs["status"]["phase"] == "Failed"
 
-        # Messages about a wrong autmationConfig changed from OM40 to OM42
+        # Messages about a wrong automationConfig changed from OM40 to OM42
         # This is the message emitted by the Operator
         assert (
             "Failed to create/update (Ops Manager reconciliation phase)"

@@ -3,10 +3,10 @@ package operator
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connection"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
@@ -152,16 +152,16 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, mdb, log)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
 	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
+		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
 	if err = r.updateConnectionStringSecret(*user, log); err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
 	if user.Spec.Database == authentication.ExternalDB {
@@ -220,7 +220,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDB
 		return err
 	}
 	if err == nil && !secret.HasOwnerReferences(existingSecret, user.GetOwnerReferences()) {
-		return fmt.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 	}
 
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
@@ -290,7 +290,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 	// only specify password if we're dealing with non-x509 users
 	if spec.Database != authentication.ExternalDB {
 		if err := authentication.ConfigureScramCredentials(&user, password); err != nil {
-			return om.MongoDBUser{}, fmt.Errorf("error generating SCRAM credentials: %s", err)
+			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
 	}
 
@@ -317,7 +317,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 		if ac.Auth.Disabled ||
 			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)) {
 			shouldRetry = true
-			return fmt.Errorf("scram Sha has not yet been configured")
+			return xerrors.Errorf("scram Sha has not yet been configured")
 		}
 
 		password, err := user.GetPassword(r.SecretClient)
@@ -343,16 +343,16 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 		if shouldRetry {
 			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
 		}
-		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
+		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
 	annotationsToAdd, err := getAnnotationsForUserResource(user)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
 	if err := annotations.SetAnnotations(user.DeepCopy(), annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
@@ -362,14 +362,14 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 	desiredUser, err := toOmUser(user.Spec, "")
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
+		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
 	shouldRetry := false
 	updateFunction := func(ac *om.AutomationConfig) error {
 		if !externalAuthMechanismsAvailable(ac.Auth.DeploymentAuthMechanisms) {
 			shouldRetry = true
-			return fmt.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
+			return xerrors.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
 		}
 
 		auth := ac.Auth
@@ -386,16 +386,16 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser,
 		if shouldRetry {
 			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
 		}
-		return r.updateStatus(user, workflow.Failed("error updating user %s", err), log)
+		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
 	annotationsToAdd, err := getAnnotationsForUserResource(user)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
 	if err := annotations.SetAnnotations(user.DeepCopy(), annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(user, workflow.Failed(err.Error()), log)
+		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")

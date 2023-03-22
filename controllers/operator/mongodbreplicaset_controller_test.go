@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -324,7 +325,7 @@ func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 
 		// make the mocked connection return an error behaving as an older version of Ops Manager
 		conn.(*om.MockedOmConnection).UpdateMonitoringAgentConfigFunc = func(mac *om.MonitoringAgentConfig, log *zap.SugaredLogger) (bytes []byte, e error) {
-			return nil, fmt.Errorf("some error. Detail: %s", util.MethodNotAllowed)
+			return nil, xerrors.Errorf("some error. Detail: %s", util.MethodNotAllowed)
 		}
 		return conn
 	}

@@ -5,8 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -31,14 +32,14 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLo
 		// load the kubeconfig file contents from disk
 		kubeConfigFile, err := multicluster.NewKubeConfigFile()
 		if err != nil {
-			log.Errorf("Failed to read KubeConfig file err: %w", err)
+			log.Errorf("Failed to read KubeConfig file err: %s", err)
 			// we can't populate the client so just bail out here
 			return
 		}
 
 		kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()
 		if err != nil {
-			log.Errorf("Failed to load the kubeconfig file content err: %w", err)
+			log.Errorf("Failed to load the kubeconfig file content err: %s", err)
 			return
 		}
 
@@ -53,7 +54,7 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLo
 			server := kubeConfig.Clusters[n].Cluster.Server
 			certificateAuthority, err := base64.StdEncoding.DecodeString(kubeConfig.Clusters[n].Cluster.CertificateAuthority)
 			if err != nil {
-				log.Errorf("Failed to decode certificate for cluster: %s, err: %w", clusterName, err)
+				log.Errorf("Failed to decode certificate for cluster: %s, err: %s", clusterName, err)
 				continue
 			}
 

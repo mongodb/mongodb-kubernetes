@@ -27,6 +27,7 @@ require (
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
+	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f
 	k8s.io/api v0.23.15
 	k8s.io/apimachinery v0.23.15
 	k8s.io/client-go v0.23.15

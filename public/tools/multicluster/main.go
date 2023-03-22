@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/ghodss/yaml"
+	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -93,7 +94,7 @@ func parseSetupFlags() (flags, error) {
 		return flags, err
 	}
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace) {
-		return flags, fmt.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace]")
+		return flags, xerrors.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace]")
 	}
 
 	flags.memberClusters = strings.Split(memberClusters, ",")
@@ -101,14 +102,14 @@ func parseSetupFlags() (flags, error) {
 	if strings.TrimSpace(memberClustersApiServers) != "" {
 		flags.memberClusterApiServerUrls = strings.Split(memberClustersApiServers, ",")
 		if len(flags.memberClusterApiServerUrls) != len(flags.memberClusters) {
-			return flags, fmt.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(flags.memberClusters), len(flags.memberClusterApiServerUrls))
+			return flags, xerrors.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(flags.memberClusters), len(flags.memberClusterApiServerUrls))
 		}
 	}
 
 	configFilePath := loadKubeConfigFilePath()
 	kubeconfig, err := clientcmd.LoadFromFile(configFilePath)
 	if err != nil {
-		return flags, fmt.Errorf("error loading kubeconfig file '%s': %s", configFilePath, err)
+		return flags, xerrors.Errorf("error loading kubeconfig file '%s': %w", configFilePath, err)
 	}
 	if len(flags.memberClusterApiServerUrls) == 0 {
 		if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
@@ -137,25 +138,25 @@ func parseRecoverFlags() (flags, error) {
 	recoverCmd.StringVar(&memberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 	recoverCmd.Parse(os.Args[2:])
 	if anyAreEmpty(memberClusters, flags.serviceAccount, flags.centralCluster, flags.memberClusterNamespace, flags.centralClusterNamespace, flags.sourceCluster) {
-		return flags, fmt.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace, source-cluster]")
+		return flags, xerrors.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace, source-cluster]")
 	}
 
 	flags.memberClusters = strings.Split(memberClusters, ",")
 	if !contains(flags.memberClusters, flags.sourceCluster) {
-		return flags, fmt.Errorf("source-cluster has to be one of the healthy member clusters: %s", memberClusters)
+		return flags, xerrors.Errorf("source-cluster has to be one of the healthy member clusters: %s", memberClusters)
 	}
 
 	if strings.TrimSpace(memberClustersApiServers) != "" {
 		flags.memberClusterApiServerUrls = strings.Split(memberClustersApiServers, ",")
 		if len(flags.memberClusterApiServerUrls) != len(flags.memberClusters) {
-			return flags, fmt.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(flags.memberClusters), len(flags.memberClusterApiServerUrls))
+			return flags, xerrors.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(flags.memberClusters), len(flags.memberClusterApiServerUrls))
 		}
 	}
 
 	configFilePath := loadKubeConfigFilePath()
 	kubeconfig, err := clientcmd.LoadFromFile(configFilePath)
 	if err != nil {
-		return flags, fmt.Errorf("error loading kubeconfig file '%s': %s", configFilePath, err)
+		return flags, xerrors.Errorf("error loading kubeconfig file '%s': %w", configFilePath, err)
 	}
 	if len(flags.memberClusterApiServerUrls) == 0 {
 		if flags.memberClusterApiServerUrls, err = getMemberClusterApiServerUrls(kubeconfig, flags.memberClusters); err != nil {
@@ -172,7 +173,7 @@ func getMemberClusterApiServerUrls(kubeconfig *clientcmdapi.Config, clusterNames
 		if cluster := kubeconfig.Clusters[name]; cluster != nil {
 			urls = append(urls, cluster.Server)
 		} else {
-			return nil, fmt.Errorf("cluster '%s' not found in kubeconfig", name)
+			return nil, xerrors.Errorf("cluster '%s' not found in kubeconfig", name)
 		}
 	}
 	return urls, nil
@@ -312,14 +313,14 @@ func createClientMap(memberClusters []string, operatorCluster, kubeConfigPath st
 	for _, c := range memberClusters {
 		clientset, err := getClient(c, kubeConfigPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create clientset map: %s", err)
+			return nil, xerrors.Errorf("failed to create clientset map: %w", err)
 		}
 		clientMap[c] = clientset
 	}
 
 	clientset, err := getClient(operatorCluster, kubeConfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create clientset map: %s", err)
+		return nil, xerrors.Errorf("failed to create clientset map: %w", err)
 	}
 	clientMap[operatorCluster] = clientset
 	return clientMap, nil
@@ -344,13 +345,13 @@ func getKubernetesClient(context, kubeConfigPath string) (kubernetes.Interface, 
 		}).ClientConfig()
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client config: %s", err)
+		return nil, xerrors.Errorf("failed to create client config: %w", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create kubernetes clientset: %s", err)
+		return nil, xerrors.Errorf("failed to create kubernetes clientset: %w", err)
 	}
 
 	return clientset, nil
@@ -361,12 +362,12 @@ func performCleanup(ctx context.Context, clientMap map[string]kubernetes.Interfa
 	for _, cluster := range flags.memberClusters {
 		c := clientMap[cluster]
 		if err := cleanupClusterResources(ctx, c, cluster, flags.memberClusterNamespace); err != nil {
-			return fmt.Errorf("failed cleaning up cluster %s namespace %s: %s", cluster, flags.memberClusterNamespace, err)
+			return xerrors.Errorf("failed cleaning up cluster %s namespace %s: %w", cluster, flags.memberClusterNamespace, err)
 		}
 	}
 	c := clientMap[flags.centralCluster]
 	if err := cleanupClusterResources(ctx, c, flags.centralCluster, flags.centralClusterNamespace); err != nil {
-		return fmt.Errorf("failed cleaning up cluster %s namespace %s: %s", flags.centralCluster, flags.centralClusterNamespace, err)
+		return xerrors.Errorf("failed cleaning up cluster %s namespace %s: %w", flags.centralCluster, flags.centralClusterNamespace, err)
 	}
 	return nil
 }
@@ -495,7 +496,7 @@ func ensureNamespace(ctx context.Context, clientSet kubernetes.Interface, nsName
 	}
 	_, err := clientSet.CoreV1().Namespaces().Create(ctx, &ns, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("failed to create namespace %s: %s", ns.Name, err)
+		return xerrors.Errorf("failed to create namespace %s: %w", ns.Name, err)
 	}
 
 	return nil
@@ -505,11 +506,11 @@ func ensureNamespace(ctx context.Context, clientSet kubernetes.Interface, nsName
 func ensureAllClusterNamespacesExist(ctx context.Context, clientSets map[string]kubernetes.Interface, f flags) error {
 	for _, clusterName := range f.memberClusters {
 		if err := ensureNamespace(ctx, clientSets[clusterName], f.memberClusterNamespace); err != nil {
-			return fmt.Errorf("failed to ensure namespace %s in member cluster %s: %s", f.memberClusterNamespace, clusterName, err)
+			return xerrors.Errorf("failed to ensure namespace %s in member cluster %s: %w", f.memberClusterNamespace, clusterName, err)
 		}
 	}
 	if err := ensureNamespace(ctx, clientSets[f.centralCluster], f.centralClusterNamespace); err != nil {
-		return fmt.Errorf("failed to ensure namespace %s in central cluster %s: %s", f.centralClusterNamespace, f.centralCluster, err)
+		return xerrors.Errorf("failed to ensure namespace %s in central cluster %s: %w", f.centralClusterNamespace, f.centralCluster, err)
 	}
 	return nil
 }
@@ -520,56 +521,56 @@ func ensureAllClusterNamespacesExist(ctx context.Context, clientSets map[string]
 func ensureMultiClusterResources(ctx context.Context, flags flags, clientMap map[string]kubernetes.Interface) error {
 	if flags.cleanup {
 		if err := performCleanup(ctx, clientMap, flags); err != nil {
-			return fmt.Errorf("failed performing cleanup of resources: %s", err)
+			return xerrors.Errorf("failed performing cleanup of resources: %w", err)
 		}
 	}
 
 	if err := ensureAllClusterNamespacesExist(ctx, clientMap, flags); err != nil {
-		return fmt.Errorf("failed ensuring namespaces: %s", err)
+		return xerrors.Errorf("failed ensuring namespaces: %w", err)
 	}
 	fmt.Println("Ensured namespaces exist in all clusters.")
 
 	if err := createServiceAccountsAndRoles(ctx, clientMap, flags); err != nil {
-		return fmt.Errorf("failed creating service accounts and roles in all clusters: %s", err)
+		return xerrors.Errorf("failed creating service accounts and roles in all clusters: %w", err)
 	}
 	fmt.Println("Ensured ServiceAccounts and Roles.")
 
 	secrets, err := getAllWorkerClusterServiceAccountSecretTokens(ctx, clientMap, flags)
 	if err != nil {
-		return fmt.Errorf("failed to get service account secret tokens: %s", err)
+		return xerrors.Errorf("failed to get service account secret tokens: %w", err)
 	}
 
 	if len(secrets) != len(flags.memberClusters) {
-		return fmt.Errorf("required %d serviceaccount tokens but found only %d\n", len(flags.memberClusters), len(secrets))
+		return xerrors.Errorf("required %d serviceaccount tokens but found only %d\n", len(flags.memberClusters), len(secrets))
 	}
 
 	kubeConfig, err := createKubeConfigFromServiceAccountTokens(secrets, flags)
 	if err != nil {
-		return fmt.Errorf("failed to create kube config from service account tokens: %s", err)
+		return xerrors.Errorf("failed to create kube config from service account tokens: %w", err)
 	}
 
 	kubeConfigBytes, err := yaml.Marshal(kubeConfig)
 	if err != nil {
-		return fmt.Errorf("failed to marshal kubeconfig: %s", err)
+		return xerrors.Errorf("failed to marshal kubeconfig: %w", err)
 	}
 
 	centralClusterClient := clientMap[flags.centralCluster]
 	if err != nil {
-		return fmt.Errorf("failed to get central cluster clientset: %s", err)
+		return xerrors.Errorf("failed to get central cluster clientset: %w", err)
 	}
 
 	if err := createKubeConfigSecret(ctx, centralClusterClient, kubeConfigBytes, flags); err != nil {
-		return fmt.Errorf("failed creating KubeConfig secret: %s", err)
+		return xerrors.Errorf("failed creating KubeConfig secret: %w", err)
 	}
 
 	if flags.sourceCluster != "" {
 		if err := setupDatabaseRoles(ctx, clientMap, flags); err != nil {
-			return fmt.Errorf("failed setting up database roles: %s", err)
+			return xerrors.Errorf("failed setting up database roles: %w", err)
 		}
 		fmt.Println("Ensured database Roles in member clusters.")
 	} else if flags.installDatabaseRoles {
 		if err := installDatabaseRoles(ctx, clientMap, flags); err != nil {
-			return fmt.Errorf("failed installing database roles: %s", err)
+			return xerrors.Errorf("failed installing database roles: %w", err)
 		}
 		fmt.Println("Ensured database Roles in member clusters.")
 	}
@@ -595,13 +596,13 @@ func createKubeConfigSecret(ctx context.Context, centralClusterClient kubernetes
 	_, err := centralClusterClient.CoreV1().Secrets(flags.centralClusterNamespace).Create(ctx, &kubeConfigSecret, metav1.CreateOptions{})
 
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("failed creating secret: %s", err)
+		return xerrors.Errorf("failed creating secret: %w", err)
 	}
 
 	if errors.IsAlreadyExists(err) {
 		_, err = centralClusterClient.CoreV1().Secrets(flags.centralClusterNamespace).Update(ctx, &kubeConfigSecret, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed updating existing secret: %s", err)
+			return xerrors.Errorf("failed updating existing secret: %w", err)
 		}
 	}
 
@@ -770,7 +771,7 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 
 	_, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating service account: %s", err)
+		return xerrors.Errorf("error creating service account: %w", err)
 	}
 
 	if !clusterScoped {
@@ -783,13 +784,13 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 
 		_, err = c.RbacV1().Roles(sa.Namespace).Create(ctx, &role, metav1.CreateOptions{})
 		if !errors.IsAlreadyExists(err) && err != nil {
-			return fmt.Errorf("error creating role: %s", err)
+			return xerrors.Errorf("error creating role: %w", err)
 		}
 
 		roleBinding := buildRoleBinding(role, sa.Name)
 		_, err = c.RbacV1().RoleBindings(sa.Namespace).Create(ctx, &roleBinding, metav1.CreateOptions{})
 		if !errors.IsAlreadyExists(err) && err != nil {
-			return fmt.Errorf("error creating role binding: %s", err)
+			return xerrors.Errorf("error creating role binding: %w", err)
 		}
 		return nil
 	}
@@ -803,14 +804,14 @@ func createServiceAccountAndRoles(ctx context.Context, c kubernetes.Interface, s
 
 	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating cluster role: %s", err)
+		return xerrors.Errorf("error creating cluster role: %w", err)
 	}
 	fmt.Printf("created clusterrole: %s\n", clusterRole.Name)
 
 	clusterRoleBinding := buildClusterRoleBinding(clusterRole, sa)
 	_, err = c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating cluster role binding: %s", err)
+		return xerrors.Errorf("error creating cluster role binding: %w", err)
 	}
 	fmt.Printf("created clusterrolebinding: %s\n", clusterRoleBinding.Name)
 	return nil
@@ -863,7 +864,7 @@ func createServiceAccountTokenSecret(ctx context.Context, c kubernetes.Interface
 
 	_, err := c.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("cannot create secret %+v: %s", *secret, err)
+		return xerrors.Errorf("cannot create secret %+v: %w", *secret, err)
 	}
 
 	return nil
@@ -880,12 +881,12 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 		tokenSecret := serviceAccountTokens[clusterName]
 		ca, ok := tokenSecret.Data["ca.crt"]
 		if !ok {
-			return KubeConfigFile{}, fmt.Errorf("key 'ca.crt' missing from token secret %s", tokenSecret.Name)
+			return KubeConfigFile{}, xerrors.Errorf("key 'ca.crt' missing from token secret %s", tokenSecret.Name)
 		}
 
 		token, ok := tokenSecret.Data["token"]
 		if !ok {
-			return KubeConfigFile{}, fmt.Errorf("key 'token' missing from token secret %s", tokenSecret.Name)
+			return KubeConfigFile{}, xerrors.Errorf("key 'token' missing from token secret %s", tokenSecret.Name)
 		}
 
 		config.Clusters = append(config.Clusters, KubeConfigClusterItem{
@@ -929,14 +930,14 @@ func getAllWorkerClusterServiceAccountSecretTokens(ctx context.Context, clientSe
 		c := clientSetMap[cluster]
 		sas, err := getServiceAccounts(ctx, c, flags.memberClusterNamespace)
 		if err != nil {
-			return nil, fmt.Errorf("failed getting service accounts: %s", err)
+			return nil, xerrors.Errorf("failed getting service accounts: %w", err)
 		}
 
 		for _, sa := range sas {
 			if sa.Name == flags.serviceAccount {
 				token, err := getServiceAccountToken(ctx, c, sa)
 				if err != nil {
-					return nil, fmt.Errorf("failed getting service account token: %s", err)
+					return nil, xerrors.Errorf("failed getting service account token: %w", err)
 				}
 				allSecrets[cluster] = *token
 			}
@@ -949,7 +950,7 @@ func getServiceAccounts(ctx context.Context, lister kubernetes.Interface, namesp
 	saList, err := lister.CoreV1().ServiceAccounts(namespace).List(ctx, metav1.ListOptions{})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to list service accounts in member cluster namespace %s: %s", namespace, err)
+		return nil, xerrors.Errorf("failed to list service accounts in member cluster namespace %s: %w", namespace, err)
 	}
 	return saList.Items, nil
 }
@@ -958,7 +959,7 @@ func getServiceAccounts(ctx context.Context, lister kubernetes.Interface, namesp
 func getServiceAccountToken(ctx context.Context, secretLister kubernetes.Interface, sa corev1.ServiceAccount) (*corev1.Secret, error) {
 	secretList, err := secretLister.CoreV1().Secrets(sa.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list secrets in member cluster namespace %s: %s", sa.Namespace, err)
+		return nil, xerrors.Errorf("failed to list secrets in member cluster namespace %s: %w", sa.Namespace, err)
 	}
 	for _, secret := range secretList.Items {
 		// found the associated service account token.
@@ -966,14 +967,14 @@ func getServiceAccountToken(ctx context.Context, secretLister kubernetes.Interfa
 			return &secret, nil
 		}
 	}
-	return nil, fmt.Errorf("no service account token found for serviceaccount: %s", sa.Name)
+	return nil, xerrors.Errorf("no service account token found for serviceaccount: %w", sa.Name)
 }
 
 // copySecret copies a Secret from a source cluster to a target cluster
 func copySecret(ctx context.Context, src, dst kubernetes.Interface, namespace, name string) error {
 	secret, err := src.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed retrieving secret: %s from source cluster: %s", name, err)
+		return xerrors.Errorf("failed retrieving secret: %w from source cluster: %w", name, err)
 	}
 	_, err = dst.CoreV1().Secrets(namespace).Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1000,7 +1001,7 @@ func createServiceAccount(ctx context.Context, c kubernetes.Interface, serviceAc
 
 	_, err := c.CoreV1().ServiceAccounts(sa.Namespace).Create(ctx, &sa, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating service account: %s", err)
+		return xerrors.Errorf("error creating service account: %w", err)
 	}
 	return nil
 }
@@ -1044,12 +1045,12 @@ func createDatabaseRole(ctx context.Context, c kubernetes.Interface, roleName, n
 	}
 	_, err := c.RbacV1().Roles(role.Namespace).Create(ctx, &role, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating role: %s", err)
+		return xerrors.Errorf("error creating role: %w", err)
 	}
 
 	_, err = c.RbacV1().RoleBindings(roleBinding.Namespace).Create(ctx, &roleBinding, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating role binding: %s", err)
+		return xerrors.Errorf("error creating role binding: %w", err)
 	}
 	return nil
 }
@@ -1078,23 +1079,23 @@ func createDatabaseRoles(ctx context.Context, client kubernetes.Interface, f fla
 func copyDatabaseRoles(ctx context.Context, src, dst kubernetes.Interface, namespace string) error {
 	appdbSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, appdbServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed retrieving service account %s from source cluster: %s", appdbServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", appdbServiceAccount, err)
 	}
 	dbpodsSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, databasePodsServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed retrieving service account %s from source cluster: %s", databasePodsServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", databasePodsServiceAccount, err)
 	}
 	opsManagerSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, opsManagerServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed retrieving service account %s from source cluster: %s", opsManagerServiceAccount, err)
+		return xerrors.Errorf("failed retrieving service account %s from source cluster: %w", opsManagerServiceAccount, err)
 	}
 	appdbR, err := src.RbacV1().Roles(namespace).Get(ctx, appdbRole, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed retrieving role %s from source cluster: %s", appdbRole, err)
+		return xerrors.Errorf("failed retrieving role %s from source cluster: %w", appdbRole, err)
 	}
 	appdbRB, err := src.RbacV1().RoleBindings(namespace).Get(ctx, appdbRoleBinding, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed retrieving role binding %s from source cluster: %s", appdbRoleBinding, err)
+		return xerrors.Errorf("failed retrieving role binding %s from source cluster: %w", appdbRoleBinding, err)
 	}
 	if len(appdbSA.ImagePullSecrets) > 0 {
 		if err := copySecret(ctx, src, dst, namespace, appdbSA.ImagePullSecrets[0].Name); err != nil {
@@ -1120,7 +1121,7 @@ func copyDatabaseRoles(ctx context.Context, src, dst kubernetes.Interface, names
 		ImagePullSecrets: appdbSA.DeepCopy().ImagePullSecrets,
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating service account: %s", err)
+		return xerrors.Errorf("error creating service account: %w", err)
 	}
 	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1130,7 +1131,7 @@ func copyDatabaseRoles(ctx context.Context, src, dst kubernetes.Interface, names
 		ImagePullSecrets: dbpodsSA.DeepCopy().ImagePullSecrets,
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating service account: %s", err)
+		return xerrors.Errorf("error creating service account: %w", err)
 
 	}
 	_, err = dst.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
@@ -1141,7 +1142,7 @@ func copyDatabaseRoles(ctx context.Context, src, dst kubernetes.Interface, names
 		ImagePullSecrets: opsManagerSA.DeepCopy().ImagePullSecrets,
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating service account: %s", err)
+		return xerrors.Errorf("error creating service account: %w", err)
 	}
 
 	_, err = dst.RbacV1().Roles(namespace).Create(ctx, &rbacv1.Role{
@@ -1152,7 +1153,7 @@ func copyDatabaseRoles(ctx context.Context, src, dst kubernetes.Interface, names
 		Rules: appdbR.DeepCopy().Rules,
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating role: %s", err)
+		return xerrors.Errorf("error creating role: %w", err)
 	}
 	_, err = dst.RbacV1().RoleBindings(namespace).Create(ctx, &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1163,7 +1164,7 @@ func copyDatabaseRoles(ctx context.Context, src, dst kubernetes.Interface, names
 		RoleRef:  appdbRB.DeepCopy().RoleRef,
 	}, metav1.CreateOptions{})
 	if !errors.IsAlreadyExists(err) && err != nil {
-		return fmt.Errorf("error creating role binding: %s", err)
+		return xerrors.Errorf("error creating role binding: %w", err)
 	}
 
 	return nil
@@ -1213,12 +1214,12 @@ func replaceClusterMembersConfigMap(ctx context.Context, centralClusterClient ku
 	_, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Create(ctx, &members, metav1.CreateOptions{})
 
 	if err != nil && !errors.IsAlreadyExists(err) {
-		return fmt.Errorf("failed creating secret: %s", err)
+		return xerrors.Errorf("failed creating secret: %w", err)
 	}
 
 	if errors.IsAlreadyExists(err) {
 		if _, err := centralClusterClient.CoreV1().ConfigMaps(flags.centralClusterNamespace).Update(ctx, &members, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("error creating configmap: %s", err)
+			return xerrors.Errorf("error creating configmap: %w", err)
 		}
 	}
 

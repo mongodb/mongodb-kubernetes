@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/provisioner"
 	flag "github.com/spf13/pflag"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -50,7 +50,7 @@ func clusterSizeToNodeInstanceSize(size string) (string, error) {
 	case custom:
 		return "t2.2xlarge", nil
 	default:
-		return "", fmt.Errorf("got an invalid cluster size: %s", size)
+		return "", xerrors.Errorf("got an invalid cluster size: %s", size)
 	}
 }
 

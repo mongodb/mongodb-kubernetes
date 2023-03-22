@@ -14,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/hashicorp/vault/api"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -99,7 +100,7 @@ type VaultClient struct {
 func readVaultConfig(client *kubernetes.Clientset) VaultConfiguration {
 	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(context.TODO(), "secret-configuration", v1.GetOptions{})
 	if err != nil {
-		panic(fmt.Errorf("error reading vault configmap: %v", err))
+		panic(xerrors.Errorf("error reading vault configmap: %w", err))
 	}
 
 	config := VaultConfiguration{
@@ -126,23 +127,23 @@ func setTLSConfig(config *api.Config, client *kubernetes.Clientset, tlsSecretRef
 	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(context.TODO(), tlsSecretRef, v1.GetOptions{})
 
 	if err != nil {
-		return fmt.Errorf("can't read tls secret %s for vault: %s", tlsSecretRef, err)
+		return xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
 	}
 
 	// Read the secret and write ca.crt to a temporary file
 	caData := secret.Data["ca.crt"]
 	f, err := ioutil.TempFile("/tmp", "VaultCAData")
 	if err != nil {
-		return fmt.Errorf("can't create temporary file for CA data: %s", err)
+		return xerrors.Errorf("can't create temporary file for CA data: %w", err)
 	}
 	defer f.Close()
 
 	_, err = f.Write(caData)
 	if err != nil {
-		return fmt.Errorf("can't write caData to file %s: %s", f.Name(), err)
+		return xerrors.Errorf("can't write caData to file %s: %w", f.Name(), err)
 	}
 	if err = f.Sync(); err != nil {
-		return fmt.Errorf("can't call Sync on file %s: %s", f.Name(), err)
+		return xerrors.Errorf("can't call Sync on file %s: %w", f.Name(), err)
 
 	}
 
@@ -179,7 +180,7 @@ func (v *VaultClient) Login() error {
 	// Read the service-account token from the path where the token's Kubernetes Secret is mounted.
 	jwt, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
 	if err != nil {
-		return fmt.Errorf("unable to read file containing service account token: %w", err)
+		return xerrors.Errorf("unable to read file containing service account token: %w", err)
 	}
 
 	params := map[string]interface{}{
@@ -190,11 +191,11 @@ func (v *VaultClient) Login() error {
 	// log in to Vault's Kubernetes auth method
 	resp, err := v.client.Logical().Write("auth/kubernetes/login", params)
 	if err != nil {
-		return fmt.Errorf("unable to log in with Kubernetes auth: %w", err)
+		return xerrors.Errorf("unable to log in with Kubernetes auth: %w", err)
 	}
 
 	if resp == nil || resp.Auth == nil || resp.Auth.ClientToken == "" {
-		return fmt.Errorf("login response did not return client token")
+		return xerrors.Errorf("login response did not return client token")
 	}
 
 	// will use the resulting Vault token for making all future calls to Vault
@@ -204,7 +205,7 @@ func (v *VaultClient) Login() error {
 
 func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
 	if err := v.Login(); err != nil {
-		return fmt.Errorf("unable to log in: %s", err)
+		return xerrors.Errorf("unable to log in: %w", err)
 	}
 	_, err := v.client.Logical().Write(path, data)
 	if err != nil {
@@ -229,14 +230,14 @@ func (v *VaultClient) ReadSecretVersion(path string) (int, error) {
 
 func (v *VaultClient) ReadSecret(path string) (*api.Secret, error) {
 	if err := v.Login(); err != nil {
-		return nil, fmt.Errorf("unable to log in: %s", err)
+		return nil, xerrors.Errorf("unable to log in: %w", err)
 	}
 	secret, err := v.client.Logical().Read(path)
 	if err != nil {
-		return nil, fmt.Errorf("can't read secret from vault: %s", err)
+		return nil, xerrors.Errorf("can't read secret from vault: %w", err)
 	}
 	if secret == nil {
-		return nil, fmt.Errorf("secret not found at %s", path)
+		return nil, xerrors.Errorf("secret not found at %s", path)
 	}
 	return secret, nil
 }

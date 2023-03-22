@@ -1,10 +1,9 @@
 package project
 
 import (
-	"fmt"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
@@ -30,11 +29,11 @@ type Reader interface {
 func ReadConfigAndCredentials(cmGetter configmap.Getter, secretGetter secrets.SecretClient, reader Reader, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
 	projectConfig, err := ReadProjectConfig(cmGetter, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
 	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading project %s", err)
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading project %w", err)
 	}
 	credsConfig, err := ReadCredentials(secretGetter, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), log)
 	if err != nil {
-		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, fmt.Errorf("error reading Credentials secret: %s", err)
+		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading Credentials secret: %w", err)
 	}
 	return projectConfig, credsConfig, nil
 }
@@ -124,7 +123,7 @@ func findOrganization(orgID string, projectName string, conn om.Connection, log 
 
 	organization, err := conn.ReadOrganization(orgID)
 	if err != nil {
-		return nil, fmt.Errorf("organization with id %s not found: %s", orgID, err)
+		return nil, xerrors.Errorf("organization with id %s not found: %w", orgID, err)
 	}
 	return organization, nil
 }
@@ -133,7 +132,7 @@ func findOrganization(orgID string, projectName string, conn om.Connection, log 
 func findProject(projectName string, organization *om.Organization, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
 	project, err := findProjectInsideOrganization(conn, projectName, organization, log)
 	if err != nil {
-		return nil, fmt.Errorf("error finding project %s in organization with id %s: %s", projectName, organization, err)
+		return nil, xerrors.Errorf("error finding project %s in organization with id %s: %w", projectName, organization, err)
 	}
 	if project != nil {
 		return project, nil
@@ -165,7 +164,7 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 		}
 	}
 
-	return nil, fmt.Errorf("could not find project %s in organization %s", projectName, organization.ID)
+	return nil, xerrors.Errorf("could not find project %s in organization %s", projectName, organization.ID)
 }
 
 func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {
@@ -191,7 +190,7 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 		}
 	}
 
-	return "", fmt.Errorf("could not find organization %s: %s", name, err)
+	return "", xerrors.Errorf("could not find organization %s: %w", name, err)
 }
 
 func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
@@ -215,7 +214,7 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 	ans, err := conn.CreateProject(group)
 
 	if err != nil {
-		return nil, fmt.Errorf("Error creating project \"%s\" in Ops Manager: %s", group, err)
+		return nil, xerrors.Errorf("Error creating project \"%s\" in Ops Manager: %w", group, err)
 	}
 
 	log.Infow("Project successfully created", "id", ans.ID)

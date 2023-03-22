@@ -1,12 +1,12 @@
 package operator
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -116,7 +116,7 @@ type mockSecretGetter struct {
 
 func (m mockSecretGetter) GetSecret(_ client.ObjectKey) (corev1.Secret, error) {
 	if m.secret == nil {
-		return corev1.Secret{}, fmt.Errorf("not found")
+		return corev1.Secret{}, xerrors.Errorf("not found")
 	}
 	return *m.secret, nil
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
@@ -440,7 +441,7 @@ func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) 
 			return project, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to find project")
+	return nil, xerrors.Errorf("failed to find project")
 }
 
 func (oc *MockedOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.Config, error) {
@@ -715,7 +716,7 @@ func (oc *MockedOmConnection) findOrganization(orgId string) (*Organization, err
 			return k, nil
 		}
 	}
-	return nil, apierror.New(fmt.Errorf("Organization with id %s not found", orgId))
+	return nil, apierror.New(xerrors.Errorf("Organization with id %s not found", orgId))
 }
 
 func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion {

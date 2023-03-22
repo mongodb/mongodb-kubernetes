@@ -1,9 +1,8 @@
 package project
 
 import (
-	"fmt"
-
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -27,7 +26,7 @@ func ReadCredentials(secretClient secrets.SecretClient, credentialsSecret client
 	newSecretEntries, publicKey, privateKey := secretContainsPairOfKeys(secret, util.OmPublicApiKey, util.OmPrivateKey)
 
 	if !(oldSecretEntries || newSecretEntries) {
-		return mdbv1.Credentials{}, fmt.Errorf("secret %s does not contain the required entries. It should contain either %s and %s, or %s and %s", credentialsSecret, util.OldOmUser, util.OldOmPublicApiKey, util.OmPublicApiKey, util.OmPrivateKey)
+		return mdbv1.Credentials{}, xerrors.Errorf("secret %s does not contain the required entries. It should contain either %s and %s, or %s and %s", credentialsSecret, util.OldOmUser, util.OldOmPublicApiKey, util.OmPublicApiKey, util.OmPrivateKey)
 	}
 
 	if oldSecretEntries {

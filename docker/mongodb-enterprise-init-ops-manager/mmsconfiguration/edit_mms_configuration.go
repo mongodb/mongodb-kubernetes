@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -160,7 +162,7 @@ func updatePropertiesFile(propertiesFile string, newProperties map[string]string
 func readLinesFromFile(name string) ([]string, error) {
 	input, err := ioutil.ReadFile(name)
 	if err != nil {
-		return nil, fmt.Errorf("error reading file %s: %v", name, err)
+		return nil, xerrors.Errorf("error reading file %s: %w", name, err)
 	}
 	return strings.Split(string(input), lineBreak), nil
 }
@@ -170,7 +172,7 @@ func writeLinesToFile(name string, lines []string) error {
 
 	err := ioutil.WriteFile(name, []byte(output), 0775)
 	if err != nil {
-		return fmt.Errorf("error writing to file %s: %v", name, err)
+		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}
 	return nil
 }
@@ -178,11 +180,11 @@ func writeLinesToFile(name string, lines []string) error {
 func appendLinesToFile(name string, lines string) error {
 	f, err := os.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("error opening file %s: %v", name, err)
+		return xerrors.Errorf("error opening file %s: %w", name, err)
 	}
 
 	if _, err = f.WriteString(lines); err != nil {
-		return fmt.Errorf("error writing to file %s: %v", name, err)
+		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}
 
 	err = f.Close()

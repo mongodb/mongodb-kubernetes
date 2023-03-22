@@ -3,12 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/xerrors"
 )
 
 type mockHttpGetter struct {
@@ -71,7 +71,7 @@ func TestCheckHealthEndpoint(t *testing.T) {
 	})
 
 	t.Run("Test error from http client fails", func(t *testing.T) {
-		m := newMockHttpGetter(200, nil, fmt.Errorf("error"))
+		m := newMockHttpGetter(200, nil, xerrors.Errorf("error"))
 		code := checkHealthEndpoint(m)
 		assert.Equal(t, 1, code)
 	})

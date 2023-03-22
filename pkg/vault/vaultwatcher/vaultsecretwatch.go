@@ -22,7 +22,7 @@ func WatchSecretChangeForMDB(log *zap.SugaredLogger, watchChannel chan event.Gen
 		mdbList := &mdbv1.MongoDBList{}
 		err := k8sClient.List(context.TODO(), mdbList, &client.ListOptions{Namespace: ""})
 		if err != nil {
-			log.Errorf("failed to fetch MongoDBList from Kubernetes: %w", err)
+			log.Errorf("failed to fetch MongoDBList from Kubernetes: %s", err)
 		}
 
 		for n, mdb := range mdbList.Items {
@@ -59,7 +59,7 @@ func WatchSecretChangeForOM(log *zap.SugaredLogger, watchChannel chan event.Gene
 		omList := &omv1.MongoDBOpsManagerList{}
 		err := k8sClient.List(context.TODO(), omList, &client.ListOptions{Namespace: ""})
 		if err != nil {
-			log.Errorf("failed to fetch MongoDBOpsManagerList from Kubernetes: %w", err)
+			log.Errorf("failed to fetch MongoDBOpsManagerList from Kubernetes: %s", err)
 		}
 
 		triggeredReconciliation := false

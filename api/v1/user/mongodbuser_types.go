@@ -7,6 +7,7 @@ import (
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -54,15 +55,15 @@ func (user MongoDBUser) GetPassword(secretClient secrets.SecretClient) (string, 
 	}
 	secretData, err := secretClient.ReadSecret(nsName, databaseSecretPath)
 	if err != nil {
-		return "", fmt.Errorf("could not retrieve user password secret: %s", err)
+		return "", xerrors.Errorf("could not retrieve user password secret: %w", err)
 	}
 
 	passwordBytes, passwordIsSet := secretData[user.Spec.PasswordSecretKeyRef.Key]
 	if !passwordIsSet {
-		return "", fmt.Errorf("password is not set in password secret")
+		return "", xerrors.Errorf("password is not set in password secret")
 	}
 
-	return string(passwordBytes), nil
+	return passwordBytes, nil
 }
 
 // SecretKeyRef is a reference to a value in a given secret in the same

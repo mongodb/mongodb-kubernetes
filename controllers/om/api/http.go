@@ -5,18 +5,19 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/prometheus/client_golang/prometheus"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"go.uber.org/zap"
 
@@ -204,7 +205,7 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, apierror.New(fmt.Errorf("error sending %s request to %s: %v", method, url, err))
+		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
 	}
 
 	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
@@ -219,7 +220,7 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		return nil, nil, apierror.New(fmt.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+		return nil, nil, apierror.New(xerrors.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -253,7 +254,7 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *r
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		return apierror.New(
-			fmt.Errorf(
+			xerrors.Errorf(
 				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
 				resp.StatusCode,
 				resp.Status,

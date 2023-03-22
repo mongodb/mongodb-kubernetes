@@ -2,8 +2,9 @@ package watch
 
 import (
 	"fmt"
-	"github.com/google/go-cmp/cmp"
 	"reflect"
+
+	"github.com/google/go-cmp/cmp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"go.uber.org/zap"

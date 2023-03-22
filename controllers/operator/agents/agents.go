@@ -3,7 +3,9 @@ package agents
 import (
 	"errors"
 	"fmt"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"golang.org/x/xerrors"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -45,7 +47,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 
 			agentKey, err = agentKeyGenerator.GenerateAgentKey()
 			if err != nil {
-				return fmt.Errorf("failed to generate agent key in OM: %s", err)
+				return xerrors.Errorf("failed to generate agent key in OM: %w", err)
 			}
 			log.Info("Agent key was successfully generated")
 		}
@@ -63,7 +65,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 			if err != nil && secrets.SecretNotExist(err) {
 				err = secretGetCreator.VaultClient.PutSecret(APIKeyPath, data)
 				if err != nil {
-					return fmt.Errorf("failed to create AgentKey secret in vault: %s", err)
+					return xerrors.Errorf("failed to create AgentKey secret in vault: %w", err)
 				}
 				log.Infof("Project agent key is saved in Vault")
 				return nil
@@ -76,7 +78,7 @@ func EnsureAgentKeySecretExists(secretGetCreator secrets.SecretClient, agentKeyG
 			if apiErrors.IsAlreadyExists(err) {
 				return nil
 			}
-			return fmt.Errorf("failed to create Secret: %s", err)
+			return xerrors.Errorf("failed to create Secret: %w", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
 		return nil

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -56,21 +58,21 @@ func getHealthResponse(getter httpGetter) (HealthResponse, error) {
 	resp, err := getter.Get(url)
 
 	if err != nil {
-		return HealthResponse{}, fmt.Errorf("failed to reach health endpoint: %s", err)
+		return HealthResponse{}, xerrors.Errorf("failed to reach health endpoint: %w", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return HealthResponse{}, fmt.Errorf("received status code [%d] but expected [200]", resp.StatusCode)
+		return HealthResponse{}, xerrors.Errorf("received status code [%d] but expected [200]", resp.StatusCode)
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return HealthResponse{}, fmt.Errorf("failed to read response body: %s", err)
+		return HealthResponse{}, xerrors.Errorf("failed to read response body: %w", err)
 	}
 
 	hr := HealthResponse{}
 	if err := json.Unmarshal(body, &hr); err != nil {
-		return HealthResponse{}, fmt.Errorf("failed to unmarshal response: %s", err)
+		return HealthResponse{}, xerrors.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	return hr, nil

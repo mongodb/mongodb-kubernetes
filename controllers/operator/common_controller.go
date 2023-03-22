@@ -3,8 +3,10 @@ package operator
 import (
 	"context"
 	"encoding/json"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"reflect"
+
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
 
@@ -102,7 +104,7 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 			panic(fmt.Sprintf("Can not initialize vault client: %s", err))
 		}
 		if err := vaultClient.Login(); err != nil {
-			panic(fmt.Errorf("unable to log in with vault client: %s", err))
+			panic(xerrors.Errorf("unable to log in with vault client: %w", err))
 		}
 	}
 	return &ReconcileCommonController{
@@ -119,7 +121,7 @@ func newReconcileCommonController(mgr manager.Manager) *ReconcileCommonControlle
 func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.SugaredLogger) workflow.Status {
 	d, err := conn.ReadDeployment()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 	dRoles := d.GetRoles()
 	if reflect.DeepEqual(dRoles, roles) {
@@ -141,7 +143,7 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 		log,
 	)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 	return workflow.OK()
 }
@@ -270,7 +272,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 	excessProcesses := deployment.GetNumberOfExcessProcesses(resource.Name)
 	if excessProcesses == 0 {
@@ -303,7 +305,7 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 		configurator.GetSecretWriteClient(),
 		secretName, opts, log)
 	if err != nil {
-		return fmt.Errorf("the secret object '%s' does not contain all the certificates needed: %s", secretName, err)
+		return xerrors.Errorf("the secret object '%s' does not contain all the certificates needed: %w", secretName, err)
 	}
 
 	secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
@@ -320,7 +322,7 @@ func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(con
 	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(mdb, secretsReader, conn.GroupID(), conn, conn, conn, log)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(mdb, statusOpt, log, opts...); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 	return statusOpt
@@ -330,7 +332,7 @@ func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(con
 func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.Status {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if status := validateScram(mdb, ac); !status.IsOK() {
@@ -345,7 +347,7 @@ func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
 	if !omVersionString.IsCloudManager() {
 		omVersion, err := omVersionString.Semver()
 		if err != nil {
-			return workflow.Failed("Failed when trying to parse Ops Manager version")
+			return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
 		}
 		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
 			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
@@ -383,7 +385,7 @@ func getStatefulSetStatus(namespace, name string, client kubernetesClient.Client
 	}
 
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if statefulSetState := inspect.StatefulSet(set); !statefulSetState.IsReady() {
@@ -399,7 +401,7 @@ func getStatefulSetStatus(namespace, name string, client kubernetesClient.Client
 func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status {
 	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetMongoDBVersion()))
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	scram256IsAlreadyEnabled := stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
@@ -430,7 +432,7 @@ func getSubjectFromCertificate(cert string) (string, error) {
 		}
 		return subjects, nil
 	}
-	return "", fmt.Errorf("unable to extract the subject line from the provided certificate")
+	return "", xerrors.Errorf("unable to extract the subject line from the provided certificate")
 }
 
 // updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
@@ -444,12 +446,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 
 	// we need to wait for all agents to be ready before configuring any authentication settings
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
-		return workflow.Failed(err.Error()), false
+		return workflow.Failed(err), false
 	}
 
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
-		return workflow.Failed(err.Error()), false
+		return workflow.Failed(err), false
 	}
 
 	clientCerts := util.OptionalClientCertficates
@@ -482,7 +484,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		bindUserPassword, err := r.ReadSecretKey(kube.ObjectKey(ar.GetNamespace(), ar.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
 
 		if err != nil {
-			return workflow.Failed(fmt.Sprintf("error reading bind user password: %s", err)), false
+			return workflow.Failed(xerrors.Errorf("error reading bind user password: %w", err)), false
 		}
 
 		caContents := ""
@@ -491,7 +493,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 			log.Debugf("Sending CA file to Pods via AutomationConfig: %s/%s/%s", ar.GetNamespace(), ca.Name, ca.Key)
 			caContents, err = configmap.ReadKey(r.client, ca.Key, types.NamespacedName{Name: ca.Name, Namespace: ar.GetNamespace()})
 			if err != nil {
-				return workflow.Failed(fmt.Sprintf("error reading CA configmap: %s", err)), false
+				return workflow.Failed(xerrors.Errorf("error reading CA configmap: %w", err)), false
 			}
 		}
 
@@ -511,7 +513,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		if ar.GetSecurity().ShouldUseX509(ac.Auth.AutoAuthMechanism) || ar.GetSecurity().ShouldUseClientCertificates() {
 			agentSecret := &corev1.Secret{}
 			if err := r.client.Get(context.TODO(), kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-				return workflow.Failed(err.Error()), false
+				return workflow.Failed(err), false
 			}
 			// If the agent secret is of type TLS, we can find the certificate under the standard key,
 			// otherwise the concatenated PEM secret would contain the certificate and keys under the selector's
@@ -525,7 +527,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 
 			authOpts, err = r.configureAgentSubjects(ar.GetNamespace(), agentSecretSelector, authOpts, log)
 			if err != nil {
-				return workflow.Failed("error configuring agent subjects: %v", err), false
+				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
 			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
 
@@ -534,7 +536,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
 			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(ar.GetNamespace(), secretRef.Name), databaseSecretPath, secretRef.Key)
 			if err != nil {
-				return workflow.Failed(fmt.Sprintf("error reading automation agent  password: %s", err)), false
+				return workflow.Failed(xerrors.Errorf("error reading automation agent  password: %w", err)), false
 			}
 
 			authOpts.AutoPwd = autoConfigPassword
@@ -545,7 +547,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		}
 
 		if err := authentication.Configure(conn, authOpts, log); err != nil {
-			return workflow.Failed(err.Error()), false
+			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
 		// The MongoDB resource has been configured with a type of authentication
@@ -556,7 +558,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 	} else {
 		agentSecret := &corev1.Secret{}
 		if err := r.client.Get(context.TODO(), kube.ObjectKey(ar.GetNamespace(), agentSecretSelector.Name), agentSecret); client.IgnoreNotFound(err) != nil {
-			return workflow.Failed(err.Error()), false
+			return workflow.Failed(err), false
 		}
 
 		if agentSecret.Type == corev1.SecretTypeTLS {
@@ -568,12 +570,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 		userOpts, err := r.readAgentSubjectsFromSecret(ar.GetNamespace(), agentSecretSelector, log)
 		err = client.IgnoreNotFound(err)
 		if err != nil {
-			return workflow.Failed(err.Error()), true
+			return workflow.Failed(err), true
 		}
 
 		authOpts.UserOptions = userOpts
 		if err := authentication.Disable(conn, authOpts, false, log); err != nil {
-			return workflow.Failed(err.Error()), false
+			return workflow.Failed(err), false
 		}
 	}
 	return workflow.OK(), false
@@ -584,7 +586,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 func (r *ReconcileCommonController) configureAgentSubjects(namespace string, secretKeySelector corev1.SecretKeySelector, authOpts authentication.Options, log *zap.SugaredLogger) (authentication.Options, error) {
 	userOpts, err := r.readAgentSubjectsFromSecret(namespace, secretKeySelector, log)
 	if err != nil {
-		return authentication.Options{}, fmt.Errorf("error reading agent subjects from secret: %v", err)
+		return authentication.Options{}, xerrors.Errorf("error reading agent subjects from secret: %w", err)
 	}
 	authOpts.UserOptions = userOpts
 	return authOpts, nil
@@ -604,12 +606,12 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(namespace string
 
 	automationAgentCert, ok := agentCerts[secretKeySelector.Key]
 	if !ok {
-		return userOpts, fmt.Errorf("could not find certificate with name %s", secretKeySelector.Key)
+		return userOpts, xerrors.Errorf("could not find certificate with name %s", secretKeySelector.Key)
 	}
 
 	automationAgentSubject, err := getSubjectFromCertificate(automationAgentCert)
 	if err != nil {
-		return userOpts, fmt.Errorf("error extracting automation agent subject is not present %e", err)
+		return userOpts, xerrors.Errorf("error extracting automation agent subject is not present %w", err)
 	}
 
 	log.Debugf("Automation certificate subject is %s", automationAgentSubject)
@@ -653,7 +655,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 
 	if configurator.GetDbCommonSpec().GetSecurity().ShouldUseX509(currentAuthMechanism) {
 		if !configurator.GetDbCommonSpec().GetSecurity().IsTLSEnabled() {
-			return workflow.Failed("Authentication mode for project is x509 but this MDB resource is not TLS enabled")
+			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
 		agentSecretName := configurator.GetDbCommonSpec().GetSecurity().AgentClientCertificateSecretName(configurator.GetName()).Name
 		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
@@ -661,7 +663,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 			kube.ObjectKey(configurator.GetNamespace(), agentSecretName),
 			log)
 		if err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -674,7 +676,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 			}
 		}
 		if len(errors) > 0 {
-			return workflow.Failed("failed ensuring internal cluster authentication certs %s", errors[0])
+			return workflow.Failed(xerrors.Errorf("failed ensuring internal cluster authentication certs %w", errors[0]))
 		}
 	}
 
@@ -684,7 +686,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(),
 			kube.ObjectKey(configurator.GetNamespace(), agentSecretName.Name), log)
 		if err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -734,7 +736,7 @@ func UpdatePrometheus(d *om.Deployment, conn om.Connection, prometheus *mdbcv1.P
 		if !ok {
 			errMsg := fmt.Sprintf("Prometheus password %s not in Secret %s", prometheus.GetPasswordKey(), passwordString)
 			log.Info(errMsg)
-			return fmt.Errorf(errMsg)
+			return xerrors.Errorf(errMsg)
 		}
 	} else {
 		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: namespace}
@@ -793,7 +795,7 @@ func getVolumeFromStatefulSet(sts appsv1.StatefulSet, name string) (corev1.Volum
 			return v, nil
 		}
 	}
-	return corev1.Volume{}, fmt.Errorf("can't find volume %s in list of volumes: %v", name, sts.Spec.Template.Spec.Volumes)
+	return corev1.Volume{}, xerrors.Errorf("can't find volume %s in list of volumes: %v", name, sts.Spec.Template.Spec.Volumes)
 }
 
 // wasTLSSecretMounted checks whether or not TLS was previously enabled by looking at the state of the volumeMounts of the pod.
@@ -986,12 +988,12 @@ type PrometheusConfiguration struct {
 func ReconcileReplicaSetAC(d om.Deployment, processes []om.Process, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
-		return fmt.Errorf("cannot disable x509 internal cluster authentication")
+		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
 	excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
 	if excessProcesses > 0 {
-		return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 	}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, log)

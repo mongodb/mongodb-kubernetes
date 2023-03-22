@@ -1,7 +1,6 @@
 package create
 
 import (
-	"fmt"
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -13,6 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	appsv1 "k8s.io/api/apps/v1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -115,7 +115,7 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.Mo
 		stsNamespacedName := kube.ObjectKey(opsManager.Namespace, opsManager.BackupStatefulSetName())
 		err = client.DeleteStatefulSet(stsNamespacedName)
 		if err != nil {
-			return false, fmt.Errorf("failed while trying to delete previous backup daemon statefulset: %s", err)
+			return false, xerrors.Errorf("failed while trying to delete previous backup daemon statefulset: %w", err)
 		}
 		return true, nil
 	}
@@ -187,7 +187,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 func addQueryableBackupPortToService(opsManager omv1.MongoDBOpsManager, service *corev1.Service, portName string) error {
 	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
 	if err != nil {
-		return fmt.Errorf("can't parse queryable backup port: %s", err)
+		return xerrors.Errorf("can't parse queryable backup port: %w", err)
 	}
 	service.Spec.Ports[0].Name = portName
 	service.Spec.Ports = append(service.Spec.Ports, corev1.ServicePort{

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/s3"
+	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -25,7 +26,7 @@ func getPodNameForJob(ctx context.Context, c kubernetes.Clientset, jobName, name
 	}
 
 	if len(pod.Items) != 1 {
-		return "", fmt.Errorf("more than one or zero pod found with job selector: %s", labelSelector)
+		return "", xerrors.Errorf("more than one or zero pod found with job selector: %w", labelSelector)
 	}
 
 	return pod.Items[0].ObjectMeta.Name, nil
@@ -53,7 +54,7 @@ func ParseAndUploadYCSBPodLogs(ctx context.Context, c kubernetes.Clientset, name
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return xerrors.Errorf("%s", output)
 	}
 
 	results := from(string(output), "[OVERALL]")
@@ -62,12 +63,12 @@ func ParseAndUploadYCSBPodLogs(ctx context.Context, c kubernetes.Clientset, name
 	// Upload ycsb the data to S3
 	s, err := s3.NewS3Session()
 	if err != nil {
-		return fmt.Errorf("error while creating s3 session: %v", err)
+		return xerrors.Errorf("error while creating s3 session: %w", err)
 	}
 
 	err = s3.UploadFile(ctx, s, results, "ycsb")
 	if err != nil {
-		return fmt.Errorf("error while uploading to s3: %v", err)
+		return xerrors.Errorf("error while uploading to s3: %w", err)
 	}
 
 	log.Printf("successfully uploaded ycsb results to s3")

@@ -4,11 +4,11 @@ import (
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 )
 
 type MongoDbResourceType string
@@ -134,7 +134,7 @@ func disableBackup(readUpdater ConfigHostReadUpdater, backupConfig *Config, log 
 		return err
 	}
 	if !waitUntilBackupReachesStatus(readUpdater, backupConfig, Inactive, log) {
-		return errors.Errorf("Failed to disable backup for host cluster in Ops Manager (timeout exhausted)")
+		return xerrors.Errorf("Failed to disable backup for host cluster in Ops Manager (timeout exhausted)")
 	}
 	return nil
 }
