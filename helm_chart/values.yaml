@@ -99,7 +99,7 @@ registry:
 
 multiCluster:
   # Specify if we want to deploy the operator in multi-cluster mode
-  enabled: false
+  clusters: []
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
   clusterClientTimeout: 10

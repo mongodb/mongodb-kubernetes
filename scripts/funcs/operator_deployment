@@ -40,11 +40,11 @@ prepare_operator_config_map() {
       config+=("--from-literal" "agent.name=mongodb-agent")
       config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database")
     fi
-
      # shellcheck disable=SC2154
     if [[ "${kube_environment_name-}" = "multi" ]]; then
+       comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
        # shellcheck disable=SC2154
-       config+=("--from-literal" "multiCluster.enabled=true")
+       config+=("--from-literal" "multiCluster.clusters={${comma_separated_list}}")
     fi
 
     if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
