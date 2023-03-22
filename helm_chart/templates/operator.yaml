@@ -1,9 +1,11 @@
+{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.operator.name }}
-  namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+  namespace: {{$ns}}
 spec:
   replicas: {{ .Values.operator.replicas }}
   selector:
@@ -48,13 +50,13 @@ spec:
             {{- range .Values.operator.watchedResources }}
             - -watch-resource={{ . }}
             {{- end }}
-          {{- if .Values.multiCluster.enabled}}
+          {{- if .Values.multiCluster.clusters }}
             - -watch-resource=mongodbmulticluster
             {{- end }}
           command:
             - /usr/local/bin/mongodb-enterprise-operator
           {{- end }}
-          {{- if .Values.multiCluster.enabled}}
+          {{- if .Values.multiCluster.clusters }}
           volumeMounts:
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
@@ -174,7 +176,7 @@ spec:
               value: '{{ (split "=" .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.enabled }}
+{{- if .Values.multiCluster.clusters }}
       volumes:
         - name: kube-config-volume
           secret:
@@ -211,4 +213,21 @@ spec:
     protocol: TCP
   selector:
     app.kubernetes.io/name: {{ .Values.operator.name }}
+{{- end }}
+
+{{- if not (lookup "v1" "ConfigMap" $ns "mongodb-enterprise-operator-member-list") }}
+{{- if .Values.multiCluster.clusters }}
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  {{- range .Values.multiCluster.clusters }}
+  {{ . | indent 1 }}: ""
+  {{- end }}
+metadata:
+  namespace: {{$ns}}
+  name: mongodb-enterprise-operator-member-list
+  labels:
+    multi-cluster: "true"
+{{- end }}
 {{- end }}

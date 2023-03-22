@@ -168,6 +168,7 @@ def _create_helm_args(
         command_args.append("--set")
 
         if "," in value:
+            # helm lists are defined with {<list>}, hence matching this means we don't have to escape.
             if not re.match("^{.+}$", value):
                 # Commas in values, but no lists, should be escaped
                 value = value.replace(",", "\,")

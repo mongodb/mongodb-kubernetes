@@ -534,6 +534,7 @@ def install_multi_cluster_operator_set_members_fn(
 ) -> Callable[[List[str]], Operator]:
     def _fn(member_cluster_names: List[str]) -> Operator:
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+        mcn = ",".join(member_cluster_names)
         return _install_multi_cluster_operator(
             namespace,
             multi_cluster_operator_installation_config,
@@ -543,7 +544,7 @@ def install_multi_cluster_operator_set_members_fn(
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
-                "multiCluster.enabled": "true",
+                "multiCluster.clusters": "{"+mcn+"}"
             },
             central_cluster_name,
         )
