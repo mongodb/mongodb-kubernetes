@@ -821,21 +821,22 @@ def run_kube_config_creation_tool(
             "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
             "multi-cluster-kube-config-creator",
         ),
+        "multicluster",
         "setup",
-        "-member-clusters",
+        "--member-clusters",
         member_clusters_str,
-        "-central-cluster",
+        "--central-cluster",
         central_cluster,
-        "-member-cluster-namespace",
+        "--member-cluster-namespace",
         member_namespace,
-        "-central-cluster-namespace",
+        "--central-cluster-namespace",
         central_namespace,
-        "-service-account",
+        "--service-account",
         service_account_name,
     ]
 
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
-        args.append("-create-service-account-secrets")
+        args.append("--create-service-account-secrets")
 
     if not local_operator():
         api_servers = get_api_servers_from_test_pod_kubeconfig(
@@ -843,7 +844,7 @@ def run_kube_config_creation_tool(
         )
 
         if len(api_servers) > 0:
-            args.append("-member-clusters-api-servers")
+            args.append("--member-clusters-api-servers")
             args.append(
                 ",".join(
                     [api_servers[member_cluster] for member_cluster in member_clusters]
@@ -851,7 +852,7 @@ def run_kube_config_creation_tool(
             )
 
     if cluster_scoped:
-        args.append("-cluster-scoped")
+        args.append("--cluster-scoped")
 
     try:
         print(f"Running multi-cluster cli setup tool: {' '.join(args)}")
@@ -905,22 +906,23 @@ def run_multi_cluster_recovery_tool(
             "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
             "multi-cluster-kube-config-creator",
         ),
+        "multicluster",
         "recover",
-        "-member-clusters",
+        "--member-clusters",
         member_clusters_str,
-        "-central-cluster",
+        "--central-cluster",
         central_cluster,
-        "-member-cluster-namespace",
+        "--member-cluster-namespace",
         member_namespace,
-        "-central-cluster-namespace",
+        "--central-cluster-namespace",
         central_namespace,
-        "-operator-name",
+        "--operator-name",
         MULTI_CLUSTER_OPERATOR_NAME,
-        "-source-cluster",
+        "--source-cluster",
         member_clusters[0],
     ]
     if cluster_scoped:
-        args.extend(["-cluster-scoped", "true"])
+        args.extend(["--cluster-scoped", "true"])
 
     try:
         print(f"Running multi-cluster cli recovery tool: {' '.join(args)}")
