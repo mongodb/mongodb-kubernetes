@@ -249,21 +249,21 @@ run_multi_cluster_kube_config_creator() {
   member_clusters=$(echo -n "${MEMBER_CLUSTERS}" | xargs | sed "s/ /,/g")
 
   params=(
-    "-member-clusters" "${member_clusters}"
-    "-central-cluster" "${CENTRAL_CLUSTER}"
-    "-member-cluster-namespace" "${NAMESPACE}"
-    "-central-cluster-namespace" "${NAMESPACE}"
-    "-service-account" "mongodb-enterprise-operator-multi-cluster"
+    "--member-clusters" "${member_clusters}"
+    "--central-cluster" "${CENTRAL_CLUSTER}"
+    "--member-cluster-namespace" "${NAMESPACE}"
+    "--central-cluster-namespace" "${NAMESPACE}"
+    "--service-account" "mongodb-enterprise-operator-multi-cluster"
   )
 
   if [[ "${OPERATOR_CLUSTER_SCOPED}" == "true" ]]; then
-    params+=("-cluster-scoped")
+    params+=("--cluster-scoped")
   fi
   if [[ "${MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS}" == "true" ]]; then
-    params+=("-create-service-account-secrets")
+    params+=("--create-service-account-secrets")
   fi
 
-  ${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} setup "${params[@]}"
+  ${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH} multicluster setup "${params[@]}"
 
   kubectl get secret -n "${NAMESPACE}" mongodb-enterprise-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${KUBE_CONFIG_PATH}"
 }

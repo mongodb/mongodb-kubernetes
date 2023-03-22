@@ -11,7 +11,7 @@
   "readinessProbeVersion": "1.0.10",
   "versionUpgradePostStartHookVersion": "1.0.4",
   "agentVersion": "12.0.15.7646-1",
-  "communityOperatorVersion": "0.7.9-0.20230209092905-1f64cf199633",
+  "communityOperatorVersion": "0.7.9-0.20230317125411-fea505fde9f9",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
