@@ -89,6 +89,11 @@ variables:
   - &go_options
     GOROOT: "/opt/golang/go1.19"
 
+  - &e2e_cloud_qa_ubi_cloudqa
+    e2e_cloud_qa_orgid_owner: ${e2e_cloud_qa_orgid_owner_ubi_cloudqa}
+    e2e_cloud_qa_apikey_owner: ${e2e_cloud_qa_apikey_owner_ubi_cloudqa}
+    e2e_cloud_qa_user_owner: ${e2e_cloud_qa_user_owner_ubi_cloudqa}
+
 parameters:
 - key: registry
   value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
@@ -403,6 +408,22 @@ functions:
   setup_kubernetes_environment:
   - *setup_kubernetes_environment_p
 
+  setup_cloud_qa_ubi_cloudqa:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      env:
+        NAMESPACE_FILE: ${workdir}/.namespace
+        ENV_FILE: ${workdir}/.ops-manager-env
+        <<: [ *e2e_cloud_qa_ubi_cloudqa ]
+      include_expansions_in_env:
+      - e2e_cloud_qa_baseurl
+      - ops_manager_version
+      - task_name
+
+      command: "scripts/evergreen/e2e/setup_cloud_qa.py create"
+
   setup_cloud_qa:
   - command: subprocess.exec
     type: setup
@@ -437,6 +458,23 @@ functions:
       env:
         NAMESPACE_FILE: ${workdir}/.namespace
         ENV_FILE: ${workdir}/.ops-manager-env
+
+      command: "scripts/evergreen/e2e/setup_cloud_qa.py delete"
+
+  teardown_cloud_qa_ubi_cloudqa:
+  - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+      - ${workdir}/bin
+      include_expansions_in_env:
+      - e2e_cloud_qa_baseurl
+      - ops_manager_version
+      env:
+        NAMESPACE_FILE: ${workdir}/.namespace
+        ENV_FILE: ${workdir}/.ops-manager-env
+        <<: [ *e2e_cloud_qa_ubi_cloudqa ]
 
       command: "scripts/evergreen/e2e/setup_cloud_qa.py delete"
 
@@ -1916,7 +1954,7 @@ task_groups:
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+    - func: setup_cloud_qa_ubi_cloudqa
   tasks:
     # e2e_kube_only_task_group
     - e2e_crd_validation
@@ -2026,7 +2064,7 @@ task_groups:
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
+    - func: teardown_cloud_qa_ubi_cloudqa
   teardown_group:
     - func: prune_docker_resources
     - func: run_retry_script
