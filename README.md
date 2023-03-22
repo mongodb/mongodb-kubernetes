@@ -101,7 +101,6 @@ More on how to work with ECR is [here](docs/dev/aws_docker_registry.md)
 
 We also use `quay.io` private and public repositories
 
-
 # Release process
 
 The release process is described [here](docs/release.md).
