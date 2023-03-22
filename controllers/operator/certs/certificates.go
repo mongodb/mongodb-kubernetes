@@ -8,6 +8,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/hashicorp/go-multierror"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
@@ -61,7 +62,7 @@ func CreatePEMSecretClient(secretClient secrets.SecretClient, secretNamespacedNa
 		case AppDB:
 			path = secretClient.VaultClient.AppDBSecretPath()
 		default:
-			return fmt.Errorf("unexpected pod type got: %s", podType)
+			return xerrors.Errorf("unexpected pod type got: %s", podType)
 		}
 	}
 
@@ -206,11 +207,11 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 func validatePemData(data []byte, additionalDomains []string) error {
 	pemFile := enterprisepem.NewFileFromData(data)
 	if !pemFile.IsComplete() {
-		return fmt.Errorf("the certificate is not complete\n")
+		return xerrors.Errorf("the certificate is not complete\n")
 	}
 	certs, err := pemFile.ParseCertificate()
 	if err != nil {
-		return fmt.Errorf("can't parse certificate: %s\n", err)
+		return xerrors.Errorf("can't parse certificate: %w\n", err)
 	}
 
 	var errs error
@@ -222,7 +223,7 @@ func validatePemData(data []byte, additionalDomains []string) error {
 		var err error
 		for _, domain := range additionalDomains {
 			if !stringutil.CheckCertificateAddresses(cert.DNSNames, domain) {
-				err = fmt.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
+				err = xerrors.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
 				errs = multierror.Append(errs, err)
 			}
 		}
@@ -238,7 +239,7 @@ func validatePemData(data []byte, additionalDomains []string) error {
 func validatePemSecret(secret corev1.Secret, key string, additionalDomains []string) error {
 	data, ok := secret.Data[key]
 	if !ok {
-		return fmt.Errorf("the secret %s does not contain the expected key %s\n", secret.Name, key)
+		return xerrors.Errorf("the secret %s does not contain the expected key %s\n", secret.Name, key)
 	}
 
 	return validatePemData(data, additionalDomains)
@@ -252,7 +253,7 @@ func ValidateCertificates(secretGetter secret.Getter, name, namespace string) er
 		for _, value := range byteData {
 			pemFile := enterprisepem.NewFileFromData(value)
 			if !pemFile.IsValid() {
-				return fmt.Errorf(fmt.Sprintf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name))
+				return xerrors.Errorf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name)
 			}
 		}
 	}
@@ -343,11 +344,11 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace st
 	} else {
 		s, err := secretClient.KubeClient.GetSecret(kube.ObjectKey(namespace, prom.TLSSecretRef.Name))
 		if err != nil {
-			return "", fmt.Errorf("could not read Prometheus TLS certificate: %s", err)
+			return "", xerrors.Errorf("could not read Prometheus TLS certificate: %w", err)
 		}
 
 		if s.Type != corev1.SecretTypeTLS {
-			return "", fmt.Errorf("secret containing the Prometheus TLS certificate needs to be of type kubernetes.io/tls")
+			return "", xerrors.Errorf("secret containing the Prometheus TLS certificate needs to be of type kubernetes.io/tls")
 		}
 
 		secretData = s.Data
@@ -374,7 +375,7 @@ func EnsureTLSCertsForPrometheus(secretClient secrets.SecretClient, namespace st
 	secretHash := enterprisepem.ReadHashFromSecret(secretClient, namespace, prom.TLSSecretRef.Name, secretPath, log)
 	err = CreatePEMSecretClient(secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), map[string]string{secretHash: data}, []metav1.OwnerReference{}, podType)
 	if err != nil {
-		return "", fmt.Errorf("error creating hashed Secret: %s", err)
+		return "", xerrors.Errorf("error creating hashed Secret: %w", err)
 	}
 
 	return secretHash, nil
@@ -390,13 +391,13 @@ func ValidateSelfManagedSSLCertsForStatefulSet(secretReadClient, secretWriteClie
 	// in which case, we'll keep reconciling until the object is created and is correct.
 	err := VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClient, secretName, opts, log)
 	if err != nil {
-		return workflow.Failed("The secret object '%s' does not contain all the valid certificates needed: %s", secretName, err)
+		return workflow.Failed(xerrors.Errorf("The secret object '%s' does not contain all the valid certificates needed: %w", secretName, err))
 	}
 
 	secretName = fmt.Sprintf("%s-pem", secretName)
 
 	if err := ValidateCertificates(secretReadClient.KubeClient, secretName, opts.Namespace); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	return workflow.OK()

@@ -3,7 +3,9 @@ package operator
 import (
 	"context"
 	"fmt"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -109,12 +111,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, rs, log)
 	if err != nil {
-		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+		return r.updateStatus(rs, workflow.Failed(err), log)
 	}
 
 	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, rs.Namespace, log)
 	if err != nil {
-		return r.updateStatus(rs, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
+		return r.updateStatus(rs, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
@@ -158,7 +160,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+		return r.updateStatus(rs, workflow.Failed(err), log)
 	}
 
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: r.SecretClient}
@@ -190,7 +192,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
 	if err := r.reconcileHostnameOverrideConfigMap(log, r.client, *rs); err != nil {
-		return r.updateStatus(rs, workflow.Failed("Failed to reconcileHostnameOverrideConfigMap: %s", err), log)
+		return r.updateStatus(rs, workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err)), log)
 	}
 
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
@@ -200,7 +202,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	if scale.ReplicasThisReconciliation(rs) < rs.Status.Members {
 		if err := replicaset.PrepareScaleDownFromStatefulSet(conn, sts, rs, log); err != nil {
-			return r.updateStatus(rs, workflow.Failed("Failed to prepare Replica Set for scaling down using Ops Manager: %s", err), log)
+			return r.updateStatus(rs, workflow.Failed(xerrors.Errorf("Failed to prepare Replica Set for scaling down using Ops Manager: %w", err)), log)
 		}
 	}
 
@@ -213,7 +215,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		},
 		func() workflow.Status {
 			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
-				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
+				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
 
 			if status := getStatefulSetStatus(rs.Namespace, rs.Name, r.client); !status.IsOK() {
@@ -237,7 +239,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	annotationsToAdd, err := getAnnotationsForResource(rs)
 	if err != nil {
-		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+		return r.updateStatus(rs, workflow.Failed(err), log)
 	}
 
 	if vault.IsVaultSecretBackend() {
@@ -255,7 +257,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	}
 
 	if err := annotations.SetAnnotations(rs.DeepCopy(), annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(rs, workflow.Failed(err.Error()), log)
+		return r.updateStatus(rs, workflow.Failed(err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
@@ -290,7 +292,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(log *zap
 	cm := getHostnameOverrideConfigMapForReplicaset(mdb)
 	err := configmap.CreateOrUpdate(getUpdateCreator, cm)
 	if err != nil && !errors.IsAlreadyExists(err) {
-		return fmt.Errorf("failed to create configmap: %s, err: %v", cm.Name, err)
+		return xerrors.Errorf("failed to create configmap: %s, err: %w", cm.Name, err)
 	}
 	log.Infof("Successfully ensured configmap: %s", cm.Name)
 
@@ -365,14 +367,14 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	// - if scaling up, observe only current members, because new ones might not exist yet
 	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log, rs)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
 	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, membersNumberBefore, rs, set, log, caFilePath)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	var updatedMembers int
@@ -398,7 +400,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	}
 	lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	p := PrometheusConfiguration{
@@ -417,11 +419,11 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	)
 
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if additionalReconciliationRequired {
@@ -433,7 +435,7 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), externalDomain)
 
 	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, rs, r.SecretClient, log); !status.IsOK() {

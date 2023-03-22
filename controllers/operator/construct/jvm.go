@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/container"
+	"golang.org/x/xerrors"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -47,14 +48,14 @@ func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, t
 	memLimits := omContainer.Resources.Limits.Memory()
 	maxPodMem, err := getPercentOfQuantityAsInt(*memLimits, opsManagerPodMemPercentage)
 	if err != nil {
-		return []corev1.EnvVar{}, fmt.Errorf("error calculating xmx from pod mem: %e", err)
+		return []corev1.EnvVar{}, xerrors.Errorf("error calculating xmx from pod mem: %w", err)
 	}
 
 	// calculate xms from container's memory request if it is set, otherwise xms=xmx
 	memRequests := omContainer.Resources.Requests.Memory()
 	minPodMem, err := getPercentOfQuantityAsInt(*memRequests, opsManagerPodMemPercentage)
 	if err != nil {
-		return []corev1.EnvVar{}, fmt.Errorf("error calculating xms from pod mem: %e", err)
+		return []corev1.EnvVar{}, xerrors.Errorf("error calculating xms from pod mem: %w", err)
 	}
 
 	// if only one of mem limits/requests is set, use that value for both xmx & xms
@@ -87,7 +88,7 @@ func getPercentOfQuantityAsInt(q resource.Quantity, percent int) (int, error) {
 		}
 		quantityAsInt, canConvert = podMem.AsInt64()
 		if !canConvert {
-			return 0, fmt.Errorf("cannot convert %s to int64", podMem.String())
+			return 0, xerrors.Errorf("cannot convert %s to int64", podMem.String())
 		}
 	}
 	percentage := float64(percent) / 100.0

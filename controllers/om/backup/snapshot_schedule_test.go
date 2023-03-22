@@ -1,8 +1,9 @@
 package backup
 
 import (
-	"k8s.io/utils/pointer"
 	"testing"
+
+	"k8s.io/utils/pointer"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"

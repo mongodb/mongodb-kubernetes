@@ -2,7 +2,10 @@ module github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-init-op
 
 go 1.19
 
-require github.com/stretchr/testify v1.7.0
+require (
+	github.com/stretchr/testify v1.7.0
+	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.0 // indirect

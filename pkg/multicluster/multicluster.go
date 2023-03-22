@@ -11,6 +11,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/ghodss/yaml"
+	"golang.org/x/xerrors"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -59,10 +60,10 @@ func CreateMemberClusterClients(clusterNames []string) (map[string]*restclient.C
 	for _, c := range clusterNames {
 		clientset, err := getClient(c, GetKubeConfigPath())
 		if err != nil {
-			return nil, fmt.Errorf("failed to create clientset map: %s", err)
+			return nil, xerrors.Errorf("failed to create clientset map: %w", err)
 		}
 		if clientset == nil {
-			return nil, fmt.Errorf("failed to get clientset for cluster: %s", c)
+			return nil, xerrors.Errorf("failed to get clientset for cluster: %s", c)
 		}
 		clientset.Timeout = time.Duration(env.ReadIntOrDefault(ClusterClientTimeoutEnv, 10)) * time.Second
 		clusterClientsMap[c] = clientset
@@ -80,7 +81,7 @@ func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
 		}).ClientConfig()
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client config: %s", err)
+		return nil, xerrors.Errorf("failed to create client config: %w", err)
 	}
 
 	return config, nil

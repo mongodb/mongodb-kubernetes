@@ -6,6 +6,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
+	"golang.org/x/xerrors"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -151,12 +152,12 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, s, log)
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+		return r.updateStatus(s, workflow.Failed(err), log)
 	}
 
 	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed("Failed to prepare Ops Manager connection: %s", err), log)
+		return r.updateStatus(s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
@@ -183,7 +184,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+		return r.updateStatus(s, workflow.Failed(err), log)
 	}
 
 	podVars := newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)
@@ -231,7 +232,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		},
 		func() workflow.Status {
 			if err = create.DatabaseInKubernetes(r.client, *s, sts, standaloneOpts, log); err != nil {
-				return workflow.Failed("Failed to create/update (Kubernetes reconciliation phase): %s", err.Error())
+				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
 
 			if status := getStatefulSetStatus(sts.Namespace, sts.Name, r.client); !status.IsOK() {
@@ -249,7 +250,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	annotationsToAdd, err := getAnnotationsForResource(s)
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+		return r.updateStatus(s, workflow.Failed(err), log)
 	}
 
 	if vault.IsVaultSecretBackend() {
@@ -266,7 +267,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		}
 	}
 	if err := annotations.SetAnnotations(s.DeepCopy(), annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(s, workflow.Failed(err.Error()), log)
+		return r.updateStatus(s, workflow.Failed(err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
@@ -276,7 +277,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
 	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
 	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	// TODO standalone PR
@@ -290,7 +291,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name)
 			if excessProcesses > 0 {
-				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 
 			lastStandaloneConfig, err := s.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
@@ -308,11 +309,11 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 	)
 
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if err := om.WaitForReadyState(conn, []string{set.Name}, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if additionalReconciliationRequired {
@@ -353,7 +354,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 		log,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update Ops Manager automation config: %s", err)
+		return xerrors.Errorf("failed to update Ops Manager automation config: %w", err)
 	}
 
 	if err := om.WaitForReadyState(conn, processNames, log); err != nil {

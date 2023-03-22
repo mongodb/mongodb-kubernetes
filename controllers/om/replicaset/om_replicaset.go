@@ -1,8 +1,6 @@
 package replicaset
 
 import (
-	"fmt"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -10,6 +8,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 	zap "go.uber.org/zap"
+	"golang.org/x/xerrors"
 	appsv1 "k8s.io/api/apps/v1"
 )
 
@@ -65,7 +64,7 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 		)
 
 		if err != nil {
-			return fmt.Errorf("unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %s", processes, err)
+			return xerrors.Errorf("unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %w", processes, err)
 		}
 
 		if err := om.WaitForReadyState(omClient, processes, log); err != nil {
@@ -88,7 +87,7 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 	//)
 	//
 	//if err != nil {
-	//	return errors.New(fmt.Sprintf("Unable to set disabled to true, hosts: %v, err: %s", allProcesses, err))
+	//	return errors.New(fmt.Sprintf("Unable to set disabled to true, hosts: %v, err: %w", allProcesses, err))
 	//}
 	//log.Debugw("Disabled processes", "processes", allProcesses)
 
@@ -102,7 +101,7 @@ func PrepareScaleDownFromStatefulSet(omClient om.Connection, statefulSet appsv1.
 	podNames = podNames[scale.ReplicasThisReconciliation(rs):rs.Status.Members]
 
 	if len(podNames) != 1 {
-		return fmt.Errorf("dev error: the number of members being scaled down was > 1, scaling more than one member at a time is not possible! %s", podNames)
+		return xerrors.Errorf("dev error: the number of members being scaled down was > 1, scaling more than one member at a time is not possible! %s", podNames)
 	}
 
 	log.Debugw("Setting votes to 0 for members", "members", podNames)

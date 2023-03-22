@@ -8,9 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/xerrors"
 )
 
 type encodeState struct {
@@ -55,7 +56,7 @@ func GetCertificateSubject(certPEM string) (subject string, unknownOIDs []string
 	rem := []byte(certPEM)
 	block, _ := pem.Decode(rem)
 	if block == nil {
-		return "", []string{}, fmt.Errorf("no certificate found")
+		return "", []string{}, xerrors.Errorf("no certificate found")
 	}
 
 	x509Cert, err := x509.ParseCertificate(block.Bytes)
@@ -171,7 +172,7 @@ func (enc *encodeState) writeAttributeTypeAndValue(atv pkix.AttributeTypeAndValu
 		// of the bytes from the BER encoding. However, there is no need to
 		// handle that case because all of the recognized attributes are of type
 		// IA5String, PrintableString, or UTF8String.
-		return false, fmt.Errorf("value for attribute type `%v` was not a string: %v", atv.Type, atv.Value)
+		return false, xerrors.Errorf("value for attribute type `%v` was not a string: %v", atv.Type, atv.Value)
 	}
 
 	if found {

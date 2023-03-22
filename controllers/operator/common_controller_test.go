@@ -2,7 +2,7 @@ package operator
 
 import (
 	"context"
-	"fmt"
+	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
@@ -30,7 +31,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,7 +155,7 @@ func readAgentApiKeyForProject(client kubernetesClient.Client, namespace, agentK
 
 	key, ok := secret.Data[util.OmAgentApiKey]
 	if !ok {
-		return "", fmt.Errorf("Could not find key \"%s\" in secret %s", util.OmAgentApiKey, agentKeySecretName)
+		return "", xerrors.Errorf("Could not find key \"%s\" in secret %s", util.OmAgentApiKey, agentKeySecretName)
 	}
 
 	return strings.TrimSuffix(string(key), "\n"), nil

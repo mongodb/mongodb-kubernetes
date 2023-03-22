@@ -1,8 +1,9 @@
 package om
 
 import (
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"testing"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 

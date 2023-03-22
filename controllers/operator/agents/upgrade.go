@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -137,16 +137,16 @@ func readAllMongoDBs(cl client.Client, watchNamespace []string) ([]mdbv1.MongoDB
 func connectToMongoDB(cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdb mdbv1.MongoDB, log *zap.SugaredLogger) (om.Connection, error) {
 	projectConfig, err := project.ReadProjectConfig(cmGetter, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
 	if err != nil {
-		return nil, fmt.Errorf("error reading Project Config: %s", err)
+		return nil, xerrors.Errorf("error reading Project Config: %w", err)
 	}
 	credsConfig, err := project.ReadCredentials(secretGetter, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials), log)
 	if err != nil {
-		return nil, fmt.Errorf("error reading Credentials secret: %s", err)
+		return nil, xerrors.Errorf("error reading Credentials secret: %w", err)
 	}
 
 	_, conn, err := project.ReadOrCreateProject(projectConfig, credsConfig, factory, log)
 	if err != nil {
-		return nil, fmt.Errorf("error reading or creating project in Ops Manager: %s", err)
+		return nil, xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
 	}
 	return conn, nil
 }

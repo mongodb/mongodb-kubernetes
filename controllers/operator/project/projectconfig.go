@@ -1,9 +1,8 @@
 package project
 
 import (
-	"fmt"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
@@ -23,7 +22,7 @@ func validateProjectConfig(cmGetter configmap.Getter, projectConfigMap client.Ob
 
 	for _, requiredField := range requiredFields {
 		if _, ok := data[requiredField]; !ok {
-			return nil, fmt.Errorf(`property "%s" is not specified in ConfigMap %s`, requiredField, projectConfigMap)
+			return nil, xerrors.Errorf(`property "%s" is not specified in ConfigMap %s`, requiredField, projectConfigMap)
 		}
 	}
 	return data, nil
@@ -59,7 +58,7 @@ func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.Object
 
 		cacrt, err := configmap.ReadData(cmGetter, sslCaConfigMapKey)
 		if err != nil {
-			return mdbv1.ProjectConfig{}, fmt.Errorf("failed to read the specified ConfigMap %s (%e)", sslCaConfigMapKey, err)
+			return mdbv1.ProjectConfig{}, xerrors.Errorf("failed to read the specified ConfigMap %s (%w)", sslCaConfigMapKey, err)
 		}
 		for k, v := range cacrt {
 			if k == util.CaCertMMS {

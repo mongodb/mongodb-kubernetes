@@ -10,6 +10,7 @@ import (
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
@@ -368,7 +369,7 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 		}
 	}
 	if failedMembers != "" {
-		return fmt.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
+		return xerrors.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
 	}
 	return nil
 }
@@ -378,7 +379,7 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 func (d Deployment) RemoveProcessByName(name string, log *zap.SugaredLogger) error {
 	s := d.getProcessByName(name)
 	if s == nil {
-		return fmt.Errorf("Standalone %s does not exist", name)
+		return xerrors.Errorf("Standalone %s does not exist", name)
 	}
 
 	d.removeProcesses([]string{s.Name()}, log)
@@ -463,7 +464,7 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 	case Standalone:
 		return []string{name}
 	default:
-		panic(fmt.Errorf("unexpected kind: %v", kind))
+		panic(xerrors.Errorf("unexpected kind: %v", kind))
 	}
 }
 
@@ -746,7 +747,7 @@ func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptio
 		if err := d.copyFirstProcessToNewPositions(opts.MongosProcesses, cntMongosProcesses, log); err != nil {
 			// I guess this error is not so serious to fail the whole process - mongoses will be scaled up anyway
 			log.Error("Failed to copy first mongos process (so new mongos processes may miss Ops Manager changes done to "+
-				"existing mongos processes): %s", err)
+				"existing mongos processes): %w", err)
 		}
 	}
 
@@ -1140,7 +1141,7 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 	for _, p := range newProcesses {
 		sampleProcessCopy, err := sampleProcess.DeepCopy()
 		if err != nil {
-			return fmt.Errorf("failed to make a copy of Process %s: %s", sampleProcess.Name(), err)
+			return xerrors.Errorf("failed to make a copy of Process %s: %w", sampleProcess.Name(), err)
 		}
 		sampleProcessCopy.setName(p.Name())
 

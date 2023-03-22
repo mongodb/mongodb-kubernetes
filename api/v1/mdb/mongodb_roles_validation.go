@@ -6,12 +6,12 @@ package mdb
 // the state of the cluster, belongs somewhere else.
 
 import (
-	"fmt"
 	"net"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/blang/semver"
+	"golang.org/x/xerrors"
 )
 
 // Go doesn't allow us to define constant array, so we wrap it in a function
@@ -149,11 +149,11 @@ func validateAuthenticationRestriction(ar AuthenticationRestriction) v1.Validati
 func isVersionAtLeast(mdbVersion string, expectedVersion string) (bool, error) {
 	currentV, err := semver.Make(mdbVersion)
 	if err != nil {
-		return false, fmt.Errorf("error parsing mdbVersion %s with semver: %s", mdbVersion, err)
+		return false, xerrors.Errorf("error parsing mdbVersion %s with semver: %w", mdbVersion, err)
 	}
 	expectedVersionSemver, err := semver.Make(expectedVersion)
 	if err != nil {
-		return false, fmt.Errorf("error parsing mdbVersion %s with semver: %s", expectedVersion, err)
+		return false, xerrors.Errorf("error parsing mdbVersion %s with semver: %w", expectedVersion, err)
 	}
 	return currentV.GTE(expectedVersionSemver), nil
 }

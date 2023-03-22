@@ -2,9 +2,10 @@ package construct
 
 import (
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"os"
 	"testing"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"k8s.io/utils/pointer"
 

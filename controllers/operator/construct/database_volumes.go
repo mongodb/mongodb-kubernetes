@@ -2,8 +2,9 @@ package construct
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"path"
+
+	"go.uber.org/zap"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"

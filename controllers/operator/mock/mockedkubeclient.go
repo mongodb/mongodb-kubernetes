@@ -3,11 +3,13 @@ package mock
 import (
 	"context"
 	"encoding/json"
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"net/http"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"golang.org/x/xerrors"
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
@@ -427,7 +429,7 @@ func (k *MockedClient) List(ctx context.Context, list client.ObjectList, opts ..
 		l.Items = mdbs
 		return nil
 	}
-	return fmt.Errorf("the List method is not implemented for type %s", reflect.TypeOf(list))
+	return xerrors.Errorf("the List method is not implemented for type %s", reflect.TypeOf(list))
 }
 
 // Create saves the object obj in the Kubernetes cluster.
@@ -443,7 +445,7 @@ func (k *MockedClient) Create(ctx context.Context, obj client.Object, opts ...cl
 	k.addToHistory(reflect.ValueOf(k.Create), obj)
 
 	if err := k.Get(ctx, key, obj); err == nil {
-		return fmt.Errorf("%T %s already exists!", obj, key)
+		return xerrors.Errorf("%T %s already exists!", obj, key)
 	}
 
 	resMap[key] = obj
@@ -794,9 +796,9 @@ func validateDNS1123Subdomain(obj apiruntime.Object) error {
 	validationErrs := validation.IsDNS1123Subdomain(objName)
 	var errs error
 	if len(validationErrs) > 0 {
-		errs = multierror.Append(errs, fmt.Errorf("resource name: [%s] failed validation of type %s", objName, reflect.TypeOf(obj)))
+		errs = multierror.Append(errs, xerrors.Errorf("resource name: [%s] failed validation of type %s", objName, reflect.TypeOf(obj)))
 		for _, err := range validationErrs {
-			errs = multierror.Append(errs, fmt.Errorf(err))
+			errs = multierror.Append(errs, xerrors.Errorf(err))
 		}
 		return errs
 	}

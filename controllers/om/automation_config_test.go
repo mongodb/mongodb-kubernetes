@@ -2,8 +2,9 @@ package om
 
 import (
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/spf13/cast"
 

@@ -84,7 +84,7 @@ func EnsureFeatureControls(mdb mdbv1.MongoDB, updater Updater, omVersion version
 	cf := buildFeatureControlsByMdb(mdb)
 	log.Debug("Configuring feature controls")
 	if err := updater.UpdateControlledFeature(cf); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 	return workflow.OK()
 }

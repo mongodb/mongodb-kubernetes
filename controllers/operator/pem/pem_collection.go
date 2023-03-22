@@ -6,8 +6,9 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
 	"strings"
+
+	"golang.org/x/xerrors"
 )
 
 type Collection struct {
@@ -23,7 +24,7 @@ func (p Collection) GetHash() (string, error) {
 	jsonBytes, err := json.Marshal(p.PemFiles)
 	if err != nil {
 		// this should never happen
-		return "", fmt.Errorf("could not marshal PEM files to JSON: %w", err)
+		return "", xerrors.Errorf("could not marshal PEM files to JSON: %w", err)
 	}
 	hashBytes := sha256.Sum256(jsonBytes)
 
@@ -106,7 +107,7 @@ func (pf File) ParseCertificate() ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	for block, rest := pem.Decode([]byte(pf.Certificate)); block != nil; block, rest = pem.Decode(rest) {
 		if block == nil {
-			return []*x509.Certificate{}, fmt.Errorf("failed to parse certificate PEM, please ensure validity of the file")
+			return []*x509.Certificate{}, xerrors.Errorf("failed to parse certificate PEM, please ensure validity of the file")
 		}
 		switch block.Type {
 		case "CERTIFICATE":
@@ -116,7 +117,7 @@ func (pf File) ParseCertificate() ([]*x509.Certificate, error) {
 			}
 			certs = append(certs, cert)
 		default:
-			return []*x509.Certificate{}, fmt.Errorf("failed to parse certificate PEM, please ensure validity of the file")
+			return []*x509.Certificate{}, xerrors.Errorf("failed to parse certificate PEM, please ensure validity of the file")
 		}
 
 	}

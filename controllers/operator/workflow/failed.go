@@ -1,13 +1,12 @@
 package workflow
 
 import (
+	"golang.org/x/xerrors"
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -16,10 +15,12 @@ import (
 type failedStatus struct {
 	commonStatus
 	retryInSeconds time.Duration
+	// err contains error with stacktrace
+	err error
 }
 
-func Failed(msg string, params ...interface{}) *failedStatus {
-	return &failedStatus{commonStatus: newCommonStatus(msg, params...), retryInSeconds: 10}
+func Failed(err error, params ...interface{}) *failedStatus {
+	return &failedStatus{commonStatus: newCommonStatus(err.Error(), params...), err: err, retryInSeconds: 10}
 }
 
 func (f *failedStatus) WithWarnings(warnings []status.Warning) *failedStatus {
@@ -56,8 +57,8 @@ func (f failedStatus) OnErrorPrepend(msg string) Status {
 }
 
 func (f failedStatus) StatusOptions() []status.Option {
+	// don't display any message on the MongoDB resource if the error is transient.
 	options := f.statusOptions()
-	// Add any specific options here
 	return options
 }
 
@@ -68,12 +69,14 @@ func (f failedStatus) Phase() status.Phase {
 	return status.PhaseFailed
 }
 
+// Log does not take the f.msg but instead takes f.err to make sure we print the actual stack trace of the error.
 func (f failedStatus) Log(log *zap.SugaredLogger) {
-	log.Error(stringutil.UpperCaseFirstChar(f.msg))
+	log.Errorf("%+v", f.err)
 }
 
 func mergedFailed(p1, p2 failedStatus) failedStatus {
-	p := Failed(p1.msg + ", " + p2.msg)
+	msg := p1.msg + ", " + p2.msg
+	p := Failed(xerrors.Errorf(msg))
 	p.warnings = append(p1.warnings, p2.warnings...)
 	return *p
 }

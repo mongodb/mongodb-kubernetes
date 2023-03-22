@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"net"
 	"os"
 	"testing"
 	"time"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"

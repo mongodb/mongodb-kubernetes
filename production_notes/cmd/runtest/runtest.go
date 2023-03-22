@@ -14,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/production_notes/pkg/ycsb"
 	"github.com/prometheus/client_golang/api"
 	flag "github.com/spf13/pflag"
+	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -57,7 +58,7 @@ func deployMongoDB(ctx context.Context, name string, certsName string, opsManage
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return xerrors.Errorf("%s", output)
 	}
 
 	log.Printf("deployed mongoDB replicaset %s: %s", name, string(output))
@@ -68,7 +69,7 @@ func getSecretStringData(c kubernetes.Clientset, secretName string) (map[string]
 	stringData := map[string]string{}
 	secret, err := c.CoreV1().Secrets("mongodb").Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
-		return stringData, fmt.Errorf("can't get secret %s: %s", secretName, err)
+		return stringData, xerrors.Errorf("can't get secret %s: %w", secretName, err)
 	}
 	for key, value := range secret.Data {
 		stringData[key] = string(value)
@@ -83,7 +84,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 	cmd := exec.Command("helm", "install", "-f", "../../helm_charts/mongodb/values.yaml", "--set", rsName, releaseName, "../../helm_charts/mongodb/certs")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return xerrors.Errorf("%s", output)
 	}
 
 	log.Printf("Created tls certs for replica set %s under release name %s: %s", replicaSetName, releaseName, string(output))
@@ -95,7 +96,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 
 	err = wait.PollImmediate(time.Second, time.Minute, areSecretsCreated(c, "mongodb", secretNames...))
 	if err != nil {
-		return fmt.Errorf("secrets weren't created within 1 minute: %s", err)
+		return xerrors.Errorf("secrets weren't created within 1 minute: %w", err)
 	}
 
 	// Need to read the secrets one by one and create a new one which contains
@@ -106,7 +107,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 	for i := 0; i < 3; i++ {
 		secretStringData, err := getSecretStringData(c, secretNames[i])
 		if err != nil {
-			return fmt.Errorf("can't read secret data: %s", err)
+			return xerrors.Errorf("can't read secret data: %w", err)
 		}
 		stringData[fmt.Sprintf("%s-%d-pem", replicaSetName, i)] = secretStringData["tls.key"] + secretStringData["tls.crt"]
 	}
@@ -122,7 +123,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 		},
 		Data: data}, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("can't create secret: %s", err)
+		return xerrors.Errorf("can't create secret: %w", err)
 	}
 	return nil
 }
@@ -156,13 +157,13 @@ func deployMongoDBOperatorAndOpsManager(c kubernetes.Clientset, ctx context.Cont
 	cmd := exec.Command("helm", "install", "om", "../../helm_charts/opsmanager/")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return xerrors.Errorf("%s", output)
 	}
 	log.Printf("deploying operator and ops-manager: %s", string(output))
 
 	err = wait.PollImmediate(time.Second, 2*time.Minute, isOperatorReady(c, "om-operator", "mongodb"))
 	if err != nil {
-		return fmt.Errorf("operator deployment couldn't reach ready state in 2 minutes: %s", err)
+		return xerrors.Errorf("operator deployment couldn't reach ready state in 2 minutes: %w", err)
 	}
 	log.Printf("deployed operator successfully...")
 	return nil
@@ -188,14 +189,14 @@ func deployYCSBJob(ctx context.Context, c kubernetes.Clientset, mongoDBName stri
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return xerrors.Errorf("%s", output)
 	}
 
 	log.Printf("deploying ycsb: %s", string(output))
 
 	err = wait.PollImmediate(time.Second, 2*time.Minute, hasYCSBJobCompleted(c, "ycsb-ycsb-job", "mongodb"))
 	if err != nil {
-		return fmt.Errorf("ycsb job not completed successfully")
+		return xerrors.Errorf("ycsb job not completed successfully")
 	}
 	return nil
 }
@@ -215,7 +216,7 @@ func createPrometheusClient(m *monitor.Monitor) error {
 func createKubernetesClient(m *monitor.Monitor) error {
 	homePath, ok := os.LookupEnv("HOME")
 	if !ok {
-		return fmt.Errorf("$HOME not set")
+		return xerrors.Errorf("$HOME not set")
 	}
 
 	kubeconfig := filepath.Join(
@@ -288,7 +289,7 @@ func helmUninstall(releaseName string) error {
 	cmd := exec.Command("helm", "uninstall", releaseName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", output)
+		return xerrors.Errorf("%s", output)
 	}
 	return nil
 }

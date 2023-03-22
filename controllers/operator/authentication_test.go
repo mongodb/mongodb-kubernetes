@@ -11,10 +11,11 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/utils/pointer"
 	"math/big"
 	"testing"
 	"time"
+
+	"k8s.io/utils/pointer"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 	certsv1 "k8s.io/api/certificates/v1beta1"

@@ -9,6 +9,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,11 +40,11 @@ func secretNamespacedName(s corev1.Secret) types.NamespacedName {
 func (r SecretClient) ReadSecretKey(secretName types.NamespacedName, basePath string, key string) (string, error) {
 	secret, err := r.ReadSecret(secretName, basePath)
 	if err != nil {
-		return "", fmt.Errorf("can't read secret %s: %s", secretName, err)
+		return "", xerrors.Errorf("can't read secret %s: %w", secretName, err)
 	}
 	val, ok := secret[key]
 	if !ok {
-		return "", fmt.Errorf("secret %s does not contain key %s", secretName, key)
+		return "", xerrors.Errorf("secret %s does not contain key %s", secretName, key)
 	}
 	return val, nil
 }

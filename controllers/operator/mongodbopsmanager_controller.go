@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
@@ -140,17 +141,17 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	if err := ensureResourcesForArchitectureChange(r.SecretClient, *opsManager); err != nil {
-		return r.updateStatus(opsManager, workflow.Failed("Error ensuring resources for upgrade from 1 to 3 container AppDB: %s", err), log, opsManagerExtraStatusParams)
+		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error ensuring resources for upgrade from 1 to 3 container AppDB: %w", err)), log, opsManagerExtraStatusParams)
 	}
 
 	if err := ensureSharedGlobalResources(r.client, *opsManager); err != nil {
-		return r.updateStatus(opsManager, workflow.Failed("Error ensuring shared global resources %s", err), log, opsManagerExtraStatusParams)
+		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error ensuring shared global resources %w", err)), log, opsManagerExtraStatusParams)
 	}
 
 	opsManagerUserPassword, err := r.ensureAppDbPassword(*opsManager, log)
 
 	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed("Error ensuring Ops Manager user password: %s", err), log, opsManagerExtraStatusParams)
+		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error ensuring Ops Manager user password: %w", err)), log, opsManagerExtraStatusParams)
 	}
 
 	if opsManager.IsTLSEnabled() {
@@ -192,7 +193,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
 	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log)
+		return r.updateStatus(opsManager, workflow.Failed(err), log)
 	}
 
 	if vault.IsVaultSecretBackend() {
@@ -213,7 +214,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	if err := annotations.SetAnnotations(opsManager.DeepCopy(), annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(err.Error()), log)
+		return r.updateStatus(opsManager, workflow.Failed(err), log)
 	}
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
@@ -225,13 +226,13 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 func getMonitoringAgentVersion(opsManager omv1.MongoDBOpsManager, readFile func(filename string) ([]byte, error)) (string, error) {
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
 	if err != nil {
-		return "", fmt.Errorf("failed extracting semver version from Ops Manager version %s: %s", opsManager.Spec.Version, err)
+		return "", xerrors.Errorf("failed extracting semver version from Ops Manager version %s: %w", opsManager.Spec.Version, err)
 	}
 
 	majorMinor := fmt.Sprintf("%d.%d", version.Major, version.Minor)
 	fileContainingMappingsBytes, err := readFile(opsManagerToVersionMappingJsonFilePath)
 	if err != nil {
-		return "", fmt.Errorf("failed reading file %s: %s", opsManagerToVersionMappingJsonFilePath, err)
+		return "", xerrors.Errorf("failed reading file %s: %w", opsManagerToVersionMappingJsonFilePath, err)
 	}
 
 	// no bytes but no error, with an empty string we will use the same version as automation agent.
@@ -241,12 +242,12 @@ func getMonitoringAgentVersion(opsManager omv1.MongoDBOpsManager, readFile func(
 
 	m := omv1.OpsManagerAgentVersionMapping{}
 	if err := json.Unmarshal(fileContainingMappingsBytes, &m); err != nil {
-		return "", fmt.Errorf("failed unmarshalling bytes: %s", err)
+		return "", xerrors.Errorf("failed unmarshalling bytes: %w", err)
 	}
 
 	agentVersion := m.FindAgentVersionForOpsManager(majorMinor)
 	if agentVersion == "" {
-		return "", fmt.Errorf("agent version not present in the mapping file %s", opsManagerToVersionMappingJsonFilePath)
+		return "", xerrors.Errorf("agent version not present in the mapping file %s", opsManagerToVersionMappingJsonFilePath)
 	} else {
 		return agentVersion, nil
 	}
@@ -287,14 +288,14 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 	// if the automation config does not exist, we are not upgrading from an existing deployment. We can create everything from scratch.
 	if err != nil {
 		if !secrets.SecretNotExist(err) {
-			return fmt.Errorf("error getting existing automation config secret: %s", err)
+			return xerrors.Errorf("error getting existing automation config secret: %w", err)
 		}
 		return nil
 	}
 
 	ac, err := automationconfig.FromBytes(acSecret.Data[automationconfig.ConfigKey])
 	if err != nil {
-		return fmt.Errorf("error unmarshalling existing automation: %s", err)
+		return xerrors.Errorf("error unmarshalling existing automation: %w", err)
 	}
 
 	// the Ops Manager user should always exist within the automation config.
@@ -307,7 +308,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 	}
 
 	if omUser.Username == "" {
-		return fmt.Errorf("ops manager user not present in the automation config")
+		return xerrors.Errorf("ops manager user not present in the automation config")
 	}
 
 	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
@@ -322,7 +323,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 		Build(),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create/update scram crdentials secret for Ops Manager user: %s", err)
+		return xerrors.Errorf("failed to create/update scram crdentials secret for Ops Manager user: %w", err)
 	}
 
 	// ensure that the agent password stays consistent with what it was previously
@@ -333,7 +334,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 		Build(),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create/update password secret for agent user: %s", err)
+		return xerrors.Errorf("failed to create/update password secret for agent user: %w", err)
 	}
 
 	// ensure that the keyfile stays consistent with what it was previously
@@ -345,7 +346,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to create/update keyfile secret for agent user: %s", err)
+		return xerrors.Errorf("failed to create/update keyfile secret for agent user: %w", err)
 	}
 
 	// there was a rename for a specific secret, `om-resource-db-password -> om-resource-db-om-password`
@@ -374,7 +375,7 @@ func createOrUpdateSecretIfNotFound(secretGetUpdaterCreator secret.GetUpdateCrea
 		if secrets.SecretNotExist(err) {
 			return secret.CreateOrUpdate(secretGetUpdaterCreator, desiredSecret)
 		}
-		return fmt.Errorf("error getting secret %s/%s: %s", desiredSecret.Namespace, desiredSecret.Name, err)
+		return xerrors.Errorf("error getting secret %s/%s: %w", desiredSecret.Namespace, desiredSecret.Name, err)
 	}
 	return nil
 
@@ -385,7 +386,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, statusOptions...)
 	if err != nil {
-		return workflow.Failed(err.Error()), nil
+		return workflow.Failed(err), nil
 	}
 
 	// Prepare Ops Manager StatefulSet (create and wait)
@@ -407,11 +408,11 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 
 	// 5. Stop backup daemon if necessary
 	if err = r.stopBackupDaemonIfNeeded(*opsManager); err != nil {
-		return workflow.Failed(err.Error()), nil
+		return workflow.Failed(err), nil
 	}
 
 	if _, err = r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
-		return workflow.Failed(err.Error()), nil
+		return workflow.Failed(err), nil
 	}
 
 	return status, omAdmin
@@ -425,11 +426,11 @@ func triggerOmChangedEventIfNeeded(opsManager omv1.MongoDBOpsManager, log *zap.S
 	}
 	newVersion, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
 	if err != nil {
-		return fmt.Errorf("failed to parse Ops Manager version %s: %s", opsManager.Spec.Version, err)
+		return xerrors.Errorf("failed to parse Ops Manager version %s: %w", opsManager.Spec.Version, err)
 	}
 	oldVersion, err := versionutil.StringToSemverVersion(opsManager.Status.OpsManagerStatus.Version)
 	if err != nil {
-		return fmt.Errorf("failed to parse Ops Manager status version %s: %s", opsManager.Status.OpsManagerStatus.Version, err)
+		return xerrors.Errorf("failed to parse Ops Manager status version %s: %w", opsManager.Status.OpsManagerStatus.Version, err)
 	}
 	if newVersion.Major != oldVersion.Major || newVersion.Minor != oldVersion.Minor {
 		log.Infof("Ops Manager version has upgraded from %s to %s - scheduling the upgrade for all the Agents in the system", oldVersion, newVersion)
@@ -483,13 +484,13 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 
 		_, err := r.updateStatus(opsManager, backupStatus, log, backupStatusPartOption)
 		if err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 		return backupStatus
 	}
 	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, backupStatusPartOption)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	// Prepare Backup Daemon StatefulSet (create and wait)
@@ -508,7 +509,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 	}
 
 	if _, err := r.updateStatus(opsManager, workflow.OK(), log, backupStatusPartOption); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	return workflow.OK()
@@ -569,12 +570,12 @@ func hashConnectionString(connectionString string) string {
 // createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
 func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.MongoDBOpsManager, opsManagerUserPassword string, log *zap.SugaredLogger) workflow.Status {
 	if err := r.ensureGenKey(opsManager, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	connectionString := buildMongoConnectionUrl(opsManager, opsManagerUserPassword)
 	if err := r.ensureAppDBConnectionString(opsManager, connectionString, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	r.ensureConfiguration(&opsManager, log)
@@ -590,11 +591,11 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 	)
 
 	if err != nil {
-		return workflow.Failed(fmt.Errorf("error building OpsManager stateful set: %v", err).Error())
+		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
 	}
 
 	if err := create.OpsManagerInKubernetes(r.client, opsManager, sts, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.Name, r.client); !status.IsOK() {
@@ -688,7 +689,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 	}
 	connectionString := buildMongoConnectionUrl(opsManager, opsManagerUserPassword)
 	if err := r.ensureAppDBConnectionString(opsManager, connectionString, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	r.ensureConfiguration(&opsManager, log)
@@ -702,12 +703,12 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager omv1.Mon
 		construct.WithVaultConfig(vaultConfig),
 		construct.WithKmipConfig(opsManager, r.client, log))
 	if err != nil {
-		return workflow.Failed(fmt.Sprintf("error building stateful set: %v", err))
+		return workflow.Failed(xerrors.Errorf("error building stateful set: %w", err))
 	}
 
 	needToRequeue, err := create.BackupDaemonInKubernetes(r.client, opsManager, sts, log)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 	if needToRequeue {
 		return workflow.OK().Requeue()
@@ -942,7 +943,7 @@ func (r OpsManagerReconciler) getOpsManagerAPIKeySecretName(opsManager omv1.Mong
 	}
 	APISecretName, err := opsManager.APIKeySecretName(r.SecretClient, operatorVaultSecretPath)
 	if err != nil {
-		return "", workflow.Failed("failed to get ops-manager API key secret name: %s", err).WithRetry(10)
+		return "", workflow.Failed(xerrors.Errorf("failed to get ops-manager API key secret name: %w", err)).WithRetry(10)
 	}
 	return APISecretName, workflow.OK()
 }
@@ -975,14 +976,14 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 
 	if secrets.SecretNotExist(err) {
 		// This requires user actions - let's wait a bit longer than 10 seconds
-		return workflow.Failed("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", adminObjectKey).WithRetry(60), nil
+		return workflow.Failed(xerrors.Errorf("the secret %s doesn't exist - you need to create it to finish Ops Manager initialization", adminObjectKey)).WithRetry(60), nil
 	} else if err != nil {
-		return workflow.Failed(err.Error()), nil
+		return workflow.Failed(err), nil
 	}
 
 	user, err := newUserFromSecret(userData)
 	if err != nil {
-		return workflow.Failed("failed to read user data from the secret %s: %s", adminObjectKey, err), nil
+		return workflow.Failed(xerrors.Errorf("failed to read user data from the secret %s: %w", adminObjectKey, err)), nil
 	}
 	APISecretName, status := r.getOpsManagerAPIKeySecretName(opsManager)
 	if !status.IsOK() {
@@ -1002,7 +1003,7 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
 			// by modifying the credentials secret
-			return workflow.Failed("failed to create an admin user in Ops Manager: %s", err).WithRetry(30), nil
+			return workflow.Failed(xerrors.Errorf("failed to create an admin user in Ops Manager: %w", err)).WithRetry(30), nil
 		}
 
 		// Recreate an admin key secret in the Operator namespace if the user was created
@@ -1014,8 +1015,8 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 
 			if err = r.client.DeleteSecret(adminKeySecretName); err != nil && !secrets.SecretNotExist(err) {
 				// TODO our desired behavior is not to fail but just append the warning to the status (CLOUDP-51340)
-				return workflow.Failed("failed to replace a secret for admin public api key. %s. The error : %s",
-					detailedAPIErrorMsg(adminKeySecretName), err).WithRetry(300), nil
+				return workflow.Failed(xerrors.Errorf("failed to replace a secret for admin public api key. %s. The error : %w",
+					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(300), nil
 			}
 
 			adminSecretBuilder := secret.Builder().
@@ -1037,8 +1038,8 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 
 			if err := r.PutSecret(adminSecret, operatorVaultPath); err != nil {
 				// TODO see above
-				return workflow.Failed("failed to create a secret for admin public api key. %s. The error : %s",
-					detailedAPIErrorMsg(adminKeySecretName), err).WithRetry(30), nil
+				return workflow.Failed(xerrors.Errorf("failed to create a secret for admin public api key. %s. The error : %w",
+					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
 			}
 			log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
 
@@ -1055,18 +1056,18 @@ func (r OpsManagerReconciler) prepareOpsManager(opsManager omv1.MongoDBOpsManage
 	// to create the secret manually
 	_, err = r.ReadSecret(adminKeySecretName, operatorVaultPath)
 	if err != nil {
-		return workflow.Failed("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %s",
-			detailedAPIErrorMsg(adminKeySecretName), err).WithRetry(30), nil
+		return workflow.Failed(xerrors.Errorf("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %w",
+			detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
 	}
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
 	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient, operatorVaultPath)
 	if err != nil {
-		return workflow.Failed(err.Error()), nil
+		return workflow.Failed(err), nil
 	}
 
 	cred, err := project.ReadCredentials(r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
-		return workflow.Failed(err.Error()), nil
+		return workflow.Failed(err), nil
 	}
 
 	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey)
@@ -1093,10 +1094,10 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 				// mechanism to ensure this using readiness probe so we just retry
 				return workflow.Pending("BackupDaemon hasn't started yet")
 			} else if err != nil {
-				return workflow.Failed(err.Error())
+				return workflow.Failed(err)
 			}
 		} else if err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		} else {
 			// The Assignment Labels are the only thing that can change at the moment.
 			// If we add new features for controlling the Backup Daemons, we may want
@@ -1105,7 +1106,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 				dc.Labels = opsManager.Spec.Backup.AssignmentLabels
 				err = omAdmin.UpdateDaemonConfig(dc)
 				if err != nil {
-					return workflow.Failed(err.Error())
+					return workflow.Failed(err)
 				}
 			}
 		}
@@ -1143,7 +1144,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 
 	opsManagerOplogConfigs, err := omAdmin.ReadOplogStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	// Creating new configs
@@ -1156,7 +1157,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 		}
 		log.Debugw("Creating Oplog Store in Ops Manager", "config", omConfig)
 		if err = omAdmin.CreateOplogStoreConfig(omConfig); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1176,7 +1177,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Debugw("Updating Oplog Store in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateOplogStoreConfig(configToUpdate); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1185,7 +1186,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(opsManager omv1.Mon
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
 		if err = omAdmin.DeleteOplogStoreConfig(v.Identifier().(string)); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1203,7 +1204,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 
 	opsManagerS3OpLogConfigs, err := s3OplogAdmin.ReadS3OplogStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	// Creating new configs
@@ -1216,7 +1217,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 		}
 		log.Infow("Creating S3 Oplog Store in Ops Manager", "config", omConfig)
 		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1236,7 +1237,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Infow("Updating S3 Oplog Store in Ops Manager", "config", configToUpdate)
 		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1245,7 +1246,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 	for _, v := range configsToRemove {
 		log.Infof("Removing Oplog Store %s from Ops Manager", v.Identifier())
 		if err = s3OplogAdmin.DeleteS3OplogStoreConfig(v.Identifier().(string)); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1267,7 +1268,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.Mon
 
 	opsManagerBlockStoreConfigs, err := omAdmin.ReadBlockStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	// Creating new configs
@@ -1280,7 +1281,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.Mon
 		}
 		log.Debugw("Creating Block Store in Ops Manager", "config", omConfig)
 		if err = omAdmin.CreateBlockStoreConfig(omConfig); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1300,7 +1301,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.Mon
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Debugw("Updating Block Store in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateBlockStoreConfig(configToUpdate); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1309,7 +1310,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(opsManager omv1.Mon
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Block Store %s from Ops Manager", v.Identifier())
 		if err = omAdmin.DeleteBlockStoreConfig(v.Identifier().(string)); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 	return workflow.OK()
@@ -1323,7 +1324,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 
 	opsManagerS3Configs, err := omAdmin.ReadS3Configs()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
@@ -1336,7 +1337,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 
 		log.Infow("Creating S3Config in Ops Manager", "config", omConfig)
 		if err := omAdmin.CreateS3Config(omConfig); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1356,7 +1357,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Infow("Updating S3Config in Ops Manager", "config", configToUpdate)
 		if err = omAdmin.UpdateS3Config(configToUpdate); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1364,7 +1365,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 	for _, config := range configsToRemove {
 		log.Infof("Removing S3Config %s from Ops Manager", config.Identifier())
 		if err := omAdmin.DeleteS3Config(config.Identifier().(string)); err != nil {
-			return workflow.Failed(err.Error())
+			return workflow.Failed(err)
 		}
 	}
 
@@ -1386,13 +1387,13 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 
 	s3Creds := &backup.S3Credentials{}
 	if accessKey, ok := s3SecretData[util.S3AccessKey]; !ok {
-		return nil, fmt.Errorf("key %s was not present in the secret %s", util.S3AccessKey, s3SecretName)
+		return nil, xerrors.Errorf("key %s was not present in the secret %s", util.S3AccessKey, s3SecretName)
 	} else {
 		s3Creds.AccessKey = accessKey
 	}
 
 	if secretKey, ok := s3SecretData[util.S3SecretKey]; !ok {
-		return nil, fmt.Errorf("key %s was not present in the secret %s", util.S3SecretKey, s3SecretName)
+		return nil, xerrors.Errorf("key %s was not present in the secret %s", util.S3SecretKey, s3SecretName)
 	} else {
 		s3Creds.SecretKey = secretKey
 	}
@@ -1405,7 +1406,7 @@ func (r *OpsManagerReconciler) readS3Credentials(s3SecretName, namespace string)
 func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(opsManager omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
 	opsManagefsStoreConfigs, err := omAdmin.ReadFileSystemStoreConfigs()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	fsStoreNames := make(map[string]struct{})
@@ -1422,7 +1423,7 @@ func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(op
 	}
 
 	if countFS != len(opsManager.Spec.Backup.FileSystemStoreConfigs) {
-		return workflow.Failed("Not all fileSystem snapshots have been configured in OM.")
+		return workflow.Failed(xerrors.Errorf("Not all fileSystem snapshots have been configured in OM."))
 	}
 	return workflow.OK()
 }
@@ -1439,14 +1440,14 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 
 	password, err := r.getAppDBPassword(om, log)
 	if err != nil {
-		return backup.S3Config{}, workflow.Failed(err.Error())
+		return backup.S3Config{}, workflow.Failed(err)
 	}
 	var s3Creds *backup.S3Credentials
 
 	if !config.IRSAEnabled {
 		s3Creds, err = r.readS3Credentials(config.S3SecretRef.Name, om.Namespace)
 		if err != nil {
-			return backup.S3Config{}, workflow.Failed(err.Error())
+			return backup.S3Config{}, workflow.Failed(err)
 		}
 	}
 
@@ -1459,7 +1460,7 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 
 	customCAOpts, err := r.readCustomCAFilePathsAndContents(om)
 	if err != nil {
-		return backup.S3Config{}, workflow.Failed(err.Error())
+		return backup.S3Config{}, workflow.Failed(err)
 	}
 
 	return backup.NewS3Config(om, config, uri, customCAOpts, bucket, s3Creds), workflow.OK()
@@ -1487,7 +1488,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 	if !config.IRSAEnabled {
 		s3Creds, err = r.readS3Credentials(config.S3SecretRef.Name, opsManager.Namespace)
 		if err != nil {
-			return backup.S3Config{}, workflow.Failed(err.Error())
+			return backup.S3Config{}, workflow.Failed(err)
 		}
 	}
 
@@ -1500,7 +1501,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 
 	customCAOpts, err := r.readCustomCAFilePathsAndContents(opsManager)
 	if err != nil {
-		return backup.S3Config{}, workflow.Failed(err.Error())
+		return backup.S3Config{}, workflow.Failed(err)
 	}
 
 	return backup.NewS3Config(opsManager, config, uri, customCAOpts, bucket, s3Creds), workflow.OK()
@@ -1544,7 +1545,7 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsM
 			// Returning pending as the user may create the mongodb resource soon
 			return mdbv1.MongoDB{}, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 		}
-		return mdbv1.MongoDB{}, workflow.Failed(err.Error())
+		return mdbv1.MongoDB{}, workflow.Failed(err)
 	}
 	return mongodb, workflow.OK()
 }
@@ -1563,12 +1564,12 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.Mon
 		return "", "", workflow.Pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)
 	}
 	if err != nil {
-		return "", "", workflow.Failed("Failed to fetch the user %s: %s", mongodbUserObjectKey, err)
+		return "", "", workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", mongodbUserObjectKey, err))
 	}
 	userName := mongodbUser.Spec.Username
 	password, err := mongodbUser.GetPassword(r.SecretClient)
 	if err != nil {
-		return "", "", workflow.Failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
+		return "", "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
 	}
 	return userName, password, workflow.OK()
 }
@@ -1584,7 +1585,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 			// Returning pending as the user may create the mongodb resource soon
 			return backup.DataStoreConfig{}, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
 		}
-		return backup.DataStoreConfig{}, workflow.Failed(err.Error())
+		return backup.DataStoreConfig{}, workflow.Failed(err)
 	}
 
 	status := validateDataStoreConfig(*mongodb, operatorConfig)
@@ -1604,12 +1605,12 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 			return backup.DataStoreConfig{}, workflow.Pending("The MongoDBUser object %s doesn't exist", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace))
 		}
 		if err != nil {
-			return backup.DataStoreConfig{}, workflow.Failed("Failed to fetch the user %s: %s", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err)
+			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err))
 		}
 		userName = mongodbUser.Spec.Username
 		password, err = mongodbUser.GetPassword(r.SecretClient)
 		if err != nil {
-			return backup.DataStoreConfig{}, workflow.Failed("Failed to read password for the user %s: %s", mongodbUserObjectKey, err)
+			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
 		}
 	}
 
@@ -1630,12 +1631,12 @@ func validateConfig(mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, descrip
 	// validate
 	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
 		len(mongodb.Spec.Security.Authentication.GetModes()) > 0 {
-		return workflow.Failed("The only authentication mode supported for the %s is SCRAM-SHA", description)
+		return workflow.Failed(xerrors.Errorf("The only authentication mode supported for the %s is SCRAM-SHA", description))
 	}
 	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
 		(userRef == nil || userRef.Name == "") {
-		return workflow.Failed("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
-			" specified using 'mongodbUserRef'", mongodb.Name)
+		return workflow.Failed(xerrors.Errorf("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
+			" specified using 'mongodbUserRef'", mongodb.Name))
 	}
 
 	return workflow.OK()
@@ -1645,7 +1646,7 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 	// validate
 	for _, v := range []string{"Username", "Password", "FirstName", "LastName"} {
 		if _, ok := data[v]; !ok {
-			return api.User{}, fmt.Errorf("%s property is missing in the admin secret", v)
+			return api.User{}, xerrors.Errorf("%s property is missing in the admin secret", v)
 		}
 	}
 	user := api.User{Username: data["Username"],

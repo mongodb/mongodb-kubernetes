@@ -2,9 +2,9 @@ package host
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"golang.org/x/xerrors"
 
 	"go.uber.org/zap"
 )
@@ -56,7 +56,7 @@ func stopMonitoringHosts(getRemover GetRemover, hosts []string, log *zap.Sugared
 	}
 
 	if err := StopMonitoring(getRemover, hosts, log); err != nil {
-		return fmt.Errorf("Failed to stop monitoring on hosts %s: %s", hosts, err)
+		return xerrors.Errorf("Failed to stop monitoring on hosts %s: %w", hosts, err)
 	}
 
 	return nil

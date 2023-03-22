@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
+	"golang.org/x/xerrors"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -100,12 +101,12 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, sc, log)
 	if err != nil {
-		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+		return r.updateStatus(sc, workflow.Failed(err), log)
 	}
 
 	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, log)
 	if err != nil {
-		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+		return r.updateStatus(sc, workflow.Failed(err), log)
 	}
 
 	status := r.doShardedClusterProcessing(sc, conn, projectConfig, log)
@@ -136,7 +137,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 	annotationsToAdd, err := getAnnotationsForResource(sc)
 	if err != nil {
-		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+		return r.updateStatus(sc, workflow.Failed(err), log)
 	}
 
 	if vault.IsVaultSecretBackend() {
@@ -153,7 +154,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		}
 	}
 	if err := annotations.SetAnnotations(sc.DeepCopy(), annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(sc, workflow.Failed(err.Error()), log)
+		return r.updateStatus(sc, workflow.Failed(err), log)
 	}
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
@@ -218,7 +219,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.ConnectionSpec)
@@ -230,7 +231,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(r.SecretClient, sc.GetNamespace(), sc.GetPrometheus(), certs.Database, log)
 	if err != nil {
-		return workflow.Failed("Could not generate certificates for Prometheus: %s", err)
+		return workflow.Failed(xerrors.Errorf("Could not generate certificates for Prometheus: %w", err))
 	}
 
 	opts := deploymentOptions{
@@ -240,7 +241,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	}
 
 	if err = r.prepareScaleDownShardedCluster(conn, sc, opts, log); err != nil {
-		return workflow.Failed("failed to perform scale down preliminary actions: %s", err)
+		return workflow.Failed(xerrors.Errorf("failed to perform scale down preliminary actions: %w", err))
 	}
 
 	if status := validateMongoDBResource(sc, conn); !status.IsOK() {
@@ -252,7 +253,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	// and save the value for future use
 	allCertsType, err := getCertTypeForAllShardedClusterCertificates(certSecretTypesForSTS)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	caFilePath := util.CAFilePathInContainer
@@ -320,7 +321,7 @@ func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (cor
 	curTypeIsTLS := valueSlice[0]
 	for i := 1; i < len(valueSlice); i++ {
 		if valueSlice[i] != curTypeIsTLS {
-			return corev1.SecretTypeOpaque, fmt.Errorf("TLS Certificates for Sharded cluster must all be of the same type - either kubernetes.io/tls or secrets containing a concatenated pem file")
+			return corev1.SecretTypeOpaque, xerrors.Errorf("TLS Certificates for Sharded cluster must all be of the same type - either kubernetes.io/tls or secrets containing a concatenated pem file")
 		}
 	}
 	if curTypeIsTLS {
@@ -407,7 +408,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	configSrvOpts := r.getConfigServerOptions(*s, opts, log)
 	configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, nil)
 	if err := create.DatabaseInKubernetes(r.client, *s, configSrvSts, configSrvOpts, log); err != nil {
-		return workflow.Failed("Failed to create Config Server Stateful Set: %s", err)
+		return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 	}
 	if status := getStatefulSetStatus(s.Namespace, s.ConfigRsName(), r.client); !status.IsOK() {
 		return status
@@ -424,7 +425,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		shardSts := construct.DatabaseStatefulSet(*s, shardOpts, nil)
 
 		if err := create.DatabaseInKubernetes(r.client, *s, shardSts, shardOpts, log); err != nil {
-			return workflow.Failed("Failed to create Stateful Set for shard %s: %s", shardsNames[i], err)
+			return workflow.Failed(xerrors.Errorf("Failed to create Stateful Set for shard %s: %w", shardsNames[i], err))
 		}
 		if status := getStatefulSetStatus(s.Namespace, shardsNames[i], r.client); !status.IsOK() {
 			return status
@@ -438,7 +439,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, nil)
 
 	if err := create.DatabaseInKubernetes(r.client, *s, mongosSts, mongosOpts, log); err != nil {
-		return workflow.Failed("Failed to create Mongos Stateful Set: %s", err)
+		return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
 	}
 
 	if status := getStatefulSetStatus(s.Namespace, s.MongosRsName(), r.client); !status.IsOK() {
@@ -625,12 +626,12 @@ type deploymentOptions struct {
 func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	err := r.waitForAgentsToRegister(sc, conn, opts, log, sc)
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	dep, err := conn.ReadDeployment()
 	if err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	opts.finalizing = false
@@ -646,7 +647,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 		if shardsRemoving {
 			return workflow.Pending("automation agents haven't reached READY state: shards removal in progress")
 		}
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if shardsRemoving {
@@ -659,7 +660,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 		}
 
 		if err = om.WaitForReadyState(conn, processNames, log); err != nil {
-			return workflow.Failed("automation agents haven't reached READY state while cleaning replica set and processes: %s", err)
+			return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
 		}
 	}
 
@@ -681,7 +682,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	wantedHosts := getAllHosts(sc, desiredCount)
 
 	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
-		return workflow.Failed(err.Error())
+		return workflow.Failed(err)
 	}
 
 	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, sc, r.SecretClient, log); !status.IsOK() {
@@ -728,11 +729,11 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			// it is not possible to disable internal cluster authentication once enabled
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
-				return fmt.Errorf("cannot disable x509 internal cluster authentication")
+				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
 			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
 			if numberOfOtherMembers > 0 {
-				return fmt.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
 
 			lastConfigServerConf, err := sc.GetLastAdditionalMongodConfigByType(mdbv1.ConfigServerConfig)
@@ -790,11 +791,11 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	)
 
 	if err != nil {
-		return nil, shardsRemoving, workflow.Failed(err.Error())
+		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
 	if err := om.WaitForReadyState(conn, opts.processNames, log); err != nil {
-		return nil, shardsRemoving, workflow.Failed(err.Error())
+		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
 	if additionalReconciliationRequired {

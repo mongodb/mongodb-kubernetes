@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/xerrors"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
@@ -18,7 +20,7 @@ import (
 func PrepareOpsManagerConnection(client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
-		return nil, fmt.Errorf("error reading or creating project in Ops Manager: %s", err)
+		return nil, xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
 	}
 
 	omVersion := conn.OpsManagerVersion()

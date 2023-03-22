@@ -2,11 +2,12 @@ package construct
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+
+	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
