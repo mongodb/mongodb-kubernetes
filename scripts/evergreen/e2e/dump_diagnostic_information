@@ -34,6 +34,8 @@ dump_all () {
     done
 
     kubectl config use-context "${original_context}" &> /dev/null
+
+    kubectl -n "kube-system" get configmap coredns -o yaml > "logs/${prefix}coredns.yaml"
 }
 
 dump_objects() {
@@ -102,7 +104,7 @@ dump_pod_readiness_state() {
     # kubectl cp won't create any files if the file doesn't exist in the container
     agent_health_status="logs/${prefix}${pod}-agent-health-status.json"
     kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
-    ([[ -f "${agent_health_status}" ]] && jq < "logs/${pod}-agent-health-status.json" > tmpfile && mv tmpfile "${agent_health_status}")
+    ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
 
     kubectl cp "${namespace}/${pod}:var/log/mongodb-mms-automation/readiness.log" "logs/${prefix}${pod}-readiness.log" &> /dev/null
 }
@@ -116,7 +118,7 @@ dump_pod_config() {
     # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
     pod_cluster_config="logs/${prefix}${pod}-cluster-config.json"
     kubectl cp "${namespace}/${pod}:var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null
-    ([[ -f "${pod_cluster_config}" ]] && jq < "logs/${prefix}${pod}-cluster-config.json" > tmpfile && mv tmpfile "${pod_cluster_config}")
+    ([[ -f "${pod_cluster_config}" ]] && jq . < "${pod_cluster_config}" > tmpfile && mv tmpfile "${pod_cluster_config}")
 
     # Mongodb Configuration
     kubectl cp "${namespace}/${pod}:data/automation-mongod.conf" "logs/${prefix}${pod}-automation-mongod.conf" &> /dev/null

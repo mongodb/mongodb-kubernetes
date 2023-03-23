@@ -4,12 +4,13 @@ import kubernetes
 from kubernetes import client
 from pytest import mark, fixture
 
-from kubetester import create_or_update
+from kubetester import create_or_update, get_service
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
+from tests.conftest import update_coredns_hosts
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -20,7 +21,7 @@ BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
 
 @fixture(scope="module")
 def mongodb_multi_unmarshalled(
-    namespace: str, member_cluster_names: List[str]
+        namespace: str, member_cluster_names: List[str]
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
@@ -37,7 +38,7 @@ def mongodb_multi_unmarshalled(
         "externalService": {
             "spec": {
                 "type": "LoadBalancer",
-                "publishNotReadyAddresses": True,
+                "publishNotReadyAddresses": False,
                 "ports": [
                     {
                         "name": "mongodb",
@@ -46,6 +47,10 @@ def mongodb_multi_unmarshalled(
                     {
                         "name": "backup",
                         "port": 27018,
+                    },
+                    {
+                        "name": "testing0",
+                        "port": 27019,
                     },
                 ],
             }
@@ -56,7 +61,7 @@ def mongodb_multi_unmarshalled(
         "externalService": {
             "spec": {
                 "type": "LoadBalancer",
-                "publishNotReadyAddresses": True,
+                "publishNotReadyAddresses": False,
                 "ports": [
                     {
                         "name": "mongodb",
@@ -65,6 +70,10 @@ def mongodb_multi_unmarshalled(
                     {
                         "name": "backup",
                         "port": 27018,
+                    },
+                    {
+                        "name": "testing1",
+                        "port": 27019,
                     },
                 ],
             }
@@ -75,7 +84,7 @@ def mongodb_multi_unmarshalled(
         "externalService": {
             "spec": {
                 "type": "LoadBalancer",
-                "publishNotReadyAddresses": True,
+                "publishNotReadyAddresses": False,
                 "ports": [
                     {
                         "name": "mongodb",
@@ -84,6 +93,10 @@ def mongodb_multi_unmarshalled(
                     {
                         "name": "backup",
                         "port": 27018,
+                    },
+                    {
+                        "name": "testing2",
+                        "port": 27019,
                     },
                 ],
             }
@@ -95,9 +108,9 @@ def mongodb_multi_unmarshalled(
 
 @fixture(scope="function")
 def disable_istio(
-    multi_cluster_operator: Operator,
-    namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
+        multi_cluster_operator: Operator,
+        namespace: str,
+        member_cluster_clients: List[MultiClusterClient],
 ) -> str:
     for mcc in member_cluster_clients:
         api = client.CoreV1Api(api_client=mcc.api_client)
@@ -110,11 +123,11 @@ def disable_istio(
 
 @fixture(scope="function")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient,
-    disable_istio: str,
-    namespace: str,
-    mongodb_multi_unmarshalled: MongoDBMulti,
-    multi_cluster_issuer_ca_configmap: str,
+        central_cluster_client: kubernetes.client.ApiClient,
+        disable_istio: str,
+        namespace: str,
+        mongodb_multi_unmarshalled: MongoDBMulti,
+        multi_cluster_issuer_ca_configmap: str,
 ) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["security"] = {
         "certsSecretPrefix": CERT_SECRET_PREFIX,
@@ -131,10 +144,10 @@ def mongodb_multi(
 
 @fixture(scope="module")
 def server_certs(
-    multi_cluster_issuer: str,
-    mongodb_multi_unmarshalled: MongoDBMulti,
-    member_cluster_clients: List[MultiClusterClient],
-    central_cluster_client: kubernetes.client.ApiClient,
+        multi_cluster_issuer: str,
+        mongodb_multi_unmarshalled: MongoDBMulti,
+        member_cluster_clients: List[MultiClusterClient],
+        central_cluster_client: kubernetes.client.ApiClient,
 ):
     return create_multi_cluster_mongodb_tls_certs(
         multi_cluster_issuer,
@@ -146,17 +159,61 @@ def server_certs(
 
 
 @mark.e2e_multi_cluster_tls_no_mesh
+def test_update_coredns(cluster_clients: dict[str, kubernetes.client.ApiClient]):
+    hosts = [
+        ("172.18.255.211", "test.kind-e2e-cluster-1.interconnected"),
+        ("172.18.255.211", "multi-cluster-replica-set-0-0.kind-e2e-cluster-1.interconnected"),
+        ("172.18.255.212", "multi-cluster-replica-set-0-1.kind-e2e-cluster-1.interconnected"),
+        ("172.18.255.213", "multi-cluster-replica-set-0-2.kind-e2e-cluster-1.interconnected"),
+        ("172.18.255.221", "test.kind-e2e-cluster-2.interconnected"),
+        ("172.18.255.221", "multi-cluster-replica-set-1-0.kind-e2e-cluster-2.interconnected"),
+        ("172.18.255.222", "multi-cluster-replica-set-1-1.kind-e2e-cluster-2.interconnected"),
+        ("172.18.255.223", "multi-cluster-replica-set-1-2.kind-e2e-cluster-2.interconnected"),
+        ("172.18.255.231", "test.kind-e2e-cluster-3.interconnected"),
+        ("172.18.255.231", "multi-cluster-replica-set-2-0.kind-e2e-cluster-3.interconnected"),
+        ("172.18.255.232", "multi-cluster-replica-set-2-1.kind-e2e-cluster-3.interconnected"),
+        ("172.18.255.233", "multi-cluster-replica-set-2-2.kind-e2e-cluster-3.interconnected"),
+    ]
+
+    for cluster_name, cluster_api in cluster_clients.items():
+        update_coredns_hosts(hosts, cluster_name, api_client=cluster_api)
+
+
+@mark.e2e_multi_cluster_tls_no_mesh
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
 @mark.e2e_multi_cluster_tls_no_mesh
 def test_create_mongodb_multi(
-    mongodb_multi: MongoDBMulti,
-    namespace: str,
-    server_certs: str,
-    multi_cluster_issuer_ca_configmap: str,
-    member_cluster_clients: List[MultiClusterClient],
-    member_cluster_names: List[str],
+        mongodb_multi: MongoDBMulti,
+        namespace: str,
+        server_certs: str,
+        multi_cluster_issuer_ca_configmap: str,
+        member_cluster_clients: List[MultiClusterClient],
+        member_cluster_names: List[str],
 ):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2400)
+
+
+@mark.e2e_multi_cluster_tls_no_mesh
+def test_service_overrides(namespace: str, mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+    for cluster_idx, member_cluster_client in enumerate(member_cluster_clients):
+        for pod_idx in range(0, 2):
+            external_service_name = f"{mongodb_multi.name}-{cluster_idx}-{pod_idx}-svc-external"
+            external_service = get_service(namespace, external_service_name, api_client=member_cluster_client.api_client)
+
+            assert external_service is not None
+            assert external_service.spec.type == "LoadBalancer"
+            assert external_service.spec.publish_not_ready_addresses
+            ports = external_service.spec.ports
+            assert len(ports) == 3
+            assert ports[0].name == "mongodb"
+            assert ports[0].target_port == 27017
+            assert ports[0].port == 27017
+            assert ports[1].name == "backup"
+            assert ports[1].target_port == 27018
+            assert ports[1].port == 27018
+            assert ports[2].name == f"testing{cluster_idx}"
+            assert ports[2].target_port == 27019
+            assert ports[2].port == 27019

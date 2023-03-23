@@ -51,11 +51,7 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
 
     kops export kubecfg $CLUSTER --admin=87600h
 elif [ "${kube_environment_name}" = "kind" ]; then
-    echo "Starting Kind"
-    kubernetes_image="kindest/node:v${kubernetes_kind_version:?}"
-    kind create cluster \
-        --image "${kubernetes_image}" \
-        --kubeconfig "${context_config}"
+    scripts/dev/recreate_kind_cluster.sh "${CLUSTER_NAME:-kind}"
 elif [[ "${kube_environment_name}" = "minikube" ]]; then
     echo "Starting Minikube"
     minikube start --driver=docker --kubernetes-version=v1.16.15 --memory=50g &>/dev/null

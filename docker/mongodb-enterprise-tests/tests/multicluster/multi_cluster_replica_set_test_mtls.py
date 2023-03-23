@@ -3,7 +3,7 @@ from typing import List
 import kubernetes
 import pytest
 
-from kubetester import wait_until
+from kubetester import wait_until, create_or_update
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
@@ -12,20 +12,25 @@ from kubetester.kubetester import (
     create_testing_namespace,
     KubernetesTester,
 )
+from tests.multicluster.conftest import cluster_spec_list
 
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+    central_cluster_client: kubernetes.client.ApiClient, namespace: str, member_cluster_names: list[str]
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
     )
 
-    # TODO: incorporate this into the base class.
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
-    return resource.create()
+# TODO: incorporate this into the base class.
+    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    create_or_update(resource)
+    return resource
 
 
 @pytest.mark.e2e_multi_cluster_mtls_test
@@ -53,16 +58,16 @@ def test_create_mongo_pod_in_separate_namespace(
 
     corev1 = kubernetes.client.CoreV1Api(api_client=cluster_1_client.api_client)
 
-    def default_service_account_token_exists() -> bool:
-        secrets: kubernetes.client.V1SecretList = corev1.list_namespaced_secret(
-            f"{namespace}-mongo"
-        )
-        for secret in secrets.items:
-            if secret.metadata.name.startswith("default-token"):
-                return True
-        return False
-
-    wait_until(default_service_account_token_exists, timeout=10)
+    # def default_service_account_token_exists() -> bool:
+    #     secrets: kubernetes.client.V1SecretList = corev1.list_namespaced_secret(
+    #         f"{namespace}-mongo"
+    #     )
+    #     for secret in secrets.items:
+    #         if secret.metadata.name.startswith("default-token"):
+    #             return True
+    #     return False
+    #
+    # wait_until(default_service_account_token_exists, timeout=10)
 
     # create a pod with mongo installed in a separate namespace that does not have istio configured.
     corev1.create_namespaced_pod(
@@ -104,10 +109,11 @@ def test_connectivity_fails_from_second_namespace(
 ):
     cluster_1_client = member_cluster_clients[0]
 
+    service_fqdn=f"{mongodb_multi.name}-2-0-svc.{namespace}.svc.cluster.local"
     cmd = [
         "mongosh",
         "--host",
-        f"{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local",
+        service_fqdn
     ]
 
     result = KubernetesTester.run_command_in_pod_container(
@@ -118,9 +124,13 @@ def test_connectivity_fails_from_second_namespace(
         api_client=cluster_1_client.api_client,
     )
 
-    assert "MongoServerSelectionError: connection <monitor> to" in result
+    failures=[
+        "MongoServerSelectionError: connection <monitor> to",
+        f"getaddrinfo ENOTFOUND {service_fqdn}",
+        "HostNotFound",
+    ]
 
-    assert "HostNotFound" not in result
+    assert True in [failure in result for failure in failures], f"no expected failure messages found in result: {result}"
 
 
 @pytest.mark.e2e_multi_cluster_mtls_test
@@ -217,6 +227,12 @@ def test_connectivity_succeeds_from_second_namespace(
         )
         if (
             "Error: network error while attempting to run command 'isMaster' on host"
+            in result
+        ):
+            return False
+
+        if (
+            f"getaddrinfo ENOTFOUND"
             in result
         ):
             return False

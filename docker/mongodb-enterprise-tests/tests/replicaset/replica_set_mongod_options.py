@@ -1,4 +1,3 @@
-from kubernetes import client
 from pytest import fixture, mark
 
 from kubetester.kubetester import fixture as yaml_fixture

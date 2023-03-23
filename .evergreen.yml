@@ -2136,7 +2136,6 @@ task_groups:
     - e2e_multi_cluster_scale_up_cluster_new_cluster
     - e2e_multi_cluster_replica_set_scale_down
     - e2e_multi_cluster_scale_down_cluster
-    - e2e_multi_cluster_mtls_test
     - e2e_multi_sts_override
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_member_cluster_watch
@@ -2178,6 +2177,7 @@ task_groups:
     - e2e_multi_cluster_enable_tls
     - e2e_multi_cluster_with_ldap
     - e2e_multi_cluster_with_ldap_custom_roles
+    - e2e_multi_cluster_mtls_test
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

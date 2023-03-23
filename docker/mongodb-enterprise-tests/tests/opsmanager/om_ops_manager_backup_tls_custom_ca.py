@@ -2,13 +2,13 @@ import os
 import time
 from typing import Optional
 
-from pytest import mark, fixture
-
 from kubetester import MongoDB, create_or_update
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import mark, fixture
+from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
@@ -20,9 +20,15 @@ from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 FIRST_PROJECT_RS_NAME = "mdb-four-two"
 SECOND_PROJECT_RS_NAME = "mdb-four-zero"
+EXTERNAL_DOMAIN_RS_NAME = "my-replica-set"
 
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
+
+Tests checking externalDomain (consider updating all of them when changing test logic):
+    tls/tls_replica_set_process_hostnames.py
+    replicaset/replica_set_process_hostnames.py
+    opsmanager/om_ops_manager_backup_tls_custom_ca.py
 """
 
 
@@ -83,14 +89,27 @@ def second_project_certs(namespace: str, issuer: str):
 
 
 @fixture(scope="module")
+def mdb_external_domain_certs(namespace: str, issuer: str):
+    create_mongodb_tls_certs(
+        issuer,
+        namespace,
+        EXTERNAL_DOMAIN_RS_NAME,
+        f"external-domain-{EXTERNAL_DOMAIN_RS_NAME}-cert",
+        process_hostnames=external_domain_fqdns(EXTERNAL_DOMAIN_RS_NAME, 3)
+    )
+    # prefix for certificates
+    return "external-domain"
+
+
+@fixture(scope="module")
 def ops_manager(
-    namespace,
-    issuer_ca_configmap: str,
-    appdb_certs_secret: str,
-    custom_version: Optional[str],
-    custom_appdb_version: str,
-    ops_manager_certs: str,
-    issuer_ca_filepath: str,
+        namespace,
+        issuer_ca_configmap: str,
+        appdb_certs_secret: str,
+        custom_version: Optional[str],
+        custom_appdb_version: str,
+        ops_manager_certs: str,
+        issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
@@ -113,7 +132,7 @@ def ops_manager(
 
 @fixture(scope="module")
 def oplog_replica_set(
-    ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str
+        ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
@@ -128,7 +147,7 @@ def oplog_replica_set(
 
 @fixture(scope="module")
 def blockstore_replica_set(
-    ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str
+        ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str
 ) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
@@ -139,6 +158,18 @@ def blockstore_replica_set(
 
     create_or_update(resource)
     return resource
+
+
+@mark.e2e_om_ops_manager_backup_tls_custom_ca
+def test_update_coredns():
+    hosts = [
+        ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
+        ("172.18.255.201", "my-replica-set-1.mongodb.interconnected"),
+        ("172.18.255.202", "my-replica-set-2.mongodb.interconnected"),
+        ("172.18.255.203", "my-replica-set-3.mongodb.interconnected"),
+    ]
+
+    update_coredns_hosts(hosts)
 
 
 @mark.e2e_om_ops_manager_backup_tls_custom_ca
@@ -159,7 +190,7 @@ class TestOpsManagerCreation:
         )
 
     def test_add_custom_ca_to_project_configmap(
-        self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
+            self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
     ):
         projects = [
             ops_manager.get_or_create_mongodb_connection_config_map(
@@ -173,6 +204,9 @@ class TestOpsManagerCreation:
             ),
             ops_manager.get_or_create_mongodb_connection_config_map(
                 SECOND_PROJECT_RS_NAME, "secondProject"
+            ),
+            ops_manager.get_or_create_mongodb_connection_config_map(
+                EXTERNAL_DOMAIN_RS_NAME, "externalDomain"
             ),
         ]
 
@@ -188,7 +222,7 @@ class TestOpsManagerCreation:
         time.sleep(10)
 
     def test_backing_dbs_created(
-        self, blockstore_replica_set: MongoDB, oplog_replica_set: MongoDB
+            self, blockstore_replica_set: MongoDB, oplog_replica_set: MongoDB
     ):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -200,8 +234,8 @@ class TestOpsManagerCreation:
         blockstore_replica_set.assert_connectivity(ca_path=ca_path)
 
     def test_om_is_running(
-        self,
-        ops_manager: MongoDBOpsManager,
+            self,
+            ops_manager: MongoDBOpsManager,
     ):
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
 
@@ -212,12 +246,12 @@ class TestBackupForMongodb:
 
     @fixture(scope="class")
     def mdb_latest(
-        self,
-        ops_manager: MongoDBOpsManager,
-        namespace,
-        custom_mdb_version: str,
-        issuer_ca_configmap: str,
-        first_project_certs: str,
+            self,
+            ops_manager: MongoDBOpsManager,
+            namespace,
+            custom_mdb_version: str,
+            issuer_ca_configmap: str,
+            first_project_certs: str,
     ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
@@ -233,12 +267,12 @@ class TestBackupForMongodb:
 
     @fixture(scope="class")
     def mdb_prev(
-        self,
-        ops_manager: MongoDBOpsManager,
-        namespace,
-        custom_mdb_prev_version: str,
-        issuer_ca_configmap: str,
-        second_project_certs: str,
+            self,
+            ops_manager: MongoDBOpsManager,
+            namespace,
+            custom_mdb_prev_version: str,
+            issuer_ca_configmap: str,
+            second_project_certs: str,
     ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
@@ -251,14 +285,41 @@ class TestBackupForMongodb:
         create_or_update(resource)
         return resource
 
-    def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+    @fixture(scope="class")
+    def mdb_external_domain(
+            self,
+            ops_manager: MongoDBOpsManager,
+            namespace,
+            custom_mdb_prev_version: str,
+            issuer_ca_configmap: str,
+            mdb_external_domain_certs: str,
+    ):
+        resource = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"),
+            namespace=namespace,
+            name=EXTERNAL_DOMAIN_RS_NAME,
+        ).configure(ops_manager, "externalDomain")
+
+        resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
+        resource.configure_backup(mode="enabled")
+        resource.configure_custom_tls(issuer_ca_configmap, mdb_external_domain_certs)
+        resource["spec"]["members"] = 3
+        resource["spec"]["externalAccess"] = {}
+        resource["spec"]["externalAccess"]["externalDomain"] = default_external_domain()
+        create_or_update(resource)
+        return resource
+
+    def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB, mdb_external_domain: MongoDB):
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
+        mdb_external_domain.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_external_domain = ops_manager.get_om_tester(project_name="externalDomain")
 
         # wait until a first snapshot is ready for both
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
+        om_tester_external_domain.wait_until_backup_snapshots_are_ready(expected_count=1)

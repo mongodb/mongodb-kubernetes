@@ -6,14 +6,15 @@ from typing import Callable, Dict, List, Optional
 import kubernetes
 from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
+from pytest import fixture
+
 from kubetester import (
     get_pod_when_ready,
     create_or_update_configmap,
     is_pod_ready,
     read_secret,
-    create_configmap,
+    update_configmap,
 )
-
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import Issuer, Certificate, ClusterIssuer
 from kubetester.git import clone_and_checkout
@@ -23,7 +24,6 @@ from kubetester.kubetester import KubernetesTester, running_locally
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb_multi import MultiClusterClient
 from kubetester.operator import Operator
-from pytest import fixture
 from tests.multicluster import prepare_multi_cluster_namespaces
 
 try:
@@ -320,8 +320,6 @@ def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> str:
     name = "issuer-plus-ca"
     create_or_update_configmap(namespace, name, data)
     yield name
-
-    KubernetesTester.delete_configmap(namespace, name)
 
 
 @fixture(scope="module")
@@ -994,5 +992,67 @@ def create_issuer(
 
 
 def local_operator():
-    """Checks if the current test run should assume that the operator is running locally, i.e. not in a pod"""
+    """Checks if the current test run should assume that the operator is running locally, i.e. not in a pod."""
     return os.getenv("LOCAL_OPERATOR", "") == "true"
+
+
+def pod_names(replica_set_name: str, replica_set_members: int) -> list[str]:
+    """List of pod names for given replica set name."""
+    return [f"{replica_set_name}-{i}" for i in range(0, replica_set_members)]
+
+
+def default_external_domain() -> str:
+    """Default external domain used for testing LoadBalancers on Kind."""
+    return "mongodb.interconnected"
+
+
+def external_domain_fqdns(replica_set_name: str, replica_set_members: int, external_domain: str = default_external_domain()) -> list[str]:
+    """Builds list of hostnames for given replica set when connecting to it using external domain."""
+    return [f"{pod_name}.{external_domain}" for pod_name in pod_names(replica_set_name, replica_set_members)]
+
+
+def update_coredns_hosts(host_mappings: list[tuple[str, str]], cluster_name: Optional[str] = None, api_client: Optional[kubernetes.client.ApiClient] = None):
+    """Updates kube-system/coredns config map with given host_mappings."""
+
+    indent = " " * 7
+    mapping_string = "\n".join([f"{indent}{host_mapping[0]} {host_mapping[1]}" for host_mapping in host_mappings])
+    config_data = {
+        "Corefile": coredns_config("interconnected", mapping_string)
+    }
+
+    if cluster_name is None:
+        cluster_name = "default cluster"
+
+    print(f"Updating coredns for cluster: {cluster_name}")
+    update_configmap("kube-system", "coredns", config_data, api_client=api_client)
+
+
+def coredns_config(tld: str, mappings: str):
+    """Returns coredns config map data with mappings inserted."""
+    return f"""
+.:53 {{
+    errors
+    health {{
+       lameduck 5s
+    }}
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {{
+       pods insecure
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }}
+    prometheus :9153
+    forward . /etc/resolv.conf {{
+       max_concurrent 1000
+    }}
+    cache 30
+    loop
+    reload
+    loadbalance
+    debug
+    hosts /etc/coredns/customdomains.db   {tld} {{
+{mappings}
+       fallthrough
+    }}
+}}
+"""
