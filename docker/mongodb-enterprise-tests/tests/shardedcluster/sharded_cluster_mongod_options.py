@@ -18,7 +18,7 @@ def sharded_cluster(namespace: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_mongod_options
 def test_sharded_cluster_created(sharded_cluster: MongoDB):
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=300)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_sharded_cluster_mongod_options

@@ -33,7 +33,7 @@ if [[ ${CLUSTER_TYPE} = "kops" ]] && ! kops validate cluster "${CLUSTER_NAME}" ;
 elif [[ ${CLUSTER_TYPE} = "openshift" ]]; then
 	echo "openshift is TODO"
 elif [[ ${CLUSTER_TYPE} = "kind" ]]; then
-  "${script_directory}"/setup_kind_cluster.sh -n "${CLUSTER_NAME}" -e -r
+  "${script_directory}"/recreate_kind_cluster.sh "${CLUSTER_NAME}"
 fi
 
 title "Kubernetes cluster ${CLUSTER_NAME} is up"

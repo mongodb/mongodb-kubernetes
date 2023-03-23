@@ -317,13 +317,13 @@ class StandaloneTester(MongoTester):
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
         port="27017",
+        external_domain: Optional[str] = None,
     ):
         if namespace is None:
             namespace = KubernetesTester.get_namespace()
 
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_resource_name, namespace, 1, port
-        )
+            mdb_resource_name, namespace, 1, port, external_domain=external_domain)
         super().__init__(self.cnx_string, ssl, ca_path)
 
 
@@ -337,6 +337,7 @@ class ReplicaSetTester(MongoTester):
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
         port="27017",
+        external_domain: Optional[str] = None,
     ):
         if namespace is None:
             # backward compatibility with docstring tests
@@ -351,6 +352,7 @@ class ReplicaSetTester(MongoTester):
             servicename=None,
             srv=srv,
             port=port,
+            external_domain=external_domain
         )
 
         super().__init__(self.cnx_string, ssl, ca_path)
@@ -562,10 +564,13 @@ def build_mongodb_connection_uri(
     port: str,
     servicename: str = None,
     srv: bool = False,
+    external_domain: str = None
 ) -> str:
     if servicename is None:
         servicename = "{}-svc".format(mdb_resource)
 
+    if external_domain:
+        return build_mongodb_uri(build_list_of_hosts_with_external_domain(mdb_resource, members, external_domain, port))
     if srv:
         return build_mongodb_uri(build_host_srv(servicename, namespace), srv)
     else:
@@ -587,6 +592,12 @@ def build_list_of_hosts(
         build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename, port)
         for idx in range(members)
     ]
+
+
+def build_list_of_hosts_with_external_domain(
+    mdb_resource: str, members: int, external_domain: str, port: str
+) -> List[str]:
+    return [f"{mdb_resource}-{idx}.{external_domain}:{port}" for idx in range(members)]
 
 
 def build_list_of_multi_hosts(

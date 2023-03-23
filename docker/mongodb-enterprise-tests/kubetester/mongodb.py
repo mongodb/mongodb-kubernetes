@@ -160,6 +160,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 srv=srv,
                 ca_path=ca_path,
                 namespace=self.namespace,
+                external_domain=self.get_external_domain()
             )
         elif self.type == "ShardedCluster":
             return ShardedClusterTester(
@@ -176,6 +177,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
                 ca_path=ca_path,
                 namespace=self.namespace,
+                external_domain=self.get_external_domain()
             )
 
     def assert_connectivity(self, ca_path: Optional[str] = None):
@@ -375,6 +377,9 @@ class MongoDB(CustomObject, MongoDBCommon):
     def get_automation_config_tester(self, **kwargs):
         """This is just a shortcut for getting automation config tester for replica set"""
         return self.get_om_tester().get_automation_config_tester(**kwargs)
+
+    def get_external_domain(self):
+        return self["spec"].get("externalAccess", {}).get("externalDomain", None)
 
     @property
     def config_map_name(self) -> str:

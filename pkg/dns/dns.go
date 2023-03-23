@@ -11,12 +11,24 @@ func GetMultiPodName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
 }
 
-func GetServiceName(mdbmName string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-%d-%d-svc", mdbmName, clusterNum, podNum)
+func GetMultiServiceName(mdbmName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-svc", GetMultiPodName(mdbmName, clusterNum, podNum))
+}
+
+func GetServiceName(mdbmName string) string {
+	return fmt.Sprintf("%s-svc", mdbmName)
+}
+
+func GetExternalServiceName(mdbmName string, podNum int) string {
+	return fmt.Sprintf("%s-%d-svc-external", mdbmName, podNum)
+}
+
+func GetMultiExternalServiceName(mdbmName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-external", GetMultiServiceName(mdbmName, clusterNum, podNum))
 }
 
 func GetMultiServiceFQDN(mdbmName, namespace string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", GetServiceName(mdbmName, clusterNum, podNum), namespace)
+	return fmt.Sprintf("%s.%s.svc.cluster.local", GetMultiServiceName(mdbmName, clusterNum, podNum), namespace)
 }
 
 func GetMultiServiceExternalDomain(mdbmName, externalDomain string, clusterNum, podNum int) string {

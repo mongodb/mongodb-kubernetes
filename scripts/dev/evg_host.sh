@@ -95,7 +95,7 @@ recreate-kind-cluster() {
   cluster_name=$1
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "~/scripts/dev/setup_kind_cluster.sh -ern ${cluster_name}"
+  ssh -T "${host_url}" "~/scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }

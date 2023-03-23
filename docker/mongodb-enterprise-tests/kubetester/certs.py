@@ -185,8 +185,11 @@ def create_tls_certs(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
     common_name: Optional[str] = None,
-    hostname_aliases: Optional[List[str]] = None,
+    process_hostnames: Optional[List[str]] = None,
 ) -> Dict[str, str]:
+    """
+    :param process_hostnames: set for TLS certificate to contain only given domains
+    """
     if service_name is None:
         service_name = resource_name + "-svc"
 
@@ -205,8 +208,8 @@ def create_tls_certs(
     pod_dns = []
     pods = []
     for idx in range(replicas):
-        if hostname_aliases is not None:
-            pod_dns.append(hostname_aliases[idx])
+        if process_hostnames is not None:
+            pod_dns.append(process_hostnames[idx])
         else:
             pod_dns.append(pod_fqdn_fstring.format(idx))
             pods.append(f"{resource_name}-{idx}")
@@ -309,8 +312,11 @@ def create_mongodb_tls_certs(
     additional_domains: Optional[List[str]] = None,
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
-    hostname_aliases: Optional[List[str]] = None,
+    process_hostnames: Optional[List[str]] = None,
 ) -> str:
+    """
+    :param process_hostnames: set for TLS certificate to contain only given domains
+    """
     cert_and_pod_names = create_tls_certs(
         issuer=issuer,
         namespace=namespace,
@@ -322,7 +328,7 @@ def create_mongodb_tls_certs(
         secret_name=bundle_secret_name,
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
-        hostname_aliases=hostname_aliases,
+        process_hostnames=process_hostnames,
     )
 
     return cert_and_pod_names

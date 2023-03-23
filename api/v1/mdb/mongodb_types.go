@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"sort"
 	"strings"
 
@@ -958,7 +959,7 @@ func (m *MongoDB) ServiceName() string {
 	}
 
 	if m.Spec.Service == "" {
-		return m.Name + "-svc"
+		return dns.GetServiceName(m.GetName())
 	}
 	return m.Spec.Service
 }

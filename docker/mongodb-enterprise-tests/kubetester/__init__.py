@@ -93,14 +93,25 @@ def create_or_update_service(namespace: str, name: str, spec: client.V1ServiceSp
 
 def delete_service_account(namespace: str, name: str) -> str:
     """Deletes a service account with `name` in `namespace`"""
-    sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))
     client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
     return name
 
 
+def get_service(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None) -> client.V1ServiceSpec:
+    """Gets a service with `name` in `namespace.
+    :return None if the service does not exist
+    """
+    try:
+        return client.CoreV1Api(api_client=api_client).read_namespaced_service(name, namespace)
+    except kubernetes.client.ApiException as e:
+        if e.status == 404:
+            return None
+        else:
+            raise e
+
+
 def delete_pvc(namespace: str, name: str):
     """Deletes a persistent volument claim(pvc) with `name` in `namespace`"""
-    pvc = client.V1PersistentVolumeClaim(metadata=client.V1ObjectMeta(name=name))
     client.CoreV1Api().delete_namespaced_persistent_volume_claim(
         namespace=namespace, name=name
     )

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"reflect"
 	"sort"
 
@@ -671,7 +672,7 @@ func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
 		SetLabels(svcLabels).
 		SetPublishNotReadyAddresses(true).
 		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
-		AddPort(&corev1.ServicePort{Port: port + 1, Name: "backup", TargetPort: intstr.IntOrString{IntVal: port + 1}}).
+		AddPort(&corev1.ServicePort{Port: create.GetNonEphemeralBackupPort(port), Name: "backup", TargetPort: intstr.IntOrString{IntVal: create.GetNonEphemeralBackupPort(port)}}).
 		Build()
 
 	return svc
@@ -681,7 +682,7 @@ func getExternalService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string,
 	clusterNum := mrs.ClusterNum(clusterName)
 
 	svc := getService(mrs, clusterName, podNum)
-	svc.Name = svc.Name + "-external"
+	svc.Name = dns.GetMultiExternalServiceName(mrs.GetName(), clusterNum, podNum)
 	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 
 	externalDomain := mrs.ExternalMemberClusterDomain(clusterName)
@@ -721,7 +722,7 @@ func getService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string, podNum 
 	port := additionalConfig.GetPortOrDefault()
 
 	svc := service.Builder().
-		SetName(dns.GetServiceName(mrs.Name, mrs.ClusterNum(clusterName), podNum)).
+		SetName(dns.GetMultiServiceName(mrs.Name, mrs.ClusterNum(clusterName), podNum)).
 		SetNamespace(mrs.Namespace).
 		SetSelector(labelSelectors).
 		SetLabels(svcLabels).
@@ -729,7 +730,7 @@ func getService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string, podNum 
 		AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"}).
 		// Note: in the agent-launcher.sh We explicitly pass an offset of 1. When port N is exposed
 		// the agent would use port N+1 for the spinning up of the ephemeral mongod process, which is used for backup
-		AddPort(&corev1.ServicePort{Port: port + 1, Name: "backup", TargetPort: intstr.IntOrString{IntVal: port + 1}}).
+		AddPort(&corev1.ServicePort{Port: create.GetNonEphemeralBackupPort(port), Name: "backup", TargetPort: intstr.IntOrString{IntVal: create.GetNonEphemeralBackupPort(port)}}).
 		Build()
 
 	return svc

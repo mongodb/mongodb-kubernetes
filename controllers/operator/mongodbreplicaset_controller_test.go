@@ -138,14 +138,26 @@ func TestExposedExternallyReplicaSet(t *testing.T) {
 
 	//when
 	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	// then
+	// We removed support for single external service named <replicaset-name>-svc-external (round-robin to all pods).
 	externalService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{},
 	}
 	err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
+	assert.Error(t, err)
 
-	//then
-	assert.NoError(t, err)
-	assert.Equal(t, corev1.ServiceTypeNodePort, externalService.Spec.Type)
+	for podNum := 0; podNum < 3; podNum++ {
+		err := client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
+		assert.NoError(t, err)
+
+		assert.NoError(t, err)
+		assert.Equal(t, corev1.ServiceTypeLoadBalancer, externalService.Spec.Type)
+		assert.Len(t, externalService.Spec.Ports, 1)
+		assert.Equal(t, "mongodb", externalService.Spec.Ports[0].Name)
+		assert.Equal(t, 27017, externalService.Spec.Ports[0].TargetPort.IntValue())
+	}
+
 	processes := om.CurrMockedConnection.GetProcesses()
 	require.Len(t, processes, 3)
 	// check hostnames are pod's headless service FQDNs
@@ -187,35 +199,13 @@ func testExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T, repl
 	}
 }
 
-func TestExposedExternallyReplicaSetWithBackwardsCompatibility(t *testing.T) {
-	//given
-	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
-	//explicit test for deprecated function. Can be removed once we wipe it out from the APIs.
-	rs.Spec.ExposedExternally = true
-	rs.InitDefaults()
-
-	reconciler, client := defaultReplicaSetReconciler(rs)
-
-	//when
-	checkReconcileSuccessful(t, reconciler, rs, client)
-	externalService := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{},
-	}
-	err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
-
-	//then
-	assert.NoError(t, err)
-	assert.Equal(t, corev1.ServiceTypeNodePort, externalService.Spec.Type)
-}
-
-func TestExposedExternallyReplicaSetWithLoadBalancer(t *testing.T) {
+func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 	//given
 	rs := DefaultReplicaSetBuilder().
 		SetMembers(3).
 		ExposedExternally(
 			&corev1.ServiceSpec{
-				Type:           corev1.ServiceTypeLoadBalancer,
-				LoadBalancerIP: "10.0.0.1",
+				Type: corev1.ServiceTypeNodePort,
 			},
 			map[string]string{"test": "test"},
 			nil).
@@ -228,13 +218,18 @@ func TestExposedExternallyReplicaSetWithLoadBalancer(t *testing.T) {
 	externalService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{},
 	}
-	err := client.Get(context.TODO(), types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
 
 	//then
-	assert.NoError(t, err)
-	assert.Equal(t, corev1.ServiceTypeLoadBalancer, externalService.Spec.Type)
-	assert.Equal(t, "10.0.0.1", externalService.Spec.LoadBalancerIP)
-	assert.Equal(t, map[string]string{"test": "test"}, externalService.Annotations)
+	for podNum := 0; podNum < 3; podNum++ {
+		err := client.Get(context.TODO(), types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
+		assert.NoError(t, err)
+
+		assert.NoError(t, err)
+		assert.Equal(t, corev1.ServiceTypeNodePort, externalService.Spec.Type)
+		assert.Len(t, externalService.Spec.Ports, 1)
+		assert.Equal(t, "mongodb", externalService.Spec.Ports[0].Name)
+		assert.Equal(t, 27017, externalService.Spec.Ports[0].TargetPort.IntValue())
+	}
 }
 
 func TestCreateReplicaSet_TLS(t *testing.T) {

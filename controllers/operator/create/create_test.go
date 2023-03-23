@@ -1,6 +1,12 @@
 package create
 
 import (
+	"fmt"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
@@ -23,7 +29,7 @@ func init() {
 
 func TestBuildService(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	svc := buildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, "label", 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc := buildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, pointer.String("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -37,7 +43,28 @@ func TestBuildService(t *testing.T) {
 	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
 	assert.Equal(t, "None", svc.Spec.ClusterIP)
 	assert.Equal(t, int32(2000), svc.Spec.Ports[0].Port)
-	assert.Equal(t, "label", "label")
+	assert.Equal(t, "label", svc.Labels[appLabelKey])
+	assert.NotContains(t, svc.Labels, podNameLabelKey)
+	assert.True(t, svc.Spec.PublishNotReadyAddresses)
+
+	// test podName label not nil
+	svc = buildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, pointer.String("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
+		Type:           corev1.ServiceTypeClusterIP,
+		Port:           2000,
+		LoadBalancerIP: "loadbalancerip",
+	})
+
+	assert.Len(t, svc.OwnerReferences, 1)
+	assert.Equal(t, mdb.Name, svc.OwnerReferences[0].Name)
+	assert.Equal(t, mdb.GetObjectKind().GroupVersionKind().Kind, svc.OwnerReferences[0].Kind)
+	assert.Equal(t, mock.TestNamespace, svc.Namespace)
+	assert.Equal(t, "my-svc", svc.Name)
+	assert.Equal(t, "loadbalancerip", svc.Spec.LoadBalancerIP)
+	assert.Equal(t, "None", svc.Spec.ClusterIP)
+	assert.Equal(t, int32(2000), svc.Spec.Ports[0].Port)
+	assert.NotContains(t, svc.Labels, appLabelKey)
+	assert.Equal(t, "podName", svc.Labels[podNameLabelKey])
+	assert.True(t, svc.Spec.PublishNotReadyAddresses)
 }
 
 func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
@@ -113,4 +140,145 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	port1 := externalService.Spec.Ports[1]
 	assert.Equal(t, backupPortName, port1.Name)
 	assert.Equal(t, int32(1234), port1.Port)
+}
+
+func TestDatabaseInKubernetes_ExternalServicesWithoutExternalDomain(t *testing.T) {
+	svc := corev1.Service{
+		TypeMeta:   metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "mongodb",
+					TargetPort: intstr.IntOrString{IntVal: 27017},
+				},
+			},
+			Type:                     corev1.ServiceTypeLoadBalancer,
+			PublishNotReadyAddresses: true,
+		},
+	}
+
+	service1 := svc
+	service1.Name = "mdb-0-svc-external"
+	service2 := svc
+	service2.Name = "mdb-1-svc-external"
+	expectedServices := []corev1.Service{service1, service2}
+
+	testDatabaseInKubernetesExternalServices(t, mdbv1.ExternalAccessConfiguration{}, expectedServices)
+}
+
+func TestDatabaseInKubernetes_ExternalServicesWithExternalDomainHaveAdditionalBackupPort(t *testing.T) {
+	svc := corev1.Service{
+		TypeMeta:   metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external"},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "mongodb",
+					TargetPort: intstr.IntOrString{IntVal: 27017},
+				},
+				{
+					Name:       "backup",
+					TargetPort: intstr.IntOrString{IntVal: 27018},
+				},
+			},
+			Type:                     corev1.ServiceTypeLoadBalancer,
+			PublishNotReadyAddresses: true,
+		},
+	}
+
+	service1 := svc
+	service1.Name = "mdb-0-svc-external"
+	service2 := svc
+	service2.Name = "mdb-1-svc-external"
+	expectedServices := []corev1.Service{service1, service2}
+
+	testDatabaseInKubernetesExternalServices(t, mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("example.com")}, expectedServices)
+}
+
+func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testing.T) {
+	svc := corev1.Service{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external", Annotations: map[string]string{
+			"key": "value",
+		}},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "mongodb",
+					TargetPort: intstr.IntOrString{IntVal: 27017},
+				},
+				{
+					Name:       "backup",
+					TargetPort: intstr.IntOrString{IntVal: 27018},
+				},
+			},
+			Type:                     corev1.ServiceTypeNodePort,
+			PublishNotReadyAddresses: true,
+		},
+	}
+
+	service1 := svc
+	service1.Name = "mdb-0-svc-external"
+	service2 := svc
+	service2.Name = "mdb-1-svc-external"
+	expectedServices := []corev1.Service{service1, service2}
+
+	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
+		ExternalDomain: pointer.String("example.com"),
+		ExternalService: mdbv1.ExternalServiceConfiguration{
+			SpecWrapper: &mdbv1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+			}},
+			Annotations: map[string]string{
+				"key": "value",
+			},
+		},
+	}
+	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, expectedServices)
+}
+
+func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
+	log := zap.S()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
+
+	mdb := mdbv1.NewReplicaSetBuilder().
+		SetName("mdb").
+		SetNamespace("my-namespace").
+		SetMembers(2).
+		Build()
+	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
+
+	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
+	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
+	assert.NoError(t, err)
+
+	// we only test subset of fields from service spec, which are the most relevant for external services
+	for _, expectedService := range expectedServices {
+		actualService, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf(expectedService.GetName()), Namespace: "my-namespace"})
+		require.NoError(t, err, "serviceName: %s", expectedService.GetName())
+		require.NotNil(t, actualService)
+		require.Len(t, actualService.Spec.Ports, len(expectedService.Spec.Ports))
+		for i, expectedPort := range expectedService.Spec.Ports {
+			actualPort := actualService.Spec.Ports[i]
+			assert.Equal(t, expectedPort.Name, actualPort.Name)
+			assert.Equal(t, expectedPort.TargetPort.IntVal, actualPort.TargetPort.IntVal)
+		}
+		assert.Equal(t, expectedService.Spec.Type, actualService.Spec.Type)
+		assert.True(t, expectedService.Spec.PublishNotReadyAddresses, actualService.Spec.PublishNotReadyAddresses)
+		if expectedService.Annotations != nil {
+			assert.Equal(t, expectedService.Annotations, actualService.Annotations)
+		}
+	}
+
+	// disable external access -> remove external services
+	mdb.Spec.ExternalAccessConfiguration = nil
+	err = DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
+	assert.NoError(t, err)
+
+	for _, expectedService := range expectedServices {
+		_, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf(expectedService.GetName()), Namespace: "my-namespace"})
+		assert.True(t, errors.IsNotFound(err))
+	}
 }

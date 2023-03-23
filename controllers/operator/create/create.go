@@ -5,6 +5,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -14,6 +15,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	appsv1 "k8s.io/api/apps/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/utils/pointer"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,6 +28,7 @@ var (
 	internalConnectivityPortName = "internal-connectivity-port"
 	backupPortName               = "backup-port"
 	appLabelKey                  = "app"
+	podNameLabelKey              = "statefulset.kubernetes.io/pod-name"
 )
 
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Service.
@@ -41,7 +45,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	}
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := mdb.GetPrometheus()
@@ -53,23 +57,42 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 		return err
 	}
 
-	namespacedName = kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName+"-external")
-	if mdb.Spec.ExternalAccessConfiguration == nil {
-		return service.DeleteServiceIfItExists(client, namespacedName)
-	}
-
-	externalService := buildService(namespacedName, &mdb, set.Spec.ServiceName, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeNodePort})
-
-	if mdb.Spec.ExternalAccessConfiguration != nil {
-		if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
-			externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+	for podNum := 0; podNum < mdb.GetSpec().Replicas(); podNum++ {
+		namespacedName = kube.ObjectKey(mdb.Namespace, dns.GetExternalServiceName(set.Name, podNum))
+		if mdb.Spec.ExternalAccessConfiguration == nil {
+			if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {
+				return err
+			}
+			continue
 		}
-		externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+
+		if mdb.Spec.ExternalAccessConfiguration != nil {
+			externalService := buildService(namespacedName, &mdb, &set.Spec.ServiceName, pointer.String(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+
+			if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
+				// When external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
+				// This backup port is not needed when we use headless service, because then agent is resolving DNS directly to pod's IP and that allows to connect
+				// to any port in a pod, even ephemeral one.
+				// When we put any other address than headless service into process.hostname: non-headles service fqdn (e.g. in multi cluster using service mesh) or
+				// external domain (e.g. for multi-cluster no-mesh), then we need to define backup port.
+				// In the agent process we pass -ephemeralPortOffset 1 argument to define, that backup port should be a starndard port+1.
+				backupPort := GetNonEphemeralBackupPort(opts.ServicePort)
+				externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt(int(backupPort)), Name: "backup"})
+			}
+
+			if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
+				externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+			}
+			externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+
+			err := service.CreateOrUpdateService(client, externalService)
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
+			}
+		}
 	}
 
-	//FIXME: This needs to be a Service per ReplicaSet member.
-	return service.CreateOrUpdateService(client, externalService)
-
+	return nil
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
@@ -85,7 +108,7 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOp
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
@@ -120,7 +143,7 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.Mo
 		return true, nil
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = service.CreateOrUpdateService(client, internalService)
 	return false, err
 }
@@ -140,7 +163,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	_, port := opsManager.GetSchemePort()
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := buildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
 		if err := addQueryableBackupPortToService(opsManager, &internalService, internalConnectivityPortName); err != nil {
@@ -156,7 +179,9 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	namespacedName = kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
 	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		svc := buildService(namespacedName, &opsManager, set.Spec.ServiceName, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
+		svc := buildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
+
+		svc.Spec.Ports = append(svc.Spec.Ports)
 		externalService = &svc
 	} else {
 		if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {
@@ -203,24 +228,36 @@ func addQueryableBackupPortToService(opsManager omv1.MongoDBOpsManager, service 
 // addressable.
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
-func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, label string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+//
+// When appLabel is specified then selector is targeting all pods (round robin service). Usable for e.g. OpsManager service.
+// When podLabel is specified then selector is targeting only single pod. Used for external services or multi-cluster services.
+func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
 	labels := map[string]string{
-		appLabelKey:                   label,
 		construct.ControllerLabelName: util.OperatorName,
 	}
+
+	if appLabel != nil {
+		labels[appLabelKey] = *appLabel
+	}
+
+	if podLabel != nil {
+		labels[podNameLabelKey] = *podLabel
+	}
+
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetLabels(labels).
 		SetSelector(labels).
-		SetServiceType(mongoServiceDefinition.Type)
+		SetServiceType(mongoServiceDefinition.Type).
+		SetPublishNotReadyAddresses(true)
 
 	serviceType := mongoServiceDefinition.Type
 	switch serviceType {
 	case corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer:
 		// Service will have a NodePort
-		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port))}
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
 		svcPort.NodePort = mongoServiceDefinition.Port
 		if mongoServiceDefinition.Port != 0 {
 			svcPort.Port = mongoServiceDefinition.Port
@@ -229,12 +266,12 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 		}
 		svcBuilder.AddPort(&svcPort).SetClusterIP("")
 	case corev1.ServiceTypeClusterIP:
-		svcBuilder.SetPublishNotReadyAddresses(true).SetClusterIP("None")
+		svcBuilder.SetClusterIP("None")
 		// Service will have a named Port
 		svcBuilder.AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"})
 	default:
 		// Service will have a regular Port (unnamed)
-		svcBuilder.AddPort(&corev1.ServicePort{Port: int32(port)})
+		svcBuilder.AddPort(&corev1.ServicePort{Port: port})
 	}
 
 	if mongoServiceDefinition.Annotations != nil {
@@ -250,4 +287,10 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 	}
 
 	return svcBuilder.Build()
+}
+
+// GetNonEphemeralBackupPort returns port number that will be used when we instruct the agent to use non-ephemeral port for backup monogod.
+// Non-ephemeral ports are used when we set process.hostname for anything other than headless service FQDN.
+func GetNonEphemeralBackupPort(mongodPort int32) int32 {
+	return mongodPort + 1
 }
