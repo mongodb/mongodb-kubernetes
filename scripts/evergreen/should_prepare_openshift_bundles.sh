@@ -2,7 +2,7 @@
 
 # This file is a condition script used for conditionally executing evergreen task for generating openshift bundles (prepare_and_upload_openshift_bundles).
 
-set -euo pipefail
+set -Eeou pipefail
 
 check_file_exists() {
   url=$1
@@ -19,9 +19,9 @@ check_file_exists() {
   fi
 }
 
-version=$(jq -r .mongodbOperator < release.json)
+version=$(jq -r .mongodbOperator <release.json)
 certified_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-certified-${version}.tgz"
-community_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-certified-${version}.tgz"
+community_bundle="https://operator-e2e-bundles.s3.amazonaws.com/bundles/operator-community-${version}.tgz"
 
 if ! check_file_exists "${certified_bundle}"; then
   echo "Certified bundle file does not exist in S3: ${certified_bundle}"
