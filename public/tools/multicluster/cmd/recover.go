@@ -23,6 +23,7 @@ func init() {
 	recoverCmd.Flags().StringVar(&recoverFlags.operatorName, "operator-name", defaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-enterprise-operator]")
 	recoverCmd.Flags().BoolVar(&recoverFlags.installDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
 	recoverCmd.Flags().StringVar(&recoverFlags.sourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
+	recoverCmd.Flags().BoolVar(&recoverFlags.createServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	recoverCmd.Flags().StringVar(&memberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 }
 

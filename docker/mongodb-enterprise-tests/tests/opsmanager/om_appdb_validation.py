@@ -8,9 +8,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 
 def om_resource(namespace: str) -> MongoDBOpsManager:
-    return MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_validation.yaml"), namespace=namespace
-    )
+    return MongoDBOpsManager.from_yaml(yaml_fixture("om_validation.yaml"), namespace=namespace)
 
 
 @pytest.mark.e2e_om_appdb_validation
@@ -66,7 +64,7 @@ class TestOpsManagerBackupOplogStoreNameRequired(KubernetesTester):
     create:
       file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup","value":{"enabled": true, "opLogStores": [{"mongodbResourceRef": {}}]}}]'
-      exception: 'spec.backup.opLogStores.name in body is required'
+      exception: 'spec.backup.opLogStores[0].name: Required value'
     """
 
     def test_validation_ok(self):
@@ -82,7 +80,7 @@ class TestOpsManagerBackupOplogStoreMongodbRefRequired(KubernetesTester):
     create:
       file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup","value":{"enabled": true, "opLogStores": [{"name": "foo"}]}}]'
-      exception: 'spec.backup.opLogStores.mongodbResourceRef in body is required'
+      exception: 'spec.backup.opLogStores[0].mongodbResourceRef: Required value'
     """
 
     def test_validation_ok(self):
@@ -97,7 +95,7 @@ class TestOpsManagerS3StoreNameRequired(KubernetesTester):
     create:
       file: om_s3store_validation.yaml
       patch: '[ { "op":"add","path":"/spec/backup/s3Stores/-","value": {} }]'
-      exception: 'spec.backup.s3Stores.name in body is required'
+      exception: 'spec.backup.s3Stores[0].name: Required value'
     """
 
     def test_validation_ok(self):
@@ -112,7 +110,7 @@ class TestOpsManagerS3StorePathStyleAccessEnabledRequired(KubernetesTester):
     create:
       file: om_s3store_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }}}]'
-      exception: 'spec.backup.s3Stores.pathStyleAccessEnabled in body is required'
+      exception: 'spec.backup.s3Stores[0].pathStyleAccessEnabled: Required value'
     """
 
     def test_validation_ok(self):
@@ -127,7 +125,7 @@ class TestOpsManagerS3StoreS3BucketEndpointRequired(KubernetesTester):
     create:
       file: om_s3store_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true }}]'
-      exception: 'spec.backup.s3Stores.s3BucketEndpoint in body is required'
+      exception: 'spec.backup.s3Stores[0].s3BucketEndpoint: Required value'
     """
 
     def test_validation_ok(self):
@@ -142,7 +140,7 @@ class TestOpsManagerS3StoreS3BucketNameRequired(KubernetesTester):
     create:
       file: om_s3store_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true , "s3BucketEndpoint": "my-endpoint"}}]'
-      exception: 'spec.backup.s3Stores.s3BucketName in body is required'
+      exception: 'spec.backup.s3Stores[0].s3BucketName: Required value'
     """
 
     def test_validation_ok(self):
@@ -157,7 +155,7 @@ class TestOpsManagerS3StoreS3SecretRequired(KubernetesTester):
     create:
       file: om_s3store_validation.yaml
       patch: '[{"op":"add","path":"/spec/backup/s3Stores/-","value":{ "name": "foo", "mongodbResourceRef": {"name":"my-rs" }, "pathStyleAccessEnabled": true , "s3BucketEndpoint": "my-endpoint", "s3BucketName": "bucket-name"}}]'
-      exception: 'spec.backup.s3Stores.s3SecretRef in body is required'
+      exception: 'spec.backup.s3Stores[0].s3SecretRef: Required value'
     """
 
     def test_validation_ok(self):
@@ -172,7 +170,7 @@ class TestOpsManagerExternalConnectivityTypeRequired(KubernetesTester):
     create:
       file: om_validation.yaml
       patch: '[{"op":"add","path":"/spec/externalConnectivity","value":{}}]'
-      exception: 'spec.externalConnectivity.type in body is required'
+      exception: 'spec.externalConnectivity.type: Required value'
     """
 
     def test_validation_ok(self):

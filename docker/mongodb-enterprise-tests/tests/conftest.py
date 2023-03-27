@@ -77,9 +77,7 @@ def operator_installation_config(namespace: str, version_id: str) -> Dict[str, s
 
 
 @fixture(scope="module")
-def monitored_appdb_operator_installation_config(
-    operator_installation_config: Dict[str, str]
-) -> Dict[str, str]:
+def monitored_appdb_operator_installation_config(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
     """Returns the ConfigMap containing configuration data for the Operator to be created
     and for the AppDB to be monitored.
     Created in the single_e2e.sh"""
@@ -195,9 +193,7 @@ def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
     This fixture creates an intermediate "Issuer" in the testing namespace
     """
     # Create the Certificate for the intermediate CA based on the issuer fixture
-    intermediate_ca_cert = Certificate(
-        namespace=namespace, name="intermediate-ca-issuer"
-    )
+    intermediate_ca_cert = Certificate(namespace=namespace, name="intermediate-ca-issuer")
     intermediate_ca_cert["spec"] = {
         "isCA": True,
         "commonName": "intermediate-ca-issuer",
@@ -398,9 +394,7 @@ def operator_with_monitored_appdb(
 def central_cluster_name() -> str:
     central_cluster = os.environ.get("CENTRAL_CLUSTER")
     if not central_cluster:
-        raise ValueError(
-            "No central cluster specified in environment variable CENTRAL_CLUSTER!"
-        )
+        raise ValueError("No central cluster specified in environment variable CENTRAL_CLUSTER!")
     return central_cluster
 
 
@@ -415,9 +409,7 @@ def central_cluster_client(
 def member_cluster_names() -> List[str]:
     member_clusters = os.environ.get("MEMBER_CLUSTERS")
     if not member_clusters:
-        raise ValueError(
-            "No member clusters specified in environment variable MEMBER_CLUSTERS!"
-        )
+        raise ValueError("No member clusters specified in environment variable MEMBER_CLUSTERS!")
     return sorted(member_clusters.split())
 
 
@@ -428,9 +420,7 @@ def member_cluster_clients(
 ) -> List[MultiClusterClient]:
     member_cluster_clients = []
     for i, member_cluster in enumerate(sorted(member_cluster_names)):
-        member_cluster_clients.append(
-            MultiClusterClient(cluster_clients[member_cluster], member_cluster, i)
-        )
+        member_cluster_clients.append(MultiClusterClient(cluster_clients[member_cluster], member_cluster, i))
     return member_cluster_clients
 
 
@@ -447,9 +437,7 @@ def multi_cluster_operator(
 
     # when running with the local operator this is executed by scripts/dev/prepare_local_e2e_run.sh
     if not local_operator():
-        run_kube_config_creation_tool(
-            member_cluster_names, namespace, namespace, member_cluster_names
-        )
+        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -475,9 +463,7 @@ def multi_cluster_operator_manual_remediation(
     cluster_clients,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(
-        member_cluster_names, namespace, namespace, member_cluster_names
-    )
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -504,9 +490,7 @@ def multi_cluster_operator_clustermode(
     cluster_clients: Dict[str, kubernetes.client.ApiClient],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(
-        member_cluster_names, namespace, namespace, member_cluster_names, True
-    )
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names, True)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -542,7 +526,7 @@ def install_multi_cluster_operator_set_members_fn(
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
-                "multiCluster.clusters": "{"+mcn+"}"
+                "multiCluster.clusters": "{" + mcn + "}",
             },
             central_cluster_name,
         )
@@ -577,9 +561,7 @@ def _install_multi_cluster_operator(
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
     if local_operator():
-        client.AppsV1Api(
-            api_client=central_cluster_client
-        ).patch_namespaced_deployment_scale(
+        client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment_scale(
             namespace=namespace,
             name=operator.name,
             body={"spec": {"replicas": 0}},
@@ -607,9 +589,7 @@ def official_operator(
     # When running in kind "managedSecurityContext" will be false, but still use the ubi images.
 
     helm_args = {
-        "registry.imagePullSecrets": operator_installation_config[
-            "registry.imagePullSecrets"
-        ],
+        "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         "managedSecurityContext": managed_security_context,
     }
     name = "mongodb-enterprise-operator"
@@ -676,9 +656,7 @@ def fetch_latest_released_operator_version() -> str:
 
 
 def _read_multi_cluster_config_value(value: str) -> str:
-    multi_cluster_config_dir = os.environ.get(
-        "MULTI_CLUSTER_CONFIG_DIR", MULTI_CLUSTER_CONFIG_DIR
-    )
+    multi_cluster_config_dir = os.environ.get("MULTI_CLUSTER_CONFIG_DIR", MULTI_CLUSTER_CONFIG_DIR)
     filepath = f"{multi_cluster_config_dir}/{value}".rstrip()
     if not os.path.isfile(filepath):
         raise ValueError(f"{filepath} does not exist!")
@@ -779,15 +757,10 @@ def get_clients_for_clusters(
 ) -> Dict[str, kubernetes.client.ApiClient]:
     central_cluster = _read_multi_cluster_config_value("central_cluster")
 
-    return {
-        c: _get_client_for_cluster(c)
-        for c in ([central_cluster] + member_cluster_names)
-    }
+    return {c: _get_client_for_cluster(c) for c in ([central_cluster] + member_cluster_names)}
 
 
-def get_api_servers_from_pod_kubeconfig(
-    kubeconfig: str, cluster_clients: Dict[str, kubernetes.client.ApiClient]
-):
+def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[str, kubernetes.client.ApiClient]):
     api_servers = dict()
     fd, kubeconfig_tmp_path = tempfile.mkstemp()
     with os.fdopen(fd, "w") as fp:
@@ -838,17 +811,11 @@ def run_kube_config_creation_tool(
         args.append("--create-service-account-secrets")
 
     if not local_operator():
-        api_servers = get_api_servers_from_test_pod_kubeconfig(
-            member_namespace, member_cluster_names
-        )
+        api_servers = get_api_servers_from_test_pod_kubeconfig(member_namespace, member_cluster_names)
 
         if len(api_servers) > 0:
             args.append("--member-clusters-api-servers")
-            args.append(
-                ",".join(
-                    [api_servers[member_cluster] for member_cluster in member_clusters]
-                )
-            )
+            args.append(",".join([api_servers[member_cluster] for member_cluster in member_clusters]))
 
     if cluster_scoped:
         args.append("--cluster-scoped")
@@ -870,17 +837,11 @@ def get_api_servers_from_kubeconfig_secret(
     secret_cluster_client: kubernetes.client.ApiClient,
     cluster_clients: Dict[str, kubernetes.client.ApiClient],
 ):
-    kubeconfig_secret = read_secret(
-        namespace, secret_name, api_client=secret_cluster_client
-    )
-    return get_api_servers_from_pod_kubeconfig(
-        kubeconfig_secret["kubeconfig"], cluster_clients
-    )
+    kubeconfig_secret = read_secret(namespace, secret_name, api_client=secret_cluster_client)
+    return get_api_servers_from_pod_kubeconfig(kubeconfig_secret["kubeconfig"], cluster_clients)
 
 
-def get_api_servers_from_test_pod_kubeconfig(
-    namespace: str, member_cluster_names: List[str]
-) -> Dict[str, str]:
+def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_names: List[str]) -> Dict[str, str]:
     test_pod_cluster = os.environ["TEST_POD_CLUSTER"]
     cluster_clients = get_clients_for_clusters(member_cluster_names)
 
@@ -920,6 +881,9 @@ def run_multi_cluster_recovery_tool(
         "--source-cluster",
         member_clusters[0],
     ]
+    if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
+        args.append("--create-service-account-secrets")
+
     if cluster_scoped:
         args.extend(["--cluster-scoped", "true"])
 
@@ -930,7 +894,6 @@ def run_multi_cluster_recovery_tool(
     except subprocess.CalledProcessError as exc:
         print("Status: FAIL", exc.returncode, exc.output)
         return exc.returncode
-
     return 0
 
 
@@ -958,13 +921,9 @@ def create_issuer(
 
     try:
         if clusterwide:
-            client.CoreV1Api(api_client=api_client).create_namespaced_secret(
-                "cert-manager", secret
-            )
+            client.CoreV1Api(api_client=api_client).create_namespaced_secret("cert-manager", secret)
         else:
-            client.CoreV1Api(api_client=api_client).create_namespaced_secret(
-                namespace, secret
-            )
+            client.CoreV1Api(api_client=api_client).create_namespaced_secret(namespace, secret)
     except client.rest.ApiException as e:
         if e.status == 409:
             print("ca-key-pair already exists")
@@ -1006,19 +965,25 @@ def default_external_domain() -> str:
     return "mongodb.interconnected"
 
 
-def external_domain_fqdns(replica_set_name: str, replica_set_members: int, external_domain: str = default_external_domain()) -> list[str]:
+def external_domain_fqdns(
+    replica_set_name: str,
+    replica_set_members: int,
+    external_domain: str = default_external_domain(),
+) -> list[str]:
     """Builds list of hostnames for given replica set when connecting to it using external domain."""
     return [f"{pod_name}.{external_domain}" for pod_name in pod_names(replica_set_name, replica_set_members)]
 
 
-def update_coredns_hosts(host_mappings: list[tuple[str, str]], cluster_name: Optional[str] = None, api_client: Optional[kubernetes.client.ApiClient] = None):
+def update_coredns_hosts(
+    host_mappings: list[tuple[str, str]],
+    cluster_name: Optional[str] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+):
     """Updates kube-system/coredns config map with given host_mappings."""
 
     indent = " " * 7
     mapping_string = "\n".join([f"{indent}{host_mapping[0]} {host_mapping[1]}" for host_mapping in host_mappings])
-    config_data = {
-        "Corefile": coredns_config("interconnected", mapping_string)
-    }
+    config_data = {"Corefile": coredns_config("interconnected", mapping_string)}
 
     if cluster_name is None:
         cluster_name = "default cluster"

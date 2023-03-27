@@ -33,18 +33,18 @@ pod_network="10.244.0.0/16"
 service_network="10.96.0.0/16"
 metallb_ip_range="172.18.255.200-172.18.255.250"
 while getopts ':l:p:s:n:her' opt; do
-    case $opt in
-      (n)   cluster_name=$OPTARG;;
-      (e)   export_kubeconfig=1;;
-      (r)   recreate=1;;
-      (p)   pod_network=$OPTARG;;
-      (s)   service_network=$OPTARG;;
-      (l)   metallb_ip_range=$OPTARG;;
-      (h)   usage;;
-      (*)   usage;;
-    esac
+  case $opt in
+    n) cluster_name=$OPTARG ;;
+    e) export_kubeconfig=1 ;;
+    r) recreate=1 ;;
+    p) pod_network=$OPTARG ;;
+    s) service_network=$OPTARG ;;
+    l) metallb_ip_range=$OPTARG ;;
+    h) usage ;;
+    *) usage ;;
+  esac
 done
-shift "$((OPTIND-1))"
+shift "$((OPTIND - 1))"
 
 kubeconfig_path="$HOME/.kube/${cluster_name}"
 
@@ -70,6 +70,9 @@ fi
 cat <<EOF | kind create cluster --name "${cluster_name}" --kubeconfig "${kubeconfig_path}" --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  image: kindest/node:v1.26.0@sha256:691e24bd2417609db7e589e1a479b902d2e209892a10ce375fab60a8407c7352
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
@@ -99,12 +102,12 @@ data:
 EOF
 
 # Install MetalLB, before we start, we need to ensure the Kind Nodes are up
-kubectl --kubeconfig "${kubeconfig_path}" wait nodes --all --for=condition=ready > /dev/null
+kubectl --kubeconfig "${kubeconfig_path}" wait nodes --all --for=condition=ready >/dev/null
 kubectl apply --kubeconfig "${kubeconfig_path}" -f https://raw.githubusercontent.com/metallb/metallb/v0.13.7/config/manifests/metallb-native.yaml
 kubectl wait --kubeconfig "${kubeconfig_path}" --namespace metallb-system \
-                --for=condition=ready pod \
-                --selector=app=metallb \
-                --timeout=90s
+  --for=condition=ready pod \
+  --selector=app=metallb \
+  --timeout=90s
 cat <<EOF | kubectl apply --validate='false' --kubeconfig "${kubeconfig_path}" -f -
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
