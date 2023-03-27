@@ -26,9 +26,9 @@ if [ "${kube_environment_name}" = "openshift_4" ]; then
     echo "Downloading OC & setting up Openshift 4 cluster"
     OC_PKG=oc-linux.tar.gz
 
-    # Source of this file is https://access.redhat.com/downloads/content/290/ver=4.9/rhel---8/4.9.13/x86_64/product-software
+    # Source of this file is https://access.redhat.com/downloads/content/290/ver=4.12/rhel---8/4.12.8/x86_64/product-software
     # But it has been copied to S3 to avoid authentication issues in the future.
-    curl --fail --retry 3 -s -L 'https://operator-kubernetes-build.s3.amazonaws.com/oc-4.9.15.tgz'\
+    curl --fail --retry 3 -s -L 'https://operator-kubernetes-build.s3.amazonaws.com/oc-4.12.8-linux.tar.gz' \
         --output "${OC_PKG}"
     tar xfz "${OC_PKG}" &>/dev/null
     mv oc "${bindir}"
@@ -42,14 +42,14 @@ elif [ "${kube_environment_name}" = "vanilla" ]; then
         export CLUSTER=e2e.mongokubernetes.com
     fi
 
-    if ! kops get clusters | grep -q $CLUSTER; then
+    if ! kops get clusters | grep -q "$CLUSTER"; then
         echo "Cluster $CLUSTER not found, exiting..."
         echo run "make recreate-e2e-kops imsure=yes cluster=$CLUSTER"
         kops get clusters
         exit 1
     fi
 
-    kops export kubecfg $CLUSTER --admin=87600h
+    kops export kubecfg "$CLUSTER" --admin=87600h
 elif [ "${kube_environment_name}" = "kind" ]; then
     scripts/dev/recreate_kind_cluster.sh "${CLUSTER_NAME:-kind}"
 elif [[ "${kube_environment_name}" = "minikube" ]]; then
