@@ -59,6 +59,7 @@
     "operator": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.19.0",
         "1.18.0",
         "1.17.2",
         "1.17.1",
@@ -138,7 +139,8 @@
         "1.0.11",
         "1.0.12",
         "1.0.13",
-        "1.0.14"
+        "1.0.14",
+        "1.0.15"
       ],
       "variants": [
         "ubi",
@@ -153,7 +155,8 @@
         "1.0.11",
         "1.0.12",
         "1.0.13",
-        "1.0.14"
+        "1.0.14",
+        "1.0.15"
       ],
       "variants": [
         "ubi",
