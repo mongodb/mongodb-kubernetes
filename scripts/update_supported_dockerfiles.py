@@ -4,12 +4,18 @@
 import os
 import sys
 import json
+import subprocess
 from typing import Dict, List
 
 import requests
 from git import Repo
 
-from add_supported_release import get_repo_root
+
+def get_repo_root():
+    output = subprocess.check_output("git rev-parse --show-toplevel".split())
+
+    return output.decode("utf-8").strip()
+
 
 SUPPORTED_IMAGES = (
     "mongodb-agent",
@@ -51,9 +57,7 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
 
 
 def download_dockerfile_from_s3(image: str, version: str, distro: str) -> str:
-    url = (
-        f"{URL_LOCATION_BASE}/{image}/{version}/{distro}/Dockerfile"
-    )
+    url = f"{URL_LOCATION_BASE}/{image}/{version}/{distro}/Dockerfile"
     return requests.get(url).text
 
 
@@ -83,9 +87,7 @@ def save_supported_dockerfiles():
             for variant in get_supported_variants_for_image(image):
                 dockerdir = f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version}/{variant}"
                 os.makedirs(dockerdir, exist_ok=True)
-                dockerfile = download_dockerfile_from_s3(
-                    image, version, variant
-                )
+                dockerfile = download_dockerfile_from_s3(image, version, variant)
                 dockerpath = os.path.join(dockerdir, DOCKERFILE_NAME)
                 with open(dockerpath, "w") as fd:
                     fd.write(dockerfile)
