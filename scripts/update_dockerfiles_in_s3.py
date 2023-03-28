@@ -14,8 +14,14 @@ run the script:
 """
 
 import os
-from scripts.add_supported_release import get_repo_root
+import subprocess
 from kubetester.awss3client import AwsS3Client
+
+
+def get_repo_root():
+    output = subprocess.check_output("git rev-parse --show-toplevel".split())
+
+    return output.decode("utf-8").strip()
 
 
 AWS_REGION = "eu-west-1"
