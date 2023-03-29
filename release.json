@@ -3,7 +3,7 @@
     "ubi": "mongodb-database-tools-rhel80-x86_64-100.5.3.tgz",
     "ubuntu": "mongodb-database-tools-ubuntu1804-x86_64-100.5.3.tgz"
   },
-  "mongodbOperator": "1.19.0",
+  "mongodbOperator": "1.19.1",
   "initDatabaseVersion": "1.0.15",
   "initOpsManagerVersion": "1.0.10",
   "initAppDbVersion": "1.0.15",
@@ -59,6 +59,7 @@
     "operator": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.19.1",
         "1.19.0",
         "1.18.0",
         "1.17.2",
