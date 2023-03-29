@@ -45,7 +45,7 @@ const (
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path= mongodbmulticluster,scope=Namespaced,shortName=mdbm
+// +kubebuilder:resource:path= mongodbmulticluster,scope=Namespaced,shortName=mdbmc
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBMultiCluster resource was created."
 type MongoDBMultiCluster struct {

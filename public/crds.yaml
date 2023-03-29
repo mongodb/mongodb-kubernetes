@@ -969,7 +969,7 @@ spec:
     listKind: MongoDBMultiClusterList
     plural: mongodbmulticluster
     shortNames:
-    - mdbm
+    - mdbmc
     singular: mongodbmulticluster
   scope: Namespaced
   versions:

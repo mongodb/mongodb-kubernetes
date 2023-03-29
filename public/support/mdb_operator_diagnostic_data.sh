@@ -142,11 +142,11 @@ dump_all() {
       mdb_resource_name="mdb/${mdb_resource}"
       resource_filename="mdb_object_${mdb_resource}.yaml"
     else
-      crd_filename="crd_mdbm.yaml"
-      echo "+ Saving MDBM Customer Resource Definition into ${crd_filename}"
+      crd_filename="crd_mdbmc.yaml"
+      echo "+ Saving MDBMC Customer Resource Definition into ${crd_filename}"
       echo kubectl -n "${operator_namespace}" get crd/mongodbmulticluster.mongodb.com -o yaml >"${log_dir}/${crd_filename}"
-      mdb_resource_name="mdbm/${mdb_resource}"
-      resource_filename="mdbm_object_${mdb_resource}.yaml"
+      mdb_resource_name="mdbmc/${mdb_resource}"
+      resource_filename="mdbmc_object_${mdb_resource}.yaml"
     fi
 
     project_filename="project.yaml"
@@ -222,7 +222,7 @@ if [ ${collect_om} == 0 ]; then
       exit 1
     fi
   else
-    if ! kubectl -n "${namespace}" get "mdbm/${mdb_resource}" &>/dev/null; then
+    if ! kubectl -n "${namespace}" get "mdbmc/${mdb_resource}" &>/dev/null; then
       echo "Error fetching the MongoDB MultiCluster resource. Make sure the '${namespace}/${mdb_resource}' is correct."
       exit 1
     fi
