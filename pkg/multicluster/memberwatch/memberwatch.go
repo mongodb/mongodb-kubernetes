@@ -89,14 +89,14 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLo
 					log.Infof("Enqueuing resource: %s, because cluster %s has failed healthcheck", mdbm.Name, k)
 					err := AddFailoverAnnotation(mdbm, k, centralClient)
 					if err != nil {
-						log.Errorf("Failed to add failover annotation to the mdbm resource: %s, error: %s", mdbm.Name, err)
+						log.Errorf("Failed to add failover annotation to the mdbmc resource: %s, error: %s", mdbm.Name, err)
 					}
 					watchChannel <- event.GenericEvent{Object: &mdbm}
 				} else if shouldAddFailedClusterAnnotation(mdbm.Annotations, k) {
 					log.Infof("Marking resource: %s, with failed cluster %s annotation", mdbm.Name, k)
 					err := addFailedClustersAnnotation(mdbm, k, centralClient)
 					if err != nil {
-						log.Errorf("Failed to add failed cluster annotation to the mdbm resource: %s, error: %s", mdbm.Name, err)
+						log.Errorf("Failed to add failed cluster annotation to the mdbmc resource: %s, error: %s", mdbm.Name, err)
 					}
 				}
 			}

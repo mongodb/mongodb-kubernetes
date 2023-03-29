@@ -8,7 +8,7 @@ context="${1}"
 
 echo "Removing all CRs"
 kubectl --context "${context}" delete mdb --all -n "${PROJECT_NAMESPACE}" || true
-kubectl --context "${context}" delete mdbm --all -n "${PROJECT_NAMESPACE}" || true
+kubectl --context "${context}" delete mdbmc --all -n "${PROJECT_NAMESPACE}" || true
 kubectl --context "${context}" delete mdbu --all -n "${PROJECT_NAMESPACE}" || true
 kubectl --context "${context}" delete om --all -n "${PROJECT_NAMESPACE}" || true
 

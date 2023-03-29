@@ -23,7 +23,7 @@ reset_context() {
 
   kubectl delete --context "${context}" mdb --all -n "${namespace}" || true
   kubectl delete --context "${context}" mdbu --all -n "${namespace}" || true
-  kubectl delete --context "${context}" mdbm --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbmc --all -n "${namespace}" || true
 
   # Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
   kubectl delete --context "${context}" "$(kubectl get sts -o name -n "${namespace}" | grep "backup-daemon")" 2>/dev/null || true
