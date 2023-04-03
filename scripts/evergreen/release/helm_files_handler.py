@@ -1,4 +1,4 @@
-from typing import List, Any, SupportsIndex
+from typing import Any
 
 import ruamel.yaml
 

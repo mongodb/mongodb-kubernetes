@@ -179,6 +179,13 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
 
+  python_dev_requirements: &python_dev_requirements
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt --quiet --no-warn-script-location
+
   setup_preflight:
   - command: subprocess.exec
     type: setup
@@ -296,6 +303,25 @@ functions:
         AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
       binary: scripts/dev/configure_docker_auth.sh
 
+  lint_repo:
+  - *python_venv
+  - *python_dev_requirements
+  - *python_requirements
+  - command: subprocess.exec
+    type: test
+    params:
+      env:
+        <<: [ *go_options ]
+      add_to_path:
+        - *go_bin
+        - ${workdir}/bin
+        - ${workdir}/venv/bin
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      include_expansions_in_env:
+        - workdir
+      binary: scripts/evergreen/check_precommit.sh
+
+
   setup_jq: &setup_jq
     command: subprocess.exec
     type: setup
@@ -304,6 +330,17 @@ functions:
       include_expansions_in_env:
       - workdir
       binary: scripts/evergreen/setup_jq.sh
+
+  setup_shellcheck:
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+      - workdir
+      binary: scripts/evergreen/setup_shellcheck.sh
 
   setup_aws: &setup_aws
     command: subprocess.exec
@@ -720,6 +757,11 @@ tasks:
   tags: ["unit_tests"]
   commands:
     - func: "golint"
+
+- name: lint_repo
+  tags: ["unit_tests"]
+  commands:
+    - func: lint_repo
 
 - name: release_blocker
   git_tag_only: true
@@ -1940,9 +1982,12 @@ task_groups:
 - name: unit_task_group
   setup_group:
     - func: "clone"
+    - func: download_kube_tools
+    - func: setup_shellcheck
   tasks:
     - unit_tests
     - unit_tests_lint
+    - lint_repo
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
 - name: e2e_mdb_kind_cloudqa_task_group

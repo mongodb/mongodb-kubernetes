@@ -12,7 +12,8 @@ from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
-    KubernetesTester, running_locally,
+    KubernetesTester,
+    running_locally,
 )
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
@@ -26,9 +27,7 @@ from kubetester import (
 from tests.opsmanager.conftest import ensure_ent_version
 
 CREATE_RESOURCES = True
-skip_if_not_create = mark.skipif(
-    not CREATE_RESOURCES, reason="Only run when CREATE_RESOURCES"
-)
+skip_if_not_create = mark.skipif(not CREATE_RESOURCES, reason="Only run when CREATE_RESOURCES")
 
 TEST_DB = "testdb"
 TEST_COLLECTION = "testcollection"
@@ -145,17 +144,13 @@ def ops_manager(
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     resource["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
     resource["spec"]["backup"]["members"] = 1
-    resource["spec"]["backup"]["queryableBackupSecretRef"] = {
-        "name": queryable_pem_secret
-    }
+    resource["spec"]["backup"]["queryableBackupSecretRef"] = {"name": queryable_pem_secret}
 
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
 
-    resource["spec"]["configuration"][
-        "mongodb.release.autoDownload.enterprise"
-    ] = "true"
+    resource["spec"]["configuration"]["mongodb.release.autoDownload.enterprise"] = "true"
 
     if CREATE_RESOURCES:
         yield resource.create()
@@ -176,9 +171,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # This test will update oplog to have SCRAM enabled
     # Currently this results in OM failure when enabling backup for a project, backup seems to do some caching resulting in the
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
-    resource["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     if CREATE_RESOURCES:
         yield resource.create()
@@ -218,15 +211,11 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 @fixture(scope="module")
 def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     """Creates a password secret and then the user referencing it"""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
-    )
+    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
     if CREATE_RESOURCES:
-        print(
-            f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
-        )
+        print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             resource.get_secret_name(),
@@ -254,9 +243,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["username"] = "mms-user-2"
 
     if CREATE_RESOURCES:
-        print(
-            f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
-        )
+        print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             resource.get_secret_name(),
@@ -317,18 +304,14 @@ class TestOpsManagerCreation:
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset()
-            return (
-                stateful_set.status.ready_replicas == 1
-                and stateful_set.status.current_replicas == 1
-            )
+            return stateful_set.status.ready_replicas == 1 and stateful_set.status.current_replicas == 1
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
         stateful_set = ops_manager.read_backup_statefulset()
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name)
-            for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
         )
 
     def test_daemon_pvc(self, ops_manager: MongoDBOpsManager, namespace: str):
@@ -336,11 +319,7 @@ class TestOpsManagerCreation:
         pods = ops_manager.read_backup_pods()
         idx = 0
         for pod in pods:
-            claims = [
-                volume
-                for volume in pod.spec.volumes
-                if getattr(volume, "persistent_volume_claim")
-            ]
+            claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
             assert len(claims) == 1
             claims.sort(key=attrgetter("name"))
 
@@ -363,9 +342,7 @@ class TestOpsManagerCreation:
         # services on it. Let's make sure we only count those that we care of.
         # For now we allow this test to fail, because it is too broad to be significant
         # and it is easy to break it.
-        backup_services = [
-            s for s in services if s.metadata.name.startswith("om-backup")
-        ]
+        backup_services = [s for s in services if s.metadata.name.startswith("om-backup")]
 
         assert len(backup_services) >= 3
 
@@ -420,9 +397,7 @@ class TestBackupDatabasesAdded:
     ):
         """Creates mongodb databases all at once"""
         oplog_replica_set.load()
-        oplog_replica_set["spec"]["security"] = {
-            "authentication": {"enabled": True, "modes": ["SCRAM"]}
-        }
+        oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
@@ -431,9 +406,7 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
-            "name": oplog_user.name
-        }
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
@@ -462,9 +435,7 @@ class TestBackupDatabasesAdded:
         for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
-        om_tester.assert_block_stores(
-            [new_om_data_store(blockstore_replica_set, "blockStore1")]
-        )
+        om_tester.assert_block_stores([new_om_data_store(blockstore_replica_set, "blockStore1")])
         # oplog store has authentication enabled
         om_tester.assert_oplog_stores(
             [
@@ -476,9 +447,7 @@ class TestBackupDatabasesAdded:
                 )
             ]
         )
-        om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
-        )
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
         """There have been an update to the OM spec - all observed generations are expected to be updated"""
@@ -504,14 +473,10 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_om_running(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
 
-    def test_scramsha_enabled_for_blockstore(
-        self, blockstore_replica_set: MongoDB, blockstore_user: MongoDBUser
-    ):
+    def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB, blockstore_user: MongoDBUser):
         """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
         the order of operations (scram first, MongoDBUser - next) is important"""
-        blockstore_replica_set["spec"]["security"] = {
-            "authentication": {"enabled": True, "modes": ["SCRAM"]}
-        }
+        blockstore_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
         blockstore_replica_set.update()
 
         # timeout of 600 is required when enabling SCRAM in mdb5.0.0
@@ -520,9 +485,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
-            "name": blockstore_user.name
-        }
+        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
@@ -572,9 +535,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
                 )
             ]
         )
-        om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
-        )
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
 
 @mark.e2e_om_ops_manager_queryable_backup

@@ -14,15 +14,22 @@ import pytest
 from pytest import fixture
 
 from kubetester import (
-    create_or_update, try_load, )
+    create_or_update,
+    try_load,
+)
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
 )
 from kubetester.kubetester import (
-    fixture as yaml_fixture, )
+    fixture as yaml_fixture,
+)
 from kubetester.mongodb import MongoDB, Phase
-from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
+from tests.conftest import (
+    default_external_domain,
+    external_domain_fqdns,
+    update_coredns_hosts,
+)
 
 
 @fixture(scope="module")
@@ -45,16 +52,20 @@ def server_certs(issuer: str, namespace: str, replica_set_members: int, replica_
         namespace,
         replica_set_name,
         f"{replica_set_name}-cert",
-        process_hostnames=external_domain_fqdns(replica_set_name, replica_set_members)
+        process_hostnames=external_domain_fqdns(replica_set_name, replica_set_members),
     )
 
 
 @fixture(scope="function")
-def replica_set(namespace: str, replica_set_name: str, replica_set_members: int, custom_mdb_version: str, server_certs: str,
-                issuer_ca_configmap: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("test-tls-base-rs.yaml"), replica_set_name, namespace
-    )
+def replica_set(
+    namespace: str,
+    replica_set_name: str,
+    replica_set_members: int,
+    custom_mdb_version: str,
+    server_certs: str,
+    issuer_ca_configmap: str,
+) -> MongoDB:
+    resource = MongoDB.from_yaml(yaml_fixture("test-tls-base-rs.yaml"), replica_set_name, namespace)
     try_load(resource)
 
     resource["spec"]["members"] = replica_set_members

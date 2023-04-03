@@ -127,7 +127,7 @@ def get_group_id_by_name(name: str, retry=3) -> str:
 
 
 def project_was_created_before(group_name: str, minutes_interval: int) -> bool:
-    """ Returns True if the group was created before 'current_time() - minutes_interval' """
+    """Returns True if the group was created before 'current_time() - minutes_interval'"""
     try:
         group_seconds_epoch = int(
             group_name.split("-")[1]
@@ -139,7 +139,7 @@ def project_was_created_before(group_name: str, minutes_interval: int) -> bool:
 
 
 def key_is_older_than(key_description: str, minutes_interval: int) -> bool:
-    """ Returns True if the key was created before 'current_time() - minutes_interval' """
+    """Returns True if the key was created before 'current_time() - minutes_interval'"""
     try:
         key_seconds_epoch = int(key_description)
     except Exception as e:
@@ -155,12 +155,12 @@ def is_before(time_since_epoch: int, minutes_interval: int) -> bool:
 
 
 def generate_key_description() -> str:
-    """ Returns the programmatic key description: it's the seconds after Unix epoch """
+    """Returns the programmatic key description: it's the seconds after Unix epoch"""
     return str(int(time.time()))
 
 
 def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
-    """Returns the project ids which are older than 'age' days ago """
+    """Returns the project ids which are older than 'age' days ago"""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/groups".format(base_url, org_id)
 
@@ -176,7 +176,7 @@ def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict
 
 
 def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
-    """Returns the programmatic keys which are older than 'minutes_interval' ago """
+    """Returns the programmatic keys which are older than 'minutes_interval' ago"""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/apiKeys".format(base_url, org_id)
 
@@ -277,7 +277,7 @@ def configure():
 
 
 def clean_unused_keys(org_id: str):
-    """ Iterates over all existing projects in the organization and removes the leftovers """
+    """Iterates over all existing projects in the organization and removes the leftovers"""
     keys = get_keys_older_than(org_id, minutes_interval=180)
 
     for key in keys:
@@ -289,12 +289,12 @@ def clean_unused_keys(org_id: str):
 
 
 def keep_the_key(key: Dict) -> bool:
-    """ Returns True if the key shouldn't be removed """
+    """Returns True if the key shouldn't be removed"""
     return key["publicKey"] == os.getenv(USER_OWNER).lower()
 
 
 def clean_unused_projects(org_id: str):
-    """ Iterates over all existing projects in the organization and removes the leftovers """
+    """Iterates over all existing projects in the organization and removes the leftovers"""
     projects = get_projects_older_than(org_id, minutes_interval=180)
 
     for project in projects:

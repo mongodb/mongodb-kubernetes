@@ -15,13 +15,10 @@ from .conftest import create_service_entries_objects
 
 RESOURCE_NAME = "multi-replica-set"
 
+
 @fixture(scope="module")
-def mongodb_multi(
-    central_cluster_client: client.ApiClient, namespace: str
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
-    )
+def mongodb_multi(central_cluster_client: client.ApiClient, namespace: str) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
     resource["spec"]["persistent"] = False
     resource.api = client.CustomObjectsApi(central_cluster_client)
 
@@ -61,7 +58,8 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 def test_update_service_entry_block_cluster3_traffic(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_names: List[str]):
+    member_cluster_names: List[str],
+):
 
     service_entries = create_service_entries_objects(
         namespace,
@@ -90,9 +88,7 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(
-        member_cluster_names[:-1], namespace, namespace
-    )
+    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, namespace)
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
@@ -104,9 +100,7 @@ def test_recover_operator_remove_cluster(
 
 
 @mark.e2e_multi_cluster_recover_network_partition
-def test_mongodb_multi_recovers_removing_cluster(
-    mongodb_multi: MongoDBMulti, member_cluster_names: List[str]
-):
+def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
     mongodb_multi.load()
 
     mongodb_multi["metadata"]["annotations"]["failedClusters"] = None

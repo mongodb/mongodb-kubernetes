@@ -15,9 +15,7 @@ from pytest import fixture
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scale_up_down.yaml"), namespace=namespace
     )
@@ -93,7 +91,7 @@ class TestOpsManagerAppDbScaleUp:
         gen_key_resource_version: str,
         admin_key_resource_version: str,
     ):
-        """Making sure that the new reconciliation hasn't tried to generate new gen and api keys """
+        """Making sure that the new reconciliation hasn't tried to generate new gen and api keys"""
         gen_key_secret = ops_manager.read_gen_key_secret()
         api_key_secret = ops_manager.read_api_key_secret()
 

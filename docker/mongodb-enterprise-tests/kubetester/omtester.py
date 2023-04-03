@@ -27,9 +27,7 @@ def running_cloud_manager():
     return get_env_var_or_fail("OM_HOST") == "https://cloud-qa.mongodb.com"
 
 
-skip_if_cloud_manager = pytest.mark.skipif(
-    running_cloud_manager(), reason="Do not run in Cloud Manager"
-)
+skip_if_cloud_manager = pytest.mark.skipif(running_cloud_manager(), reason="Do not run in Cloud Manager")
 
 
 class BackupStatus(str, Enum):
@@ -133,17 +131,13 @@ class OMTester(object):
         if expected_count == 1:
             print(f"Waiting until 1 snapshot is ready (can take a while)")
         else:
-            print(
-                f"Waiting until {expected_count} snapshots are ready (can take a while)"
-            )
+            print(f"Waiting until {expected_count} snapshots are ready (can take a while)")
 
         initial_timeout = timeout
         while timeout > 0:
             snapshots = self.api_get_snapshots(cluster_id)
             if len([s for s in snapshots if s["complete"]]) >= expected_count:
-                print(
-                    f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec"
-                )
+                print(f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec")
                 return
             time.sleep(3)
             timeout -= 3
@@ -201,9 +195,7 @@ class OMTester(object):
     def assert_version(self, version: str):
         """makes the request to a random API url to get headers"""
         response = self.om_request("get", "/orgs")
-        assert (
-            f"versionString={version}" in response.headers["X-MongoDB-Service-Version"]
-        )
+        assert f"versionString={version}" in response.headers["X-MongoDB-Service-Version"]
 
     def assert_test_service(self):
         endpoint = self.context.base_url + "/test/utils/systemTime"
@@ -214,9 +206,7 @@ class OMTester(object):
         """The method ends successfully if 'mms.helpAndSupportPage.enabled' is set to 'true'. It's 'false' by default.
         See mms SupportResource.supportLoggedOut()"""
         endpoint = self.context.base_url + "/support"
-        response = requests.request(
-            "get", endpoint, allow_redirects=False, verify=False
-        )
+        response = requests.request("get", endpoint, allow_redirects=False, verify=False)
 
         # logic: if mms.helpAndSupportPage.enabled==true - then status is 307, otherwise 303"
         assert response.status_code == 307
@@ -243,52 +233,36 @@ class OMTester(object):
         assert daemon_config["assignmentEnabled"]
         assert daemon_config["configured"]
 
-    def _assert_stores(
-        self, expected_stores: List[Dict], endpoint: str, store_type: str
-    ):
+    def _assert_stores(self, expected_stores: List[Dict], endpoint: str, store_type: str):
         response = self.om_request("get", endpoint)
         assert response.status_code == requests.status_codes.codes.OK
 
-        existing_stores = {
-            result["id"]: result for result in response.json()["results"]
-        }
+        existing_stores = {result["id"]: result for result in response.json()["results"]}
 
-        assert len(expected_stores) == len(
-            existing_stores
-        ), f"expected:{expected_stores} actual: {existing_stores}."
+        assert len(expected_stores) == len(existing_stores), f"expected:{expected_stores} actual: {existing_stores}."
 
         for expected in expected_stores:
             store_id = expected["id"]
-            assert (
-                store_id in existing_stores
-            ), f"existing {store_type} store with id {store_id} not found"
+            assert store_id in existing_stores, f"existing {store_type} store with id {store_id} not found"
             existing = existing_stores[store_id]
             for key in expected:
                 assert expected[key] == existing[key]
 
     def assert_oplog_stores(self, expected_oplog_stores: List):
         """verifies that the list of oplog store configs in OM is equal to the expected one"""
-        self._assert_stores(
-            expected_oplog_stores, "/admin/backup/oplog/mongoConfigs", "oplog"
-        )
+        self._assert_stores(expected_oplog_stores, "/admin/backup/oplog/mongoConfigs", "oplog")
 
     def assert_oplog_s3_stores(self, expected_oplog_s3_stores: List):
         """verifies that the list of oplog s3 store configs in OM is equal to the expected one"""
-        self._assert_stores(
-            expected_oplog_s3_stores, "/admin/backup/oplog/s3Configs", "s3"
-        )
+        self._assert_stores(expected_oplog_s3_stores, "/admin/backup/oplog/s3Configs", "s3")
 
     def assert_block_stores(self, expected_block_stores: List):
         """verifies that the list of oplog store configs in OM is equal to the expected one"""
-        self._assert_stores(
-            expected_block_stores, "/admin/backup/snapshot/mongoConfigs", "blockstore"
-        )
+        self._assert_stores(expected_block_stores, "/admin/backup/snapshot/mongoConfigs", "blockstore")
 
     def assert_s3_stores(self, expected_s3_stores: List):
         """verifies that the list of s3 store configs in OM is equal to the expected one"""
-        self._assert_stores(
-            expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3"
-        )
+        self._assert_stores(expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3")
 
     def assert_hosts_empty(self):
         self.get_automation_config_tester().assert_empty()
@@ -304,9 +278,7 @@ class OMTester(object):
         response = requests.request("get", endpoint, verify=False)
         assert (
             response.status_code == requests.status_codes.codes.OK
-        ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(
-            response.status_code, datetime.now()
-        )
+        ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(response.status_code, datetime.now())
 
     def om_request(self, method, path, json_object: Optional[Dict] = None):
         """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
@@ -334,9 +306,7 @@ class OMTester(object):
         return response
 
     def get_feature_controls(self):
-        return self.om_request(
-            "get", f"/groups/{self.context.project_id}/controlledFeature"
-        ).json()
+        return self.om_request("get", f"/groups/{self.context.project_id}/controlledFeature").json()
 
     def find_group_id(self):
         """
@@ -347,13 +317,9 @@ class OMTester(object):
             # If no organization is passed, then look for all organizations
             self.context.org_id = self.api_get_organization_id(self.context.group_name)
             if self.context.org_id == "":
-                raise Exception(
-                    f"Organization with name {self.context.group_name} not found!"
-                )
+                raise Exception(f"Organization with name {self.context.group_name} not found!")
 
-        group_id = self.api_get_group_in_organization(
-            self.context.org_id, self.context.group_name
-        )
+        group_id = self.api_get_group_in_organization(self.context.org_id, self.context.group_name)
         if group_id == "":
             raise Exception(
                 f"Group with name {self.context.group_name} not found in organization {self.context.org_id}!"
@@ -362,15 +328,11 @@ class OMTester(object):
 
     def api_backup_group(self):
         group_id = self.find_group_id()
-        return self.om_request(
-            "get", f"/admin/backup/groups/{self.context.project_id}"
-        ).json()
+        return self.om_request("get", f"/admin/backup/groups/{self.context.project_id}").json()
 
     def api_get_om_version(self) -> str:
         # This can be any API request - we just need the header in the response
-        response = self.om_request(
-            "get", f"/groups/{self.context.project_id}/backupConfigs"
-        )
+        response = self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs")
         version_header = response.headers["X-MongoDB-Service-Version"]
         version = version_header.split("versionString=")[1]
         parsed_version = semver.VersionInfo.parse(version)
@@ -385,9 +347,7 @@ class OMTester(object):
 
     def api_get_group_in_organization(self, org_id: str, group_name: str) -> str:
         encoded_group_name = urllib.parse.quote_plus(group_name)
-        json = self.om_request(
-            "get", f"/orgs/{org_id}/groups?name={encoded_group_name}"
-        ).json()
+        json = self.om_request("get", f"/orgs/{org_id}/groups?name={encoded_group_name}").json()
         if len(json["results"]) == 0:
             return ""
         if len(json["results"]) > 1:
@@ -398,20 +358,17 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/hosts").json()
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
-        json = self.om_request(
-            "get", f"/groups/{self.context.project_id}/automationConfig"
-        ).json()
+        json = self.om_request("get", f"/groups/{self.context.project_id}/automationConfig").json()
         return AutomationConfigTester(json, **kwargs)
 
     def api_read_backup_configs(self) -> List:
-        return self.om_request(
-            "get", f"/groups/{self.context.project_id}/backupConfigs"
-        ).json()["results"]
+        return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
 
     def api_read_backup_snapshot_schedule(self) -> Dict:
         backup_configs = self.api_read_backup_configs()[0]
         return self.om_request(
-            "get", f"/groups/{self.context.project_id}/backupConfigs/{backup_configs['clusterId']}/snapshotSchedule"
+            "get",
+            f"/groups/{self.context.project_id}/backupConfigs/{backup_configs['clusterId']}/snapshotSchedule",
         ).json()
 
     def api_read_monitoring_measurements(
@@ -446,9 +403,9 @@ class OMTester(object):
         ).json()["results"]
 
     def api_get_snapshots(self, cluster_id: str) -> List:
-        return self.om_request(
-            "get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots"
-        ).json()["results"]
+        return self.om_request("get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots").json()[
+            "results"
+        ]
 
     def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
         """Creates a restore job that reverts a mongodb cluster to some time defined by 'pit_milliseconds'"""
@@ -460,9 +417,7 @@ class OMTester(object):
             data,
         )
 
-    def api_create_restore_job_from_snapshot(
-        self, cluster_id: str, snapshot_id: str, retry: int = 3
-    ) -> Dict:
+    def api_create_restore_job_from_snapshot(self, cluster_id: str, snapshot_id: str, retry: int = 3) -> Dict:
         """
         Creates a restore job that uses an existing snapshot as the source
 
@@ -578,9 +533,7 @@ def get_rs_cert_names(
     cert_names = [f"{mdb_resource}-{i}.{namespace}" for i in range(members)]
 
     if with_internal_auth_certs:
-        cert_names += [
-            f"{mdb_resource}-{i}-clusterfile.{namespace}" for i in range(members)
-        ]
+        cert_names += [f"{mdb_resource}-{i}-clusterfile.{namespace}" for i in range(members)]
 
     if with_agent_certs:
         cert_names += get_agent_cert_names(namespace)
@@ -620,34 +573,24 @@ def get_sc_cert_names(
     for shard_num in range(num_shards):
         for member in range(members):
             # e.g. test-tls-x509-sc-0-1.developer14
-            names.append(
-                "{}-{}-{}.{}".format(mdb_resource, shard_num, member, namespace)
-            )
+            names.append("{}-{}-{}.{}".format(mdb_resource, shard_num, member, namespace))
             if with_internal_auth_certs:
                 # e.g. test-tls-x509-sc-0-2-clusterfile.developer14
-                names.append(
-                    "{}-{}-{}-clusterfile.{}".format(
-                        mdb_resource, shard_num, member, namespace
-                    )
-                )
+                names.append("{}-{}-{}-clusterfile.{}".format(mdb_resource, shard_num, member, namespace))
 
     for member in range(config_members):
         # e.g. test-tls-x509-sc-config-1.developer14
         names.append("{}-config-{}.{}".format(mdb_resource, member, namespace))
         if with_internal_auth_certs:
             # e.g. test-tls-x509-sc-config-1-clusterfile.developer14
-            names.append(
-                "{}-config-{}-clusterfile.{}".format(mdb_resource, member, namespace)
-            )
+            names.append("{}-config-{}-clusterfile.{}".format(mdb_resource, member, namespace))
 
     for mongos in range(num_mongos):
         # e.g.test-tls-x509-sc-mongos-1.developer14
         names.append("{}-mongos-{}.{}".format(mdb_resource, mongos, namespace))
         if with_internal_auth_certs:
             # e.g. test-tls-x509-sc-mongos-0-clusterfile.developer14
-            names.append(
-                "{}-mongos-{}-clusterfile.{}".format(mdb_resource, mongos, namespace)
-            )
+            names.append("{}-mongos-{}-clusterfile.{}".format(mdb_resource, mongos, namespace))
 
     if with_agent_certs:
         names.extend(get_agent_cert_names(namespace))

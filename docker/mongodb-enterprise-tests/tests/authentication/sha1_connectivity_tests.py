@@ -5,7 +5,8 @@ from kubetester import create_or_update, MongoDB, create_or_update_secret, try_l
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     fixture as yaml_fixture,
-    KubernetesTester, run_periodically,
+    KubernetesTester,
+    run_periodically,
 )
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
@@ -28,7 +29,6 @@ class SHA1ConnectivityTests:
     @fixture
     def mongo_tester(self, mdb_resource_name: str):
         raise Exception("Not implemented, should be defined in a subclass")
-
 
     @fixture
     def mdb(self, namespace, mdb_resource_name, yaml_file, custom_mdb_version: str):
@@ -61,9 +61,13 @@ class SHA1ConnectivityTests:
     def test_create_secret(self):
         print(f"creating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME} ")
 
-        create_or_update_secret(KubernetesTester.get_namespace(), self.PASSWORD_SECRET_NAME, {
-            "password": self.USER_PASSWORD,
-        })
+        create_or_update_secret(
+            KubernetesTester.get_namespace(),
+            self.PASSWORD_SECRET_NAME,
+            {
+                "password": self.USER_PASSWORD,
+            },
+        )
 
     def test_create_user(self, namespace: str, mdb_resource_name: str):
         mdb = MongoDBUser.from_yaml(
@@ -102,15 +106,13 @@ class SHA1ConnectivityTests:
             password="my-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-1",
-            attempts=20
+            attempts=20,
         )
 
     # CanChangePassword
 
     def test_update_secret(self, mdb: MongoDB):
-        print(
-            f"updating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME}"
-        )
+        print(f"updating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME}")
         KubernetesTester.update_secret(
             KubernetesTester.get_namespace(),
             self.PASSWORD_SECRET_NAME,
@@ -122,7 +124,7 @@ class SHA1ConnectivityTests:
             password="my-new-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-1",
-            attempts=20
+            attempts=20,
         )
 
     def test_user_cannot_authenticate_with_old_password(self, mongo_tester: MongoTester):

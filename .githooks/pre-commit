@@ -3,6 +3,12 @@
 set -Eeou pipefail
 set -x
 
+if [[ -z "${EVERGREEN_MODE:-}" ]]; then
+  git_last_changed=$(git diff --cached --name-only --diff-filter=ACM)
+else
+  git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
+fi
+
 
 function generate_standalone_yaml() {
     # Generates a yaml file to install the operator from the helm sources.
@@ -33,7 +39,7 @@ function black_formatting()
     fi
 
     # Black formatting of every python file that was changed
-    for file in $(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+    for file in $( echo "$git_last_changed" | grep '\.py$')
     do
         black -q "$file"
         git add "$file"
@@ -42,7 +48,12 @@ function black_formatting()
 
 function update_values_yaml_files() {
     # ensure that all helm values files are up to date.
-    scripts/evergreen/release/update_helm_values_files.py
+    # shellcheck disable=SC2154
+    if [[ -z "${workdir:-}" ]]; then
+      scripts/evergreen/release/update_helm_values_files.py
+    else
+      "${workdir}"/venv/bin/python scripts/evergreen/release/update_helm_values_files.py
+    fi
 
     # commit any changes we made
     git add helm_chart/values.yaml
@@ -60,18 +71,18 @@ generate_standalone_yaml
 
 black_formatting
 
-if [[ $(git diff --cached --name-only --diff-filter=ACM | grep -c '^go.*') == "1" ]]; then
+if [[ $(echo "$git_last_changed" | grep -c '^go.*') == "1" ]]; then
   echo 'ERROR: Should change both or neither of go.mod and go.sum'
   exit 1
 fi
 
-if git diff --cached --name-only --diff-filter=ACM | grep -q 'go.mod'; then
+if echo "$git_last_changed" | grep -q 'go.mod'; then
   echo 'regenerating licenses.csv'
   scripts/update_licenses.sh
   git add licenses.csv
 fi
 
-if git diff --name-only --diff-filter=ACM | grep -q 'public/tools/multicluster'; then
+if echo "$git_last_changed" | grep -q 'public/tools/multicluster'; then
   echo 'regenerating multicluster RBAC public example'
   pushd public/tools/multicluster
   EXPORT_RBAC_SAMPLES="true" go test -run TestPrintingOutRolesServiceAccountsAndRoleBindings
@@ -87,24 +98,7 @@ fi
 
 mkdir -p "$(go env GOPATH)/bin"
 
-# important to turn off modules to ensure a global install
-if ! [[ -x "$(command -v goimports)" ]]; then
-    echo "installing goimports..."
-    go install golang.org/x/tools/cmd/goimports
-fi
-
-if ! [[ -x "$(command -v staticcheck)" ]]; then
-    echo "installing go tools..."
-    go install honnef.co/go/tools/cmd/staticcheck@v0.3.2
-fi
-
-# check for dead code
-staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./controllers/...
-
-if ! command -v "shellcheck" > /dev/null; then
-    echo "Please install shellcheck"
-    exit 1
-fi
+source scripts/evergreen/lint_code.sh
 
 # Makes sure there are not erroneous kubebuilder annotations that can
 # end up in CRDs as descriptions.
@@ -113,8 +107,8 @@ if grep "// kubebuilder" ./* -r --exclude-dir=vendor --include=\*.go ; then
     exit 1
 fi
 
-# run shellcheck on all modified shell scripnts
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json')
+# run shellcheck on all modified shell scripts
+for file in $(echo "$git_last_changed" | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json')
 do
     # check if bash script
     if head -1 "${file}" | grep "#!/usr/bin/env bash" > /dev/null
@@ -131,42 +125,3 @@ do
         fi
     fi
 done
-
-# Run goimports and go vet on all go modified files
-exitcode=0
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
-do
-    # goimports
-    to_fix=$(goimports -l "${file}")
-    if [[ -n "${to_fix}" ]]
-    then
-        echo "formatting ${to_fix}"
-        goimports -w "${to_fix}"
-        git add "${to_fix}"
-        exitcode=1
-    fi
-    # govet: build list of packages to analyze
-    packages_to_analyze+=("$(dirname "${file}")" )
-    git add "$file"
-done
-
-# go vet is ran on whole directories as it can't be run on individual files
-# If a package is split into multiple files go vet has no knowledge of it
-# and will complain about undefined names that are instead defined in other files
-packages_to_analyze=()
-repo_root=$(git rev-parse --show-toplevel)
-if [ ${#packages_to_analyze[@]} -ne 0 ]; then
-    # Remove duplicate directories
-    packages_to_analyze=($(echo "${packages_to_analyze[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
-    for directory in $packages_to_analyze
-    do
-        output=$(go vet "${repo_root}/${directory}")
-        if test -n "$output"
-        then
-            echo "$output"
-            exitcode=1
-        fi
-    done
-fi
-
-exit $exitcode

@@ -14,7 +14,11 @@ from requests.auth import HTTPDigestAuth
 
 from kubetester import read_secret, create_configmap
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts, build_om_org_endpoint
+from kubetester.kubetester import (
+    KubernetesTester,
+    build_list_of_hosts,
+    build_om_org_endpoint,
+)
 from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state, MongoDB, get_pods
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.omtester import OMTester, OMContext
@@ -60,36 +64,18 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         appdb_hostnames = []
         for index in range(appdb_resource["spec"]["members"]):
-            appdb_hostnames.append(
-                f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local"
-            )
+            appdb_hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
 
         def agents_have_registered() -> bool:
             monitoring_agents = tester.api_read_monitoring_agents()
             expected_number_of_agents_in_standby = (
-                len(
-                    [
-                        agent
-                        for agent in monitoring_agents
-                        if agent["stateName"] == "STANDBY"
-                    ]
-                )
+                len([agent for agent in monitoring_agents if agent["stateName"] == "STANDBY"])
                 == self.get_appdb_members_count() - 1
             )
             expected_number_of_agents_are_active = (
-                len(
-                    [
-                        agent
-                        for agent in monitoring_agents
-                        if agent["stateName"] == "ACTIVE"
-                    ]
-                )
-                == 1
+                len([agent for agent in monitoring_agents if agent["stateName"] == "ACTIVE"]) == 1
             )
-            return (
-                expected_number_of_agents_in_standby
-                and expected_number_of_agents_are_active
-            )
+            return expected_number_of_agents_in_standby and expected_number_of_agents_are_active
 
         KubernetesTester.wait_until(agents_have_registered, timeout=20, sleep_time=5)
 
@@ -132,14 +118,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return [services[0], services[1]]
 
     def read_statefulset(self) -> client.V1StatefulSet:
-        return client.AppsV1Api().read_namespaced_stateful_set(
-            self.name, self.namespace
-        )
+        return client.AppsV1Api().read_namespaced_stateful_set(self.name, self.namespace)
 
     def read_appdb_statefulset(self) -> client.V1StatefulSet:
-        return client.AppsV1Api().read_namespaced_stateful_set(
-            self.app_db_name(), self.namespace
-        )
+        return client.AppsV1Api().read_namespaced_stateful_set(self.app_db_name(), self.namespace)
 
     def read_backup_statefulset(
         self,
@@ -158,17 +140,13 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def read_appdb_pods(self) -> List[client.V1Pod]:
         return [
             client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
-            for podname in get_pods(
-                self.app_db_name() + "-{}", self.get_appdb_members_count()
-            )
+            for podname in get_pods(self.app_db_name() + "-{}", self.get_appdb_members_count())
         ]
 
     def read_backup_pods(self) -> List[client.V1Pod]:
         return [
             client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
-            for podname in get_pods(
-                self.backup_daemon_name() + "-{}", self.get_backup_members_count()
-            )
+            for podname in get_pods(self.backup_daemon_name() + "-{}", self.get_backup_members_count())
         ]
 
     def wait_until_backup_pods_become_ready(self, timeout=300):
@@ -186,9 +164,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         KubernetesTester.wait_until(backup_daemons_are_ready, timeout=timeout)
 
     def read_gen_key_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(
-            self.name + "-gen-key", self.namespace
-        )
+        return client.CoreV1Api().read_namespaced_secret(self.name + "-gen-key", self.namespace)
 
     def read_api_key_secret(self, namespace=None) -> client.V1Secret:
         """Reads the API key secret for the global admin created by the Operator. Note, that the secret is
@@ -196,33 +172,23 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if the Ops Manager is installed in a separate namespace"""
         if namespace is None:
             namespace = self.namespace
-        return client.CoreV1Api().read_namespaced_secret(
-            self.api_key_secret(namespace), namespace
-        )
+        return client.CoreV1Api().read_namespaced_secret(self.api_key_secret(namespace), namespace)
 
     def read_appdb_generated_password_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(
-            self.app_db_name() + "-om-password", self.namespace
-        )
+        return client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-om-password", self.namespace)
 
     def read_appdb_generated_password(self) -> str:
         data = self.read_appdb_generated_password_secret().data
         return KubernetesTester.decode_secret(data)["password"]
 
     def read_appdb_agent_password_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(
-            self.app_db_name() + "-agent-password", self.namespace
-        )
+        return client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-agent-password", self.namespace)
 
     def read_appdb_agent_keyfile_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(
-            self.app_db_name() + "-keyfile", self.namespace
-        )
+        return client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-keyfile", self.namespace)
 
     def read_appdb_connection_url(self) -> str:
-        secret = client.CoreV1Api().read_namespaced_secret(
-            self.get_appdb_connection_url_secret_name(), self.namespace
-        )
+        secret = client.CoreV1Api().read_namespaced_secret(self.get_appdb_connection_url_secret_name(), self.namespace)
         return KubernetesTester.decode_secret(secret.data)["connectionString"]
 
     def read_appdb_members_from_connection_url_secret(self) -> str:
@@ -241,16 +207,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             "FirstName": first_name,
             "LastName": last_name,
         }
-        KubernetesTester.create_secret(
-            self.namespace, self.get_admin_secret_name(), data
-        )
+        KubernetesTester.create_secret(self.namespace, self.get_admin_secret_name(), data)
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
-        secret = (
-            client.CoreV1Api()
-            .read_namespaced_secret(self.app_db_name() + "-config", self.namespace)
-            .data
-        )
+        secret = client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-config", self.namespace).data
         automation_config_str = b64decode(secret["cluster-config.json"]).decode("utf-8")
         config_json = json.loads(automation_config_str)
         return AutomationConfigTester(config_json, **kwargs)
@@ -264,7 +224,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     ) -> str:
         """Creates the configmap containing the information needed to connect to OM"""
         config_map_name = f"{mongodb_name}-config"
-        data = {"baseUrl": self.om_status().get_url(), "projectName": project_name, "orgId": ""}
+        data = {
+            "baseUrl": self.om_status().get_url(),
+            "projectName": project_name,
+            "orgId": "",
+        }
 
         # the namespace can be different from OM one if the MongoDB is created in a separate namespace
         if namespace is None:
@@ -290,9 +254,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Returns the instance of OMTester helping to check the state of Ops Manager deployed in Kubernetes."""
         api_key_secret = read_secret(
             KubernetesTester.get_namespace(),
-            self.api_key_secret(
-                KubernetesTester.get_namespace(), api_client=api_client
-            ),
+            self.api_key_secret(KubernetesTester.get_namespace(), api_client=api_client),
             api_client=api_client,
         )
 
@@ -324,9 +286,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Returns http urls to each pod in the Ops Manager"""
         return [
             "http://{}".format(host)
-            for host in build_list_of_hosts(
-                self.name, self.namespace, self.get_replicas(), port=8080
-            )
+            for host in build_list_of_hosts(self.name, self.namespace, self.get_replicas(), port=8080)
         ]
 
     def set_version(self, version: Optional[str]):
@@ -356,9 +316,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         auth = HTTPDigestAuth(user, password)
 
         for entry in whitelist_entries:
-            response = requests.post(
-                whitelist_endpoint, json=entry, headers=headers, auth=auth
-            )
+            response = requests.post(whitelist_endpoint, json=entry, headers=headers, auth=auth)
             assert response.status_code == 200
 
         data = {
@@ -391,13 +349,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         if "configuration" not in self["spec"]:
             self["spec"]["configuration"] = {}
 
-        self["spec"]["configuration"][
-            "mms.featureFlag.automation.mongoDevelopmentVersions"
-        ] = "enabled"
+        self["spec"]["configuration"]["mms.featureFlag.automation.mongoDevelopmentVersions"] = "enabled"
         self["spec"]["configuration"]["mongodb.release.autoDownload.rc"] = "true"
-        self["spec"]["configuration"][
-            "mongodb.release.autoDownload.development"
-        ] = "true"
+        self["spec"]["configuration"]["mongodb.release.autoDownload.development"] = "true"
 
     def set_appdb_version(self, version: str):
         self["spec"]["applicationDatabase"]["version"] = version
@@ -431,16 +385,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return None
         return self["status"]
 
-    def api_key_secret(
-        self, namespace: str, api_client: Optional[client.ApiClient] = None
-    ) -> str:
+    def api_key_secret(self, namespace: str, api_client: Optional[client.ApiClient] = None) -> str:
         old_secret_name = self.name + "-admin-key"
 
         # try to read the old secret, if it's present return it, else return the new secret name
         try:
-            client.CoreV1Api(api_client=api_client).read_namespaced_secret(
-                old_secret_name, namespace
-            )
+            client.CoreV1Api(api_client=api_client).read_namespaced_secret(old_secret_name, namespace)
         except ApiException as e:
             if e.status == 404:
                 return "{}-{}-admin-key".format(self.namespace, self.name)
@@ -460,10 +410,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return self.backup_daemon_name() + "-svc"
 
     def backup_daemon_pods_names(self) -> List[str]:
-        return [
-            self.backup_daemon_name() + "-" + str(item)
-            for item in range(self.get_backup_members_count())
-        ]
+        return [self.backup_daemon_name() + "-" + str(item) for item in range(self.get_backup_members_count())]
 
     def backup_daemon_pods_fqdns(self) -> List[str]:
         return [
@@ -495,9 +442,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     f"/mongodb-ops-manager/mongodb-releases/{distro}",
                 ]
 
-                KubernetesTester.run_command_in_pod_container(
-                    pod.metadata.name, self.namespace, cmd
-                )
+                KubernetesTester.run_command_in_pod_container(pod.metadata.name, self.namespace, cmd)
 
     class StatusCommon:
         def assert_reaches_phase(
@@ -522,20 +467,13 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
 
         def assert_abandons_phase(self, phase: Phase, timeout=None):
-            return self.ops_manager.wait_for(
-                lambda s: self.get_phase() != phase, timeout, should_raise=True
-            )
+            return self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)
 
-        def assert_status_resource_not_ready(
-            self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
-        ):
+        def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
             """Checks the element in 'resources_not_ready' field by index 'idx'"""
             assert self.get_resources_not_ready()[idx]["kind"] == kind
             assert self.get_resources_not_ready()[idx]["name"] == name
-            assert (
-                re.search(msg_regexp, self.get_resources_not_ready()[idx]["message"])
-                is not None
-            )
+            assert re.search(msg_regexp, self.get_resources_not_ready()[idx]["message"]) is not None
 
         def assert_empty_status_resources_not_ready(self):
             assert self.get_resources_not_ready() is None
@@ -594,9 +532,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def get_phase(self) -> Optional[Phase]:
             try:
-                return Phase[
-                    self.ops_manager.get_status()["applicationDatabase"]["phase"]
-                ]
+                return Phase[self.ops_manager.get_status()["applicationDatabase"]["phase"]]
             except (KeyError, TypeError):
                 return None
 
@@ -608,9 +544,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def get_observed_generation(self) -> Optional[int]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"][
-                    "observedGeneration"
-                ]
+                return self.ops_manager.get_status()["applicationDatabase"]["observedGeneration"]
             except (KeyError, TypeError):
                 return None
 
@@ -628,9 +562,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         def get_resources_not_ready(self) -> Optional[List[Dict]]:
             try:
-                return self.ops_manager.get_status()["applicationDatabase"][
-                    "resourcesNotReady"
-                ]
+                return self.ops_manager.get_status()["applicationDatabase"]["resourcesNotReady"]
             except (KeyError, TypeError):
                 return None
 

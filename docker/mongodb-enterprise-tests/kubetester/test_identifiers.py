@@ -23,7 +23,9 @@ def set_test_identifier(identifier: str, value: Any) -> Any:
 
     # this check is for in-memory cache, if the value already exists we're trying to set value again for the same key
     if test_identifiers is not None and identifier in test_identifiers:
-        raise Exception(f"cannot override {identifier} test identifier, existing value: {test_identifiers[identifier]}, new value: {value}")
+        raise Exception(
+            f"cannot override {identifier} test identifier, existing value: {test_identifiers[identifier]}, new value: {value}"
+        )
 
     test_identifiers_file = ".test_identifiers"
     if test_identifiers is None:

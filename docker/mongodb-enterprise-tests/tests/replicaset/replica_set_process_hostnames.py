@@ -11,11 +11,18 @@ import pytest
 from pytest import fixture
 
 from kubetester import (
-    create_or_update, try_load, )
+    create_or_update,
+    try_load,
+)
 from kubetester.kubetester import (
-    fixture as yaml_fixture, )
+    fixture as yaml_fixture,
+)
 from kubetester.mongodb import MongoDB, Phase
-from tests.conftest import external_domain_fqdns, default_external_domain, update_coredns_hosts
+from tests.conftest import (
+    external_domain_fqdns,
+    default_external_domain,
+    update_coredns_hosts,
+)
 
 
 @fixture
@@ -29,10 +36,13 @@ def replica_set_members() -> int:
 
 
 @fixture(scope="function")
-def replica_set(namespace: str, replica_set_name: str, replica_set_members: int, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), replica_set_name, namespace
-    )
+def replica_set(
+    namespace: str,
+    replica_set_name: str,
+    replica_set_members: int,
+    custom_mdb_version: str,
+) -> MongoDB:
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), replica_set_name, namespace)
     try_load(resource)
 
     resource["spec"]["members"] = replica_set_members

@@ -24,6 +24,7 @@ OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 MONGODB_CR_NAME = "mdb-latest"
 MONGODB_CR_KMIP_TEST_PREFIX = "test-prefix"
 
+
 @fixture(scope="module")
 def kmip(issuer, issuer_ca_configmap, namespace: str) -> KMIPDeployment:
     return KMIPDeployment(namespace, issuer, "ca-key-pair", issuer_ca_configmap).deploy()
@@ -48,7 +49,7 @@ def ops_manager(
     custom_version: Optional[str],
     custom_appdb_version: str,
     oplog_s3_bucket: str,
-    issuer_ca_configmap: str
+    issuer_ca_configmap: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_kmip.yaml"), namespace=namespace
@@ -74,7 +75,12 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def mdb_latest(ops_manager: MongoDBOpsManager, mdb_latest_kmip_secrets, namespace, custom_mdb_version: str):
+def mdb_latest(
+    ops_manager: MongoDBOpsManager,
+    mdb_latest_kmip_secrets,
+    namespace,
+    custom_mdb_version: str,
+):
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-kmip.yaml"),
         namespace=namespace,
@@ -87,16 +93,19 @@ def mdb_latest(ops_manager: MongoDBOpsManager, mdb_latest_kmip_secrets, namespac
 
 @fixture(scope="module")
 def mdb_latest_kmip_secrets(aws_s3_client: AwsS3Client, namespace, issuer, issuer_ca_configmap: str) -> str:
-    mdb_latest_generated_kmip_certs_secret_name = create_tls_certs(issuer, namespace, MONGODB_CR_NAME, 3, common_name=MONGODB_CR_NAME)
+    mdb_latest_generated_kmip_certs_secret_name = create_tls_certs(
+        issuer, namespace, MONGODB_CR_NAME, 3, common_name=MONGODB_CR_NAME
+    )
     mdb_latest_generated_kmip_certs_secret = read_secret(namespace, mdb_latest_generated_kmip_certs_secret_name)
     mdb_secret_name = MONGODB_CR_KMIP_TEST_PREFIX + "-" + MONGODB_CR_NAME + "-kmip-client"
     create_secret(
         namespace,
         mdb_secret_name,
         {
-            "tls.crt": mdb_latest_generated_kmip_certs_secret["tls.key"] + mdb_latest_generated_kmip_certs_secret["tls.crt"],
+            "tls.crt": mdb_latest_generated_kmip_certs_secret["tls.key"]
+            + mdb_latest_generated_kmip_certs_secret["tls.crt"],
         },
-        "tls"
+        "tls",
     )
     return mdb_secret_name
 

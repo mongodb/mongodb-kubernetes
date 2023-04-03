@@ -315,7 +315,9 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     )  # Layer 0 is the latest added layer to this Docker image. [-1] is the FROM layer.
 
     if image_timestamp < too_old:
-        logger.info("Current operator image is too old, will rebuild it completely first")
+        logger.info(
+            "Current operator image is too old, will rebuild it completely first"
+        )
         build_operator_image(build_configuration)
         return
 
@@ -379,8 +381,12 @@ def image_config(
     It returns a dictionary with registries and S3 configuration."""
     args = {
         "quay_registry": "quay.io/mongodb/{}{}".format(name_prefix, image_name),
-        "ecr_registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu/{}{}".format(name_prefix, image_name),
-        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/{}{}".format(name_prefix, image_name),
+        "ecr_registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu/{}{}".format(
+            name_prefix, image_name
+        ),
+        "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/{}{}".format(
+            name_prefix, image_name
+        ),
         "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(
             s3_bucket, name_prefix, image_name
         ),
@@ -617,7 +623,9 @@ def get_builder_function_for_image_name():
         #
         # Community images
         "mongodb-agent-daily": build_image_daily("mongodb-agent"),
-        "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
+        "mongodb-kubernetes-operator-daily": build_image_daily(
+            "mongodb-kubernetes-operator"
+        ),
     }
 
 

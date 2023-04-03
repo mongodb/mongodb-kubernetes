@@ -7,9 +7,7 @@ from pytest import fixture
 
 @fixture(scope="module")
 def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("standalone.yaml"), "my-standalone", namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("standalone.yaml"), "my-standalone", namespace)
     resource.set_version(custom_mdb_version)
     resource.create()
 
@@ -23,7 +21,7 @@ def test_standalone_created(standalone: MongoDB):
 
 @pytest.mark.e2e_standalone_type_change_recovery
 def test_break_standalone(standalone: MongoDB):
-    """ Changes persistence configuration - this is not allowed by StatefulSet """
+    """Changes persistence configuration - this is not allowed by StatefulSet"""
     standalone.load()
     # Unfortunately even breaking the podtemplate won't get the resource into Failed state as it will just hang in Pending
     # standalone["spec"]["podSpec"] = {"podTemplate": {"spec": {"containers": [{"image": "broken", "name": "mongodb-enterprise-database"}]}}}
