@@ -76,6 +76,14 @@ type AppDBSpec struct {
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
 }
 
+func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {
+	return mdbcv1.LogLevel(m.AutomationAgent.LogLevel)
+}
+
+func (m *AppDBSpec) GetAgentMaxLogFileDurationHours() int {
+	return m.AutomationAgent.MaxLogFileDurationHours
+}
+
 func (m *AppDBSpec) GetExternalDomain() *string {
 	return nil
 }

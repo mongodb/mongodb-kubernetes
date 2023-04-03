@@ -537,7 +537,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 		annotationsToAdd[mdbmultiv1.LastClusterNumMapping] = string(clusterNumBytes)
 	}
 
-	return annotations.SetAnnotations(mrs.DeepCopy(), annotationsToAdd, r.client)
+	return annotations.SetAnnotations(&mrs, annotationsToAdd, r.client)
 }
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated

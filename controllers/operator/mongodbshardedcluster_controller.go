@@ -153,7 +153,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 			annotationsToAdd[k] = val
 		}
 	}
-	if err := annotations.SetAnnotations(sc.DeepCopy(), annotationsToAdd, r.client); err != nil {
+	if err := annotations.SetAnnotations(sc, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(sc, workflow.Failed(err), log)
 	}
 

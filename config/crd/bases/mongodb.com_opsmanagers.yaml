@@ -80,6 +80,10 @@ spec:
                     description: specify startup flags for the AutomationAgent and
                       MonitoringAgent
                     properties:
+                      logLevel:
+                        type: string
+                      maxLogFileDurationHours:
+                        type: integer
                       startupOptions:
                         additionalProperties:
                           type: string
@@ -160,6 +164,10 @@ spec:
                     description: specify startup flags for just the MonitoringAgent.
                       These take precedence over the flags set in AutomationAgent
                     properties:
+                      logLevel:
+                        type: string
+                      maxLogFileDurationHours:
+                        type: integer
                       startupOptions:
                         additionalProperties:
                           type: string

@@ -52,6 +52,10 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               agent:
                 properties:
+                  logLevel:
+                    type: string
+                  maxLogFileDurationHours:
+                    type: integer
                   startupOptions:
                     additionalProperties:
                       type: string

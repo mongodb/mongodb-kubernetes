@@ -213,7 +213,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		}
 	}
 
-	if err := annotations.SetAnnotations(opsManager.DeepCopy(), annotationsToAdd, r.client); err != nil {
+	if err := annotations.SetAnnotations(opsManager, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(err), log)
 	}
 	// All statuses are updated by now - we don't need to update any others - just return
