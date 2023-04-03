@@ -474,6 +474,10 @@ type KmipConfig struct {
 type AgentConfig struct {
 	// +optional
 	StartupParameters StartupParameters `json:"startupOptions"`
+	// +optional
+	LogLevel LogLevel `json:"logLevel"`
+	// +optional
+	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`
 }
 
 type StartupParameters map[string]string

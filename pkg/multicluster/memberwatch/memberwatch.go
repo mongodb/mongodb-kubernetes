@@ -193,7 +193,7 @@ func AddFailoverAnnotation(mrs mdbmulti.MongoDBMultiCluster, clustername string,
 		return err
 	}
 
-	return annotations.SetAnnotations(mrs.DeepCopy(), map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)}, client)
+	return annotations.SetAnnotations(&mrs, map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)}, client)
 
 }
 
@@ -216,7 +216,7 @@ func addFailedClustersAnnotation(mrs mdbmulti.MongoDBMultiCluster, clustername s
 	if err != nil {
 		return err
 	}
-	return annotations.SetAnnotations(mrs.DeepCopy(), map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
+	return annotations.SetAnnotations(&mrs, map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
 }
 
 func getClusterMembers(clusterSpecList []mdbmulti.ClusterSpecItem, clusterName string) int {

@@ -266,7 +266,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 			annotationsToAdd[k] = val
 		}
 	}
-	if err := annotations.SetAnnotations(s.DeepCopy(), annotationsToAdd, r.client); err != nil {
+	if err := annotations.SetAnnotations(s, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(s, workflow.Failed(err), log)
 	}
 

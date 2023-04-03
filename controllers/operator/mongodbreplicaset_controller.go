@@ -256,7 +256,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	if err := annotations.SetAnnotations(rs.DeepCopy(), annotationsToAdd, r.client); err != nil {
+	if err := annotations.SetAnnotations(rs, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(rs, workflow.Failed(err), log)
 	}
 

@@ -351,7 +351,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
-	if err := annotations.SetAnnotations(user.DeepCopy(), annotationsToAdd, r.client); err != nil {
+	if err := annotations.SetAnnotations(user, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
@@ -394,7 +394,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser,
 		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
-	if err := annotations.SetAnnotations(user.DeepCopy(), annotationsToAdd, r.client); err != nil {
+	if err := annotations.SetAnnotations(user, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(user, workflow.Failed(err), log)
 	}
 
