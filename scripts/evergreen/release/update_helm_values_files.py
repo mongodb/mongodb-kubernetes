@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 Performs the update of release fields in all relevant files in the project
@@ -8,10 +8,7 @@ Usage:
     update_helm_values_files.py
 """
 import json
-import os
 import sys
-import re
-from typing import Dict
 
 from helm_files_handler import (
     update_all_helm_values_files,
@@ -28,7 +25,7 @@ RELEASE_JSON_TO_HELM_KEY = {
 }
 
 
-def load_release() -> Dict[str, str]:
+def load_release():
     with open("release.json", "r") as fd:
         return json.load(fd)
 

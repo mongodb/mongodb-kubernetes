@@ -65,7 +65,7 @@ def oplog_replica_set(ops_manager, namespace) -> MongoDB:
 @mark.e2e_om_ops_manager_backup_liveness_probe
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        """ creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required. """
+        """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -160,9 +160,7 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
 
     def backup_daemon_container_has_restarted():
         try:
-            pod = corev1_client.read_namespaced_pod(
-                ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
-            )
+            pod = corev1_client.read_namespaced_pod(ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace)
             return pod.status.container_statuses[0].restart_count > 0
         except Exception as e:
             print("Error reading pod state: " + str(e))
@@ -177,9 +175,7 @@ def test_backup_daemon_reaches_ready_state(ops_manager: MongoDBOpsManager):
 
     def backup_daemon_is_ready():
         try:
-            pod = corev1_client.read_namespaced_pod(
-                ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
-            )
+            pod = corev1_client.read_namespaced_pod(ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace)
             return pod.status.container_statuses[0].ready
         except Exception as e:
             print("Error checking if pod is ready: " + str(e))

@@ -3,7 +3,12 @@ from typing import List
 import kubernetes
 import pytest
 
-from kubetester import read_secret, create_or_update, create_or_update_secret, update_secret
+from kubetester import (
+    read_secret,
+    create_or_update,
+    create_or_update_secret,
+    update_secret,
+)
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     KubernetesTester,
@@ -27,17 +32,17 @@ USER_PASSWORD = "my-password"
 
 @pytest.fixture(scope="function")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str,  member_cluster_names
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
 
     resource["spec"]["security"] = {
         "authentication": {
             "agents": {"mode": "MONGODB-CR"},
             "enabled": True,
-            "modes": ["SCRAM-SHA-1", "SCRAM-SHA-256", "MONGODB-CR"]
+            "modes": ["SCRAM-SHA-1", "SCRAM-SHA-256", "MONGODB-CR"],
         }
     }
 
@@ -49,12 +54,8 @@ def mongodb_multi(
 
 
 @pytest.fixture(scope="function")
-def mongodb_user(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("scram-sha-user.yaml"), USER_RESOURCE, namespace
-    )
+def mongodb_user(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user.yaml"), USER_RESOURCE, namespace)
 
     resource["spec"]["username"] = USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {
@@ -74,9 +75,9 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_scram
 def test_create_mongodb_user(
-        central_cluster_client: kubernetes.client.ApiClient,
-        mongodb_user: MongoDBUser,
-        namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    mongodb_user: MongoDBUser,
+    namespace: str,
 ):
     # create user secret first
     create_or_update_secret(
@@ -97,18 +98,25 @@ def test_create_mongodb_multi_with_scram(mongodb_multi: MongoDBMulti):
 
 @pytest.mark.e2e_multi_cluster_scram
 def test_user_reaches_updated(
-        central_cluster_client: kubernetes.client.ApiClient,
-        mongodb_user: MongoDBUser,
+    central_cluster_client: kubernetes.client.ApiClient,
+    mongodb_user: MongoDBUser,
 ):
     mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)
 
 
 @skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
-def test_user_can_authenticate_with_new_password(namespace: str, mongodb_multi: MongoDBMulti,
-                                                 central_cluster_client: kubernetes.client.ApiClient):
-    create_or_update_secret(namespace, PASSWORD_SECRET_NAME, {"password": "my-new-password7"},
-                            api_client=central_cluster_client)
+def test_user_can_authenticate_with_new_password(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    create_or_update_secret(
+        namespace,
+        PASSWORD_SECRET_NAME,
+        {"password": "my-new-password7"},
+        api_client=central_cluster_client,
+    )
     tester = mongodb_multi.tester()
     tester.assert_scram_sha_authentication_fails(
         password="my-new-password7",

@@ -40,12 +40,8 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def sharded_cluster(
-    namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("sharded-cluster-tls-scram-sha-256.yaml"), namespace=namespace
-    )
+def sharded_cluster(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("sharded-cluster-tls-scram-sha-256.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
 
@@ -63,12 +59,8 @@ def mongodb_user_password_secret(namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def scram_user(
-    sharded_cluster: MongoDB, mongodb_user_password_secret: str, namespace: str
-) -> MongoDBUser:
-    user = MongoDBUser.from_yaml(
-        load_fixture("scram-sha-user.yaml"), namespace=namespace
-    )
+def scram_user(sharded_cluster: MongoDB, mongodb_user_password_secret: str, namespace: str) -> MongoDBUser:
+    user = MongoDBUser.from_yaml(load_fixture("scram-sha-user.yaml"), namespace=namespace)
     user["spec"]["mongodbResourceRef"]["name"] = sharded_cluster.name
     user["spec"]["passwordSecretKeyRef"]["name"] = mongodb_user_password_secret
     return user.create()
@@ -76,9 +68,7 @@ def scram_user(
 
 @pytest.fixture(scope="module")
 def x509_user(sharded_cluster: MongoDB, namespace: str) -> MongoDBUser:
-    user = MongoDBUser.from_yaml(
-        load_fixture("test-x509-user.yaml"), namespace=namespace
-    )
+    user = MongoDBUser.from_yaml(load_fixture("test-x509-user.yaml"), namespace=namespace)
     user["spec"]["mongodbResourceRef"]["name"] = sharded_cluster.name
     return user.create()
 
@@ -148,9 +138,7 @@ def test_enable_x509(sharded_cluster: MongoDB):
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_ops_manager_state_correctly_updated():
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-    tester.assert_authentication_mechanism_enabled(
-        "MONGODB-X509", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
     tester.assert_expected_users(1)
@@ -168,14 +156,10 @@ class TestX509CertCreationAndApproval(KubernetesTester):
     def setup(self):
         self.cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
 
-    def test_create_user_and_authenticate(
-        self, issuer: str, namespace: str, ca_path: str
-    ):
+    def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
         create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_x509_authentication(
-            cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path
-        )
+        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
@@ -192,7 +176,7 @@ class TestCanStillAuthAsScramUsers(KubernetesTester):
             # to verify that they were created other than just spinning and checking.
             # See https://jira.mongodb.org/browse/CLOUDP-150729
             # 120 * 5s ~= 600s - the usual timeout we use
-            attempts=120
+            attempts=120,
         )
 
     def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):

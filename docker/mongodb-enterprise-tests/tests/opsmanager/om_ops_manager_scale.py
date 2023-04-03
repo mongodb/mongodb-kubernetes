@@ -20,13 +20,10 @@ OM5_CURRENT_VERSION = "5.0.9"
 
 # Current test should contain all kinds of scale operations to Ops Manager as a sequence of tests
 
+
 @fixture(scope="module")
-def ops_manager(
-    namespace, custom_version: str, custom_appdb_version: str
-) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_scale.yaml"), namespace=namespace
-    )
+def ops_manager(namespace, custom_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
+    resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_scale.yaml"), namespace=namespace)
     if custom_version.startswith("6"):
         resource.set_version(OM5_CURRENT_VERSION)
     resource.set_appdb_version(custom_appdb_version)
@@ -74,19 +71,14 @@ class TestOpsManagerCreation:
 
     def test_endpoints(self, ops_manager: MongoDBOpsManager):
         """making sure the service points at correct pods"""
-        endpoints = client.CoreV1Api().read_namespaced_endpoints(
-            ops_manager.svc_name(), ops_manager.namespace
-        )
+        endpoints = client.CoreV1Api().read_namespaced_endpoints(ops_manager.svc_name(), ops_manager.namespace)
         assert len(endpoints.subsets) == 1
         assert len(endpoints.subsets[0].addresses) == 2
 
     def test_om_resource(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.om_status().get_replicas() == 2
-        assert (
-            ops_manager.om_status().get_url()
-            == "http://om-scale-svc.{}.svc.cluster.local:8080".format(
-                ops_manager.namespace
-            )
+        assert ops_manager.om_status().get_url() == "http://om-scale-svc.{}.svc.cluster.local:8080".format(
+            ops_manager.namespace
         )
 
     def test_backup_pod(self, ops_manager: MongoDBOpsManager):
@@ -164,9 +156,7 @@ class TestOpsManagerScaleUp:
         assert ops_manager.om_status().get_replicas() == 3
 
     @skip_if_local
-    def test_om(
-        self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester
-    ):
+    def test_om(self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester):
         """Checks that the OM is responsive and test service is available (enabled by 'mms.testUtil.enabled')."""
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
@@ -202,9 +192,7 @@ class TestOpsManagerScaleDown:
         assert ops_manager.om_status().get_replicas() == 1
 
     @skip_if_local
-    def test_om(
-        self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester
-    ):
+    def test_om(self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester):
         """Checks that the OM is responsive"""
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()

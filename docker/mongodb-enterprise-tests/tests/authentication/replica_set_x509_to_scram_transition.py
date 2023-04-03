@@ -22,21 +22,15 @@ USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def replica_set(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("replica-set-x509-to-scram-256.yaml"), namespace=namespace
-    )
+def replica_set(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("replica-set-x509-to-scram-256.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return create_or_update(res)
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
 
 
 @pytest.fixture(scope="module")
@@ -81,9 +75,7 @@ def test_x509_is_still_configured(replica_set: MongoDB):
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     tester.assert_authentication_mechanism_enabled("MONGODB-X509")
     tester.assert_authoritative_set(True)
-    tester.assert_authentication_mechanism_enabled(
-        "SCRAM-SHA-256", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
     tester.assert_expected_users(0)
 
@@ -144,9 +136,7 @@ class TestCreateScramSha256User(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(
-            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
-        )
+        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,
@@ -168,7 +158,7 @@ class TestCreateScramSha256User(KubernetesTester):
             # to verify that they were created other than just spinning and checking.
             # See https://jira.mongodb.org/browse/CLOUDP-150729
             # 120 * 5s ~= 600s - the usual timeout we use
-            attempts=120
+            attempts=120,
         )
 
     def test_user_cannot_authenticate_with_incorrect_password(self, ca_path: str):

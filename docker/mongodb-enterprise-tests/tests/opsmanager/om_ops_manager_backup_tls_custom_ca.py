@@ -8,7 +8,11 @@ from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import mark, fixture
-from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
+from tests.conftest import (
+    default_external_domain,
+    external_domain_fqdns,
+    update_coredns_hosts,
+)
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
@@ -35,34 +39,26 @@ Tests checking externalDomain (consider updating all of them when changing test 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
     prefix = "prefix"
-    create_ops_manager_tls_certs(
-        issuer, namespace, "om-backup-tls", secret_name=f"{prefix}-om-backup-tls-cert"
-    )
+    create_ops_manager_tls_certs(issuer, namespace, "om-backup-tls", secret_name=f"{prefix}-om-backup-tls-cert")
     return prefix
 
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
     prefix = "appdb"
-    create_mongodb_tls_certs(
-        issuer, namespace, "om-backup-tls-db", f"{prefix}-om-backup-tls-db-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, "om-backup-tls-db", f"{prefix}-om-backup-tls-db-cert")
     return prefix
 
 
 @fixture(scope="module")
 def oplog_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, OPLOG_RS_NAME, f"oplog-{OPLOG_RS_NAME}-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, OPLOG_RS_NAME, f"oplog-{OPLOG_RS_NAME}-cert")
     return "oplog"
 
 
 @fixture(scope="module")
 def blockstore_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, BLOCKSTORE_RS_NAME, f"blockstore-{BLOCKSTORE_RS_NAME}-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, BLOCKSTORE_RS_NAME, f"blockstore-{BLOCKSTORE_RS_NAME}-cert")
     return "blockstore"
 
 
@@ -95,7 +91,7 @@ def mdb_external_domain_certs(namespace: str, issuer: str):
         namespace,
         EXTERNAL_DOMAIN_RS_NAME,
         f"external-domain-{EXTERNAL_DOMAIN_RS_NAME}-cert",
-        process_hostnames=external_domain_fqdns(EXTERNAL_DOMAIN_RS_NAME, 3)
+        process_hostnames=external_domain_fqdns(EXTERNAL_DOMAIN_RS_NAME, 3),
     )
     # prefix for certificates
     return "external-domain"
@@ -103,13 +99,13 @@ def mdb_external_domain_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def ops_manager(
-        namespace,
-        issuer_ca_configmap: str,
-        appdb_certs_secret: str,
-        custom_version: Optional[str],
-        custom_appdb_version: str,
-        ops_manager_certs: str,
-        issuer_ca_filepath: str,
+    namespace,
+    issuer_ca_configmap: str,
+    appdb_certs_secret: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
+    ops_manager_certs: str,
+    issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_tls.yaml"), namespace=namespace
@@ -131,9 +127,7 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def oplog_replica_set(
-        ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str
-) -> MongoDB:
+def oplog_replica_set(ops_manager, issuer_ca_configmap: str, oplog_certs_secret: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
@@ -146,9 +140,7 @@ def oplog_replica_set(
 
 
 @fixture(scope="module")
-def blockstore_replica_set(
-        ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str
-) -> MongoDB:
+def blockstore_replica_set(ops_manager, issuer_ca_configmap: str, blockstore_certs_secret: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
@@ -190,24 +182,14 @@ class TestOpsManagerCreation:
         )
 
     def test_add_custom_ca_to_project_configmap(
-            self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
+        self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
     ):
         projects = [
-            ops_manager.get_or_create_mongodb_connection_config_map(
-                OPLOG_RS_NAME, "oplog"
-            ),
-            ops_manager.get_or_create_mongodb_connection_config_map(
-                BLOCKSTORE_RS_NAME, "blockstore"
-            ),
-            ops_manager.get_or_create_mongodb_connection_config_map(
-                FIRST_PROJECT_RS_NAME, "firstProject"
-            ),
-            ops_manager.get_or_create_mongodb_connection_config_map(
-                SECOND_PROJECT_RS_NAME, "secondProject"
-            ),
-            ops_manager.get_or_create_mongodb_connection_config_map(
-                EXTERNAL_DOMAIN_RS_NAME, "externalDomain"
-            ),
+            ops_manager.get_or_create_mongodb_connection_config_map(OPLOG_RS_NAME, "oplog"),
+            ops_manager.get_or_create_mongodb_connection_config_map(BLOCKSTORE_RS_NAME, "blockstore"),
+            ops_manager.get_or_create_mongodb_connection_config_map(FIRST_PROJECT_RS_NAME, "firstProject"),
+            ops_manager.get_or_create_mongodb_connection_config_map(SECOND_PROJECT_RS_NAME, "secondProject"),
+            ops_manager.get_or_create_mongodb_connection_config_map(EXTERNAL_DOMAIN_RS_NAME, "externalDomain"),
         ]
 
         data = {
@@ -221,9 +203,7 @@ class TestOpsManagerCreation:
         # the project ConfigMaps
         time.sleep(10)
 
-    def test_backing_dbs_created(
-            self, blockstore_replica_set: MongoDB, oplog_replica_set: MongoDB
-    ):
+    def test_backing_dbs_created(self, blockstore_replica_set: MongoDB, oplog_replica_set: MongoDB):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -234,8 +214,8 @@ class TestOpsManagerCreation:
         blockstore_replica_set.assert_connectivity(ca_path=ca_path)
 
     def test_om_is_running(
-            self,
-            ops_manager: MongoDBOpsManager,
+        self,
+        ops_manager: MongoDBOpsManager,
     ):
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
 
@@ -246,12 +226,12 @@ class TestBackupForMongodb:
 
     @fixture(scope="class")
     def mdb_latest(
-            self,
-            ops_manager: MongoDBOpsManager,
-            namespace,
-            custom_mdb_version: str,
-            issuer_ca_configmap: str,
-            first_project_certs: str,
+        self,
+        ops_manager: MongoDBOpsManager,
+        namespace,
+        custom_mdb_version: str,
+        issuer_ca_configmap: str,
+        first_project_certs: str,
     ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
@@ -267,12 +247,12 @@ class TestBackupForMongodb:
 
     @fixture(scope="class")
     def mdb_prev(
-            self,
-            ops_manager: MongoDBOpsManager,
-            namespace,
-            custom_mdb_prev_version: str,
-            issuer_ca_configmap: str,
-            second_project_certs: str,
+        self,
+        ops_manager: MongoDBOpsManager,
+        namespace,
+        custom_mdb_prev_version: str,
+        issuer_ca_configmap: str,
+        second_project_certs: str,
     ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
@@ -287,12 +267,12 @@ class TestBackupForMongodb:
 
     @fixture(scope="class")
     def mdb_external_domain(
-            self,
-            ops_manager: MongoDBOpsManager,
-            namespace,
-            custom_mdb_prev_version: str,
-            issuer_ca_configmap: str,
-            mdb_external_domain_certs: str,
+        self,
+        ops_manager: MongoDBOpsManager,
+        namespace,
+        custom_mdb_prev_version: str,
+        issuer_ca_configmap: str,
+        mdb_external_domain_certs: str,
     ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),

@@ -31,21 +31,12 @@ def mongodb_multi(
         namespace,
     )
     resource["spec"]["persistent"] = False
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     additional_mongod_config = {
-        "systemLog": {
-            "logAppend": True,
-            "verbosity": 4
-        },
-        "operationProfiling": {
-            "mode": "slowOp"
-        },
-        "net": {
-            "port": MONGODB_PORT
-        }
+        "systemLog": {"logAppend": True, "verbosity": 4},
+        "operationProfiling": {"mode": "slowOp"},
+        "net": {"port": MONGODB_PORT},
     }
 
     resource["spec"]["additionalMongodConfig"] = additional_mongod_config
@@ -58,9 +49,7 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_create_kube_config_file(
-    cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str
-):
+def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str):
     clients = cluster_clients
 
     assert len(clients) == 4
@@ -105,9 +94,7 @@ def test_pvc_not_created(
     namespace: str,
 ):
     with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
-        client.CoreV1Api(
-            api_client=member_cluster_clients[0].api_client
-        ).read_namespaced_persistent_volume_claim(
+        client.CoreV1Api(api_client=member_cluster_clients[0].api_client).read_namespaced_persistent_volume_claim(
             f"data-{mongodb_multi.name}-{0}-{0}", namespace
         )
         assert e.value.reason == "Not Found"
@@ -121,9 +108,7 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_statefulset_overrides(
-    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
-):
+def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     # assert sts.podspec override in cluster1
     cluster_one_client = member_cluster_clients[0]
@@ -167,9 +152,7 @@ def test_mongodb_options_were_updated(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_cleanup_on_mdbm_delete(
-    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
-):
+def test_cleanup_on_mdbm_delete(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
@@ -178,9 +161,7 @@ def test_cleanup_on_mdbm_delete(
 
     def check_sts_not_exist():
         try:
-            client.AppsV1Api(
-                api_client=cluster_one_client.api_client
-            ).read_namespaced_stateful_set(
+            client.AppsV1Api(api_client=cluster_one_client.api_client).read_namespaced_stateful_set(
                 cluster_one_sts.metadata.name, cluster_one_sts.metadata.namespace
             )
         except ApiException as e:

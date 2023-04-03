@@ -12,13 +12,9 @@ JAVA_DAEMON_OPTS = "JAVA_DAEMON_OPTS"
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
-    """ The fixture for Ops Manager to be created."""
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace
-    )
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+    """The fixture for Ops Manager to be created."""
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
@@ -39,9 +35,7 @@ class TestOpsManagerCreationWithJvmParams:
         pod_name = ops_manager.read_om_pods()[0].metadata.name
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd
-        )
+        result = KubernetesTester.run_command_in_pod_container(pod_name, ops_manager.namespace, cmd)
         java_params = self.parse_java_params(result, JAVA_MMS_UI_OPTS)
         assert "-Xmx4291m" in java_params
         assert "-Xms343m" in java_params
@@ -49,9 +43,7 @@ class TestOpsManagerCreationWithJvmParams:
     def test_om_process_mem_scales(self, ops_manager: MongoDBOpsManager):
         pod_name = ops_manager.read_om_pods()[0].metadata.name
         cmd = ["/bin/sh", "-c", "ps aux"]
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd
-        )
+        result = KubernetesTester.run_command_in_pod_container(pod_name, ops_manager.namespace, cmd)
         rss = self.parse_rss(result)
 
         # rss is in kb, we want to ensure that it is > 400mb
@@ -64,9 +56,7 @@ class TestOpsManagerCreationWithJvmParams:
         pod_name = pod_names[0]
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd
-        )
+        result = KubernetesTester.run_command_in_pod_container(pod_name, ops_manager.namespace, cmd)
 
         java_params = self.parse_java_params(result, JAVA_DAEMON_OPTS)
         assert "-Xmx4352m" in java_params

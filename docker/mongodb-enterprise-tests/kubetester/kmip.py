@@ -24,6 +24,7 @@ class KMIPDeployment(object):
     """
     A KMIP Server deployment class. Deploys PyKMIP in the cluster.
     """
+
     def __init__(self, namespace, issuer, root_cert_secret, ca_configmap: str):
         self.namespace = namespace
         self.issuer = issuer
@@ -41,7 +42,12 @@ class KMIPDeployment(object):
         service_name = f"{self.statefulset_name}-svc"
 
         cert_secret_name = self._create_tls_certs_kmip(
-            self.issuer, self.namespace, self.statefulset_name, "kmip-certs", 1, service_name
+            self.issuer,
+            self.namespace,
+            self.statefulset_name,
+            "kmip-certs",
+            1,
+            service_name,
         )
 
         create_service(
@@ -49,7 +55,7 @@ class KMIPDeployment(object):
             service_name,
             cluster_ip=None,
             ports=[client.V1ServicePort(name="kmip", port=5696)],
-            selector=self.labels
+            selector=self.labels,
         )
 
         self._create_kmip_config_map(self.namespace, "kmip-config", self._default_configuration())
@@ -64,7 +70,11 @@ class KMIPDeployment(object):
                     # We need this awkward copy step as PyKMIP uses /etc/pykmip as a tmp directory. When booting up
                     # it stores there some intermediate configuration files. So it must have write access to the whole
                     # /etc/pykmip directory. Very awkward...
-                    args=["bash", "-c", "cp /etc/pykmip-conf/server.conf /etc/pykmip/server.conf & /tmp/configure.sh & mkdir -p /var/log/pykmip & touch /var/log/pykmip/server.log & tail -f /var/log/pykmip/server.log"],
+                    args=[
+                        "bash",
+                        "-c",
+                        "cp /etc/pykmip-conf/server.conf /etc/pykmip/server.conf & /tmp/configure.sh & mkdir -p /var/log/pykmip & touch /var/log/pykmip/server.log & tail -f /var/log/pykmip/server.log",
+                    ],
                     name="kmip",
                     image="beergeek1679/pykmip:0.6.0",
                     image_pull_policy="IfNotPresent",
@@ -117,7 +127,15 @@ class KMIPDeployment(object):
         spec: Optional[Dict] = None,
     ) -> str:
         ca = read_configmap(namespace, self.ca_configmap)
-        cert_secret_name = create_tls_certs(issuer, namespace, resource_name, replicas, service_name, spec, additional_domains=[service_name])
+        cert_secret_name = create_tls_certs(
+            issuer,
+            namespace,
+            resource_name,
+            replicas,
+            service_name,
+            spec,
+            additional_domains=[service_name],
+        )
         secret = read_secret(namespace, cert_secret_name)
         create_secret(
             namespace,
@@ -165,6 +183,7 @@ class KMIPDeploymentStatus:
     """
     A class designed to check the KMIP Server deployment status.
     """
+
     def __init__(self, deployment: KMIPDeployment):
         self.deployment = deployment
 
@@ -173,4 +192,9 @@ class KMIPDeploymentStatus:
         Waits and assert if the KMIP server is running.
         :return: raises an error if the server is not running within the timeout.
         """
-        KubernetesTester.wait_for_condition_stateful_set(self.deployment.namespace, self.deployment.statefulset_name, "status.current_replicas", 1)
+        KubernetesTester.wait_for_condition_stateful_set(
+            self.deployment.namespace,
+            self.deployment.statefulset_name,
+            "status.current_replicas",
+            1,
+        )

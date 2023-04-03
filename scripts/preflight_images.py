@@ -18,7 +18,7 @@ def image_config(
     image: str,
     rh_cert_project_id: str,
     name_prefix: str = "mongodb-enterprise-",
-    name_suffix: str = "-ubi"
+    name_suffix: str = "-ubi",
 ) -> Tuple[str, Dict[str, str]]:
     args = {
         "registry": f"quay.io/mongodb/{name_prefix}{image}{name_suffix}",
@@ -116,8 +116,8 @@ def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
 
 def get_available_versions_for_image(image: str):
     image_args = args_for_image(image)
-    logging.info(f'Searching for available tags for: {image}')
-    logging.info(f'Image args: {image_args}')
+    logging.info(f"Searching for available tags for: {image}")
+    logging.info(f"Image args: {image_args}")
     output = subprocess.check_output(
         [
             "podman",
@@ -140,7 +140,10 @@ def main() -> int:
         "--image", help="image to run preflight checks on", type=str, required=True
     )
     parser.add_argument(
-        "--submit", help="submit image for certification (true|false)", type=str, required=True
+        "--submit",
+        help="submit image for certification (true|false)",
+        type=str,
+        required=True,
     )
     parser.add_argument(
         "--version", help="specific version to check", type=str, default=None
@@ -161,9 +164,7 @@ def main() -> int:
             )
             return 1
         else:
-            return_code = run_preflight_check(
-                args.image, image_version, submit=submit
-            )
+            return_code = run_preflight_check(args.image, image_version, submit=submit)
             if return_code != 0:
                 logging.error(
                     f"Running preflight check for image: {args.image}:{image_version} failed with exit code: {return_code}"

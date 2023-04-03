@@ -36,12 +36,8 @@ def test_service_exists(namespace: str):
 
 
 @pytest.mark.e2e_replica_set_exposed_externally
-def test_service_node_port_stays_the_same(
-    namespace: str, replica_set: MongoDB
-):
-    service = client.CoreV1Api().read_namespaced_service(
-        "my-replica-set-externally-exposed-0-svc-external", namespace
-    )
+def test_service_node_port_stays_the_same(namespace: str, replica_set: MongoDB):
+    service = client.CoreV1Api().read_namespaced_service("my-replica-set-externally-exposed-0-svc-external", namespace)
     node_port = service.spec.ports[0].node_port
 
     replica_set.load()
@@ -51,9 +47,7 @@ def test_service_node_port_stays_the_same(
     replica_set.assert_abandons_phase(Phase.Running, timeout=60)
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
-    service = client.CoreV1Api().read_namespaced_service(
-        "my-replica-set-externally-exposed-0-svc-external", namespace
-    )
+    service = client.CoreV1Api().read_namespaced_service("my-replica-set-externally-exposed-0-svc-external", namespace)
     assert service.spec.type == "LoadBalancer"
     assert service.spec.ports[0].node_port == node_port
 
@@ -69,6 +63,4 @@ def test_service_gets_deleted(replica_set: MongoDB, namespace: str):
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
     for i in range(replica_set["spec"]["members"]):
         with pytest.raises(client.rest.ApiException):
-            client.CoreV1Api().read_namespaced_service(
-                f"my-replica-set-externally-exposed-{i}-svc-external", namespace
-            )
+            client.CoreV1Api().read_namespaced_service(f"my-replica-set-externally-exposed-{i}-svc-external", namespace)

@@ -62,9 +62,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # This test will update oplog to have SCRAM enabled
     # Currently this results in OM failure when enabling backup for a project, backup seems to do some caching resulting in the
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
-    resource["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     create_or_update(resource)
     return resource
@@ -96,15 +94,11 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 
 @fixture(scope="module")
 def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
-    )
+    """Creates a password secret and then the user referencing it"""
+    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    print(
-        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
-    )
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -119,7 +113,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
 
 @fixture(scope="module")
 def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
-    """ Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it"""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("scram-sha-user-backing-db.yaml"),
         namespace=namespace,
@@ -129,9 +123,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(
-        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
-    )
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -154,11 +146,17 @@ class TestOpsManagerCreation:
     """
 
     def test_setup_gp2_storage_class(self):
-        """ This is necessary for Backup HeadDB """
+        """This is necessary for Backup HeadDB"""
         KubernetesTester.make_default_gp2_storage_class()
 
-    def test_create_om(self, ops_manager: MongoDBOpsManager, s3_bucket: str, custom_version: str, custom_appdb_version: str):
-        """ creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
+    def test_create_om(
+        self,
+        ops_manager: MongoDBOpsManager,
+        s3_bucket: str,
+        custom_version: str,
+        custom_appdb_version: str,
+    ):
+        """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
 
         ops_manager["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
         ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
@@ -179,18 +177,14 @@ class TestOpsManagerCreation:
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset()
-            return (
-                stateful_set.status.ready_replicas == 2
-                and stateful_set.status.current_replicas == 2
-            )
+            return stateful_set.status.ready_replicas == 2 and stateful_set.status.current_replicas == 2
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
         stateful_set = ops_manager.read_backup_statefulset()
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name)
-            for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
         )
 
 
@@ -205,7 +199,7 @@ class TestBackupDatabasesAdded:
         s3_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
-        """ Creates mongodb databases all at once """
+        """Creates mongodb databases all at once"""
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -215,14 +209,12 @@ class TestBackupDatabasesAdded:
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
         oplog_replica_set.load()
-        oplog_replica_set["spec"]["security"] = {
-            "authentication": {"enabled": True, "modes": ["SCRAM"]}
-        }
+        oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_om_failed_oplog_no_user_ref(self, ops_manager: MongoDBOpsManager):
-        """ Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
+        """Waits until Backup is in failed state as blockstore doesn't have reference to the user"""
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             msg_regexp=".*is configured to use SCRAM-SHA authentication mode, the user "
@@ -231,9 +223,7 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
-            "name": oplog_user.name
-        }
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
@@ -251,9 +241,7 @@ class TestBackupForMongodb:
     Both latest and the one before the latest are tested (as the backup process for them may differ significantly)"""
 
     @fixture(scope="class")
-    def mdb_latest(
-        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
-    ):
+    def mdb_latest(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
         resource = MongoDB.from_yaml(
             yaml_fixture("sharded-cluster-for-om.yaml"),
             namespace=namespace,
@@ -265,9 +253,7 @@ class TestBackupForMongodb:
         return resource
 
     @fixture(scope="class")
-    def mdb_prev(
-        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str
-    ):
+    def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
         resource = MongoDB.from_yaml(
             yaml_fixture("sharded-cluster-for-om.yaml"),
             namespace=namespace,
@@ -297,16 +283,10 @@ class TestBackupForMongodb:
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
 
         # wait until a first snapshot is ready for both
-        om_tester_first.wait_until_backup_snapshots_are_ready(
-            expected_count=1, expected_config_count=4
-        )
-        om_tester_second.wait_until_backup_snapshots_are_ready(
-            expected_count=1, expected_config_count=4
-        )
+        om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1, expected_config_count=4)
+        om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1, expected_config_count=4)
 
-    def test_can_transition_from_started_to_stopped(
-        self, mdb_latest: MongoDB, mdb_prev: MongoDB
-    ):
+    def test_can_transition_from_started_to_stopped(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         # a direction transition from enabled to disabled is a single
         # step for the operator
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
@@ -314,9 +294,7 @@ class TestBackupForMongodb:
         mdb_prev.update()
         mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
 
-    def test_can_transition_from_started_to_terminated_0(
-        self, mdb_latest: MongoDB, mdb_prev: MongoDB
-    ):
+    def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         # a direct transition from enabled to terminated is not possible
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
         mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
@@ -353,10 +331,16 @@ class TestBackupSnapshotScheduleOnMongoDBFCV40(BackupSnapshotScheduleTests):
         return "4.0.28"
 
     def test_cluster_checkpoint_interval(self, mdb: MongoDB):
-        self.update_snapshot_schedule(mdb, {
-            "clusterCheckpointIntervalMin": 60,
-        })
+        self.update_snapshot_schedule(
+            mdb,
+            {
+                "clusterCheckpointIntervalMin": 60,
+            },
+        )
 
-        self.assert_snapshot_schedule_in_ops_manager(mdb.get_om_tester(), {
-            "clusterCheckpointIntervalMin": 60,
-        })
+        self.assert_snapshot_schedule_in_ops_manager(
+            mdb.get_om_tester(),
+            {
+                "clusterCheckpointIntervalMin": 60,
+            },
+        )

@@ -9,18 +9,14 @@ from pytest import fixture, mark
 from typing import Dict
 
 
-def _prepare_om_namespace(
-    ops_manager_namespace: str, operator_installation_config: Dict[str, str]
-):
-    """ create a new namespace and configures all necessary service accounts there """
+def _prepare_om_namespace(ops_manager_namespace: str, operator_installation_config: Dict[str, str]):
+    """create a new namespace and configures all necessary service accounts there"""
     yaml_file = helm_template(
         helm_args={
-            "registry.imagePullSecrets": operator_installation_config[
-                "registry.imagePullSecrets"
-            ],
+            "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         },
         templates="templates/database-roles.yaml",
-        helm_options=[f"--namespace {ops_manager_namespace}"]
+        helm_options=[f"--namespace {ops_manager_namespace}"],
     )
 
     data = dict(
@@ -31,18 +27,12 @@ def _prepare_om_namespace(
     )
 
     create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
-    create_secret(
-        namespace=ops_manager_namespace, name="ops-manager-admin-secret", data=data
-    ),
+    create_secret(namespace=ops_manager_namespace, name="ops-manager-admin-secret", data=data),
 
 
-def ops_manager(
-    namespace: str, operator_installation_config: Dict[str, str]
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, operator_installation_config: Dict[str, str]) -> MongoDBOpsManager:
     _prepare_om_namespace(namespace, operator_installation_config)
-    return MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
-    )
+    return MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace)
 
 
 @fixture(scope="module")
@@ -74,10 +64,8 @@ def test_multiple_om_created_1(om1: MongoDBOpsManager):
 
 
 @mark.e2e_om_multiple
-def test_image_pull_secret_om_created_1(
-    namespace: str, operator_installation_config: Dict[str, str]
-):
-    """ check if imagePullSecrets was cloned in the OM namespace """
+def test_image_pull_secret_om_created_1(namespace: str, operator_installation_config: Dict[str, str]):
+    """check if imagePullSecrets was cloned in the OM namespace"""
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     secretDataInOperatorNs = read_secret(namespace, secret_name)
     secretDataInOmNs = read_secret("om-1", secret_name)
@@ -90,10 +78,8 @@ def test_multiple_om_created_2(om2: MongoDBOpsManager):
 
 
 @mark.e2e_om_multiple
-def test_image_pull_secret_om_created_2(
-    namespace: str, operator_installation_config: Dict[str, str]
-):
-    """ check if imagePullSecrets was cloned in the OM namespace """
+def test_image_pull_secret_om_created_2(namespace: str, operator_installation_config: Dict[str, str]):
+    """check if imagePullSecrets was cloned in the OM namespace"""
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     secretDataInOperatorNs = read_secret(namespace, secret_name)
     secretDataInOmNs = read_secret("om-2", secret_name)

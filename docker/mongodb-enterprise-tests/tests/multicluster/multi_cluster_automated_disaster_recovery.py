@@ -14,13 +14,10 @@ from kubetester import delete_pod, get_pod_when_ready, create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from .conftest import create_service_entries_objects
 
+
 @fixture(scope="module")
-def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
-    )
+def mongodb_multi(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
     resource["spec"]["persistent"] = False
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
@@ -28,9 +25,7 @@ def mongodb_multi(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_label_namespace(
-    namespace: str, central_cluster_client: kubernetes.client.ApiClient
-):
+def test_label_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
     api = client.CoreV1Api(api_client=central_cluster_client)
 
     labels = {"istio-injection": "enabled"}
