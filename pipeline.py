@@ -556,9 +556,6 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     mongodb_tools_url_ubi = "{}{}".format(
         base_url, release["mongodbToolsBundle"]["ubi"]
     )
-    mongodb_tools_url_ubuntu = "{}{}".format(
-        base_url, release["mongodbToolsBundle"]["ubuntu"]
-    )
 
     readiness_probe_version = release["readinessProbeVersion"]
     version_upgrade_post_start_hook_version = release[
@@ -567,7 +564,6 @@ def build_init_appdb(build_configuration: BuildConfiguration):
 
     args = dict(
         version=version,
-        mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
         readiness_probe_version=readiness_probe_version,
         version_upgrade_post_start_hook_version=version_upgrade_post_start_hook_version,
@@ -640,9 +636,6 @@ def build_init_database(build_configuration: BuildConfiguration):
     mongodb_tools_url_ubi = "{}{}".format(
         base_url, release["mongodbToolsBundle"]["ubi"]
     )
-    mongodb_tools_url_ubuntu = "{}{}".format(
-        base_url, release["mongodbToolsBundle"]["ubuntu"]
-    )
 
     readiness_probe_version = release["readinessProbeVersion"]
     version_upgrade_post_start_hook_version = release[
@@ -651,7 +644,6 @@ def build_init_database(build_configuration: BuildConfiguration):
 
     args = dict(
         version=version,
-        mongodb_tools_url_ubuntu=mongodb_tools_url_ubuntu,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
         readiness_probe_version=readiness_probe_version,
         version_upgrade_post_start_hook_version=version_upgrade_post_start_hook_version,

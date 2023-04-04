@@ -39,32 +39,6 @@ images:
       output:
       - dockerfile: $(functions.tempfile)
 
-    - name: operator-template-ubuntu
-      task_type: dockerfile_template
-      tags: ["ubuntu"]
-      distro: ubuntu
-
-      inputs:
-      - release_version
-      - debug
-
-      output:
-      - dockerfile: $(functions.tempfile)
-
-    - name: operator-ubuntu-build
-      task_type: docker_build
-      tags: ["ubuntu"]
-
-      dockerfile: $(stages['operator-template-ubuntu'].outputs[0].dockerfile)
-      buildargs:
-        imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
-
-      output:
-      - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-operator
-        tag: $(inputs.params.version_id)
-
-      - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-operator
-        tag: latest
 
     - name: operator-ubi-build
       task_type: docker_build
@@ -102,14 +76,3 @@ images:
 
       output:
       - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.release_version)/ubi/Dockerfile
-
-    - name: operator-template-ubuntu
-      task_type: dockerfile_template
-      tags: ["release"]
-      distro: ubuntu
-
-      inputs:
-      - release_version
-
-      output:
-      - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.release_version)/ubuntu/Dockerfile

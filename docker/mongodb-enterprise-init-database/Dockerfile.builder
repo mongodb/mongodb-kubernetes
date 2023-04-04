@@ -9,13 +9,11 @@ FROM quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook
 
 FROM scratch
 ARG mongodb_tools_url_ubi
-ARG mongodb_tools_url_ubuntu
 
 COPY --from=readiness_builder /probes/readinessprobe /data/
 COPY --from=version_upgrade_builder /version-upgrade-hook /data/version-upgrade-hook
 
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
-ADD ${mongodb_tools_url_ubuntu} /data/mongodb_tools_ubuntu.tgz
 
 COPY ./docker/mongodb-enterprise-init-database/content/probe.sh /data/probe.sh
 

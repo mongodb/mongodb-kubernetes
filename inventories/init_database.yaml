@@ -19,45 +19,13 @@ images:
 
         buildargs:
           mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
-          mongodb_tools_url_ubuntu: $(inputs.params.mongodb_tools_url_ubuntu)
           readiness_probe_version: $(inputs.params.readiness_probe_version)
           readiness_probe_repo: $(inputs.params.readiness_probe_repo)
           version_upgrade_post_start_hook_version: $(inputs.params.version_upgrade_post_start_hook_version)
 
         output:
-          - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context
+          - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-database-context
             tag: $(inputs.params.version_id)
-
-      - name: init-database-template-ubuntu
-        task_type: dockerfile_template
-
-        tags: ["ubuntu"]
-        template_file_extension: busybox
-
-        inputs:
-          - is_appdb
-
-        output:
-        - dockerfile: $(functions.tempfile)
-
-      - name: init-database-build-ubuntu
-        task_type: docker_build
-        tags: ["ubuntu"]
-
-        buildargs:
-          version: $(inputs.params.version)
-          imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
-
-        dockerfile: $(stages['init-database-template-ubuntu'].outputs[0].dockerfile)
-
-        inputs:
-          - is_appdb
-
-        output:
-          - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database
-            tag: $(inputs.params.version_id)
-          - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database
-            tag: latest
 
       - name: init-database-template-ubi
         task_type: dockerfile_template
@@ -74,7 +42,7 @@ images:
         tags: ["ubi"]
 
         buildargs:
-          imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
+          imagebase: $(inputs.params.registry)/ubi/mongodb-enterprise-init-database-context:$(inputs.params.version_id)
           version: $(inputs.params.version)
 
         dockerfile: $(stages['init-database-template-ubi'].outputs[0].dockerfile)
@@ -92,7 +60,7 @@ images:
         tags: ["release"]
 
         source:
-          registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-database-context
+          registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-database-context
           tag: $(inputs.params.version_id)
 
         destination:
@@ -109,14 +77,3 @@ images:
 
         output:
         - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
-
-      - name: init-database-template-ubuntu
-        task_type: dockerfile_template
-        tags: ["release"]
-        template_file_extension: busybox
-
-        inputs:
-          - is_appdb
-
-        output:
-        - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubuntu/Dockerfile
