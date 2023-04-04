@@ -2352,6 +2352,33 @@ buildvariants:
 # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
 ## MongoDB build variants
+
+
+- name: e2e_mdb_kind_ubi_cloudqa
+  display_name: e2e_mdb_kind_ubi_cloudqa
+  run_on:
+    - ubuntu1804-large
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
+    custom_mdb_version: *mdb_50_latest
+    agent_version: *agent_version60
+    image_type: ubi
+  tasks:
+    - name: e2e_mdb_kind_cloudqa_task_group
+
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
   depends_on:
