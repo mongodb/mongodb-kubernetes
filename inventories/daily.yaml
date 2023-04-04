@@ -3,12 +3,10 @@ vars:
 
   quay_registry: quay.io/mongodb/<image-name-quay>
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
-  ecr_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu/<image-name-ecr>
   ecr_registry_ubi: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/<image-name-ecr>
   # ubi suffix is "-ubi" by default, but it's empty for mongodb-kubernetes-operator
   ubi_suffix: "-ubi"
-  # ubuntu suffix is empty by default
-  ubuntu_suffix: ""
+
 
 images:
   - name: image-daily-build
@@ -37,41 +35,10 @@ images:
         tag: $(inputs.params.release_version)
       - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-      # Below two push coordinates seem to be wrong as some upgrade tests (e.g. e2e_om_ops_manager_upgrade)
-      # use different scheme, such as: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/mongodb-enterprise-ops-manager:4.4.15
-      # However, this reflects the way we push things into Quay. So let's keep it for now.
-      - registry: $(inputs.params.ecr_registry)$(inputs.params.ubi_suffix)
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.ecr_registry)$(inputs.params.ubi_suffix)
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
       # Below two coordinates are on pair with the e2e_om_ops_manager_upgrade test but
       # doesn't seem to reflect the way we push things to Quay.
       # The proper fix should be addressed in https://jira.mongodb.org/browse/CLOUDP-133709
       - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
         tag: $(inputs.params.release_version)
       - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-
-    - name: build-ubuntu
-      task_type: docker_build
-      tags: ["ubuntu"]
-
-      inputs:
-      - build_id
-
-      dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubuntu/Dockerfile
-      buildargs:
-        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-        # This is required for correctly labeling the agent image and is not used
-        # in the other images.
-        agent_version: $(inputs.params.release_version)
-
-      output:
-      - registry: $(inputs.params.quay_registry)$(inputs.params.ubuntu_suffix)
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.quay_registry)$(inputs.params.ubuntu_suffix)
-        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-      - registry: $(inputs.params.ecr_registry)$(inputs.params.ubuntu_suffix)
-        tag: $(inputs.params.release_version)
-      - registry: $(inputs.params.ecr_registry)$(inputs.params.ubuntu_suffix)
         tag: $(inputs.params.release_version)-b$(inputs.params.build_id)

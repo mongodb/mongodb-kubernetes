@@ -18,41 +18,14 @@ images:
 
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
-      mongodb_tools_url_ubuntu: $(inputs.params.mongodb_tools_url_ubuntu)
       readiness_probe_version: $(inputs.params.readiness_probe_version)
       readiness_probe_repo: $(inputs.params.readiness_probe_repo)
       version_upgrade_post_start_hook_version: $(inputs.params.version_upgrade_post_start_hook_version)
 
     output:
-    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-appdb-context
       tag: $(inputs.params.version_id)
-  
-  - name: init-appdb-template-ubuntu
-    task_type: dockerfile_template
-    template_file_extension: busybox
-    tags: ["ubuntu"]
 
-    inputs:
-    - is_appdb
-
-    output:
-    - dockerfile: $(functions.tempfile)
-
-  - name: init-appdb-build-ubuntu
-    task_type: docker_build
-    tags: ["ubuntu"]
-
-    buildargs:
-      version: $(inputs.params.version)
-      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context:$(inputs.params.version_id)
-
-    dockerfile: $(stages['init-appdb-template-ubuntu'].outputs[0].dockerfile)
-
-    output:
-    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb
-      tag: $(inputs.params.version_id)
-    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb
-      tag: latest
 
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
@@ -71,7 +44,7 @@ images:
 
     buildargs:
       version: $(inputs.params.version)
-      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/ubi/mongodb-enterprise-init-appdb-context:$(inputs.params.version_id)
 
     dockerfile: $(stages['init-appdb-template-ubi'].outputs[0].dockerfile)
 
@@ -86,7 +59,7 @@ images:
     tags: ["release"]
 
     source:
-      registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-init-appdb-context
+      registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-appdb-context
       tag: $(inputs.params.version_id)
 
     destination:
@@ -103,14 +76,3 @@ images:
 
     output:
     - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
-
-  - name: init-appdb-template-ubuntu
-    task_type: dockerfile_template
-    template_file_extension: busybox
-    tags: ["release"]
-
-    inputs:
-    - is_appdb
-
-    output:
-    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubuntu/Dockerfile

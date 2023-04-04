@@ -20,29 +20,6 @@ images:
     - registry: $(inputs.params.registry)/ops-manager-context
       tag: $(inputs.params.version_id)
 
-  - name: ops-manager-template-ubuntu
-    task_type: dockerfile_template
-    template_file_extension: ubuntu
-    tags: ["ubuntu"]
-
-    inputs:
-    - om_download_url
-    - om_version
-
-    output:
-    - dockerfile: $(functions.tempfile)
-
-  - name: ops-manager-build
-    task_type: docker_build
-    dockerfile: $(stages['ops-manager-template-ubuntu'].outputs[0].dockerfile)
-    tags: ["ubuntu"]
-
-    buildargs:
-      imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
-
-    output:
-    - registry: $(inputs.params.om_registry)/images/ubuntu/mongodb-enterprise-ops-manager
-      tag: $(inputs.params.om_version)
 
   - name: ops-manager-template-ubi
     task_type: dockerfile_template
@@ -75,18 +52,6 @@ images:
   ## Release tasks
   - name: ops-manager-template
     task_type: dockerfile_template
-    template_file_extension: ubuntu
-    tags: ["ubuntu", "release"]
-
-    inputs:
-    - om_download_url
-    - om_version
-
-    output:
-    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.om_version)/ubuntu/Dockerfile
-
-  - name: ops-manager-template
-    task_type: dockerfile_template
     template_file_extension: ubi
     tags: ["ubi", "release"]
 
@@ -114,22 +79,6 @@ images:
     context: docker/mongodb-enterprise-ops-manager
 
   stages:
-  - name: build-ubuntu
-    task_type: docker_build
-
-    inputs:
-    - build_id
-
-    dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubuntu/Dockerfile
-    buildargs:
-      imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
-
-    output:
-    - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)
-    - registry: $(inputs.params.quay_registry)
-      tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
-
   - name: build-ubi
     task_type: docker_build
 

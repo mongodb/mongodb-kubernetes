@@ -15,36 +15,8 @@ images:
     dockerfile: Dockerfile.builder
 
     output:
-    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database-context
       tag: $(inputs.params.version_id)
-  
-  - name: init-appdb-template-ubuntu
-    task_type: dockerfile_template
-    distro: ubuntu
-    tags: ["ubuntu"]
-
-    inputs:
-    - version
-
-    output:
-    - dockerfile: $(functions.tempfile)
-
-  - name: database-build-ubuntu
-    vars:
-      context: docker/mongodb-enterprise-database
-
-    task_type: docker_build
-    dockerfile: $(stages['init-appdb-template-ubuntu'].outputs[0].dockerfile)
-    tags: ["ubuntu"]
-
-    buildargs:
-      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context:$(inputs.params.version_id)
-
-    output:
-    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database
-      tag: $(inputs.params.version_id)
-    - registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database
-      tag: latest
 
   - name: init-appdb-template-ubi
     task_type: dockerfile_template
@@ -63,7 +35,7 @@ images:
     tags: ["ubi"]
 
     buildargs:
-      imagebase: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/ubi/mongodb-enterprise-database-context:$(inputs.params.version_id)
 
     output:
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database
@@ -76,7 +48,7 @@ images:
     tags: ["release"]
 
     source:
-      registry: $(inputs.params.registry)/ubuntu/mongodb-enterprise-database-context
+      registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database-context
       tag: $(inputs.params.version_id)
 
     destination:
@@ -93,14 +65,3 @@ images:
 
     output:
     - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
-
-  - name: database-template-ubuntu
-    task_type: dockerfile_template
-    distro: ubuntu
-    tags: ["release"]
-
-    inputs:
-    - version
-
-    output:
-    - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubuntu/Dockerfile

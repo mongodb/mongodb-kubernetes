@@ -885,17 +885,6 @@ tasks:
       distro: ubi
       image_name: operator
 
-- name: build_operator_ubuntu
-  priority: 60
-  commands:
-  - func: clone
-  - func: setup_building_host
-  - func: pipeline
-    vars:
-      skip_tags: ubi,release
-      distro: ubuntu
-      image_name: operator
-
 - name: build_init_om_images_ubi
   priority: 60
   commands:
@@ -907,25 +896,6 @@ tasks:
       image_name: init-ops-manager
       skip_tags: ubuntu,release
 
-- name: build_init_om_images_ubuntu
-  commands:
-  - func: clone
-  - func: setup_aws
-  - func: configure_docker_auth
-  - func: pipeline
-    vars:
-      image_name: init-ops-manager
-      skip_tags: ubi,release
-
-- name: build_init_appdb_images_ubuntu
-  commands:
-  - func: clone
-  - func: setup_building_host
-  - func: pipeline
-    vars:
-      image_name: init-appdb
-      skip_tags: ubi,release
-
 - name: build_init_appdb_images_ubi
   commands:
   - func: clone
@@ -934,15 +904,6 @@ tasks:
     vars:
       image_name: init-appdb
       skip_tags: ubuntu,release
-
-- name: build_init_database_image_ubuntu
-  commands:
-  - func: clone
-  - func: setup_building_host
-  - func: pipeline
-    vars:
-      image_name: init-database
-      skip_tags: ubi,release
 
 - name: build_init_database_image_ubi
   commands:
@@ -962,21 +923,12 @@ tasks:
       image_name: database
       skip_tags: ubuntu,release
 
-- name: build_database_image_ubuntu
-  commands:
-  - func: clone
-  - func: setup_building_host
-  - func: pipeline
-    vars:
-      image_name: database
-      skip_tags: ubi,release
-
 - name: prepare_cluster_vanilla
   priority: 59
   depends_on:
-  - name: build_operator_ubuntu
-  - name: build_init_appdb_images_ubuntu
-  - name: build_init_om_images_ubuntu
+  - name: build_operator_ubi
+  - name: build_init_appdb_images_ubi
+  - name: build_init_om_images_ubi
   commands:
     - func: clone
     - func: download_kube_tools
@@ -2400,57 +2352,6 @@ buildvariants:
 # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
 ## MongoDB build variants
-
-- name: e2e_mdb_kind_ubuntu_cloudqa
-  display_name: e2e_mdb_kind_ubuntu_cloudqa
-  run_on:
-    - ubuntu1804-large
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
-    - name: build_database_image_ubuntu
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_appdb_images_ubuntu
-      variant: init_test_run
-    - name: build_init_om_images_ubuntu
-      variant: init_test_run
-  expansions:
-    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
-    custom_mdb_version: *mdb_50_latest
-    agent_version: *agent_version60
-    image_type: ubuntu
-  tasks:
-    - name: e2e_mdb_kind_cloudqa_task_group
-
-- name: e2e_mdb_kind_ubi_cloudqa
-  display_name: e2e_mdb_kind_ubi_cloudqa
-  run_on:
-    - ubuntu1804-large
-  depends_on:
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-  expansions:
-    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
-    custom_mdb_version: *mdb_50_latest
-    agent_version: *agent_version60
-    image_type: ubi
-  tasks:
-    - name: e2e_mdb_kind_cloudqa_task_group
-
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
   depends_on:
@@ -2476,44 +2377,6 @@ buildvariants:
 ## Ops Manager build variants
 
 # Isolated Ops Manager Tests for 5.0 version
-- name: e2e_om50_kind_ubuntu
-  display_name: e2e_om50_kind_ubuntu
-  run_on:
-  - ubuntu1804-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om50_images
-  - name: build_operator_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_database_image_ubuntu
-    variant: init_test_run
-  - name: build_init_appdb_images_ubuntu
-    variant: init_test_run
-  expansions:
-    <<: [ *kubernetes_environment_kind ]
-    image_type: ubuntu
-    test_mode: opsmanager
-
-    custom_om_version: *ops_manager_50_latest
-    custom_om_prev_version: *ops_manager_50_prev
-    custom_mdb_version: *mdb_50_latest
-    custom_mdb_prev_version: *mdb_44_latest
-    agent_version: *agent_version60
-
-    custom_appdb_version: *ops_manager_50_appdb_version
-
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_5_0_only_task_group
-
 - name: e2e_om50_kind_ubi
   display_name: e2e_om50_kind_ubi
   run_on:
@@ -2553,45 +2416,6 @@ buildvariants:
   - name: e2e_ops_manager_kind_5_0_only_task_group
 
 # Isolated Ops Manager Tests for 6.0 version
-- name: e2e_om60_kind_ubuntu
-  display_name: e2e_om60_kind_ubuntu
-  run_on:
-  - ubuntu1804-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om60_images
-  - name: build_operator_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_database_image_ubuntu
-    variant: init_test_run
-  - name: build_init_appdb_images_ubuntu
-    variant: init_test_run
-  expansions:
-    <<: [ *kubernetes_environment_kind ]
-    image_type: ubuntu
-    test_mode: opsmanager
-
-    custom_om_version: *ops_manager_60_latest
-    custom_om_prev_version: *ops_manager_50_latest
-    custom_mdb_version: *mdb_50_latest
-    custom_mdb_prev_version: *mdb_44_latest
-    agent_version: *agent_version60
-
-    custom_appdb_version: *ops_manager_60_appdb_version
-
-    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_5_0_only_task_group
-  - name: e2e_ops_manager_kind_6_0_only_task_group
-
 - name: e2e_om60_kind_ubi
   display_name: e2e_om60_kind_ubi
   run_on:
@@ -2696,33 +2520,6 @@ buildvariants:
 
 ## Operator tests build variants
 
-- name: e2e_operator_kind_ubuntu_cloudqa
-  display_name: e2e_operator_kind_ubuntu_cloudqa
-  run_on:
-  - ubuntu1804-large
-  depends_on:
-  - name: build_operator_ubuntu
-    variant: init_test_run
-  - name: build_init_database_image_ubuntu
-    variant: init_test_run
-  - name: build_database_image_ubuntu
-    variant: init_test_run
-  - name: build_init_om_images_ubuntu
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_appdb_images_ubuntu
-    variant: init_test_run
-  expansions:
-    <<: [ *cloud_manager_qa, *kubernetes_environment_kind ]
-    image_type: ubuntu
-    custom_om_version: *ops_manager_50_latest
-    custom_mdb_version: *mdb_50_latest
-    agent_version: *agent_version50
-    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu
-  tasks:
-  - name: e2e_operator_task_group
-
 - name: e2e_operator_kind_ubi_cloudqa
   display_name: e2e_operator_kind_ubi_cloudqa
   run_on:
@@ -2763,21 +2560,11 @@ buildvariants:
   depends_on:
     - name: release_blocker
       variant: release_blocker
-    - name: build_operator_ubuntu
-      variant: init_test_run
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_init_om_images_ubi
       variant: init_test_run
-    - name: build_init_om_images_ubuntu
-      variant: init_test_run
-    - name: build_init_appdb_images_ubuntu
-      variant: init_test_run
     - name: build_init_appdb_images_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
-    - name: build_database_image_ubuntu
       variant: init_test_run
     - name: build_init_database_image_ubi
       variant: init_test_run
@@ -2833,42 +2620,18 @@ buildvariants:
   stepback: false
   tasks:
     - name: build_operator_ubi
-    - name: build_operator_ubuntu
     - name: build_test_image
 
     # Init AppDB images
-    - name: build_init_appdb_images_ubuntu
     - name: build_init_appdb_images_ubi
 
-    - name: build_init_om_images_ubuntu
+
     - name: build_init_om_images_ubi
-    - name: build_init_database_image_ubuntu
     - name: build_init_database_image_ubi
-    - name: build_database_image_ubuntu
     - name: build_database_image_ubi
     - name: prepare_cluster_vanilla
     - name: prepare_multi_cluster
     - name: prepare_aws
-
-  # Runs on master patches. This will populate the mongodb/mongodb-enterprise-*-prerelease
-  # registries with the images that were pushed to master
-- name: prerelease_master_images
-  display_name: prerelease_master_images
-  run_on:
-    - ubuntu1804-small
-  depends_on:
-    - name: build_operator_ubuntu
-      variant: init_test_run
-    - name: build_init_om_images_ubuntu
-      variant: init_test_run
-    - name: build_init_database_image_ubuntu
-      variant: init_test_run
-    - name: build_database_image_ubuntu
-      variant: init_test_run
-  expansions:
-    image_type: ubuntu
-  tasks:
-    - name: prerelease_master_images
 
 - name: go_unit_tests
   display_name: "go_unit_tests"
@@ -2903,8 +2666,6 @@ buildvariants:
   run_on:
   - ubuntu1804-small
   depends_on:
-  - variant: e2e_om50_kind_ubuntu
-    name: '*'
   - variant: e2e_om50_kind_ubi
     name: '*'
   expansions:
@@ -2929,8 +2690,6 @@ buildvariants:
   run_on:
   - ubuntu1804-small
   depends_on:
-  - variant: e2e_om60_kind_ubuntu
-    name: '*'
   - variant: e2e_om60_kind_ubi
     name: '*'
   expansions:
