@@ -227,7 +227,7 @@ func (oc *MockedOmConnection) ReadAutomationConfig() (*AutomationConfig, error) 
 	return oc.automationConfig, nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
 	if oc.automationConfig == nil {
 		if oc.deployment == nil {
@@ -237,7 +237,7 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automat
 	}
 
 	// when we update the mocked automation config, update the corresponding deployment
-	err := acFunc(oc.automationConfig)
+	err := modifyACFunc(oc.automationConfig)
 
 	// mock the change of auto auth mechanism that is done based on the provided autoAuthMechanisms
 	updateAutoAuthMechanism(oc.automationConfig)

@@ -353,7 +353,7 @@ func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *za
 	return nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -368,7 +368,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 	if err != nil {
 		return err
 	}
-	if err := acFunc(ac); err != nil {
+	if err := modifyACFunc(ac); err != nil {
 		return apierror.New(err)
 	}
 
@@ -385,7 +385,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(acFunc func(ac *Automatio
 	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
 		if util.ShouldLogAutomationConfigDiff() {
-			var originalDeployment Deployment = original.Deployment
+			var originalDeployment = original.Deployment
 			log.Debug("Current Automation Config")
 			originalDeployment.Debug(log)
 			log.Debug("Invalid Automation Config")
@@ -710,7 +710,7 @@ func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConf
 	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
 }
 
-func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(modifyMonitoringAgentFunction func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
 	if log == nil {
 		log = zap.S()
 	}
@@ -723,7 +723,7 @@ func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Monito
 		return err
 	}
 
-	if err := matFunc(mat); err != nil {
+	if err := modifyMonitoringAgentFunction(mat); err != nil {
 		return err
 	}
 

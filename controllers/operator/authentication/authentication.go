@@ -104,7 +104,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	}
 
 	// we make sure that the AuthoritativeSet options in the AC is correct
-	if err := ensureAuthorativeSetIsConfigured(conn, opts.AuthoritativeSet, log); err != nil {
+	if err := ensureAuthoritativeSetIsConfigured(conn, opts.AuthoritativeSet, log); err != nil {
 		return xerrors.Errorf("error ensuring that authoritative set is configured: %w", err)
 	}
 
@@ -317,6 +317,8 @@ type Mechanism interface {
 	DisableAgentAuthentication(log *zap.SugaredLogger) error
 	EnableDeploymentAuthentication(opts Options) error
 	DisableDeploymentAuthentication() error
+	// IsAgentAuthenticationConfigured should not rely on util.Mergo_delete since the method is always
+	// called directly after deserializing the response from OM which should not contain the util.mergo_delete value in any field.
 	IsAgentAuthenticationConfigured() bool
 	IsDeploymentAuthenticationConfigured() bool
 }
@@ -370,9 +372,9 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 	return nil
 }
 
-// ensureAuthorativeSetIsConfigured makes sure that the authoritativeSet options is correctly configured
+// ensureAuthoritativeSetIsConfigured makes sure that the authoritativeSet options is correctly configured
 // in Ops Manager
-func ensureAuthorativeSetIsConfigured(conn om.Connection, authoritativeSet bool, log *zap.SugaredLogger) error {
+func ensureAuthoritativeSetIsConfigured(conn om.Connection, authoritativeSet bool, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 
 	if err != nil {
@@ -381,6 +383,7 @@ func ensureAuthorativeSetIsConfigured(conn om.Connection, authoritativeSet bool,
 
 	if ac.Auth.AuthoritativeSet == authoritativeSet {
 		log.Debugf("Authoritative set %t is already configured", authoritativeSet)
+		return nil
 	}
 
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -403,7 +406,7 @@ func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap
 	automationConfigMechanismNames := getMechanismNames(ac, opts.MinimumMajorVersion, opts.Mechanisms)
 
 	log.Debugf("Automation config authentication mechanisms: %+v", automationConfigMechanismNames)
-	if err := ensureDeploymentMechanisms(conn, automationConfigMechanismNames, opts, log); err != nil {
+	if err := ensureDeploymentMechanisms(conn, ac, automationConfigMechanismNames, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
 	}
 
@@ -585,12 +588,7 @@ func ensureAgentAuthenticationIsConfigured(conn om.Connection, opts Options, des
 
 // ensureDeploymentMechanisms configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanisms(conn om.Connection, desiredDeploymentAuthMechanisms []MechanismName, opts Options, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
-	if err != nil {
-		return err
-	}
-
+func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, desiredDeploymentAuthMechanisms []MechanismName, opts Options, log *zap.SugaredLogger) error {
 	allRequiredDeploymentMechanismsAreConfigured := true
 	for _, mn := range desiredDeploymentAuthMechanisms {
 		if !fromName(mn, ac, conn, opts).IsDeploymentAuthenticationConfigured() {
