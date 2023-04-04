@@ -357,12 +357,12 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 
 	authMap, ok := deployment["auth"]
 	if ok {
-		authStr, err := json.Marshal(authMap)
+		authMarshalled, err := json.Marshal(authMap)
 		if err != nil {
 			return nil, err
 		}
 		auth := &Auth{}
-		if err := json.Unmarshal([]byte(authStr), auth); err != nil {
+		if err := json.Unmarshal(authMarshalled, auth); err != nil {
 			return nil, err
 		}
 		finalAutomationConfig.Auth = auth
@@ -370,12 +370,12 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 
 	tlsMap, ok := deployment["tls"]
 	if ok {
-		sslStr, err := json.Marshal(tlsMap)
+		sslMarshalled, err := json.Marshal(tlsMap)
 		if err != nil {
 			return nil, err
 		}
 		ssl := &AgentSSL{}
-		if err := json.Unmarshal([]byte(sslStr), ssl); err != nil {
+		if err := json.Unmarshal(sslMarshalled, ssl); err != nil {
 			return nil, err
 		}
 		finalAutomationConfig.AgentSSL = ssl
@@ -383,12 +383,12 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 
 	ldapMap, ok := deployment["ldap"]
 	if ok {
-		ldapStr, err := json.Marshal(ldapMap)
+		ldapMarshalled, err := json.Marshal(ldapMap)
 		if err != nil {
 			return nil, err
 		}
 		ldap := &ldap.Ldap{}
-		if err := json.Unmarshal([]byte(ldapStr), ldap); err != nil {
+		if err := json.Unmarshal(ldapMarshalled, ldap); err != nil {
 			return nil, err
 		}
 		finalAutomationConfig.Ldap = ldap

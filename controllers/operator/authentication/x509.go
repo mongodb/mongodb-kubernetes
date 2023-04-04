@@ -137,7 +137,7 @@ func (x ConnectionX509) IsAgentAuthenticationConfigured() bool {
 		return false
 	}
 
-	if !isValidX509Subject(ac.Auth.AutoUser) || ac.Auth.AutoPwd != util.MergoDelete {
+	if !isValidX509Subject(ac.Auth.AutoUser) {
 		return false
 	}
 
