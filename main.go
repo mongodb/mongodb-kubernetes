@@ -136,7 +136,6 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if multicluster.IsMultiClusterMode(crdsToWatch) {
-
 		kubeConfigFile, err := multicluster.NewKubeConfigFile()
 		if err != nil {
 			log.Fatalf("failed to open kubeconfig file: %s, err: %s", multicluster.GetKubeConfigPath(), err)
@@ -166,7 +165,7 @@ func main() {
 		// Add the cluster object to the manager corresponding to each member clusters.
 		for k, v := range memberClusterClients {
 			var cluster runtime_cluster.Cluster
-			// if length of namespaces is 1(one particular namespace or * namespace) we can use the namespace in options
+			// if length of namespaces is 1 (one particular namespace or * namespace) we can use the namespace in options
 			// but if we are watching a subset of namespaces we need to initialize the cache with specific namespaces only
 			if len(namespacesToWatch) == 1 {
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
