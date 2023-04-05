@@ -9,25 +9,27 @@ import (
 )
 
 func TestGetWatchedNamespace(t *testing.T) {
-
-	os.Setenv(util.WatchNamespace, "one-namespace")
+	t.Setenv(util.WatchNamespace, "one-namespace")
 	assert.Equal(t, []string{"one-namespace"}, GetWatchedNamespace())
 
-	os.Setenv(util.WatchNamespace, "one-namespace, two-namespace,three-namespace")
+	t.Setenv(util.WatchNamespace, "one-namespace, two-namespace,three-namespace")
 	assert.Equal(t, []string{"one-namespace", "two-namespace", "three-namespace"}, GetWatchedNamespace())
 
-	os.Setenv(util.WatchNamespace, "")
-	assert.Equal(t, []string{OperatorNamespace}, GetWatchedNamespace())
-
-	os.Setenv(util.WatchNamespace, ",")
-	assert.Equal(t, []string{OperatorNamespace}, GetWatchedNamespace())
-
-	os.Setenv(util.WatchNamespace, ",one-namespace")
-	assert.Equal(t, []string{"one-namespace"}, GetWatchedNamespace())
-
-	os.Setenv(util.WatchNamespace, "*")
+	t.Setenv(util.WatchNamespace, "")
 	assert.Equal(t, []string{""}, GetWatchedNamespace())
 
-	os.Setenv(util.WatchNamespace, "*,hi")
+	t.Setenv(util.WatchNamespace, ",")
+	assert.Equal(t, []string{OperatorNamespace}, GetWatchedNamespace())
+
+	t.Setenv(util.WatchNamespace, ",one-namespace")
+	assert.Equal(t, []string{"one-namespace"}, GetWatchedNamespace())
+
+	t.Setenv(util.WatchNamespace, "*")
+	assert.Equal(t, []string{""}, GetWatchedNamespace())
+
+	t.Setenv(util.WatchNamespace, "*,hi")
+	assert.Equal(t, []string{""}, GetWatchedNamespace())
+
+	os.Unsetenv(util.WatchNamespace)
 	assert.Equal(t, []string{""}, GetWatchedNamespace())
 }

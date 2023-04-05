@@ -11,22 +11,19 @@ import (
 
 // GetWatchedNamespace returns a namespace or namespaces to watch.
 //
-// If `WATCH_NAMESPACE` has not been set, it watches the same namespace where the Operator is deployed.
-//
-// If `WATCH_NAMESPACE` has been set to an empty value, `CURRENT_NAMESPACE` is returned instead.
-//
+// If `WATCH_NAMESPACE` has not been set, is an empty string or is a star ("*"), it watches all namespaces.
 // If `WATCH_NAMESPACE` is set, it watches over that namespace, unless there are commas in there, in which
 // the namespaces to watch will be a comma-separated list.
 //
 // If `WATCH_NAMESPACE` is '*' it will return []string{""}, which means all namespaces will be watched.
 func GetWatchedNamespace() []string {
-	// get watch namespace from environment variable
 	watchNamespace, nsSpecified := os.LookupEnv(util.WatchNamespace)
 
-	// if the watch namespace is not specified - we assume the Operator is watching the current namespace
-	if !nsSpecified || watchNamespace == "" {
-		// the current namespace is expected to be always specified as main.go performs the hard check of this
-		return []string{env.ReadOrDefault(util.CurrentNamespace, "")}
+	// If WatchNamespace is not specified - we assume the Operator is watching all namespaces.
+	// In contrast to the common way to configure cluster-wide operators we additionally support '*'
+	// see: https://sdk.operatorframework.io/docs/building-operators/golang/operator-scope/#configuring-watch-namespaces-dynamically
+	if !nsSpecified || len(watchNamespace) == 0 || strings.TrimSpace(watchNamespace) == "" || strings.TrimSpace(watchNamespace) == "*" {
+		return []string{""}
 	}
 
 	if strings.Contains(watchNamespace, ",") {
@@ -52,10 +49,6 @@ func GetWatchedNamespace() []string {
 		}
 
 		return []string{env.ReadOrDefault(util.CurrentNamespace, "")}
-	}
-
-	if strings.TrimSpace(watchNamespace) == "*" {
-		return []string{""}
 	}
 
 	return []string{watchNamespace}
