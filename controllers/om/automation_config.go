@@ -3,13 +3,14 @@ package om
 import (
 	"encoding/json"
 
+	"github.com/google/go-cmp/cmp"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/generate"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
 )
 
@@ -55,31 +56,56 @@ func (a *AutomationConfig) Apply() error {
 	return nil
 }
 
-// EqualsWithoutDeployment returns true if two AutomationConfig objects are meaningful equal without
-// taking AutomationConfig.Deployment into consideration.
+// EqualsWithoutDeployment returns true if two AutomationConfig objects are meaningful equal by following the following conditions:
+// - Not taking AutomationConfig.Deployment into consideration.
+// - Serializing ac A and ac B to ensure that we remove util.MergoDelete before comparing those two.
 //
 // Comparing Deployments will not work correctly in current AutomationConfig implementation. Helper
 // structs, such as AutomationConfig.AgentSSL or AutomationConfig.Auth use non-pointer fields (without `omitempty`).
 // When merging them into AutomationConfig.deployment, JSON unmarshaller renders them into their representations,
 // and they get into the final result. Sadly, some tests (especially TestLDAPIsMerged) relies on this behavior.
-//
-// In the future, we might want to refactor this part, see: https://jira.mongodb.org/browse/CLOUDP-134971
 func (a *AutomationConfig) EqualsWithoutDeployment(b *AutomationConfig) bool {
 	deploymentsComparer := cmp.Comparer(func(x, y Deployment) bool {
 		return true
 	})
-	return cmp.Equal(a, b, deploymentsComparer)
+
+	acA, err := getSerializedAC(a)
+	if err != nil {
+		return false
+	}
+
+	acB, err := getSerializedAC(b)
+	if err != nil {
+		return false
+	}
+
+	return cmp.Equal(acA, acB, deploymentsComparer)
 }
 
-// isEqual returns true if two Deployment objects are equal ignoring their underlying custom types.
+// getSerializedAC calls apply which decodes the internal struct into the Deployment map. After decoding
+// we encode the map into its internal representation again. Doing that removes util.MergoDelete for proper comparison
+func getSerializedAC(original *AutomationConfig) (*AutomationConfig, error) {
+	err := original.Apply()
+	if err != nil {
+		return nil, err
+	}
+
+	ac, err := BuildAutomationConfigFromDeployment(original.Deployment)
+	if err != nil {
+		return nil, err
+	}
+	return ac, nil
+}
+
+// isEqualAfterModification returns true if two Deployment objects are equal ignoring their underlying custom types.
 // depFunc might change the Deployment or might only change the types. In both cases it will fail the comparison
 // as long as we don't ignore the types.
-func isEqual(depFunc func(Deployment) error, deployment Deployment) (bool, error) {
+func isEqualAfterModification(changeDeploymentFunc func(Deployment) error, deployment Deployment) (bool, error) {
 	original, err := util.MapDeepCopy(deployment) // original over the wire does not contain any types
 	if err != nil {
 		return false, err
 	}
-	if err := depFunc(deployment); err != nil { // might change types as well
+	if err := changeDeploymentFunc(deployment); err != nil { // might change types as well
 		return false, err
 	}
 

@@ -643,7 +643,7 @@ func TestAutomationConfigEquality(t *testing.T) {
 			b:                &AutomationConfig{},
 			expectedEquality: true,
 		},
-		"Two different configs are not qual": {
+		"Two different configs are not equal": {
 			a:                getTestAutomationConfig(),
 			b:                &AutomationConfig{},
 			expectedEquality: false,
@@ -682,6 +682,25 @@ func TestAutomationConfigEquality(t *testing.T) {
 				Auth:     &authConfig2,
 				AgentSSL: &agentSSLConfig2,
 				Ldap:     &ldapConfig2,
+			},
+			expectedEquality: true,
+		},
+		"Same configs, except for MergoDelete, which is ignored": {
+			a: &AutomationConfig{
+				Auth: &Auth{
+					NewAutoPwd:  util.MergoDelete,
+					LdapGroupDN: "abc",
+				},
+				Ldap: &ldapConfig,
+			},
+			b: &AutomationConfig{
+				Auth: &Auth{
+					LdapGroupDN: "abc",
+				},
+				AgentSSL: &AgentSSL{
+					AutoPEMKeyFilePath: util.MergoDelete,
+				},
+				Ldap: &ldapConfig2,
 			},
 			expectedEquality: true,
 		},
@@ -807,9 +826,9 @@ func TestIsEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := isEqual(tt.args.depFunc, tt.args.deployment)
+			got, err := isEqualAfterModification(tt.args.depFunc, tt.args.deployment)
 			assert.NoError(t, err)
-			assert.Equalf(t, tt.want, got, "isEqual(%v, %v)", tt.args.depFunc, tt.args.deployment)
+			assert.Equalf(t, tt.want, got, "isEqualAfterModification(%v, %v)", tt.args.depFunc, tt.args.deployment)
 		})
 	}
 }

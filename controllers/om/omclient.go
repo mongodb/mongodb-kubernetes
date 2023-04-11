@@ -310,7 +310,7 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 		return err
 	}
 
-	isEqual, err := isEqual(depFunc, deployment)
+	isEqual, err := isEqualAfterModification(depFunc, deployment)
 	if err != nil {
 		return err
 	}
@@ -319,7 +319,6 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 		return nil
 	}
 
-	// Since Deployments comparison don't work, we don't need to check if deployment changed here.
 	_, err = oc.UpdateDeployment(deployment)
 	if err != nil {
 		if util.ShouldLogAutomationConfigDiff() {
@@ -368,6 +367,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 	if err != nil {
 		return err
 	}
+
 	if err := modifyACFunc(ac); err != nil {
 		return apierror.New(err)
 	}
@@ -382,7 +382,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 		return nil
 	}
 
-	err = oc.UpdateAutomationConfig(ac, log)
+	_, err = oc.UpdateDeployment(ac.Deployment)
 	if err != nil {
 		if util.ShouldLogAutomationConfigDiff() {
 			var originalDeployment = original.Deployment
