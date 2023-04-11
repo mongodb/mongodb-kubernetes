@@ -317,8 +317,8 @@ type Mechanism interface {
 	DisableAgentAuthentication(log *zap.SugaredLogger) error
 	EnableDeploymentAuthentication(opts Options) error
 	DisableDeploymentAuthentication() error
-	// IsAgentAuthenticationConfigured should not rely on util.Mergo_delete since the method is always
-	// called directly after deserializing the response from OM which should not contain the util.mergo_delete value in any field.
+	// IsAgentAuthenticationConfigured should not rely on util.MergoDelete since the method is always
+	// called directly after deserializing the response from OM which should not contain the util.MergoDelete value in any field.
 	IsAgentAuthenticationConfigured() bool
 	IsDeploymentAuthenticationConfigured() bool
 }

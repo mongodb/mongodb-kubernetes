@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -62,6 +64,27 @@ func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
 
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
 	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+		return nil
+	}, logger)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, counters.getHitCount)
+	assert.Equal(t, 0, counters.putHitCount)
+}
+
+// TestNotSendingRequestOnNonModifiedAutomationConfigWithMergoDelete verifies that util.MergoDelete will be ignored during equality comparisons
+func TestNotSendingRequestOnNonModifiedAutomationConfigWithMergoDelete(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+	testAutomationConfig := getTestAutomationConfig()
+	handleFunc, counters := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+		ac.AgentSSL = &AgentSSL{
+			AutoPEMKeyFilePath: util.MergoDelete,
+		}
 		return nil
 	}, logger)
 
