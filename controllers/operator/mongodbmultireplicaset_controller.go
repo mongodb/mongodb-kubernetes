@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"reflect"
 	"sort"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
 	"golang.org/x/xerrors"
 
@@ -141,11 +142,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 		return r.updateStatus(&mrs, workflow.Failed(xerrors.Errorf("resource has failed clusters in the annotation: %+v", failedClusterNames)), log)
 	}
 
-	// register for the cert secrets and configmap to be watched
-	if mrs.Spec.GetSecurity().IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(mrs.ObjectKey(), mrs.Spec.GetSecurity().TLSConfig.CA,
-			[]string{mrs.Spec.GetSecurity().MemberCertificateSecretName(mrs.Name)})
-	}
+	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
 
 	needToPublishStateFirst, err := r.needToPublishStateFirstMultiCluster(&mrs, log)
 	if err != nil {
@@ -461,6 +458,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 		log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
 	}
+
 	return workflow.OK()
 }
 
@@ -574,15 +572,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	// without pod restart), we can get the cert hash from any of the statefulset, here we pick the statefulset in the first cluster.
 	if mrs.Spec.Security.IsTLSEnabled() {
 		firstStatefulSet, err := r.firstStatefulSet(&mrs)
-
-		if hash, ok := firstStatefulSet.Annotations[util.InternalCertAnnotationKey]; ok {
-			internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
-		}
-
 		if err != nil {
 			return err
 		}
-		if certificateHash, ok := firstStatefulSet.Annotations["certHash"]; ok {
+
+		if hash := firstStatefulSet.Annotations[util.InternalCertAnnotationKey]; hash != "" {
+			internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
+		}
+
+		if certificateHash := firstStatefulSet.Annotations[certs.CertHashAnnotationKey]; certificateHash != "" {
 			certificateFileName = fmt.Sprintf("%s/%s", util.TLSCertMountPath, certificateHash)
 		}
 	}
@@ -601,7 +599,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 
 	// We do not provide an agentCertSecretName on purpose because then we will default to the non pem secret on the central cluster.
 	// Below method has special code handling reading certificates from the central cluster in that case.
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, internalClusterPath, log)
 	if !status.IsOK() {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}

@@ -1,6 +1,17 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
+# MongoDB Enterprise Kubernetes Operator 1.20.0
+
+## Bug fixes
+* Fixed MongoDBMultiCluster not watching `OM` connection configmap and secret
+* Fixed support for rotating `-clusterfile` for MongoDBMultiCluster, ReplicaSets and ShardedClusters
+
+## Breaking changes
+* Removal of `appdb.connectionSpec.Project` since it has been deprecated for over 2 years.
+
+<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.19.0
 
 ## MongoDB Resource
@@ -47,7 +58,6 @@ This leverages setting the `process.hostname` field in the Automation Config.
 ## Bug fixes
 * Fixed a panic when `CertificatesSecretsPrefix` was set but no further `spec.security.tls` setting was set i.e. `tls.additionalCertificateDomains` or `tls.ca`.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.18.0
 
 ## Improvements

@@ -98,11 +98,11 @@ func newOpsManagerReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, i
 // +kubebuilder:rbac:groups=mongodb.com,resources={opsmanagers,opsmanagers/status,opsmanagers/finalizers},verbs=*,namespace=placeholder
 
 // Reconcile performs the reconciliation logic for AppDB, Ops Manager and Backup
-// AppDB is reconciled first (independent from Ops Manager as the agent is run in headless mode) and
+// AppDB is reconciled first (independent of Ops Manager as the agent is run in headless mode) and
 // Ops Manager statefulset is created then.
 // Backup daemon statefulset is created/updated and configured optionally if backup is enabled.
 // Note, that the pointer to ops manager resource is used in 'Reconcile' method as resource status is mutated
-// many times during reconciliation and its important to keep updates to avoid status override
+// many times during reconciliation, and It's important to keep updates to avoid status override
 func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("OpsManager", request.NamespacedName)
 
@@ -121,8 +121,16 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
 
-	r.RemoveDependentWatchedResources(opsManager.ObjectKey())
-	r.RemoveDependentWatchedResources(opsManager.AppDBStatefulSetObjectKey())
+	// TODO: make SetupCommonWatchers support opsmanager watcher setup
+	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
+	// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
+	appDBReplicaSet := opsManager.Spec.AppDB
+	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.Name())
+	// We need to remove the watches on the top of the reconcile since we might add resources with the same key below.
+	if opsManager.IsTLSEnabled() {
+		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetSecurity().TLS.CA, []string{opsManager.TLSCertificateSecretName()})
+	}
+
 	// We perform this check here and not inside the validation because we don't want to put OM in failed state
 	// just log the error and put in the "Unsupported" state
 	semverVersion, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
@@ -152,16 +160,6 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error ensuring Ops Manager user password: %w", err)), log, opsManagerExtraStatusParams)
-	}
-
-	if opsManager.IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetSecurity().TLS.CA, []string{opsManager.TLSCertificateSecretName()})
-	}
-
-	// Make sure we watch the AppDB TLS secret
-	rs := opsManager.Spec.AppDB
-	if rs.GetSecurity().IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), rs.GetTLSConfig().CA, []string{rs.GetSecurity().MemberCertificateSecretName(rs.Name())})
 	}
 
 	// 1. Reconcile AppDB
@@ -197,14 +195,13 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	if vault.IsVaultSecretBackend() {
-
 		vaultMap := make(map[string]string)
 		for _, s := range opsManager.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), rs.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), appDBReplicaSet.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
 		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), rs.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), appDBReplicaSet.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
 

@@ -196,11 +196,12 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
 	}
 
-	assert.Equal(t, reconciler.WatchedResources, expected)
+	actual := reconciler.WatchedResources
+	assert.Equal(t, expected, actual)
 }
 
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
-// additional K8s objects (st, connection config map and secrets) necessary for reconciliation
+// additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
 func defaultStandaloneReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *mock.MockedClient) {
 	manager := mock.NewManager(rs)
@@ -220,12 +221,13 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 			Version:    "4.0.0",
 			Persistent: util.BooleanRef(true),
 			ConnectionSpec: mdbv1.ConnectionSpec{
-				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-					ConfigMapRef: mdbv1.ConfigMapRef{
-						Name: mock.TestProjectConfigMapName,
+				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+						ConfigMapRef: mdbv1.ConfigMapRef{
+							Name: mock.TestProjectConfigMapName,
+						},
 					},
-				},
-				Credentials: mock.TestCredentialsSecretName,
+				}, Credentials: mock.TestCredentialsSecretName,
 			},
 			Security: &mdbv1.Security{
 				Authentication: &mdbv1.Authentication{

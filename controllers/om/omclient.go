@@ -37,10 +37,8 @@ type Connection interface {
 	ReadDeployment() (Deployment, error)
 
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
-	// Note the mutex that must be passed to provide strict serializability for the read-write operations for the same group
 	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
 
-	//WaitForReadyState(processNames []string, log *zap.SugaredLogger) error
 	ReadAutomationStatus() (*AutomationStatus, error)
 	ReadAutomationAgents(page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
@@ -301,7 +299,7 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
 // Note, that the mutex locks infinitely (there is no built-in support for timeouts for locks in Go) which seems to be
 // ok as OM endpoints are not supposed to hang for long
-func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateDeployment(changeDeploymentFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -310,7 +308,7 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error,
 		return err
 	}
 
-	isEqual, err := isEqualAfterModification(depFunc, deployment)
+	isEqual, err := isEqualAfterModification(changeDeploymentFunc, deployment)
 	if err != nil {
 		return err
 	}

@@ -67,23 +67,6 @@ func AddStandaloneController(mgr manager.Manager) error {
 		return err
 	}
 
-	// TODO CLOUDP-35240
-	// Watch for changes to secondary resource Statefulsets and requeue the owner MongoDbStandalone
-	/*err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{
-	  	IsController: true,
-	  	OwnerType:    &mdbv1.MongoDB{},
-	  }, predicate.Funcs{
-	  	UpdateFunc: func(e event.UpdateEvent) bool {
-	  		// The controller must watch only for changes in spec made by users, we don't care about status changes
-	  		if !reflect.DeepEqual(e.ObjectOld.(*appsv1.StatefulSet).Spec, e.ObjectNew.(*appsv1.StatefulSet).Spec) {
-	  			return true
-	  		}
-	  		return false
-	  	}})
-	  if err != nil {
-	  	return err
-	  }*/
-
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
@@ -117,7 +100,6 @@ func AddStandaloneController(mgr manager.Manager) error {
 func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{
 		ReconcileCommonController: newReconcileCommonController(mgr),
-		ResourceWatcher:           watch.NewResourceWatcher(),
 		omConnectionFactory:       omFunc,
 	}
 }
@@ -125,7 +107,6 @@ func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 // ReconcileMongoDbStandalone reconciles a MongoDbStandalone object
 type ReconcileMongoDbStandalone struct {
 	*ReconcileCommonController
-	watch.ResourceWatcher
 	omConnectionFactory om.ConnectionFactory
 }
 
@@ -164,7 +145,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		return r.updateStatus(s, status, log)
 	}
 
-	r.RegisterWatchedMongodbResources(s.ObjectKey(), s.Spec.GetProject(), s.Spec.Credentials)
+	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, s, log)
 	if !reconcileResult.IsOK() {
@@ -281,7 +262,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 	}
 
 	// TODO standalone PR
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, "", "", log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, "", "", "", log)
 	if !status.IsOK() {
 		return status
 	}

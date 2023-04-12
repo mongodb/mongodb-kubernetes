@@ -63,7 +63,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "tls")
-	connection.CheckNumberOfUpdateRequests(t, 1)
+	connection.CheckNumberOfUpdateRequests(t, 2)
 	// we don't remove hosts from monitoring if there is no scale down
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
 }
@@ -717,58 +717,42 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 
 // TestShardedClusterTLSResourcesWatched verifies that TLS config map and secret are added to the internal
 // map that allows to watch them for changes
-func TestShardedClusterTLSResourcesWatched(t *testing.T) {
+func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	sc := DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
-
+	sc.Spec.Security.Authentication.InternalCluster = "x509"
 	reconciler, client := defaultClusterReconciler(sc)
 
 	addKubernetesTlsResources(client, sc)
 	checkReconcileSuccessful(t, reconciler, sc, client)
 
-	shard_secret := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: sc.Namespace,
-			Name:      sc.Name + "-0-cert",
-		},
+	expectedWatchedResources := []watch.Object{
+		getWatch(sc.Namespace, sc.Name+"-config-cert", watch.Secret),
+		getWatch(sc.Namespace, sc.Name+"-config-clusterfile", watch.Secret),
+		getWatch(sc.Namespace, sc.Name+"-mongos-cert", watch.Secret),
+		getWatch(sc.Namespace, sc.Name+"-mongos-clusterfile", watch.Secret),
+		getWatch(sc.Namespace, sc.Name+"-0-cert", watch.Secret),
+		getWatch(sc.Namespace, sc.Name+"-0-clusterfile", watch.Secret),
+		getWatch(sc.Namespace, "custom-ca", watch.ConfigMap),
+		getWatch(sc.Namespace, "my-credentials", watch.Secret),
+		getWatch(sc.Namespace, "my-project", watch.ConfigMap),
 	}
-	config_secret := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: sc.Namespace,
-			Name:      sc.Name + "-config-cert",
-		},
+
+	var actual []watch.Object
+	for obj := range reconciler.WatchedResources {
+		actual = append(actual, obj)
 	}
-	mongos_secret := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: sc.Namespace,
-			Name:      sc.Name + "-mongos-cert",
-		},
-	}
-	caKey := watch.Object{
-		ResourceType: watch.ConfigMap,
-		Resource: types.NamespacedName{
-			Namespace: sc.Namespace,
-			Name:      "custom-ca",
-		},
-	}
-	assert.Contains(t, reconciler.WatchedResources, shard_secret)
-	assert.Contains(t, reconciler.WatchedResources, config_secret)
-	assert.Contains(t, reconciler.WatchedResources, mongos_secret)
-	assert.Contains(t, reconciler.WatchedResources, caKey)
+
+	assert.ElementsMatch(t, expectedWatchedResources, actual)
 
 	sc.Spec.Security.TLSConfig.Enabled = false
+	sc.Spec.Security.Authentication.InternalCluster = ""
 	err := client.Update(context.TODO(), sc)
 	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
 	assert.Equal(t, reconcile.Result{}, res)
 	assert.NoError(t, err)
-	assert.NotContains(t, reconciler.WatchedResources, shard_secret)
-	assert.NotContains(t, reconciler.WatchedResources, config_secret)
-	assert.NotContains(t, reconciler.WatchedResources, mongos_secret)
-	assert.NotContains(t, reconciler.WatchedResources, caKey)
+	assert.Len(t, reconciler.WatchedResources, 2)
 
 }
 
@@ -1040,9 +1024,11 @@ func DefaultClusterBuilder() *ClusterBuilder {
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Persistent: util.BooleanRef(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
-				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-					ConfigMapRef: mdbv1.ConfigMapRef{
-						Name: mock.TestProjectConfigMapName,
+				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+						ConfigMapRef: mdbv1.ConfigMapRef{
+							Name: mock.TestProjectConfigMapName,
+						},
 					},
 				},
 				Credentials: mock.TestCredentialsSecretName,

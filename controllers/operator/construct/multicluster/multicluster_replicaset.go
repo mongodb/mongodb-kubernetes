@@ -76,7 +76,7 @@ func statefulSetLabels(mdbmName, mdbmNamespace string) map[string]string {
 func statefulSetAnnotations(mdbmName string, certHash string) map[string]string {
 	return map[string]string{
 		handler.MongoDBMultiResourceAnnotation: mdbmName,
-		certs.CertHashAnnotationkey:            certHash,
+		certs.CertHashAnnotationKey:            certHash,
 	}
 }
 

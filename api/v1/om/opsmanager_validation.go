@@ -105,13 +105,6 @@ func cloudManagerConfigIsNotConfigurable(os MongoDBOpsManagerSpec) v1.Validation
 	return v1.ValidationSuccess()
 }
 
-func projectNameIsNotConfigurable(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB.Project != "" {
-		return errorNotConfigurableForAppDB("project")
-	}
-	return v1.ValidationSuccess()
-}
-
 // onlyFileSystemStoreIsEnabled checks if only FileSystemSnapshotStore is configured and not S3Store/Blockstore
 func onlyFileSystemStoreIsEnabled(bp MongoDBOpsManagerBackup) bool {
 	if len(bp.BlockStoreConfigs) == 0 && len(bp.S3Configs) == 0 && len(bp.FileSystemStoreConfigs) > 0 {
@@ -161,7 +154,6 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validOmVersion,
 		validAppDBVersion,
 		connectivityIsNotConfigurable,
-		projectNameIsNotConfigurable,
 		cloudManagerConfigIsNotConfigurable,
 		opsManagerConfigIsNotConfigurable,
 		credentialsIsNotConfigurable,

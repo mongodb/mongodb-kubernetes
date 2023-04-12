@@ -3,9 +3,10 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"sort"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -102,6 +103,10 @@ func (m *MongoDB) GetSecurity() *Security {
 	return m.Spec.GetSecurity()
 }
 
+func (m *MongoDB) GetConnectionSpec() *ConnectionSpec {
+	return &m.Spec.ConnectionSpec
+}
+
 func (m *MongoDB) GetPrometheus() *mdbcv1.Prometheus {
 	return m.Spec.Prometheus
 }
@@ -127,7 +132,7 @@ func (m *MongoDB) GetResourceName() string {
 }
 
 // GetSecretsMountedIntoDBPod returns a list of all the optional secret names that are used by this resource.
-func (m MongoDB) GetSecretsMountedIntoDBPod() []string {
+func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	secrets := []string{}
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
@@ -570,13 +575,16 @@ type PrivateCloudConfig struct {
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
-	// Transient field - the name of the project. By default is equal to the name of the resource
-	// though can be overridden if the ConfigMap specifies a different name
-	ProjectName string `json:"-"` // ignore when marshalling
-
+	SharedConnectionSpec `json:",inline"`
 	// Name of the Secret holding credentials information
 	// +kubebuilder:validation:Required
 	Credentials string `json:"credentials"`
+}
+
+type SharedConnectionSpec struct {
+	// Transient field - the name of the project. By default, is equal to the name of the resource
+	// though can be overridden if the ConfigMap specifies a different name
+	ProjectName string `json:"-"` // ignore when marshalling
 
 	// Dev note: don't reference these two fields directly - use the `getProject` method instead
 
@@ -990,7 +998,7 @@ func (m *MongoDB) ShardRsName(i int) string {
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-func (m MongoDB) IsLDAPEnabled() bool {
+func (m *MongoDB) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
@@ -1049,7 +1057,7 @@ func (m *MongoDB) AddWarningIfNotExists(warning status.Warning) {
 	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
 }
 
-func (m MongoDB) GetPlural() string {
+func (m *MongoDB) GetPlural() string {
 	return "mongodb"
 }
 
@@ -1057,7 +1065,7 @@ func (m *MongoDB) GetStatus(...status.Option) interface{} {
 	return m.Status
 }
 
-func (m MongoDB) GetStatusPath(...status.Option) string {
+func (m *MongoDB) GetStatusPath(...status.Option) string {
 	return "/status"
 }
 
@@ -1136,7 +1144,7 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
-func (m MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
+func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
 	}
@@ -1387,7 +1395,7 @@ func newSecurity() *Security {
 }
 
 // BuildConnectionString returns a string with a connection string for this resource.
-func (m MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()

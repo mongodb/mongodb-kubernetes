@@ -20,6 +20,7 @@ from kubetester import (
     read_secret,
     delete_secret,
     create_or_update,
+    create_or_update_secret,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -650,8 +651,16 @@ def create_sharded_cluster_certs(
             secret_backend=secret_backend,
         )
         if internal_auth:
-            data = read_secret(namespace, f"{resource_name}-{i}-cert")
-            create_secret(namespace, f"{resource_name}-{i}-clusterfile", data, type=secret_type)
+            cert_generation_func(
+                issuer=ISSUER_CA_NAME,
+                namespace=namespace,
+                resource_name=f"{resource_name}-{i}-clusterfile",
+                bundle_secret_name=f"{resource_name}-{i}-clusterfile",
+                replicas=mongos_per_shard,
+                service_name=resource_name + "-sh",
+                additional_domains=additional_domains_for_shard,
+                secret_backend=secret_backend,
+            )
 
     additional_domains_for_config = None
     if additional_domains is not None:
@@ -674,8 +683,16 @@ def create_sharded_cluster_certs(
         secret_backend=secret_backend,
     )
     if internal_auth:
-        data = read_secret(namespace, f"{resource_name}-config-cert")
-        create_secret(namespace, f"{resource_name}-config-clusterfile", data, type=secret_type)
+        cert_generation_func(
+            issuer=ISSUER_CA_NAME,
+            namespace=namespace,
+            resource_name=f"{resource_name}-config-clusterfile",
+            bundle_secret_name=f"{resource_name}-config-clusterfile",
+            replicas=mongos_per_shard,
+            service_name=resource_name + "-sh",
+            additional_domains=additional_domains_for_shard,
+            secret_backend=secret_backend,
+        )
 
     additional_domains_for_mongos = None
     if additional_domains is not None:
@@ -699,8 +716,16 @@ def create_sharded_cluster_certs(
     )
 
     if internal_auth:
-        data = read_secret(namespace, f"{resource_name}-mongos-cert")
-        create_secret(namespace, f"{resource_name}-mongos-clusterfile", data, type=secret_type)
+        cert_generation_func(
+            issuer=ISSUER_CA_NAME,
+            namespace=namespace,
+            resource_name=f"{resource_name}-mongos-clusterfile",
+            bundle_secret_name=f"{resource_name}-mongos-clusterfile",
+            replicas=mongos_per_shard,
+            service_name=resource_name + "-sh",
+            additional_domains=additional_domains_for_shard,
+            secret_backend=secret_backend,
+        )
 
 
 def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None) -> str:

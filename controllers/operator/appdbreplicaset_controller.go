@@ -215,7 +215,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Could not save current state as an annotation: %w", err)), log, omStatusOption)
 	}
 	if err := statefulset.ResetUpdateStrategy(opsManager, r.client); err != nil {
-
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err)), log, omStatusOption)
 	}
 
@@ -386,7 +385,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
 	auth := automationconfig.Auth{}
 	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: opsManager}
-	if err := scram.Enable(&auth, r.SecretClient, appDBConfigurable); err != nil {
+	if err := scram.Enable(&auth, r.SecretClient, &appDBConfigurable); err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
 	// the existing automation config is required as we compare it against what we build to determine

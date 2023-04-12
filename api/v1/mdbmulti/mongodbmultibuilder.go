@@ -22,11 +22,12 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 			Version:      "5.0.0",
 			Persistent:   util.BooleanRef(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
-				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-					ConfigMapRef: mdbv1.ConfigMapRef{
-						Name: mock.TestProjectConfigMapName,
-					},
-				},
+				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+						ConfigMapRef: mdbv1.ConfigMapRef{
+							Name: mock.TestProjectConfigMapName,
+						},
+					}},
 				Credentials: mock.TestCredentialsSecretName,
 			},
 			ResourceType: mdbv1.ReplicaSet,

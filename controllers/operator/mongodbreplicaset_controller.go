@@ -123,16 +123,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(rs, status, log)
 	}
 
-	// We remove all watched resources
-	r.RemoveDependentWatchedResources(rs.ObjectKey())
-
-	// And then add the ones we care about
-	r.RegisterWatchedMongodbResources(rs.ObjectKey(), rs.Spec.GetProject(), rs.Spec.Credentials)
-
-	// And TLS if needed
-	if rs.GetSecurity().IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(rs.ObjectKey(), rs.Spec.GetTLSConfig().CA, []string{rs.GetSecurity().MemberCertificateSecretName(rs.Name)})
-	}
+	r.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, rs, log)
 	if !reconcileResult.IsOK() {
@@ -389,15 +380,16 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	replicaSet := replicaset.BuildFromStatefulSetWithReplicas(set, rs.GetSpec(), updatedMembers)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, agentCertSecretName, caFilePath, log)
+	internalClusterPath := ""
+	if hash := set.Annotations[util.InternalCertAnnotationKey]; hash != "" {
+		internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
+	}
+
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, agentCertSecretName, caFilePath, internalClusterPath, log)
 	if !status.IsOK() {
 		return status
 	}
 
-	internalClusterPath := ""
-	if hash, ok := set.Annotations[util.InternalCertAnnotationKey]; ok {
-		internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
-	}
 	lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
 	if err != nil {
 		return workflow.Failed(err)

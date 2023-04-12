@@ -83,6 +83,7 @@ get-kubeconfig() {
 }
 
 recreate-kind-clusters() {
+  configure
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "~/scripts/dev/recreate_kind_clusters.sh"

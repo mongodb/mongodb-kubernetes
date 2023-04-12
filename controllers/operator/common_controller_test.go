@@ -2,13 +2,16 @@ package operator
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"golang.org/x/xerrors"
@@ -182,49 +185,6 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 		mock.HItem(reflect.ValueOf(manager.Client.Create), &corev1.Secret{}))
 }
 
-// TestPrepareOmConnection_ConfigMapAndSecretWatched verifies that config map and secret are added to the internal
-// map that allows to watch them for changes
-func TestConfigMapAndSecretWatched(t *testing.T) {
-	//t.Skip("Skipping TestPrepareOmConnection_ConfigMapAndSecretWatched, test needs to be refactored with new OM connection logic")
-	//manager := mock.NewEmptyManager()
-	//manager.Client.AddDefaultMdbConfigResources()
-	//controller := newReconcileCommonController(manager)
-	//
-	//// "create" a secret (config map already exists)
-	//credentials := &corev1.Secret{
-	//	ObjectMeta: metav1.ObjectMeta{Name: "mySecret", Namespace: mock.TestNamespace},
-	//	StringData: map[string]string{util.OmUser: "bla@mycompany.com", util.OmPublicApiKey: "2423423gdfgsdf23423sdfds"}}
-	//_ = manager.Client.Create(context.TODO(), credentials)
-	//
-	//// Here we create two replica sets both referencing the same project and credentials
-	//vars := &PodEnvVars{}
-	//spec := mdbv1.ConnectionSpec{
-	//	OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-	//		ConfigMapRef: mdbv1.ConfigMapRef{
-	//			Name: mock.TestProjectConfigMapName,
-	//		},
-	//	},
-	//	Credentials: "mySecret",
-	//	LogLevel:    mdbv1.Warn,
-	//}
-	//_, e := opsManagerController.prepareConnection(objectKey(mock.TestNamespace, "ReplicaSetOne"), spec, vars, zap.S())
-	//assert.NoError(t, e)
-	//_, e = opsManagerController.prepareConnection(objectKey(mock.TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
-	//assert.NoError(t, e)
-	//
-	//// This one must not affect the map any way as everything is already registered
-	//_, e = opsManagerController.prepareConnection(objectKey(mock.TestNamespace, "ReplicaSetTwo"), spec, vars, zap.S())
-	//assert.NoError(t, e)
-	//
-	//// we expect to have two entries in the map - each value has length of 2 meaning both replica sets are "registered"
-	//// to be reconciled as soon as config map or secret changes
-	//expected := map[watch.Object][]types.NamespacedName{
-	//	{ResourceType: watch.ConfigMap, Resource: objectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
-	//	{ResourceType: watch.Secret, Resource: objectKey(mock.TestNamespace, "mySecret")}:                       {objectKey(mock.TestNamespace, "ReplicaSetOne"), objectKey(mock.TestNamespace, "ReplicaSetTwo")},
-	//}
-	//assert.Equal(t, expected, opsManagerController.resourceWatcher.WatchedResources)
-}
-
 // TestUpdateStatus_Patched makes sure that 'ReconcileCommonController.updateStatus()' changes only status for current
 // object in Kubernetes and leaves spec unchanged
 func TestUpdateStatus_Patched(t *testing.T) {
@@ -291,6 +251,51 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	assert.NotNil(t, roles[0].Privileges)
 }
 
+func TestSecretWatcherWithAllResources(t *testing.T) {
+	caName := "custom-ca"
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
+	rs.Spec.Security.Authentication.InternalCluster = "X509"
+	manager := mock.NewManager(rs)
+	controller := newReconcileCommonController(manager)
+
+	controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+
+	// TODO: unify the watcher setup with the secret creation/mounting code in database creation
+	memberCert := rs.GetSecurity().MemberCertificateSecretName(rs.Name)
+	internalAuthCert := rs.GetSecurity().InternalClusterAuthSecretName(rs.Name)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, caName)}:                        {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, memberCert)}:                       {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, internalAuthCert)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+	}
+
+	assert.Equal(t, expected, controller.WatchedResources)
+}
+
+func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
+	caName := "custom-ca"
+
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
+	manager := mock.NewManager(rs)
+	controller := newReconcileCommonController(manager)
+
+	controller.SetupCommonWatchers(rs, func() []string {
+		return []string{"a-secret"}
+	}, nil, rs.Name)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, caName)}:                        {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "a-secret")}:                       {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+	}
+
+	assert.Equal(t, expected, controller.WatchedResources)
+}
+
 func assertSubjectFromFileFails(t *testing.T, filePath string) {
 	assertSubjectFromFile(t, "", filePath, false)
 }
@@ -319,13 +324,15 @@ func prepareConnection(controller *ReconcileCommonController, omConnectionFunc o
 	assert.NoError(t, err)
 
 	spec := mdbv1.ConnectionSpec{
-		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-			ConfigMapRef: mdbv1.ConfigMapRef{
-				Name: mock.TestProjectConfigMapName,
+		SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+				ConfigMapRef: mdbv1.ConfigMapRef{
+					Name: mock.TestProjectConfigMapName,
+				},
 			},
+			LogLevel: mdbv1.Warn,
 		},
 		Credentials: mock.TestCredentialsSecretName,
-		LogLevel:    mdbv1.Warn,
 	}
 
 	conn, e := connection.PrepareOpsManagerConnection(controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
@@ -364,9 +371,11 @@ func requestFromObject(object metav1.Object) reconcile.Request {
 
 func testConnectionSpec() mdbv1.ConnectionSpec {
 	return mdbv1.ConnectionSpec{
-		OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-			ConfigMapRef: mdbv1.ConfigMapRef{
-				Name: mock.TestProjectConfigMapName,
+		SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+			OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+				ConfigMapRef: mdbv1.ConfigMapRef{
+					Name: mock.TestProjectConfigMapName,
+				},
 			},
 		},
 		Credentials: mock.TestCredentialsSecretName,
@@ -403,7 +412,7 @@ func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, obj
 	}
 }
 
-func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
+func checkOMReconciliationSuccessful(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
 	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(om))
 	expected := reconcile.Result{Requeue: true}
 	assert.Equal(t, expected, res)
@@ -415,7 +424,7 @@ func checkOMReconcilliationSuccessful(t *testing.T, reconciler reconcile.Reconci
 	assert.NoError(t, err)
 }
 
-func checkOMReconcilliationPending(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
+func checkOMReconciliationPending(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
 	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(om))
 	assert.NoError(t, err)
 	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
@@ -446,4 +455,15 @@ func checkReconcilePending(t *testing.T, reconciler reconcile.Reconciler, object
 	assert.NoError(t, client.Get(context.TODO(), mock.ObjectKeyFromApiObject(object), object))
 	assert.Equal(t, status.PhasePending, object.Status.Phase)
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
+}
+
+func getWatch(namespace string, resourceName string, t watch.Type) watch.Object {
+	configSecret := watch.Object{
+		ResourceType: t,
+		Resource: types.NamespacedName{
+			Namespace: namespace,
+			Name:      resourceName,
+		},
+	}
+	return configSecret
 }
