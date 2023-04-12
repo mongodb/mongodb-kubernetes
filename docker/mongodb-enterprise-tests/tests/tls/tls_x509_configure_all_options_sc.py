@@ -1,21 +1,18 @@
 import pytest
+from pytest import fixture
 
-from pytest import mark, fixture
-from kubetester.kubetester import KubernetesTester
-from kubetester.omtester import get_sc_cert_names
-from kubetester import create_secret, read_secret
-from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester import create_or_update
 from kubetester import find_fixture
-from kubetester.kubetester import fixture as load_fixture
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_x509_mongodb_tls_certs,
     create_x509_agent_tls_certs,
     create_sharded_cluster_certs,
+    Certificate,
 )
+from kubetester.kubetester import KubernetesTester
+from kubetester.mongodb import MongoDB, Phase
 
 MDB_RESOURCE_NAME = "test-x509-all-options-sc"
-from kubetester.mongodb import MongoDB, Phase
 
 
 @fixture(scope="module")
@@ -38,15 +35,13 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def sharded_cluster(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("test-x509-all-options-sc.yaml"),
         namespace=namespace,
     )
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    yield resource.create()
+    yield create_or_update(resource)
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_sc
@@ -60,7 +55,20 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
         ac_tester.assert_authentication_enabled()
         ac_tester.assert_expected_users(0)
 
-    # TODO: use /mongodb-automation/server.pem but doesn't exist on test pod
-    # def test_mdb_is_reachable_with_no_ssl(self):
-    #     mongo_tester = ShardedClusterTester(mdb_resource, 2, ssl=True)
-    #     mongo_tester.assert_connectivity()
+    def test_rotate_shard_certfile(self, sharded_cluster: MongoDB, namespace: str):
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-0-clusterfile".format(MDB_RESOURCE_NAME))
+
+    def test_rotate_config_certfile(self, sharded_cluster: MongoDB, namespace: str):
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-config-clusterfile".format(MDB_RESOURCE_NAME))
+
+    def test_rotate_mongos_certfile(self, sharded_cluster: MongoDB, namespace: str):
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-mongos-clusterfile".format(MDB_RESOURCE_NAME))
+
+
+def assert_certificate_rotation(sharded_cluster, namespace, certificate_name):
+    cert = Certificate(name=certificate_name, namespace=namespace)
+    cert.load()
+    cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
+    cert.update()
+    sharded_cluster.assert_abandons_phase(Phase.Running, timeout=120)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)

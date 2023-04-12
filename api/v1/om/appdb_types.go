@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
-	"k8s.io/apimachinery/pkg/types"
-
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	appsv1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -84,6 +85,16 @@ func (m *AppDBSpec) GetAgentMaxLogFileDurationHours() int {
 	return m.AutomationAgent.MaxLogFileDurationHours
 }
 
+// ObjectKey returns the client.ObjectKey with m.OpsManagerName because the name is used to identify the object to enqueue and reconcile.
+func (m *AppDBSpec) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(m.Namespace, m.OpsManagerName)
+}
+
+// GetConnectionSpec returns nil because no connection spec for appDB is implemented for the watcher setup
+func (m *AppDBSpec) GetConnectionSpec() *mdbv1.ConnectionSpec {
+	return nil
+}
+
 func (m *AppDBSpec) GetExternalDomain() *string {
 	return nil
 }
@@ -116,7 +127,7 @@ func (m *AppDBSpec) GetMemberOptions() []mdbv1.MemberOptions {
 
 // GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret
 // which contains the Automation Agent's password.
-func (m AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
+func (m *AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.Namespace,
 		Name:      m.Name() + "-agent-password",
@@ -125,7 +136,7 @@ func (m AppDBSpec) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
 
 // GetAgentKeyfileSecretNamespacedName returns the NamespacedName for the secret
 // which contains the keyfile.
-func (m AppDBSpec) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
+func (m *AppDBSpec) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.Namespace,
 		Name:      m.Name() + "-keyfile",
@@ -134,7 +145,7 @@ func (m AppDBSpec) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
 
 // GetScramOptions returns a set of Options which is used to configure Scram Sha authentication
 // in the AppDB.
-func (m AppDBSpec) GetScramOptions() scram.Options {
+func (m *AppDBSpec) GetScramOptions() scram.Options {
 	return scram.Options{
 		AuthoritativeSet: false,
 		KeyFile:          appDBKeyfilePath,
@@ -149,7 +160,7 @@ func (m AppDBSpec) GetScramOptions() scram.Options {
 
 // GetScramUsers returns a list of all scram users for this deployment.
 // in this case it is just the Ops Manager user for the AppDB.
-func (m AppDBSpec) GetScramUsers() []scram.User {
+func (m *AppDBSpec) GetScramUsers() []scram.User {
 	passwordSecretName := m.GetOpsManagerUserPasswordSecretName()
 	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
 		passwordSecretName = m.PasswordSecretKeyRef.Name
@@ -197,19 +208,19 @@ func (m AppDBSpec) GetScramUsers() []scram.User {
 	}
 }
 
-func (m AppDBSpec) NamespacedName() types.NamespacedName {
+func (m *AppDBSpec) NamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: m.Name(), Namespace: m.Namespace}
 }
 
 // GetOpsManagerUserPasswordSecretName returns the name of the secret
 // that will store the Ops Manager user's password.
-func (m AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
+func (m *AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
 	return m.Name() + "-om-password"
 }
 
 // GetOpsManagerUserPasswordSecretKey returns the key that should be used to map to the Ops Manager user's
 // password in the secret.
-func (m AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
+func (m *AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
 	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Key != "" {
 		return m.PasswordSecretKeyRef.Key
 	}
@@ -218,31 +229,17 @@ func (m AppDBSpec) GetOpsManagerUserPasswordSecretKey() string {
 
 // OpsManagerUserScramCredentialsName returns the name of the Secret
 // which will store the Ops Manager MongoDB user's scram credentials.
-func (m AppDBSpec) OpsManagerUserScramCredentialsName() string {
+func (m *AppDBSpec) OpsManagerUserScramCredentialsName() string {
 	return m.Name() + "-om-user-scram-credentials"
 }
 
 type ConnectionSpec struct {
-	// Transient field - the name of the project. By default is equal to the name of the resource
-	// though can be overridden if the ConfigMap specifies a different name
-	ProjectName string `json:"-"` // ignore when marshalling
+	mdbv1.SharedConnectionSpec `json:",inline"`
+
+	// Credentials differ to mdbv1.ConnectionSpec because they are optional here.
 
 	// Name of the Secret holding credentials information
 	Credentials string `json:"credentials,omitempty"`
-
-	// Dev note: don't reference these two fields directly - use the `getProject` method instead
-
-	OpsManagerConfig   *mdbv1.PrivateCloudConfig `json:"opsManager,omitempty"`
-	CloudManagerConfig *mdbv1.PrivateCloudConfig `json:"cloudManager,omitempty"`
-
-	// Deprecated: This has been replaced by the PrivateCloudConfig which should be
-	// used instead
-	Project string `json:"project,omitempty"`
-
-	// FIXME: LogLevel is not a required field for creating an Ops Manager connection, it should not be here.
-
-	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
-	LogLevel mdbv1.LogLevel `json:"logLevel,omitempty"`
 }
 
 type AppDbBuilder struct {
@@ -250,13 +247,13 @@ type AppDbBuilder struct {
 }
 
 // GetMongoDBVersion returns the version of the MongoDB.
-func (a AppDBSpec) GetMongoDBVersion() string {
-	return a.Version
+func (m *AppDBSpec) GetMongoDBVersion() string {
+	return m.Version
 }
 
-func (a AppDBSpec) GetClusterDomain() string {
-	if a.ClusterDomain != "" {
-		return a.ClusterDomain
+func (m *AppDBSpec) GetClusterDomain() string {
+	if m.ClusterDomain != "" {
+		return m.ClusterDomain
 	}
 	return "cluster.local"
 }
@@ -265,39 +262,39 @@ func (a AppDBSpec) GetClusterDomain() string {
 // constructing the mongodb URL for example.
 // 'Members' would be a more consistent function but go doesn't allow to have the same
 // For AppDB there is a validation that number of members is in the range [3, 50]
-func (a AppDBSpec) Replicas() int {
-	return a.Members
+func (m *AppDBSpec) Replicas() int {
+	return m.Members
 }
 
-func (a AppDBSpec) GetSecurityAuthenticationModes() []string {
-	return a.GetSecurity().Authentication.GetModes()
+func (m *AppDBSpec) GetSecurityAuthenticationModes() []string {
+	return m.GetSecurity().Authentication.GetModes()
 }
 
-func (a AppDBSpec) GetResourceType() mdbv1.ResourceType {
-	return a.ResourceType
+func (m *AppDBSpec) GetResourceType() mdbv1.ResourceType {
+	return m.ResourceType
 }
 
-func (a AppDBSpec) IsSecurityTLSConfigEnabled() bool {
-	return a.GetSecurity().IsTLSEnabled()
+func (m *AppDBSpec) IsSecurityTLSConfigEnabled() bool {
+	return m.GetSecurity().IsTLSEnabled()
 }
 
-func (a AppDBSpec) GetFeatureCompatibilityVersion() *string {
-	return a.FeatureCompatibilityVersion
+func (m *AppDBSpec) GetFeatureCompatibilityVersion() *string {
+	return m.FeatureCompatibilityVersion
 }
 
-func (a AppDBSpec) GetSecurity() *mdbv1.Security {
-	if a.Security == nil {
+func (m *AppDBSpec) GetSecurity() *mdbv1.Security {
+	if m.Security == nil {
 		return &mdbv1.Security{}
 	}
-	return a.Security
+	return m.Security
 }
 
-func (a AppDBSpec) GetTLSConfig() *mdbv1.TLSConfig {
-	if a.Security == nil || a.Security.TLSConfig == nil {
+func (m *AppDBSpec) GetTLSConfig() *mdbv1.TLSConfig {
+	if m.Security == nil || m.Security.TLSConfig == nil {
 		return &mdbv1.TLSConfig{}
 	}
 
-	return a.Security.TLSConfig
+	return m.Security.TLSConfig
 }
 func DefaultAppDbBuilder() *AppDbBuilder {
 	appDb := &AppDBSpec{
@@ -313,7 +310,7 @@ func (b *AppDbBuilder) Build() *AppDBSpec {
 	return b.appDb.DeepCopy()
 }
 
-func (m AppDBSpec) GetSecretName() string {
+func (m *AppDBSpec) GetSecretName() string {
 	return m.Name() + "-password"
 }
 
@@ -331,7 +328,7 @@ func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
 	m.ConnectionSpec.Credentials = ""
 	m.ConnectionSpec.CloudManagerConfig = nil
 	m.ConnectionSpec.OpsManagerConfig = nil
-	m.ConnectionSpec.Project = ""
+
 	// all resources have a pod spec
 	if m.PodSpec == nil {
 		m.PodSpec = mdbv1.NewMongoDbPodSpec()
@@ -340,46 +337,46 @@ func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
 }
 
 // Name returns the name of the StatefulSet for the AppDB
-func (m AppDBSpec) Name() string {
+func (m *AppDBSpec) Name() string {
 	return m.OpsManagerName + "-db"
 }
 
-func (m AppDBSpec) ProjectIDConfigMapName() string {
+func (m *AppDBSpec) ProjectIDConfigMapName() string {
 	return m.Name() + "-project-id"
 }
 
-func (m AppDBSpec) ServiceName() string {
+func (m *AppDBSpec) ServiceName() string {
 	if m.Service == "" {
 		return m.Name() + "-svc"
 	}
 	return m.Service
 }
 
-func (m AppDBSpec) AutomationConfigSecretName() string {
+func (m *AppDBSpec) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
 }
 
-func (m AppDBSpec) MonitoringAutomationConfigSecretName() string {
+func (m *AppDBSpec) MonitoringAutomationConfigSecretName() string {
 	return m.Name() + "-monitoring-config"
 }
 
 // This function is used in community to determine whether we need to create a single
 // volume for data+logs or two separate ones
 // unless spec.PodSpec.Persistence.MultipleConfig is set, a single volume will be created
-func (m AppDBSpec) HasSeparateDataAndLogsVolumes() bool {
+func (m *AppDBSpec) HasSeparateDataAndLogsVolumes() bool {
 	p := m.PodSpec.Persistence
 	return p != nil && (p.MultipleConfig != nil && p.SingleConfig == nil)
 }
 
-func (m AppDBSpec) GetUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
+func (m *AppDBSpec) GetUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
 	return m.UpdateStrategyType
 }
 
 // GetCAConfigMapName returns the name of the ConfigMap which contains
 // the CA which will recognize the certificates used to connect to the AppDB
 // deployment
-func (a AppDBSpec) GetCAConfigMapName() string {
-	security := a.Security
+func (m *AppDBSpec) GetCAConfigMapName() string {
+	security := m.Security
 	if security != nil && security.TLSConfig != nil {
 		return security.TLSConfig.CA
 	}
@@ -388,39 +385,39 @@ func (a AppDBSpec) GetCAConfigMapName() string {
 
 // GetTlsCertificatesSecretName returns the name of the secret
 // which holds the certificates used to connect to the AppDB
-func (a AppDBSpec) GetTlsCertificatesSecretName() string {
-	return a.GetSecurity().MemberCertificateSecretName(a.Name())
+func (m *AppDBSpec) GetTlsCertificatesSecretName() string {
+	return m.GetSecurity().MemberCertificateSecretName(m.Name())
 }
 
-func (m AppDBSpec) GetName() string {
+func (m *AppDBSpec) GetName() string {
 	return m.Name()
 }
-func (m AppDBSpec) GetNamespace() string {
+func (m *AppDBSpec) GetNamespace() string {
 	return m.Namespace
 }
 
-func (m AppDBSpec) DataVolumeName() string {
+func (m *AppDBSpec) DataVolumeName() string {
 	return "data"
 }
 
-func (m AppDBSpec) LogsVolumeName() string {
+func (m *AppDBSpec) LogsVolumeName() string {
 	return "logs"
 }
 
-func (m AppDBSpec) NeedsAutomationConfigVolume() bool {
+func (m *AppDBSpec) NeedsAutomationConfigVolume() bool {
 	return !vault.IsVaultSecretBackend()
 }
 
-func (m AppDBSpec) AutomationConfigConfigMapName() string {
+func (m *AppDBSpec) AutomationConfigConfigMapName() string {
 	return fmt.Sprintf("%s-automation-config-version", m.Name())
 }
 
-func (m AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
+func (m *AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
 	return fmt.Sprintf("%s-monitoring-automation-config-version", m.Name())
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.
-func (m AppDBSpec) GetSecretsMountedIntoPod() []string {
+func (m *AppDBSpec) GetSecretsMountedIntoPod() []string {
 	secrets := []string{}
 	if m.PasswordSecretKeyRef != nil {
 		secrets = append(secrets, m.PasswordSecretKeyRef.Name)
@@ -432,7 +429,7 @@ func (m AppDBSpec) GetSecretsMountedIntoPod() []string {
 	return secrets
 }
 
-func (m AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	builder := connectionstring.Builder().
 		SetName(m.Name()).
 		SetNamespace(m.Namespace).

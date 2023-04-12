@@ -10,6 +10,7 @@ from kubetester.certs import (
     create_multi_cluster_mongodb_x509_tls_certs,
     create_multi_cluster_x509_user_cert,
     create_multi_cluster_x509_agent_certs,
+    Certificate,
 )
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.kubetester import skip_if_local
@@ -128,6 +129,15 @@ def test_deploy_mongodb_multi_with_tls(mongodb_multi: MongoDBMulti, namespace: s
 
 
 @mark.e2e_multi_cluster_tls_with_x509
+def test_rotate_cert_and_assert_mdb_running(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace, BUNDLE_SECRET_NAME)
+
+
+@mark.e2e_multi_cluster_tls_with_x509
 def test_mongodb_multi_tls_enable_x509(
     mongodb_multi: MongoDBMulti,
     namespace: str,
@@ -196,3 +206,22 @@ def test_ops_manager_state_was_updated_correctly(mongodb_multi: MongoDBMulti):
     ac_tester.assert_authentication_enabled()
     ac_tester.assert_authentication_mechanism_enabled("MONGODB-X509")
     ac_tester.assert_internal_cluster_authentication_enabled()
+
+
+@mark.e2e_multi_cluster_tls_with_x509
+def test_rotate_certfile_and_assert_mdb_running(
+    mongodb_multi: MongoDBMulti,
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+):
+    assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace, CLUSTER_BUNDLE_SECRET_NAME)
+
+
+def assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace, certificate_name):
+    cert = Certificate(name=certificate_name, namespace=namespace)
+    cert.api = kubernetes.client.CustomObjectsApi(api_client=central_cluster_client)
+    cert.load()
+    cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
+    cert.update()
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=120)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)

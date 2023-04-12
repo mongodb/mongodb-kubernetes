@@ -189,22 +189,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return status
 	}
 
-	r.RemoveDependentWatchedResources(sc.ObjectKey())
-	r.RegisterWatchedMongodbResources(sc.ObjectKey(), sc.Spec.GetProject(), sc.Spec.Credentials)
-
-	// In case of Sharded Cluster we have to watch a bunch of different secrets
-	if sc.GetSecurity().IsTLSEnabled() {
-		secretNames := []string{}
-		secretNames = append(secretNames,
-			sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName()),
-			sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName()),
-		)
-
-		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
-		}
-		r.RegisterWatchedTLSResources(sc.ObjectKey(), sc.Spec.GetTLSConfig().CA, secretNames)
-	}
+	r.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, sc, log)
 	if !reconcileResult.IsOK() {
@@ -307,6 +292,34 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 		return status
 	}
 	return reconcileResult
+}
+
+func getTLSSecretNames(sc *mdbv1.MongoDB) func() []string {
+	return func() []string {
+		var secretNames []string
+		secretNames = append(secretNames,
+			sc.GetSecurity().MemberCertificateSecretName(sc.MongosRsName()),
+			sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName()),
+		)
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
+		}
+		return secretNames
+	}
+}
+
+func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
+	return func() []string {
+		var secretNames []string
+		secretNames = append(secretNames,
+			sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName()),
+			sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName()),
+		)
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(i)))
+		}
+		return secretNames
+	}
 }
 
 // getCertTypeForAllShardedClusterCertificates checks whether all certificates secret are of the same type and returns it.
@@ -698,13 +711,13 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	// mongos
 	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, *opts, log), nil)
 	mongosInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
-	mongosMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
+	mongosMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, certs.CertHashAnnotationKey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	mongosProcesses := createMongosProcesses(sts, sc, mongosMemberCertPath)
 
 	// config server
 	configSvrSts := construct.DatabaseStatefulSet(*sc, r.getConfigServerOptions(*sc, *opts, log), nil)
 	configInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
-	configMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
+	configMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(configSvrSts, certs.CertHashAnnotationKey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 	configRs := buildReplicaSetFromProcesses(configSvrSts.Name, createConfigSrvProcesses(configSvrSts, sc, configMemberCertPath), sc)
 
 	// shards
@@ -713,11 +726,20 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	for i := 0; i < sc.Spec.ShardCount; i++ {
 		shardSts := construct.DatabaseStatefulSet(*sc, r.getShardOptions(*sc, i, *opts, log), nil)
 		shardsInternalClusterPath[i] = statefulset.GetFilePathFromAnnotationOrDefault(shardSts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
-		shardMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(shardSts, certs.CertHashAnnotationkey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
+		shardMemberCertPath := statefulset.GetFilePathFromAnnotationOrDefault(shardSts, certs.CertHashAnnotationKey, util.TLSCertMountPath, util.PEMKeyFilePathInContainer)
 		shards[i] = buildReplicaSetFromProcesses(shardSts.Name, createShardProcesses(shardSts, sc, shardMemberCertPath), sc)
 	}
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, log)
+	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
+	// We can look into unifying this into updateOmAuthentication at a later stage.
+	if err := conn.ReadUpdateDeployment(func(d om.Deployment) error {
+		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.Name, configInternalClusterPath, mongosInternalClusterPath, shardsInternalClusterPath)
+		return nil
+	}, log); err != nil {
+		return nil, false, workflow.Failed(err)
+	}
+
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, "", log)
 	if !status.IsOK() {
 		return nil, false, status
 	}
@@ -772,16 +794,10 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 			d.AddMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
 			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
 
-			internalClusterAuthMode := sc.Spec.Security.GetInternalClusterAuthenticationMode()
-
-			d.ConfigureInternalClusterAuthentication(d.GetShardedClusterConfigProcessNames(sc.Name), internalClusterAuthMode, configInternalClusterPath)
-			d.ConfigureInternalClusterAuthentication(d.GetShardedClusterMongosProcessNames(sc.Name), internalClusterAuthMode, mongosInternalClusterPath)
+			setupInternalClusterAuth(d, sc.Name, sc.GetSecurity().GetInternalClusterAuthenticationMode(),
+				configInternalClusterPath, mongosInternalClusterPath, shardsInternalClusterPath)
 
 			_ = UpdatePrometheus(&d, conn, sc.GetPrometheus(), r.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
-
-			for i, path := range shardsInternalClusterPath {
-				d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(sc.Name, i), internalClusterAuthMode, path)
-			}
 
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
@@ -803,6 +819,23 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	}
 
 	return finalProcesses, shardsRemoving, workflow.OK()
+}
+
+func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, internalAuthMode string, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardsInternalClusterPath []string) {
+	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath, internalAuthMode)
+	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath, internalAuthMode)
+	for i, path := range shardsInternalClusterPath {
+		d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterShardProcessNames(name, i), path, internalAuthMode)
+	}
+}
+
+func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthMode string, configInternalClusterPath string, mongosInternalClusterPath string, shardsInternalClusterPath []string) {
+	d.ConfigureInternalClusterAuthentication(d.GetShardedClusterConfigProcessNames(name), internalClusterAuthMode, configInternalClusterPath)
+	d.ConfigureInternalClusterAuthentication(d.GetShardedClusterMongosProcessNames(name), internalClusterAuthMode, mongosInternalClusterPath)
+
+	for i, path := range shardsInternalClusterPath {
+		d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(name, i), internalClusterAuthMode, path)
+	}
 }
 
 func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSetWithProcesses, mongosProcesses []om.Process) []om.Process {

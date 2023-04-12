@@ -80,10 +80,15 @@ export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-i
 export OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-ops-manager"
 
 export agent_version=12.0.4.7554-1
+# these are needed to deploy OM
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
+export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager"
+export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
+export AGENT_IMAGE=quay.io/mongodb/mongodb-agent-ubi:${agent_version}
+export MONGODB_IMAGE=mongodb-enterprise-appdb-database-ubi
+export MONGODB_REPO_URL=quay.io/mongodb
 
 # values from .evergreen.yml
-export CUSTOM_APPDB_VERSION=5.0.7-ent
-export CUSTOM_OM_VERSION=6.0.7
 export CUSTOM_OM_PREV_VERSION=5.0.1
 export CUSTOM_MDB_VERSION=5.0.5
 export CUSTOM_MDB_PREV_VERSION=5.0.1

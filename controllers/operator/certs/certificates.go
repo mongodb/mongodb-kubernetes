@@ -33,7 +33,7 @@ type certDestination string
 
 const (
 	OperatorGeneratedCertSuffix = "-pem"
-	CertHashAnnotationkey       = "certHash"
+	CertHashAnnotationKey       = "certHash"
 
 	Unused     = "unused"
 	Database   = "database"
@@ -133,7 +133,6 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 	}
 
 	if needToCreatePEM {
-
 		data, err := VerifyTLSSecretForStatefulSet(secretData, opts)
 		if err != nil {
 			return err

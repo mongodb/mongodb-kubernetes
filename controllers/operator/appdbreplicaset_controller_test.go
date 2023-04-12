@@ -237,7 +237,8 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 
 	// replicasets
 	assert.Len(t, automationConfig.ReplicaSets, 1)
-	assert.Equal(t, builder.Build().Spec.AppDB.Name(), automationConfig.ReplicaSets[0].Id)
+	db := builder.Build().Spec.AppDB
+	assert.Equal(t, db.Name(), automationConfig.ReplicaSets[0].Id)
 
 	// monitoring agent has been configured
 	assert.Len(t, automationConfig.MonitoringVersions, 0)
@@ -368,7 +369,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 		Build()
 	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
 
-	checkOMReconcilliationSuccessful(t, omReconciler, &opsManager)
+	checkOMReconciliationSuccessful(t, omReconciler, &opsManager)
 
 	err := client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, &opsManager)
 	assert.NoError(t, err)
@@ -378,7 +379,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 	err = client.Update(context.TODO(), &opsManager)
 	assert.NoError(t, err)
 
-	checkOMReconcilliationPending(t, omReconciler, &opsManager)
+	checkOMReconciliationPending(t, omReconciler, &opsManager)
 
 	err = client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, &opsManager)
 	assert.NoError(t, err)
@@ -405,7 +406,7 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		Build()
 	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
 
-	checkOMReconcilliationSuccessful(t, omReconciler, &opsManager)
+	checkOMReconciliationSuccessful(t, omReconciler, &opsManager)
 
 	appdbSvc, err := client.GetService(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.ServiceName()))
 	assert.NoError(t, err)

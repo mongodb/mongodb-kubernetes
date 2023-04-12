@@ -111,66 +111,36 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	addAppDBTLSResources(client, testOm.Spec.AppDB, testOm.Spec.AppDB.GetTlsCertificatesSecretName())
 	addKMIPTestResources(client, testOm, "test-mdb", "test-prefix")
 	configureBackupResources(client, testOm)
-	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
 
-	KmipMongoDBKey := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "test-prefix-test-mdb-kmip-client",
-		},
-	}
-	KmipMongoDBPasswordKey := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "test-prefix-test-mdb-kmip-client-password",
-		},
-	}
-	KmipCaKey := watch.Object{
-		ResourceType: watch.ConfigMap,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "custom-kmip-ca",
-		},
-	}
-	appDBCAKey := watch.Object{
-		ResourceType: watch.ConfigMap,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "custom-ca-appdb",
-		},
-	}
-	omCAKey := watch.Object{
-		ResourceType: watch.ConfigMap,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "custom-ca",
-		},
-	}
-	appdbTLSSecretKey := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "om-tls-secret",
-		},
-	}
-	omTLSSecretKey := watch.Object{
-		ResourceType: watch.Secret,
-		Resource: types.NamespacedName{
-			Namespace: testOm.Namespace,
-			Name:      "om-tls-secret",
-		},
+	checkOMReconciliationSuccessful(t, reconciler, &testOm)
+
+	ns := testOm.Namespace
+	KmipCaKey := getWatch(ns, "custom-kmip-ca", watch.ConfigMap)
+	omCAKey := getWatch(ns, "custom-ca", watch.ConfigMap)
+	appDBCAKey := getWatch(ns, "custom-ca-appdb", watch.ConfigMap)
+	KmipMongoDBKey := getWatch(ns, "test-prefix-test-mdb-kmip-client", watch.Secret)
+	KmipMongoDBPasswordKey := getWatch(ns, "test-prefix-test-mdb-kmip-client-password", watch.Secret)
+	omTLSSecretKey := getWatch(ns, "om-tls-secret", watch.Secret)
+	appdbTLSecretCert := getWatch(ns, "test-om-db-cert", watch.Secret)
+
+	expectedWatchedResources := []watch.Object{
+		getWatch("testNS", "test-mdb", watch.MongoDB),
+		getWatch(ns, "config-0-mdb", watch.MongoDB),
+		KmipCaKey,
+		omCAKey,
+		appDBCAKey,
+		KmipMongoDBKey,
+		KmipMongoDBPasswordKey,
+		omTLSSecretKey,
+		appdbTLSecretCert,
 	}
 
-	assert.Contains(t, reconciler.WatchedResources, appDBCAKey)
-	assert.Contains(t, reconciler.WatchedResources, omCAKey)
-	assert.Contains(t, reconciler.WatchedResources, appdbTLSSecretKey)
-	assert.Contains(t, reconciler.WatchedResources, omTLSSecretKey)
-	assert.Contains(t, reconciler.WatchedResources, KmipMongoDBKey)
-	assert.Contains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
-	assert.Contains(t, reconciler.WatchedResources, KmipCaKey)
+	var actual []watch.Object
+	for obj := range reconciler.WatchedResources {
+		actual = append(actual, obj)
+	}
 
+	assert.ElementsMatch(t, expectedWatchedResources, actual)
 	testOm.Spec.Security.TLS.SecretRef.Name = ""
 	testOm.Spec.Backup.Enabled = false
 
@@ -190,7 +160,6 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	testOm.Spec.AppDB.Security.TLSConfig.Enabled = false
 	testOm.Spec.Backup.Enabled = true
 	testOm.Spec.Backup.Encryption.Kmip = nil
-
 	err = client.Update(context.TODO(), &testOm)
 	assert.NoError(t, err)
 
@@ -199,7 +168,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
-	assert.NotContains(t, reconciler.WatchedResources, appdbTLSSecretKey)
+	assert.NotContains(t, reconciler.WatchedResources, appdbTLSecretCert)
 	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBKey)
 	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
 	assert.NotContains(t, reconciler.WatchedResources, KmipCaKey)
@@ -367,7 +336,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	}).Build()
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
-	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
+	checkOMReconciliationSuccessful(t, reconciler, &testOm)
 
 	backupSts := appsv1.StatefulSet{}
 	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
@@ -403,7 +372,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	err := reconciler.client.UpdateSecret(s)
 	assert.NoError(t, err)
 
-	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
+	checkOMReconciliationSuccessful(t, reconciler, &testOm)
 
 	connectionString, err := secret.ReadKey(reconciler.client, util.AppDbConnectionStringKey, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()))
 	assert.NoError(t, err)
@@ -432,7 +401,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	}).Build()
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
-	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
+	checkOMReconciliationSuccessful(t, reconciler, &testOm)
 
 	sts := appsv1.StatefulSet{}
 	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
@@ -479,7 +448,7 @@ func TestOpsManagerWithKMIP(t *testing.T) {
 	configureBackupResources(client, testOm)
 
 	//when
-	checkOMReconcilliationSuccessful(t, reconciler, &testOm)
+	checkOMReconciliationSuccessful(t, reconciler, &testOm)
 	sts := appsv1.StatefulSet{}
 	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
 	envs := sts.Spec.Template.Spec.Containers[0].Env
@@ -1082,7 +1051,7 @@ func addKMIPTestResources(client *mock.MockedClient, om omv1.MongoDBOpsManager, 
 }
 
 func addAppDBTLSResources(client *mock.MockedClient, rs omv1.AppDBSpec, secretName string) {
-	// Lets create a secret with Certificates and private keys!
+	// Let's create a secret with Certificates and private keys!
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
@@ -1097,7 +1066,7 @@ func addAppDBTLSResources(client *mock.MockedClient, rs omv1.AppDBSpec, secretNa
 	_ = client.Create(context.TODO(), secret)
 }
 func addOMTLSResources(client *mock.MockedClient, secretName string) {
-	// Lets create a secret with Certificates and private keys!
+	// Let's create a secret with Certificates and private keys!
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,

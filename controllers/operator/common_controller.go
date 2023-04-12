@@ -150,23 +150,72 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
-func (c *ReconcileCommonController) updateStatus(reconciledResource v1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
+func (r *ReconcileCommonController) updateStatus(reconciledResource v1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	status.Log(log)
 
 	mergedOptions := append(statusOptions, status.StatusOptions()...)
 	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
-	if err := c.patchUpdateStatus(reconciledResource, statusOptions...); err != nil {
+	if err := r.patchUpdateStatus(reconciledResource, statusOptions...); err != nil {
 		log.Errorf("Error updating status to %s: %s", status.Phase(), err)
 		return reconcile.Result{}, err
 	}
 	return status.ReconcileResult()
 }
 
+type WatcherResource interface {
+	ObjectKey() client.ObjectKey
+	GetSecurity() *mdbv1.Security
+	GetConnectionSpec() *mdbv1.ConnectionSpec
+}
+
+// SetupCommonWatchers is the common shared method for all controller to watch the following resources:
+//   - OM related cm and secret
+//   - TLS related secrets, if enabled, this includes x509 internal authentication secrets
+//
+// Note: everything is watched under the same namespace as the objectKey
+// in case getSecretNames func is nil, we will default to common mechanism to get the secret names
+// TODO: unify the watcher setup with the secret creation/mounting code in database creation
+func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherResource, getTLSSecretNames func() []string, getInternalAuthSecretNames func() []string, resourceNameForSecret string) {
+	// We remove all watched resources
+	objectToReconcile := watcherResource.ObjectKey()
+	r.RemoveDependentWatchedResources(objectToReconcile)
+
+	// And then add the ones we care about
+	connectionSpec := watcherResource.GetConnectionSpec()
+	if connectionSpec != nil {
+		r.RegisterWatchedMongodbResources(objectToReconcile, connectionSpec.GetProject(), connectionSpec.Credentials)
+	}
+
+	security := watcherResource.GetSecurity()
+	// And TLS if needed
+	if security.IsTLSEnabled() {
+		var secretNames []string
+		if getTLSSecretNames != nil {
+			secretNames = getTLSSecretNames()
+		} else {
+			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)} // maybe here?
+		}
+		r.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
+	}
+
+	if security.GetInternalClusterAuthenticationMode() == util.X509 {
+		var secretNames []string
+		if getInternalAuthSecretNames != nil {
+			secretNames = getInternalAuthSecretNames()
+		} else {
+			secretNames = []string{security.InternalClusterAuthSecretName(resourceNameForSecret)}
+		}
+		for _, secretName := range secretNames {
+			r.AddWatchedResourceIfNotAdded(secretName, objectToReconcile.Namespace, watch.Secret, objectToReconcile)
+		}
+	}
+}
+
 // We fetch a fresh version in case any modifications have been made.
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
 // The "jsonPatch" merge allows to update only status field
-func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResourceReadWriter, options ...status.Option) error {
+func (r *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResourceReadWriter, options ...status.Option) error {
 	payload := []patchValue{{
 		Op:   "replace",
 		Path: resource.GetStatusPath(options...),
@@ -181,15 +230,15 @@ func (c *ReconcileCommonController) patchUpdateStatus(resource v1.CustomResource
 	}
 
 	patch := client.RawPatch(types.JSONPatchType, data)
-	err = c.client.Status().Patch(context.TODO(), resource, patch)
+	err = r.client.Status().Patch(context.TODO(), resource, patch)
 
 	if err != nil && apiErrors.IsInvalid(err) {
 		zap.S().Debug("The Status subresource might not exist yet, creating empty subresource")
-		if err := c.ensureStatusSubresourceExists(resource, options...); err != nil {
+		if err := r.ensureStatusSubresourceExists(resource, options...); err != nil {
 			zap.S().Debug("Error from ensuring status subresource: %s", err)
 			return err
 		}
-		return c.client.Status().Patch(context.TODO(), resource, patch)
+		return r.client.Status().Patch(context.TODO(), resource, patch)
 	}
 
 	return nil
@@ -200,7 +249,7 @@ type emptyPayload struct{}
 // ensureStatusSubresourceExists ensures that the status subresource section we are trying to write to exists.
 // if we just try and patch the full path directly, the subresource sections are not recursively created, so
 // we need to ensure that the actual object we're trying to write to exists, otherwise we will get errors.
-func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.CustomResourceReadWriter, options ...status.Option) error {
+func (r *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.CustomResourceReadWriter, options ...status.Option) error {
 	fullPath := resource.GetStatusPath(options...)
 	parts := strings.Split(fullPath, "/")
 
@@ -222,7 +271,7 @@ func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.Cu
 			return err
 		}
 		patch := client.RawPatch(types.JSONPatchType, data)
-		if err := c.client.Status().Patch(context.TODO(), resource, patch); err != nil && !apiErrors.IsInvalid(err) {
+		if err := r.client.Status().Patch(context.TODO(), resource, patch); err != nil && !apiErrors.IsInvalid(err) {
 			return err
 		}
 	}
@@ -230,8 +279,8 @@ func (c *ReconcileCommonController) ensureStatusSubresourceExists(resource v1.Cu
 }
 
 // getResource populates the provided runtime.Object with some additional error handling
-func (c *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
-	err := c.client.Get(context.TODO(), request.NamespacedName, resource)
+func (r *ReconcileCommonController) getResource(request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
+	err := r.client.Get(context.TODO(), request.NamespacedName, resource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -248,13 +297,13 @@ func (c *ReconcileCommonController) getResource(request reconcile.Request, resou
 
 // prepareResourceForReconciliation finds the object being reconciled. Returns the reconcile result and any error that
 // occurred.
-func (c *ReconcileCommonController) prepareResourceForReconciliation(
+func (r *ReconcileCommonController) prepareResourceForReconciliation(
 	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
-	if result, err := c.getResource(request, resource, log); err != nil {
+	if result, err := r.getResource(request, resource, log); err != nil {
 		return result, err
 	}
 
-	result, err := c.updateStatus(resource, workflow.Reconciling(), log)
+	result, err := r.updateStatus(resource, workflow.Reconciling(), log)
 	if err != nil {
 		return result, err
 	}
@@ -266,7 +315,7 @@ func (c *ReconcileCommonController) prepareResourceForReconciliation(
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.
-// Also it removes the tag ExternallyManaged from the project in this case as
+// Also, it removes the tag ExternallyManaged from the project in this case as
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
 func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
@@ -438,19 +487,27 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // updateOmAuthentication examines the state of Ops Manager and the desired state of the MongoDB resource and
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
-func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+// Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
+func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, clusterFilePath string, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
 	}
 
-	// we need to wait for all agents to be ready before configuring any authentication settings
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
 		return workflow.Failed(err), false
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	// if we have changed the internal cluster auth, we need to update the ac first
+	authenticationMode := ar.GetSecurity().GetInternalClusterAuthenticationMode()
+	err = r.setupInternalClusterAuthIfItHasChanged(conn, processNames, authenticationMode, clusterFilePath)
 	if err != nil {
+		return workflow.Failed(err), false
+	}
+
+	// we need to wait for all agents to be ready before configuring any authentication settings
+	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
 		return workflow.Failed(err), false
 	}
 
@@ -693,6 +750,18 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 	return workflow.OK()
 }
 
+// setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
+func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn om.Connection, names []string, clusterAuth string, filePath string) error {
+	if filePath == "" {
+		return nil
+	}
+	err := conn.ReadUpdateDeployment(func(deployment om.Deployment) error {
+		deployment.SetInternalClusterFilePathOnlyIfItThePathHasChanged(names, filePath, clusterAuth)
+		return nil
+	}, zap.S())
+	return err
+}
+
 // isPrometheusSupported checks if Prometheus integration can be enabled.
 //
 // Prometheus is only enabled in Cloud Manager and Ops Manager 5.9 (6.0) and above.
@@ -706,8 +775,6 @@ func isPrometheusSupported(conn om.Connection) bool {
 }
 
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
-//
-// This has been moved to this function, so we can use it from Sharded Clusters and AppDB when I get to work on those resources.
 func UpdatePrometheus(d *om.Deployment, conn om.Connection, prometheus *mdbcv1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
 	if prometheus == nil {
 		return nil

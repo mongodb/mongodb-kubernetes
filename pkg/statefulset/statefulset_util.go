@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"go.uber.org/zap"
@@ -104,10 +106,10 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 	}
 
 	// preserve existing certificate hash if new one is not statefulSetToCreate
-	existingCertHash, okExisting := existingStatefulSet.Spec.Template.Annotations["certHash"]
-	newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations["certHash"]
+	existingCertHash, okExisting := existingStatefulSet.Spec.Template.Annotations[certs.CertHashAnnotationKey]
+	newCertHash, okNew := statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey]
 	if existingCertHash != "" && newCertHash == "" && okExisting && okNew {
-		statefulSetToCreate.Spec.Template.Annotations["certHash"] = existingCertHash
+		statefulSetToCreate.Spec.Template.Annotations[certs.CertHashAnnotationKey] = existingCertHash
 	}
 
 	log.Debug("Checking if we can update the current statefulset")

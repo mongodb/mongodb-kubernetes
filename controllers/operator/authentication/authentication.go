@@ -84,7 +84,7 @@ type UserOptions struct {
 	AutomationSubject string
 }
 
-// Configure will configure all of the specified authentication Mechanisms. We need to ensure we wait for
+// Configure will configure all the specified authentication Mechanisms. We need to ensure we wait for
 // the agents to reach ready state after each operation as prematurely updating the automation config can cause the agents to get stuck.
 func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Infow("ensuring correct deployment mechanisms", "MinimumMajorVersion", opts.MinimumMajorVersion, "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)

@@ -134,7 +134,6 @@ func (m mockSecretGetter) DeleteSecret(nsName types.NamespacedName) error {
 }
 
 func TestReadPemHashFromSecret(t *testing.T) {
-
 	name := "res-name"
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
@@ -146,10 +145,19 @@ func TestReadPemHashFromSecret(t *testing.T) {
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{},
 	}, mock.TestNamespace, name, "", zap.S()), "secret does not exist so pem hash should be empty")
-	assert.NotEmpty(t, pem.ReadHashFromSecret(secrets.SecretClient{
+
+	hash := pem.ReadHashFromSecret(secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
-	}, mock.TestNamespace, name, "", zap.S()), "pem hash should be read from the secret")
+	}, mock.TestNamespace, name, "", zap.S())
+
+	hash2 := pem.ReadHashFromSecret(secrets.SecretClient{
+		VaultClient: nil,
+		KubeClient:  mockSecretGetter{secret: secret},
+	}, mock.TestNamespace, name, "", zap.S())
+
+	assert.NotEmpty(t, hash, "pem hash should be read from the secret")
+	assert.Equal(t, hash, hash2, "hash creation should be idempotent")
 }
 
 func TestReadPemHashFromSecretOpaqueType(t *testing.T) {

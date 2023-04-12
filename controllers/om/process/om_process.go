@@ -3,6 +3,8 @@ package process
 import (
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -17,7 +19,7 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec,
 	processes := make([]om.Process, len(hostnames))
 
 	certificateFileName := ""
-	if certificateHash, ok := set.Annotations["certHash"]; ok {
+	if certificateHash, ok := set.Annotations[certs.CertHashAnnotationKey]; ok {
 		certificateFileName = fmt.Sprintf("%s/%s", util.TLSCertMountPath, certificateHash)
 	}
 

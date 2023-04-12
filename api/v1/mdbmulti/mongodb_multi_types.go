@@ -119,6 +119,10 @@ func (m *MongoDBMultiCluster) GetSecurity() *mdbv1.Security {
 	return m.Spec.Security
 }
 
+func (m *MongoDBMultiCluster) GetConnectionSpec() *mdbv1.ConnectionSpec {
+	return &m.Spec.ConnectionSpec
+}
+
 func (m *MongoDBMultiCluster) GetPrometheus() *mdbc.Prometheus {
 	return m.Spec.Prometheus
 }

@@ -29,12 +29,13 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version: "5.0.0",
 			ConnectionSpec: mdbv1.ConnectionSpec{
-				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-					ConfigMapRef: mdbv1.ConfigMapRef{
-						Name: mock.TestProjectConfigMapName,
+				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+						ConfigMapRef: mdbv1.ConfigMapRef{
+							Name: mock.TestProjectConfigMapName,
+						},
 					},
-				},
-				Credentials: mock.TestCredentialsSecretName,
+				}, Credentials: mock.TestCredentialsSecretName,
 			},
 			ResourceType: mdbv1.ReplicaSet,
 			Security: &mdbv1.Security{

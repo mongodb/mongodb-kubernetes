@@ -2138,7 +2138,6 @@ task_groups:
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_member_cluster_watch
     - e2e_multi_cluster_upgrade_downgrade
-    - e2e_multi_cluster_tls_cert_rotation
     - e2e_multi_cluster_backup_restore
     - e2e_multi_cluster_disaster_recovery
     - e2e_multi_cluster_multi_disaster_recovery

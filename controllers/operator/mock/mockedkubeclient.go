@@ -364,7 +364,6 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client
 		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
 	}
 	// Golang cannot update pointers if they are declared as interfaces... Have to use reflection
-	//*obj = *(resMap[key])
 	v := reflect.ValueOf(obj).Elem()
 	v.Set(reflect.ValueOf(resMap[key]).Elem())
 	return nil

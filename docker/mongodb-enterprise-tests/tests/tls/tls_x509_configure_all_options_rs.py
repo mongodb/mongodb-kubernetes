@@ -7,7 +7,7 @@ from kubetester.kubetester import (
     MEMBER_AUTH_WARNING,
 )
 from kubetester.omtester import get_rs_cert_names
-from kubetester import create_secret, read_secret, create_secret
+from kubetester import create_secret, read_secret, create_secret, create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import fixture as load_fixture, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
@@ -23,9 +23,7 @@ MDB_RESOURCE = "test-x509-all-options-rs"
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    create_x509_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    create_x509_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
     secret_name = f"{MDB_RESOURCE}-cert"
     data = read_secret(namespace, secret_name)
     secret_type = "kubernetes.io/tls"
@@ -38,14 +36,10 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def mdb(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace
-    )
+def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+    return create_or_update(res)
 
 
 @pytest.mark.e2e_tls_x509_configure_all_options_rs
@@ -57,8 +51,3 @@ class TestReplicaSetEnableAllOptions(KubernetesTester):
         ac_tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         ac_tester.assert_internal_cluster_authentication_enabled()
         ac_tester.assert_authentication_enabled()
-
-    # TODO: use /mongodb-automation/server.pem but doesn't exist on test pod
-    # def test_mdb_is_reachable(self):
-    #     mongo_tester = ReplicaSetTester(mdb_resource, 3, ssl=True)
-    #     mongo_tester.assert_connectivity()

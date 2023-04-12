@@ -195,7 +195,7 @@ func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
 	}
 }
 
-func (m MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
+func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 
 	// apply validators specific to single cluster
 	singleClusterValidators := []func(m MongoDbSpec) v1.ValidationResult{

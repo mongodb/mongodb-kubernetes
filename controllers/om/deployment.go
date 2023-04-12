@@ -478,6 +478,29 @@ func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string
 	}
 }
 
+// GetInternalClusterFilePath returns the first InternalClusterFilepath for the given list of processes.
+func (d Deployment) GetInternalClusterFilePath(processNames []string) string {
+	for _, p := range processNames {
+		if process := d.getProcessByName(p); process != nil {
+			if !process.IsTLSEnabled() {
+				return ""
+			}
+			tlsConf := process.EnsureTLSConfig()
+			if v, ok := tlsConf["clusterFile"]; ok {
+				return v.(string)
+			}
+		}
+	}
+	return ""
+}
+
+// SetInternalClusterFilePathOnlyIfItThePathHasChanged sets the internal cluster path for the given process names only if it has changed and has been set before.
+func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []string, filePath string, clusterAuth string) {
+	if currPath := d.GetInternalClusterFilePath(names); currPath != filePath && currPath != "" {
+		d.ConfigureInternalClusterAuthentication(names, clusterAuth, filePath)
+	}
+}
+
 // MinimumMajorVersion returns the lowest major version in the entire deployment.
 // this includes feature compatibility version. This can be used to determine
 // which version of SCRAM-SHA the deployment can enable.

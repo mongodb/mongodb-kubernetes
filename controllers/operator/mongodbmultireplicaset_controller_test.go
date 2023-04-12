@@ -9,8 +9,11 @@ import (
 	"sort"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"k8s.io/utils/pointer"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
@@ -75,6 +78,20 @@ func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
 	result, err := reconciler.Reconcile(context.TODO(), requestFromObject(mrs))
 	assert.Nil(t, err)
 	assert.True(t, result.RequeueAfter > 0)
+}
+
+func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+
+	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	expected := map[watch.Object][]types.NamespacedName{
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, mrs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, mrs.Spec.Credentials)}:             {kube.ObjectKey(mock.TestNamespace, mrs.Name)},
+	}
+
+	assert.Equal(t, reconciler.WatchedResources, expected)
 }
 
 func TestServiceCreation_WithExternalName(t *testing.T) {
