@@ -66,7 +66,7 @@ func init() {
 	gob.Register(tls.Allow)
 	gob.Register(tls.Disabled)
 	gob.Register([]mdbv1.MongoDbRole{})
-	gob.Register([]mdbv1.MemberOptions{})
+	gob.Register([]mdbcv1.MemberOptions{})
 }
 
 // Deployment is a map representing the automation agent's cluster configuration.

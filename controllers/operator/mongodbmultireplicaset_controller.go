@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 
 	"golang.org/x/xerrors"
 
@@ -1114,7 +1115,7 @@ func sortClusterSpecList(clusterSpecList []mdbmultiv1.ClusterSpecItem) {
 }
 
 func clusterSpecListsEqual(effective, desired []mdbmultiv1.ClusterSpecItem) bool {
-	comparer := cmp.Comparer(func(x, y mdbv1.MemberOptions) bool {
+	comparer := cmp.Comparer(func(x, y mdbcv1.MemberOptions) bool {
 		return true
 	})
 	return cmp.Equal(effective, desired, comparer)

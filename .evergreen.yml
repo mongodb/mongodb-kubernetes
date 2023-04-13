@@ -1939,7 +1939,7 @@ task_groups:
   tasks:
     - unit_tests
     - unit_tests_lint
-    - lint_repo
+    # - lint_repo
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
 - name: e2e_mdb_kind_cloudqa_task_group

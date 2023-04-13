@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 )
 
 // ReplicaSetWithProcesses is a wrapper for replica set and processes that match to it
@@ -18,13 +19,13 @@ type ReplicaSetWithProcesses struct {
 func NewReplicaSetWithProcesses(
 	rs ReplicaSet,
 	processes []Process,
-	memberOptions []mdbv1.MemberOptions,
+	memberOptions []mdbcv1.MemberOptions,
 ) ReplicaSetWithProcesses {
 	rs.clearMembers()
 
 	for idx, p := range processes {
 		p.setReplicaSetName(rs.Name())
-		var options mdbv1.MemberOptions
+		var options mdbcv1.MemberOptions
 		if len(memberOptions) > idx {
 			options = memberOptions[idx]
 		}
@@ -49,12 +50,12 @@ func determineNextProcessIdStartingPoint(desiredProcesses []Process, existingPro
 // NewMultiClusterReplicaSetWithProcesses Creates processes for a multi cluster deployment.
 // This function ensures that new processes which are added never have an overlapping _id with any existing process.
 // existing _ids are re-used, and when new processes are added, a new higher number is used.
-func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, memberOptions []mdbv1.MemberOptions, existingProcessIds map[string]int, connectivity *mdbv1.MongoDBConnectivity) ReplicaSetWithProcesses {
+func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, memberOptions []mdbcv1.MemberOptions, existingProcessIds map[string]int, connectivity *mdbv1.MongoDBConnectivity) ReplicaSetWithProcesses {
 	newId := determineNextProcessIdStartingPoint(processes, existingProcessIds)
 	rs.clearMembers()
 	for idx, p := range processes {
 		p.setReplicaSetName(rs.Name())
-		var options mdbv1.MemberOptions
+		var options mdbcv1.MemberOptions
 		if len(memberOptions) > idx {
 			options = memberOptions[idx]
 		}

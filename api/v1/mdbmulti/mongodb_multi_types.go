@@ -24,6 +24,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/blang/semver"
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -212,7 +213,7 @@ type ClusterSpecItem struct {
 	// MemberConfig
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
-	MemberConfig []mdbv1.MemberOptions `json:"memberConfig,omitempty"`
+	MemberConfig []mdbcv1.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
 	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
@@ -535,9 +536,9 @@ func (m *MongoDBMultiSpec) GetHorizonConfig() []mdbv1.MongoDBHorizonConfig {
 	return m.Connectivity.ReplicaSetHorizons
 }
 
-func (m *MongoDBMultiSpec) GetMemberOptions() []mdbv1.MemberOptions {
+func (m *MongoDBMultiSpec) GetMemberOptions() []mdbcv1.MemberOptions {
 	specList := m.GetClusterSpecList()
-	options := []mdbv1.MemberOptions{}
+	options := []mdbcv1.MemberOptions{}
 	for _, item := range specList {
 		options = append(options, item.MemberConfig...)
 	}

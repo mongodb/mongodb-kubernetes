@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 
@@ -162,7 +163,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
-func (r ReplicaSet) addMember(process Process, id string, options mdbv1.MemberOptions) {
+func (r ReplicaSet) addMember(process Process, id string, options mdbcv1.MemberOptions) {
 	members := r.Members()
 	lastIndex := -1
 	if len(members) > 0 {

@@ -121,7 +121,7 @@ func (m *AppDBSpec) GetAdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	return &mdbv1.AdditionalMongodConfig{}
 }
 
-func (m *AppDBSpec) GetMemberOptions() []mdbv1.MemberOptions {
+func (m *AppDBSpec) GetMemberOptions() []mdbcv1.MemberOptions {
 	return nil // no support for AppDB member options currently
 }
 
