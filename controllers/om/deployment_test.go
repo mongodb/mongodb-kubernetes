@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -64,12 +65,12 @@ func TestMergeReplicaSet(t *testing.T) {
 	// by merge
 	newProcess := NewMongodProcess(3, "foo", "bar", &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "")
 
-	d.getProcesses()[0]["processType"] = ProcessTypeMongos                 // this will be overriden
-	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20   // this will be left as-is
-	d.getReplicaSets()[0]["protocolVersion"] = 10                          // this field will be overriden by Operator
-	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].Members()[0:2]) // "removing" the last node in replicaset
-	d.getReplicaSets()[0].addMember(newProcess, "", mdbv1.MemberOptions{}) // "adding" some new node
-	d.getReplicaSets()[0].Members()[0]["arbiterOnly"] = true               // changing data for first node
+	d.getProcesses()[0]["processType"] = ProcessTypeMongos                  // this will be overriden
+	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20    // this will be left as-is
+	d.getReplicaSets()[0]["protocolVersion"] = 10                           // this field will be overriden by Operator
+	d.getReplicaSets()[0].setMembers(d.getReplicaSets()[0].Members()[0:2])  // "removing" the last node in replicaset
+	d.getReplicaSets()[0].addMember(newProcess, "", mdbcv1.MemberOptions{}) // "adding" some new node
+	d.getReplicaSets()[0].Members()[0]["arbiterOnly"] = true                // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
@@ -715,7 +716,7 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 	shards := make([]ReplicaSetWithProcesses, countShards)
 	for i := 0; i < countShards; i++ {
 		rsName := fmt.Sprintf("%s-%d", name, i)
-		options := make([]mdbv1.MemberOptions, countMongods)
+		options := make([]mdbcv1.MemberOptions, countMongods)
 		shards[i] = NewReplicaSetWithProcesses(
 			NewReplicaSet(rsName, "3.6.3"),
 			createReplicaSetProcessesCount(countMongods, rsName),
@@ -726,7 +727,7 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 }
 
 func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProcesses {
-	options := make([]mdbv1.MemberOptions, len(processes))
+	options := make([]mdbcv1.MemberOptions, len(processes))
 	return NewReplicaSetWithProcesses(
 		NewReplicaSet(rsName, "3.6.3"),
 		processes,
@@ -776,7 +777,7 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 }
 
 func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
-	options := make([]mdbv1.MemberOptions, 3)
+	options := make([]mdbcv1.MemberOptions, 3)
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(
 		NewReplicaSet(name, "3.6.3"),
 		createReplicaSetProcesses(name),
@@ -792,7 +793,7 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 }
 
 func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithProcesses {
-	options := make([]mdbv1.MemberOptions, count)
+	options := make([]mdbcv1.MemberOptions, count)
 	replicaSetWithProcesses := NewReplicaSetWithProcesses(
 		NewReplicaSet(name, "3.6.3"),
 		createReplicaSetProcessesCount(count, name),

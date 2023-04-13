@@ -10,7 +10,6 @@ import (
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
-	"github.com/spf13/cast"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -215,7 +214,7 @@ type DbSpec interface {
 	GetHorizonConfig() []MongoDBHorizonConfig
 	GetAdditionalMongodConfig() *AdditionalMongodConfig
 	GetExternalDomain() *string
-	GetMemberOptions() []MemberOptions
+	GetMemberOptions() []mdbcv1.MemberOptions
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -247,32 +246,6 @@ type MongoDBConnectivity struct {
 	// +optional
 	ReplicaSetHorizons []MongoDBHorizonConfig `json:"replicaSetHorizons,omitempty"`
 }
-
-type MemberOptions struct {
-	Votes    *int              `json:"votes,omitempty"`
-	Priority *string           `json:"priority,omitempty"`
-	Tags     map[string]string `json:"tags,omitempty"`
-}
-
-func (o *MemberOptions) GetVotes() int {
-	if o.Votes != nil {
-		return cast.ToInt(o.Votes)
-	}
-	return 1
-}
-
-func (o *MemberOptions) GetPriority() float32 {
-	if o.Priority != nil {
-		return cast.ToFloat32(o.Priority)
-	}
-	return 1.0
-}
-
-func (o *MemberOptions) GetTags() map[string]string {
-	return o.Tags
-}
-
-// type MemberOptions map[string]interface{}
 
 type MongoDbStatus struct {
 	status.Common                   `json:",inline"`
@@ -351,7 +324,7 @@ type MongoDbSpec struct {
 	// MemberConfig
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
-	MemberConfig []MemberOptions `json:"memberConfig,omitempty"`
+	MemberConfig []mdbcv1.MemberOptions `json:"memberConfig,omitempty"`
 }
 
 func (s *MongoDbSpec) GetExternalDomain() *string {
@@ -365,7 +338,7 @@ func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 	return s.Connectivity.ReplicaSetHorizons
 }
 
-func (s *MongoDbSpec) GetMemberOptions() []MemberOptions {
+func (s *MongoDbSpec) GetMemberOptions() []mdbcv1.MemberOptions {
 	return s.MemberConfig
 }
 

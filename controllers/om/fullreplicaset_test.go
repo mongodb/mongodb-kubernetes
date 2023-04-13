@@ -3,9 +3,9 @@ package om
 import (
 	"testing"
 
+	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/stretchr/testify/assert"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"k8s.io/utils/pointer"
 )
 
@@ -64,7 +64,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 	tests := []struct {
 		name          string
 		processes     []Process
-		memberOptions []mdbv1.MemberOptions
+		memberOptions []mdbcv1.MemberOptions
 		expected      ReplicaSetWithProcesses
 	}{
 		{
@@ -77,7 +77,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"name": "p-1",
 				},
 			},
-			memberOptions: []mdbv1.MemberOptions{
+			memberOptions: []mdbcv1.MemberOptions{
 				{
 					Votes:    pointer.Int(1),
 					Priority: pointer.String("1.3"),
@@ -106,7 +106,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"name": "p-1",
 				},
 			},
-			memberOptions: []mdbv1.MemberOptions{
+			memberOptions: []mdbcv1.MemberOptions{
 				{
 					Votes:    pointer.Int(1),
 					Priority: pointer.String("1.3"),
@@ -141,7 +141,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"name": "p-1",
 				},
 			},
-			memberOptions: []mdbv1.MemberOptions{
+			memberOptions: []mdbcv1.MemberOptions{
 				{
 					Votes:    pointer.Int(1),
 					Priority: pointer.String("1.3"),
@@ -167,7 +167,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"name": "p-1",
 				},
 			},
-			memberOptions: []mdbv1.MemberOptions{},
+			memberOptions: []mdbcv1.MemberOptions{},
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{"_id": "mdb-multi", "members": []ReplicaSetMember{
 					// Defaulting priority 1.0 and votes to 1 when no member options are present
@@ -182,7 +182,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 		{
 			name:      "No processes",
 			processes: []Process{},
-			memberOptions: []mdbv1.MemberOptions{
+			memberOptions: []mdbcv1.MemberOptions{
 				{
 					Votes:    pointer.Int(1),
 					Priority: pointer.String("1.3"),
