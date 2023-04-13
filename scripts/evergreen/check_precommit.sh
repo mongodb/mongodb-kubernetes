@@ -13,6 +13,7 @@ source .githooks/pre-commit
 
 # shellcheck disable=SC2317
 if [ -z "$(git diff --name-only --cached --diff-filter=AM)" ]; then
+  echo "No changes detected, clean state"
   exit 0
 else
   echo "We have files to be committed, please run the pre-commit locally"
