@@ -18,6 +18,6 @@ if [ -z "$(git diff --name-only --cached --diff-filter=AM)" ]; then
 else
   echo "We have files to be committed, please run the pre-commit locally"
   echo "The following files differ: "
-  git diff --name-only --cached --diff-filter=AM
+  git diff --cached --diff-filter=AM
   exit 1
 fi

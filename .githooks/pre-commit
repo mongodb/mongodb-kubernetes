@@ -9,6 +9,7 @@ else
   git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
 fi
 
+mkdir -p "$(go env GOPATH)/bin"
 
 function generate_standalone_yaml() {
     # Generates a yaml file to install the operator from the helm sources.
@@ -71,14 +72,11 @@ generate_standalone_yaml
 
 black_formatting
 
-if [[ $(echo "$git_last_changed" | grep -c '^go.*') == "1" ]]; then
-  echo 'ERROR: Should change both or neither of go.mod and go.sum'
-  exit 1
-fi
+source scripts/evergreen/lint_code.sh
 
 if echo "$git_last_changed" | grep -q 'go.mod'; then
   echo 'regenerating licenses.csv'
-  scripts/update_licenses.sh
+  source scripts/evergreen/update_licenses.sh
   git add licenses.csv
 fi
 
@@ -95,10 +93,6 @@ then
     echo 'ERROR: Makefiles should NEVER contain curly brackets variables'
     exit 1
 fi
-
-mkdir -p "$(go env GOPATH)/bin"
-
-source scripts/evergreen/lint_code.sh
 
 # Makes sure there are not erroneous kubebuilder annotations that can
 # end up in CRDs as descriptions.

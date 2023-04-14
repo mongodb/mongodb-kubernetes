@@ -116,18 +116,6 @@ parameters:
   description: set this to false to suppress retries on failure
 
 functions:
-  "golint":
-    - command: subprocess.exec
-      type: test
-      params:
-        add_to_path:
-        - *go_bin
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        include_expansions_in_env:
-        - workdir
-        env:
-          <<: [ *go_options ]
-        binary: scripts/evergreen/lint_code.sh
 
   "clone":
     - command: subprocess.exec
@@ -752,11 +740,6 @@ tasks:
   tags: ["unit_tests"]
   commands:
     - func: "test_operator"
-
-- name: unit_tests_lint
-  tags: ["unit_tests"]
-  commands:
-    - func: "golint"
 
 - name: lint_repo
   tags: ["unit_tests"]
@@ -1937,9 +1920,8 @@ task_groups:
     - func: download_kube_tools
     - func: setup_shellcheck
   tasks:
+    - lint_repo
     - unit_tests
-    - unit_tests_lint
-    # - lint_repo
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
 - name: e2e_mdb_kind_cloudqa_task_group
