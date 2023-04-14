@@ -6,7 +6,7 @@ export GOPATH="${workdir:-}"
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then
   git_last_changed=$(git diff --cached --name-only --diff-filter=ACM)
 else
-  git_last_changed=$( git diff --name-only --diff-filter=ACM origin/master)
+  git_last_changed=$(git diff --name-only --diff-filter=ACM origin/master)
 fi
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
