@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -172,14 +171,12 @@ func Test_MultiClusterStatefulSetWithRelatedImages(t *testing.T) {
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.AutomationAgentImage)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
 
-	defer env.RevertEnvVariables(databaseRelatedImageEnv, initDatabaseRelatedImageEnv, util.AutomationAgentImage, construct.DatabaseVersionEnv, util.InitDatabaseImageUrlEnv, construct.InitDatabaseVersionEnv)()
-
-	_ = os.Setenv(util.AutomationAgentImage, "quay.io/mongodb/mongodb-enterprise-database")
-	_ = os.Setenv(construct.DatabaseVersionEnv, "1.0.0")
-	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
-	_ = os.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
-	_ = os.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
-	_ = os.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
+	t.Setenv(util.AutomationAgentImage, "quay.io/mongodb/mongodb-enterprise-database")
+	t.Setenv(construct.DatabaseVersionEnv, "1.0.0")
+	t.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
+	t.Setenv(construct.InitDatabaseVersionEnv, "2.0.0")
+	t.Setenv(databaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE")
+	t.Setenv(initDatabaseRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-database:@sha256:MONGODB_INIT_DATABASE")
 
 	mdbm := getMultiClusterMongoDB()
 	opts := MultiClusterReplicaSetOptions(

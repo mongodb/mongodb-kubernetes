@@ -1,7 +1,6 @@
 package construct
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -185,7 +184,7 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	template := sts.Spec.Template
 	assert.Nil(t, template.Spec.ImagePullSecrets)
 
-	_ = os.Setenv(util.ImagePullSecrets, "foo")
+	t.Setenv(util.ImagePullSecrets, "foo")
 
 	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), nil)
 
@@ -244,7 +243,7 @@ func TestDefaultPodSpec_FsGroup(t *testing.T) {
 	assert.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 
-	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
+	t.Setenv(util.ManagedSecurityContextEnv, "true")
 
 	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), nil)
 	assert.Nil(t, sts.Spec.Template.Spec.SecurityContext)

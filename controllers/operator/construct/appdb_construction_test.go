@@ -20,7 +20,7 @@ func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 	_ = os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
-	os.Setenv(util.OpsManagerMonitorAppDB, "false")
+	_ = os.Setenv(util.OpsManagerMonitorAppDB, "false")
 }
 
 func TestAppDBAgentFlags(t *testing.T) {
@@ -78,15 +78,14 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	agentRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_10_26_0_6851_1", construct.AgentImageEnv)
 	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3_ent", construct.MongodbImageEnv)
 	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
-	defer env.RevertEnvVariables(agentRelatedImageEnv, mongodbRelatedImageEnv, initAppdbRelatedImageEnv, construct.MongodbImageEnv, construct.MongodbRepoUrl, construct.AgentImageEnv, util.InitAppdbImageUrlEnv, initAppdbVersionEnv)()
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 
-	_ = os.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-appdb-database-ubi")
-	_ = os.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-	_ = os.Setenv(construct.AgentImageEnv, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1")
-	_ = os.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
-	_ = os.Setenv(initAppdbVersionEnv, "3.4.5")
+	t.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-appdb-database-ubi")
+	t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+	t.Setenv(construct.AgentImageEnv, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1")
+	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb")
+	t.Setenv(initAppdbVersionEnv, "3.4.5")
 
 	// without related imaged sts is configured using env vars
 	om.Spec.AppDB.Version = "1.2.3-ent"
@@ -97,9 +96,9 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:3.4.5", sts.Spec.Template.Spec.InitContainers[0].Image)
 
 	// sts should be configured with related images when they are defined
-	_ = os.Setenv(agentRelatedImageEnv, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA")
-	_ = os.Setenv(mongodbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
-	_ = os.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
+	t.Setenv(agentRelatedImageEnv, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA")
+	t.Setenv(mongodbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA")
+	t.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
 
 	om.Spec.AppDB.Version = "1.2.3-ent"
 	sts, err = AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, nil)

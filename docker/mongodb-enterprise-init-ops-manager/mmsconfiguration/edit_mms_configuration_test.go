@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"os"
 	"strings"
 	"testing"
 
@@ -13,7 +12,7 @@ import (
 
 func TestEditMmsConfiguration_UpdateConfFile_Mms(t *testing.T) {
 	confFile := _createTestConfFile()
-	_ = os.Setenv("CUSTOM_JAVA_MMS_UI_OPTS", "-Xmx4000m -Xms4000m")
+	t.Setenv("CUSTOM_JAVA_MMS_UI_OPTS", "-Xmx4000m -Xms4000m")
 	err := updateConfFile(confFile)
 	assert.NoError(t, err)
 	updatedContent := _readLinesFromFile(confFile)
@@ -22,8 +21,8 @@ func TestEditMmsConfiguration_UpdateConfFile_Mms(t *testing.T) {
 
 func TestEditMmsConfiguration_UpdateConfFile_BackupDaemon(t *testing.T) {
 	confFile := _createTestConfFile()
-	_ = os.Setenv("BACKUP_DAEMON", "something")
-	_ = os.Setenv("CUSTOM_JAVA_DAEMON_OPTS", "-Xmx4000m -Xms4000m")
+	t.Setenv("BACKUP_DAEMON", "something")
+	t.Setenv("CUSTOM_JAVA_DAEMON_OPTS", "-Xmx4000m -Xms4000m")
 	err := updateConfFile(confFile)
 	assert.NoError(t, err)
 }
@@ -31,10 +30,9 @@ func TestEditMmsConfiguration_UpdateConfFile_BackupDaemon(t *testing.T) {
 func TestEditMmsConfiguration_GetOmPropertiesFromEnvVars(t *testing.T) {
 	val := fmt.Sprintf("test%d", rand.Intn(1000))
 	key := "OM_PROP_test_edit_mms_configuration_get_om_props"
-	_ = os.Setenv(key, val)
+	t.Setenv(key, val)
 	props := getOmPropertiesFromEnvVars()
 	assert.Equal(t, props["test.edit.mms.configuration.get.om.props"], val)
-	_ = os.Unsetenv(key)
 }
 
 func TestEditMmsConfiguration_UpdatePropertiesFile(t *testing.T) {
