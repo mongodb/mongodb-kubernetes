@@ -26,6 +26,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -90,6 +91,13 @@ func (in *AppDBSpec) DeepCopyInto(out *AppDBSpec) {
 		in, out := &in.AutomationConfigOverride, &out.AutomationConfigOverride
 		*out = new(v1.AutomationConfigOverride)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.MemberConfig != nil {
+		in, out := &in.MemberConfig, &out.MemberConfig
+		*out = make([]automationconfig.MemberOptions, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 

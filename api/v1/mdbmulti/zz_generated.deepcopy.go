@@ -25,6 +25,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -39,7 +40,7 @@ func (in *ClusterSpecItem) DeepCopyInto(out *ClusterSpecItem) {
 	in.ExternalAccessConfiguration.DeepCopyInto(&out.ExternalAccessConfiguration)
 	if in.MemberConfig != nil {
 		in, out := &in.MemberConfig, &out.MemberConfig
-		*out = make([]v1.MemberOptions, len(*in))
+		*out = make([]automationconfig.MemberOptions, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}

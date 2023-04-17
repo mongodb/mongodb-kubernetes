@@ -155,6 +155,20 @@ spec:
                     - ERROR
                     - FATAL
                     type: string
+                  memberConfig:
+                    description: MemberConfig
+                    items:
+                      properties:
+                        priority:
+                          type: string
+                        tags:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        votes:
+                          type: integer
+                      type: object
+                    type: array
                   members:
                     description: Amount of members for this MongoDB Replica Set
                     maximum: 50

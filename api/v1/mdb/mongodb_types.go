@@ -16,6 +16,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -214,7 +215,7 @@ type DbSpec interface {
 	GetHorizonConfig() []MongoDBHorizonConfig
 	GetAdditionalMongodConfig() *AdditionalMongodConfig
 	GetExternalDomain() *string
-	GetMemberOptions() []mdbcv1.MemberOptions
+	GetMemberOptions() []automationconfig.MemberOptions
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -324,7 +325,7 @@ type MongoDbSpec struct {
 	// MemberConfig
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
-	MemberConfig []mdbcv1.MemberOptions `json:"memberConfig,omitempty"`
+	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 }
 
 func (s *MongoDbSpec) GetExternalDomain() *string {
@@ -338,7 +339,7 @@ func (s *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 	return s.Connectivity.ReplicaSetHorizons
 }
 
-func (s *MongoDbSpec) GetMemberOptions() []mdbcv1.MemberOptions {
+func (s *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return s.MemberConfig
 }
 

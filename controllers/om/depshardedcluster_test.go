@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -104,7 +104,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	// These OM changes must be overriden
 	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = util.Int32Ref(2)
 	(*d.getReplicaSetByName("configSrv")).addMember(
-		NewMongodProcess(len(d.getReplicaSetByName("configSrv").Members()), "foo", "bar", &mdbv1.AdditionalMongodConfig{}, mdbv1.NewStandaloneBuilder().Build().GetSpec(), ""), "", mdbcv1.MemberOptions{},
+		NewMongodProcess(len(d.getReplicaSetByName("configSrv").Members()), "foo", "bar", &mdbv1.AdditionalMongodConfig{}, mdbv1.NewStandaloneBuilder().Build().GetSpec(), ""), "", automationconfig.MemberOptions{},
 	)
 	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").Members()[0:2])
 

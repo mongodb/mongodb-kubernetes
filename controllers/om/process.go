@@ -11,7 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/blang/semver"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -403,7 +403,7 @@ func WithProcessType(processType MongoType) ProcessOption {
 	}
 }
 
-func WithMemberOptions(memberOptions mdbcv1.MemberOptions) ProcessOption {
+func WithMemberOptions(memberOptions automationconfig.MemberOptions) ProcessOption {
 	return func(process Process) {
 		if memberOptions.Votes != nil {
 			process["votes"] = cast.ToInt(memberOptions.Votes)
