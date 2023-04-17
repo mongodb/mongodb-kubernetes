@@ -12,6 +12,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,6 +76,10 @@ type AppDBSpec struct {
 	AutomationConfigOverride *mdbcv1.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
+
+	// MemberConfig
+	// +optional
+	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 }
 
 func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {
@@ -121,8 +126,8 @@ func (m *AppDBSpec) GetAdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	return &mdbv1.AdditionalMongodConfig{}
 }
 
-func (m *AppDBSpec) GetMemberOptions() []mdbcv1.MemberOptions {
-	return nil // no support for AppDB member options currently
+func (m *AppDBSpec) GetMemberOptions() []automationconfig.MemberOptions {
+	return m.MemberConfig
 }
 
 // GetAgentPasswordSecretNamespacedName returns the NamespacedName for the secret

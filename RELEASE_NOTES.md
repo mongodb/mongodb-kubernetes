@@ -3,6 +3,11 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.20.0
 
+# OpsManager Resource
+* Added support for votes, priority and tags by introducing the `spec.applicationDatabase.memberConfig.votes`, `spec.applicationDatabase.memberConfig.priority`
+and `spec.applicationDatabase.memberConfig.tags` field.
+
+
 ## Bug fixes
 * Fixed MongoDBMultiCluster not watching `OM` connection configmap and secret
 * Fixed support for rotating `-clusterfile` for MongoDBMultiCluster, ReplicaSets and ShardedClusters

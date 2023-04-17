@@ -418,9 +418,12 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 			log.Errorf("Could not enable Prometheus: %s", err)
 		}
 	}
+	// get member options from appDB spec
+	memberOptions := opsManager.Spec.AppDB.GetMemberOptions()
 
 	ac, err := automationconfig.NewBuilder().
 		SetTopology(automationconfig.ReplicaSetTopology).
+		SetMemberOptions(memberOptions).
 		SetMembers(scale.ReplicasThisReconciliation(&opsManager)).
 		SetName(rs.Name()).
 		SetDomain(domain).
