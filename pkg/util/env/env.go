@@ -145,20 +145,3 @@ func ToMap(vars ...corev1.EnvVar) map[string]string {
 	}
 	return variablesMap
 }
-
-// RevertEnvVariables saves current values of environment variables and restores them when the returned function is called.
-// Intended to be used in tests as a defer statement.
-// Make sure returned function is called in defer statement:
-//
-//	defer RevertEnvVariables(envVars)()
-func RevertEnvVariables(envVars ...string) func() {
-	originalEnvVars := make(map[string]string)
-	for _, envVar := range envVars {
-		originalEnvVars[envVar] = os.Getenv(envVar)
-	}
-	return func() {
-		for envVar, value := range originalEnvVars {
-			_ = os.Setenv(envVar, value)
-		}
-	}
-}

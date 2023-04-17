@@ -2,10 +2,7 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"testing"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
 	"go.uber.org/zap"
@@ -86,13 +83,11 @@ func Test_BackupDaemonStatefulSetWithRelatedImages(t *testing.T) {
 	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0", util.OpsManagerImageUrl)
 
-	defer env.RevertEnvVariables(initOpsManagerRelatedImageEnv, opsManagerRelatedImageEnv, util.InitOpsManagerImageUrl, util.InitOpsManagerVersion, util.OpsManagerImageUrl)()
-
-	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-appdb")
-	_ = os.Setenv(util.InitOpsManagerVersion, "1.2.3")
-	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
-	_ = os.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
-	_ = os.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
+	t.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-appdb")
+	t.Setenv(util.InitOpsManagerVersion, "1.2.3")
+	t.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
+	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
+	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
 
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},

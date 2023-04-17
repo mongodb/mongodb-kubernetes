@@ -2,10 +2,7 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"testing"
-
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"k8s.io/utils/pointer"
 
@@ -43,7 +40,7 @@ func defaultSecretClient() secrets.SecretClient {
 }
 
 func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
-	_ = os.Setenv(util.InitOpsManagerImageUrl, "test-registry")
+	t.Setenv(util.InitOpsManagerImageUrl, "test-registry")
 
 	modification := buildOpsManagerAndBackupInitContainer()
 	container := &corev1.Container{}
@@ -331,7 +328,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	assert.NotNil(t, spec.SecurityContext)
 	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
 
-	_ = os.Setenv(util.ManagedSecurityContextEnv, "true")
+	t.Setenv(util.ManagedSecurityContextEnv, "true")
 
 	omSts, err = OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
@@ -357,7 +354,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 
 	assert.Nil(t, spec.ImagePullSecrets)
 
-	os.Setenv(util.ImagePullSecrets, "my-cool-secret")
+	t.Setenv(util.ImagePullSecrets, "my-cool-secret")
 	omSts, err = OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
@@ -398,13 +395,11 @@ func Test_OpsManagerStatefulSetWithRelatedImages(t *testing.T) {
 	initOpsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3", util.InitOpsManagerImageUrl)
 	opsManagerRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_5_0_0", util.OpsManagerImageUrl)
 
-	defer env.RevertEnvVariables(initOpsManagerRelatedImageEnv, opsManagerRelatedImageEnv, util.InitOpsManagerImageUrl, util.InitOpsManagerVersion, util.OpsManagerImageUrl)()
-
-	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-ops-manager")
-	_ = os.Setenv(util.InitOpsManagerVersion, "1.2.3")
-	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
-	_ = os.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
-	_ = os.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
+	t.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-ops-manager")
+	t.Setenv(util.InitOpsManagerVersion, "1.2.3")
+	t.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
+	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
+	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
 
 	sts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().SetName("test-om").SetVersion("5.0.0").Build(), zap.S())
 	assert.NoError(t, err)
