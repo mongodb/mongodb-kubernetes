@@ -64,6 +64,18 @@ const (
 	AgentAPIKeyVolumeName = "agent-api-key"
 )
 
+type StsType int
+
+const (
+	Undefined StsType = iota
+	ReplicaSet
+	Mongos
+	Config
+	Shard
+	Standalone
+	MultiReplicaSet
+)
+
 // DatabaseStatefulSetOptions contains all the different values that are variable between
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
@@ -82,6 +94,7 @@ type DatabaseStatefulSetOptions struct {
 	OwnerReference          []metav1.OwnerReference
 	AgentConfig             mdbv1.AgentConfig
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
+	StsType                 StsType
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -95,6 +108,10 @@ type DatabaseStatefulSetOptions struct {
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
+}
+
+func (d DatabaseStatefulSetOptions) IsMongos() bool {
+	return d.StsType == Mongos
 }
 
 func GetPodEnvOptions() func(options *DatabaseStatefulSetOptions) {
@@ -134,6 +151,7 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			AgentConfig:             mdb.Spec.Agent,
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        "false",
+			StsType:                 Standalone,
 		}
 
 		for _, opt := range additionalOpts {
@@ -165,6 +183,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        "false",
+			StsType:                 ReplicaSet,
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -206,6 +225,7 @@ func ShardOptions(shardNum int, additionalOpts ...func(options *DatabaseStateful
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        "false",
+			StsType:                 Shard,
 		}
 
 		for _, opt := range additionalOpts {
@@ -237,6 +257,7 @@ func ConfigServerOptions(additionalOpts ...func(options *DatabaseStatefulSetOpti
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        "false",
+			StsType:                 Config,
 		}
 
 		for _, opt := range additionalOpts {
@@ -266,6 +287,7 @@ func MongosOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) 
 			StatefulSetSpecOverride: stsSpec,
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        "false",
+			StsType:                 Mongos,
 		}
 
 		for _, opt := range additionalOpts {

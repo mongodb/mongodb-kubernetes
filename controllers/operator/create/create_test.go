@@ -2,12 +2,13 @@ package create
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
-	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -254,7 +255,7 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
-	// we only test subset of fields from service spec, which are the most relevant for external services
+	// we only test a subset of fields from service spec, which are the most relevant for external services
 	for _, expectedService := range expectedServices {
 		actualService, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf(expectedService.GetName()), Namespace: "my-namespace"})
 		require.NoError(t, err, "serviceName: %s", expectedService.GetName())
@@ -281,4 +282,54 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 		_, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf(expectedService.GetName()), Namespace: "my-namespace"})
 		assert.True(t, errors.IsNotFound(err))
 	}
+}
+
+func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
+	log := zap.S()
+	manager := mock.NewEmptyManager()
+	manager.Client.AddDefaultMdbConfigResources()
+
+	mdb := mdbv1.NewDefaultShardedClusterBuilder().
+		SetName("mdb").
+		SetNamespace("my-namespace").
+		SetMongosCountSpec(2).
+		SetShardCountSpec(1).
+		SetConfigServerCountSpec(1).
+		Build()
+
+	mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+
+	err := createShardSts(t, mdb, log, manager)
+	require.NoError(t, err)
+
+	err = createMongosSts(t, mdb, log, manager)
+	require.NoError(t, err)
+
+	actualService, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-mongos-0-svc-external"), Namespace: "my-namespace"})
+	require.NoError(t, err)
+	require.NotNil(t, actualService)
+
+	actualService, err = manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-mongos-1-svc-external"), Namespace: "my-namespace"})
+	require.NoError(t, err)
+	require.NotNil(t, actualService)
+
+	_, err = manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-config-0-svc-external"), Namespace: "my-namespace"})
+	require.Errorf(t, err, "expected no config service")
+
+	_, err = manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-0-svc-external"), Namespace: "my-namespace"})
+	require.Errorf(t, err, "expected no shard service")
+
+}
+
+func createShardSts(t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
+	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, construct.GetPodEnvOptions()), log)
+	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ShardOptions(1), log)
+	assert.NoError(t, err)
+	return err
+}
+func createMongosSts(t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
+	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(construct.GetPodEnvOptions()), log)
+	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.MongosOptions(), log)
+	assert.NoError(t, err)
+	return err
 }
