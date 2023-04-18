@@ -127,6 +127,10 @@ func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
 }
 
+func (m *MongoDB) IsShardedCluster() bool {
+	return m.GetResourceType() == ShardedCluster
+}
+
 func (m *MongoDB) GetResourceName() string {
 	return m.Name
 }

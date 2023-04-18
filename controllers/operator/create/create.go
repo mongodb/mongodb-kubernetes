@@ -17,6 +17,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -67,31 +68,43 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 		}
 
 		if mdb.Spec.ExternalAccessConfiguration != nil {
-			externalService := buildService(namespacedName, &mdb, &set.Spec.ServiceName, pointer.String(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
-
-			if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
-				// When external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
-				// This backup port is not needed when we use headless service, because then agent is resolving DNS directly to pod's IP and that allows to connect
-				// to any port in a pod, even ephemeral one.
-				// When we put any other address than headless service into process.hostname: non-headles service fqdn (e.g. in multi cluster using service mesh) or
-				// external domain (e.g. for multi-cluster no-mesh), then we need to define backup port.
-				// In the agent process we pass -ephemeralPortOffset 1 argument to define, that backup port should be a starndard port+1.
-				backupPort := GetNonEphemeralBackupPort(opts.ServicePort)
-				externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt(int(backupPort)), Name: "backup"})
-			}
-
-			if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
-				externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
-			}
-			externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
-
-			err := service.CreateOrUpdateService(client, externalService)
-			if err != nil && !apiErrors.IsAlreadyExists(err) {
-				return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
+			// we only need an external service for mongos
+			if err = createExternalServices(client, mdb, opts, namespacedName, set, podNum); err != nil {
+				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+// createExternalServices creates the external services. The function does not create external services for sharded clusters which given stateful-sets are not mongos.
+func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int) error {
+	if mdb.IsShardedCluster() && !opts.IsMongos() {
+		return nil
+	}
+	externalService := buildService(namespacedName, &mdb, &set.Spec.ServiceName, pointer.String(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+
+	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
+		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
+		// This backup port is not needed when we use headless service, because then agent is resolving DNS directly to pod's IP and that allows to connect
+		// to any port in a pod, even ephemeral one.
+		// When we put any other address than headless service into process.hostname: non-headles service fqdn (e.g. in multi cluster using service mesh) or
+		// external domain (e.g. for multi-cluster no-mesh), then we need to define backup port.
+		// In the agent process, we pass -ephemeralPortOffset 1 argument to define, that backup port should be a starndard port+1.
+		backupPort := GetNonEphemeralBackupPort(opts.ServicePort)
+		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt(int(backupPort)), Name: "backup"})
+	}
+
+	if mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
+		externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.DbCommonSpec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+	}
+	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+
+	err := service.CreateOrUpdateService(client, externalService)
+	if err != nil && !apiErrors.IsAlreadyExists(err) {
+		return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
+	}
 	return nil
 }
 
@@ -229,8 +242,8 @@ func addQueryableBackupPortToService(opsManager omv1.MongoDBOpsManager, service 
 // This function will update a Service object if passed, or return a new one if passed nil, this is to be able to update
 // Services and to not change any attribute they might already have that needs to be maintained.
 //
-// When appLabel is specified then selector is targeting all pods (round robin service). Usable for e.g. OpsManager service.
-// When podLabel is specified then selector is targeting only single pod. Used for external services or multi-cluster services.
+// When appLabel is specified, then the selector is targeting all pods (round-robin service). Usable for e.g. OpsManager service.
+// When podLabel is specified, then the selector is targeting only a single pod. Used for external services or multi-cluster services.
 func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceReadWriter, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
 	labels := map[string]string{
 		construct.ControllerLabelName: util.OperatorName,

@@ -18,6 +18,9 @@ func NewReplicaSetBuilder() *MongoDBBuilder {
 func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ReplicaSet)
 }
+func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
+	return defaultMongoDB(ShardedCluster)
+}
 
 func NewStandaloneBuilder() *MongoDBBuilder {
 	return defaultMongoDB(Standalone)
