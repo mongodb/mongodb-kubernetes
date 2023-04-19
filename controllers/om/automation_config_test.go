@@ -707,7 +707,7 @@ func TestAutomationConfigEquality(t *testing.T) {
 	}
 	for testName, testParameters := range tests {
 		t.Run(testName, func(t *testing.T) {
-			result := testParameters.a.EqualsWithoutDeployment(testParameters.b)
+			result := testParameters.a.EqualsWithoutDeployment(*testParameters.b)
 			assert.Equalf(t, testParameters.expectedEquality, result, "Expected %v, got %v", testParameters.expectedEquality, result)
 		})
 	}
@@ -789,6 +789,27 @@ func TestLDAPIsMerged(t *testing.T) {
 	assert.Contains(t, ldapMap, "CAFileContents")
 }
 
+func TestApplyInto(t *testing.T) {
+	config := AutomationConfig{
+		Auth: NewAuth(),
+		AgentSSL: &AgentSSL{
+			CAFilePath:            util.MergoDelete,
+			ClientCertificateMode: "test",
+		},
+		Deployment: Deployment{"tls": map[string]interface{}{"test": ""}},
+		Ldap:       nil,
+	}
+	deepCopy := Deployment{"tls": map[string]interface{}{}}
+	err := applyInto(config, &deepCopy)
+	assert.NoError(t, err)
+
+	// initial config.Deployment did not change
+	assert.NotEqual(t, config.Deployment, deepCopy)
+
+	// new deployment is the merge result of the previous config.Deployment + config
+	assert.Equal(t, Deployment{"tls": map[string]interface{}{"clientCertificateMode": "test", "test": ""}}, deepCopy)
+}
+
 func changeTypes(deployment Deployment) error {
 	rs := deployment.getReplicaSets()
 	deployment.setReplicaSets(rs)
@@ -855,7 +876,7 @@ func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {
 	overTheWire := getTestAutomationConfig().Deployment
 	overTheWire.addReplicaSet(NewReplicaSet("rs-1", "3.2.0"))
 	overTheWire.addReplicaSet(NewReplicaSet("rs-2", "3.2.0"))
-	marshal, err := json.Marshal(overTheWire) // as we get it over the wire we need to reflect that
+	marshal, err := json.Marshal(overTheWire) // as we get it over the wire, we need to reflect that
 	assert.NoError(t, err)
 	err = json.Unmarshal(marshal, &overTheWire)
 	assert.NoError(t, err)

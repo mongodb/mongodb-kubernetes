@@ -374,13 +374,14 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 		panic("It seems you modified the deployment directly. This is not allowed. Please use helper objects instead.")
 	}
 
-	areEqual := original.EqualsWithoutDeployment(ac)
+	areEqual := original.EqualsWithoutDeployment(*ac)
 	if areEqual {
 		log.Debug("AutomationConfig has not changed, not pushing changes to Ops Manager")
 		return nil
 	}
 
-	_, err = oc.UpdateDeployment(ac.Deployment)
+	// we are using UpdateAutomationConfig since we need to apply our changes.
+	err = oc.UpdateAutomationConfig(ac, log)
 	if err != nil {
 		if util.ShouldLogAutomationConfigDiff() {
 			var originalDeployment = original.Deployment
