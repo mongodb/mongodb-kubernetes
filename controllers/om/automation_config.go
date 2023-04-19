@@ -16,7 +16,7 @@ import (
 
 // AutomationConfig maintains the raw map in the Deployment field
 // and constructs structs to make use of go's type safety
-// Dev notes: actually this object is just a wrapper for the `Deployment` object which is received from Ops Manager
+// Dev notes: actually, this object is just a wrapper for the `Deployment` object which is received from Ops Manager
 // and it's not equal to the AutomationConfig object from mms! It contains some transient struct fields for easier
 // configuration which are merged into the `Deployment` object before sending it back to Ops Manager
 type AutomationConfig struct {
@@ -26,8 +26,13 @@ type AutomationConfig struct {
 	Ldap       *ldap.Ldap
 }
 
-// Apply merges the state of all concrete structs into the Deployment (map[string]interface{})
+// applyInto merges the state of all concrete structs into the Deployment (map[string]interface{})
 func (a *AutomationConfig) Apply() error {
+	return applyInto(*a, &a.Deployment)
+}
+
+// applyInto is a helper method that does not mutate AutomationConfig "a", but only Deployment "deployment"
+func applyInto(a AutomationConfig, into *Deployment) error {
 	// applies all changes made to the Auth struct and merges with the corresponding map[string]interface{}
 	// inside the Deployment
 	if _, ok := a.Deployment["auth"]; ok {
@@ -35,15 +40,15 @@ func (a *AutomationConfig) Apply() error {
 		if err != nil {
 			return err
 		}
-		a.Deployment["auth"] = mergedAuth
+		(*into)["auth"] = mergedAuth
 	}
-	// same applies for the ssl object and map
+	// the same applies for the ssl object and map
 	if _, ok := a.Deployment["tls"]; ok {
 		mergedTLS, err := util.MergeWith(a.AgentSSL, a.Deployment["tls"].(map[string]interface{}), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
-		a.Deployment["tls"] = mergedTLS
+		(*into)["tls"] = mergedTLS
 	}
 
 	if _, ok := a.Deployment["ldap"]; ok {
@@ -51,7 +56,7 @@ func (a *AutomationConfig) Apply() error {
 		if err != nil {
 			return err
 		}
-		a.Deployment["ldap"] = mergedLdap
+		(*into)["ldap"] = mergedLdap
 	}
 	return nil
 }
@@ -64,12 +69,12 @@ func (a *AutomationConfig) Apply() error {
 // structs, such as AutomationConfig.AgentSSL or AutomationConfig.Auth use non-pointer fields (without `omitempty`).
 // When merging them into AutomationConfig.deployment, JSON unmarshaller renders them into their representations,
 // and they get into the final result. Sadly, some tests (especially TestLDAPIsMerged) relies on this behavior.
-func (a *AutomationConfig) EqualsWithoutDeployment(b *AutomationConfig) bool {
+func (a *AutomationConfig) EqualsWithoutDeployment(b AutomationConfig) bool {
 	deploymentsComparer := cmp.Comparer(func(x, y Deployment) bool {
 		return true
 	})
 
-	acA, err := getSerializedAC(a)
+	acA, err := getSerializedAC(*a)
 	if err != nil {
 		return false
 	}
@@ -82,19 +87,24 @@ func (a *AutomationConfig) EqualsWithoutDeployment(b *AutomationConfig) bool {
 	return cmp.Equal(acA, acB, deploymentsComparer)
 }
 
-// getSerializedAC calls apply which decodes the internal struct into the Deployment map. After decoding
+// getSerializedAC calls apply on a deepCopy which decodes the internal struct into the Deployment map. After decoding,
 // we encode the map into its internal representation again. Doing that removes util.MergoDelete for proper comparison
-func getSerializedAC(original *AutomationConfig) (*AutomationConfig, error) {
-	err := original.Apply()
+func getSerializedAC(original AutomationConfig) (AutomationConfig, error) {
+	empty := AutomationConfig{}
+	deepCopy, err := util.MapDeepCopy(original.Deployment)
 	if err != nil {
-		return nil, err
+		return empty, err
+	}
+	err = applyInto(original, (*Deployment)(&deepCopy))
+	if err != nil {
+		return empty, err
 	}
 
-	ac, err := BuildAutomationConfigFromDeployment(original.Deployment)
+	ac, err := BuildAutomationConfigFromDeployment(deepCopy)
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
-	return ac, nil
+	return *ac, nil
 }
 
 // isEqualAfterModification returns true if two Deployment objects are equal ignoring their underlying custom types.
