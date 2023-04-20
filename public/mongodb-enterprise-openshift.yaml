@@ -295,6 +295,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.4.7554-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_15_7646_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.15.7646-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_20_7686_1
+              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.20.7686-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_0
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:5.0.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_5_0_1
