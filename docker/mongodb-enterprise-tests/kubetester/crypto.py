@@ -13,9 +13,7 @@ from typing import List, Optional
 
 
 def generate_csr(namespace: str, host: str, servicename: str):
-    key = rsa.generate_private_key(
-        public_exponent=65537, key_size=2048, backend=default_backend()
-    )
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
 
     csr = (
         x509.CertificateSigningRequestBuilder()
@@ -51,21 +49,6 @@ def generate_csr(namespace: str, host: str, servicename: str):
             encryption_algorithm=serialization.NoEncryption(),
         ),
     )
-
-
-def request_certificate(
-    csr: [bytes], name: str, usages: List[str]
-) -> client.V1beta1CertificateSigningRequest:
-    request = client.V1beta1CertificateSigningRequest(
-        spec=client.V1beta1CertificateSigningRequestSpec(
-            request=base64.b64encode(csr).decode(),
-            usages=usages,
-        )
-    )
-    request.metadata = client.V1ObjectMeta()
-    request.metadata.name = name
-
-    return client.CertificatesV1beta1Api().create_certificate_signing_request(request)
 
 
 def get_pem_certificate(name: str) -> Optional[str]:
