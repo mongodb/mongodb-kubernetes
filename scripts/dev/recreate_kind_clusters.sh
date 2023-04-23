@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -Eeou pipefail
 
 # first script prepares registry, so to avoid race it have to finish running before we execute subsequent ones in parallel
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
@@ -13,8 +14,9 @@ wait
 echo "Interconnecting Kind clusters"
 scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator
 
-echo "Downloading istio"
-[ ! -d "istio-${VERSION}" ] && curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -
+export VERSION=${VERSION:-1.16.1}
+
+source multi_cluster/tools/download_istio.sh || true
 
 VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh &
 VERSION=1.16.1 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh &

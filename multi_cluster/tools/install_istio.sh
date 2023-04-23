@@ -8,15 +8,11 @@ export CTX_CLUSTER3=${CTX_CLUSTER3:-e2e.cluster3.mongokubernetes.com}
 export VERSION=${VERSION:-1.12.8}
 
 IS_KIND="false"
-if [[ $CTX_CLUSTER1 = kind* ]]
-then
+if [[ $CTX_CLUSTER1 = kind* ]]; then
   IS_KIND="true"
 fi
 
-ISTIO_SCRIPT_CHECKSUM="254c6bd6aa5b8ac8c552561c84d8e9b3a101d9e613e2a8edd6db1f19c1871dbf"
-[ ! -d "istio-${VERSION}" ] && curl -O https://raw.githubusercontent.com/istio/istio/d710dfc2f95adb9399e1656165fa5ac22f6e1a16/release/downloadIstioCandidate.sh
-echo "${ISTIO_SCRIPT_CHECKSUM}  downloadIstioCandidate.sh" | sha256sum --check
-ISTIO_VERSION=${VERSION} sh downloadIstioCandidate.sh
+source multi_cluster/tools/download_istio.sh || true
 
 #
 cd istio-${VERSION}
@@ -43,30 +39,30 @@ make -f ../tools/certs/Makefile.selfsigned.mk "${CTX_CLUSTER3}-cacerts" || make 
 kubectl --context="${CTX_CLUSTER1}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER1}" create ns istio-system
 kubectl --context="${CTX_CLUSTER1}" create secret generic cacerts -n istio-system \
-      --from-file=${CTX_CLUSTER1}/ca-cert.pem \
-      --from-file=${CTX_CLUSTER1}/ca-key.pem \
-      --from-file=${CTX_CLUSTER1}/root-cert.pem \
-      --from-file=${CTX_CLUSTER1}/cert-chain.pem
+  --from-file=${CTX_CLUSTER1}/ca-cert.pem \
+  --from-file=${CTX_CLUSTER1}/ca-key.pem \
+  --from-file=${CTX_CLUSTER1}/root-cert.pem \
+  --from-file=${CTX_CLUSTER1}/cert-chain.pem
 
 kubectl --context="${CTX_CLUSTER2}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER2}" create ns istio-system
 kubectl --context="${CTX_CLUSTER2}" create secret generic cacerts -n istio-system \
-      --from-file=${CTX_CLUSTER2}/ca-cert.pem \
-      --from-file=${CTX_CLUSTER2}/ca-key.pem \
-      --from-file=${CTX_CLUSTER2}/root-cert.pem \
-      --from-file=${CTX_CLUSTER2}/cert-chain.pem
+  --from-file=${CTX_CLUSTER2}/ca-cert.pem \
+  --from-file=${CTX_CLUSTER2}/ca-key.pem \
+  --from-file=${CTX_CLUSTER2}/root-cert.pem \
+  --from-file=${CTX_CLUSTER2}/cert-chain.pem
 
 kubectl --context="${CTX_CLUSTER3}" delete ns istio-system || true
 kubectl --context="${CTX_CLUSTER3}" create ns istio-system
 kubectl --context="${CTX_CLUSTER3}" create secret generic cacerts -n istio-system \
-      --from-file=${CTX_CLUSTER3}/ca-cert.pem \
-      --from-file=${CTX_CLUSTER3}/ca-key.pem \
-      --from-file=${CTX_CLUSTER3}/root-cert.pem \
-      --from-file=${CTX_CLUSTER3}/cert-chain.pem
+  --from-file=${CTX_CLUSTER3}/ca-cert.pem \
+  --from-file=${CTX_CLUSTER3}/ca-key.pem \
+  --from-file=${CTX_CLUSTER3}/root-cert.pem \
+  --from-file=${CTX_CLUSTER3}/cert-chain.pem
 popd
 
 # install IstioOperator in clusters
-cat <<EOF > cluster1.yaml
+cat <<EOF >cluster1.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
@@ -86,7 +82,7 @@ EOF
 
 bin/istioctl install --context="${CTX_CLUSTER1}" -f cluster1.yaml -y &
 
-cat <<EOF > cluster2.yaml
+cat <<EOF >cluster2.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
@@ -106,7 +102,7 @@ EOF
 
 bin/istioctl install --context="${CTX_CLUSTER2}" -f cluster2.yaml -y &
 
-cat <<EOF > cluster3.yaml
+cat <<EOF >cluster3.yaml
 apiVersion: install.istio.io/v1alpha1
 kind: IstioOperator
 spec:
@@ -139,40 +135,40 @@ fi
 
 # enable endpoint discovery
 bin/istioctl x create-remote-secret \
-    --context="${CTX_CLUSTER1}" \
-    -n istio-system \
-    --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} | \
-    kubectl apply -f - --context="${CTX_CLUSTER2}"
+  --context="${CTX_CLUSTER1}" \
+  -n istio-system \
+  --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
+  kubectl apply -f - --context="${CTX_CLUSTER2}"
 
 bin/istioctl x create-remote-secret \
-    --context="${CTX_CLUSTER1}" \
-    -n istio-system \
-    --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} | \
-    kubectl apply -f - --context="${CTX_CLUSTER3}"
+  --context="${CTX_CLUSTER1}" \
+  -n istio-system \
+  --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
+  kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 bin/istioctl x create-remote-secret \
-    --context="${CTX_CLUSTER2}" \
-    -n istio-system \
-    --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} | \
-    kubectl apply -f - --context="${CTX_CLUSTER1}"
+  --context="${CTX_CLUSTER2}" \
+  -n istio-system \
+  --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
+  kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 bin/istioctl x create-remote-secret \
-    --context="${CTX_CLUSTER2}" \
-    -n istio-system \
-    --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} | \
-    kubectl apply -f - --context="${CTX_CLUSTER3}"
+  --context="${CTX_CLUSTER2}" \
+  -n istio-system \
+  --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
+  kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 bin/istioctl x create-remote-secret \
-    --context="${CTX_CLUSTER3}" \
-    -n istio-system \
-    --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} | \
-    kubectl apply -f - --context="${CTX_CLUSTER1}"
+  --context="${CTX_CLUSTER3}" \
+  -n istio-system \
+  --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
+  kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 bin/istioctl x create-remote-secret \
-    --context="${CTX_CLUSTER3}" \
-    -n istio-system \
-    --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} | \
-    kubectl apply -f - --context="${CTX_CLUSTER2}"
+  --context="${CTX_CLUSTER3}" \
+  -n istio-system \
+  --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
+  kubectl apply -f - --context="${CTX_CLUSTER2}"
 # disable namespace injection explicitly for istio-system namespace
 kubectl --context="${CTX_CLUSTER1}" label namespace istio-system istio-injection=disabled
 kubectl --context="${CTX_CLUSTER2}" label namespace istio-system istio-injection=disabled

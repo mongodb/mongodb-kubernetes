@@ -6,7 +6,7 @@ export VERSION=${VERSION:-1.14.2}
 
 export CTX_CLUSTER=${CTX_CLUSTER:-e2e.operator.mongokubernetes.com}
 
-[ ! -d "istio-${VERSION}" ] && curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${VERSION} sh -
+source multi_cluster/tools/download_istio.sh || true
 cd istio-${VERSION}
 
 bin/istioctl x uninstall --context="${CTX_CLUSTER}" --purge --skip-confirmation
