@@ -5,7 +5,7 @@ import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 
-from kubetester import create_or_update
+from kubetester import create_or_update, delete_statefulset
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     skip_if_local,
@@ -149,6 +149,28 @@ def test_mongodb_options_were_updated(mongodb_multi: MongoDBMulti):
         assert process["args2_6"]["net"]["port"] == MONGODB_PORT
         # the mode setting has been removed
         assert "mode" not in process["args2_6"]["operationProfiling"]
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_delete_member_cluster_sts(
+    namespace: str,
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    date = mongodb_multi.get_status_last_transition_time()
+
+    sts_name = "{}-0".format(mongodb_multi.name)
+    delete_statefulset(
+        namespace=namespace,
+        name=sts_name,
+        api_client=member_cluster_clients[0].api_client,
+    )
+
+    # abandons running phase since the statefulset in cluster1 has been deleted
+    mongodb_multi.assert_state_transition_happens(date)
+
+    # the operator should reconcile and recreate the statefulset
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set

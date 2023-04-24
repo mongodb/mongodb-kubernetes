@@ -20,9 +20,9 @@ spec:
     configMapRef:
       name: my-project
   clusterSpecList:
-    - clusterName: e2e.cluster1.mongokubernetes.com
+    - clusterName: kind-e2e-cluster-1
       members: 1
-    - clusterName: e2e.cluster2.mongokubernetes.com
+    - clusterName: kind-e2e-cluster-2
       members: 1
-    - clusterName: e2e.cluster3.mongokubernetes.com
+    - clusterName: kind-e2e-cluster-3
       members: 1

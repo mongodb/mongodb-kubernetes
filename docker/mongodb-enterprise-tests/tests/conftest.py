@@ -435,7 +435,7 @@ def multi_cluster_operator(
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator this is executed by scripts/dev/prepare_local_e2e_run.sh
+    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
     if not local_operator():
         run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(

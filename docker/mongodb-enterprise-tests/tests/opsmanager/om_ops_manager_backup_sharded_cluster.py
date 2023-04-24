@@ -132,8 +132,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
         },
     )
 
-    create_or_update(resource)
-    return resource
+    yield create_or_update(resource)
 
 
 @mark.e2e_om_ops_manager_backup_sharded_cluster

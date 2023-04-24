@@ -2,6 +2,7 @@ from typing import Dict, List
 import kubernetes
 from pytest import mark, fixture
 
+from kubetester import create_or_update
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -9,10 +10,14 @@ from kubetester.operator import Operator
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubernetes import client
 
+from tests.multicluster.conftest import cluster_spec_list
+
 
 @fixture(scope="module")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names: list[str],
 ) -> MongoDBMulti:
 
     resource = MongoDBMulti.from_yaml(
@@ -22,14 +27,14 @@ def mongodb_multi(
     )
 
     print(resource)
-    resource["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return resource.create()
+    return create_or_update(resource)
 
 
 @mark.e2e_multi_cluster_replica_set_ignore_unknown_users

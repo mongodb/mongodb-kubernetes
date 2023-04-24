@@ -11,15 +11,20 @@ from kubernetes import client
 from kubeobject import CustomObject
 
 from tests.conftest import run_multi_cluster_recovery_tool, MULTI_CLUSTER_OPERATOR_NAME
-from .conftest import create_service_entries_objects
+from .conftest import create_service_entries_objects, cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
 
 
 @fixture(scope="module")
-def mongodb_multi(central_cluster_client: client.ApiClient, namespace: str) -> MongoDBMulti:
+def mongodb_multi(
+    central_cluster_client: client.ApiClient,
+    namespace: str,
+    member_cluster_names: list[str],
+) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
     resource["spec"]["persistent"] = False
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = client.CustomObjectsApi(central_cluster_client)
 
     return resource
@@ -50,7 +55,7 @@ def test_deploy_operator(multi_cluster_operator_manual_remediation: Operator):
 
 @mark.e2e_multi_cluster_recover_network_partition
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.create()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 

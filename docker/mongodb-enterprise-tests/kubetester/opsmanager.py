@@ -12,7 +12,7 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
 
-from kubetester import read_secret, create_configmap
+from kubetester import read_secret, create_configmap, create_or_update_secret, create_or_update_configmap
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     KubernetesTester,
@@ -200,6 +200,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         password="Passw0rd.",
         first_name="Jane",
         last_name="Doe",
+        api_client: Optional[client.ApiClient] = None,
     ):
         data = {
             "Username": user_name,
@@ -207,7 +208,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             "FirstName": first_name,
             "LastName": last_name,
         }
-        KubernetesTester.create_secret(self.namespace, self.get_admin_secret_name(), data)
+        create_or_update_secret(self.namespace, self.get_admin_secret_name(), data, api_client=api_client)
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
         secret = client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-config", self.namespace).data
@@ -233,6 +234,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         # the namespace can be different from OM one if the MongoDB is created in a separate namespace
         if namespace is None:
             namespace = self.namespace
+
         try:
             create_configmap(namespace, config_map_name, data, api_client=api_client)
         except ApiException as e:

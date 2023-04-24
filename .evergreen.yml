@@ -1695,12 +1695,6 @@ tasks:
   commands:
     - func: e2e_test
 
-
-- name: e2e_multi_cluster_member_cluster_watch
-  tags: ["patch-run"]
-  commands:
-    - func: e2e_test
-
 - name: e2e_multi_cluster_replica_set_scale_up
   tags: ["patch-run"]
   commands:
@@ -2095,41 +2089,6 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
-- name: e2e_multi_cluster_task_group
-  max_hosts: 2
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
-  tasks:
-    - e2e_multi_cluster_replica_set_deletion
-    - e2e_multi_cluster_replica_set_scale_up
-    - e2e_multi_cluster_scale_up_cluster
-    - e2e_multi_cluster_scale_up_cluster_new_cluster
-    - e2e_multi_cluster_replica_set_scale_down
-    - e2e_multi_cluster_scale_down_cluster
-    - e2e_multi_sts_override
-    - e2e_multi_cluster_tls_with_scram
-    - e2e_multi_cluster_member_cluster_watch
-    - e2e_multi_cluster_upgrade_downgrade
-    - e2e_multi_cluster_backup_restore
-    - e2e_multi_cluster_disaster_recovery
-    - e2e_multi_cluster_multi_disaster_recovery
-    - e2e_multi_cluster_recover_network_partition
-    - e2e_multi_cluster_validation
-    - e2e_multi_cluster_agent_flags
-    - e2e_multi_cluster_replica_set_ignore_unknown_users
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
-
 - name: e2e_multi_cluster_kind_task_group
   max_hosts: 2
   setup_group:
@@ -2153,6 +2112,22 @@ task_groups:
     - e2e_multi_cluster_with_ldap
     - e2e_multi_cluster_with_ldap_custom_roles
     - e2e_multi_cluster_mtls_test
+    - e2e_multi_cluster_replica_set_deletion
+    - e2e_multi_cluster_replica_set_scale_up
+    - e2e_multi_cluster_scale_up_cluster
+    - e2e_multi_cluster_scale_up_cluster_new_cluster
+    - e2e_multi_cluster_replica_set_scale_down
+    - e2e_multi_cluster_scale_down_cluster
+    - e2e_multi_sts_override
+    - e2e_multi_cluster_tls_with_scram
+    - e2e_multi_cluster_upgrade_downgrade
+    - e2e_multi_cluster_backup_restore
+    - e2e_multi_cluster_disaster_recovery
+    - e2e_multi_cluster_multi_disaster_recovery
+    - e2e_multi_cluster_recover_network_partition
+    - e2e_multi_cluster_validation
+    - e2e_multi_cluster_agent_flags
+    - e2e_multi_cluster_replica_set_ignore_unknown_users
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2459,28 +2434,6 @@ buildvariants:
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
 
-- name: e2e_multi_cluster
-  display_name: e2e_multi_cluster
-  run_on:
-    - ubuntu1804-large
-  depends_on:
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: prepare_multi_cluster
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-  expansions:
-    <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster ]
-    image_type: ubi
-    agent_version: *agent_version50
-  tasks:
-    - name: e2e_multi_cluster_task_group
-
 - name: e2e_multi_cluster_kind
   display_name: e2e_multi_cluster_kind
   run_on:
@@ -2557,7 +2510,7 @@ buildvariants:
 ### Release build variants
 
 ## Adds versions as supported in the supported versions Database.
-## The reponsibility of actually building this image/version and pushing them
+## The responsibility of actually building this image/version and pushing them
 ## to public Docker repositories is of the periodic-build task.
 - name: release
   display_name: release
