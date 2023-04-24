@@ -278,6 +278,11 @@ const (
 	MethodNotAllowed            = "405 (Method Not Allowed)"
 
 	RetryTimeSec = 10
+
+	DeprecatedImageAppdbUbiUrl    = "mongodb-enterprise-appdb-database-ubi"
+	DeprecatedImageAppdbUbuntuUrl = "mongodb-enterprise-appdb-database"
+
+	OfficialServerImageAppdbUrl = "mongodb-enterprise-server"
 )
 
 const (

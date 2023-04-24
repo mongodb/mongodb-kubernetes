@@ -2,10 +2,14 @@ package construct
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
+
+	"go.uber.org/zap"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
@@ -133,7 +137,7 @@ func appDbPodSpec(appDb om.AppDBSpec) podtemplatespec.Modification {
 // buildAppDBInitContainer builds the container specification for mongodb-enterprise-init-appdb image.
 func buildAppDBInitContainer(volumeMounts []corev1.VolumeMount) container.Modification {
 	version := env.ReadOrDefault(initAppdbVersionEnv, "latest")
-	initContainerImageURL := ContainerImage(util.InitAppdbImageUrlEnv, version)
+	initContainerImageURL := ContainerImage(util.InitAppdbImageUrlEnv, version, nil)
 
 	return container.Apply(
 		container.WithName(InitAppDbContainerName),
@@ -367,10 +371,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, &opsManager),
 		// If run in certified openshift bundle in disconnected environment with digest pinning we need to update
 		// mongod image as it is constructed from 2 env variables and version from spec, and it will not be replaced to sha256 digest properly.
-		containerImageModification(construct.MongodbName, getMongoDBImage(opsManager.Spec.AppDB.Version)),
+		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
+		// the latter with an empty string.
+		containerImageModification(construct.MongodbName, getAppDBImage(opsManager.Spec.AppDB.Version), []string{""}),
 		// we don't need to update here the automation agent image for digest pinning, because it is defined in AGENT_IMAGE env var as full url with version
 		// if we run in certified bundle with digest pinning it will be properly updated to digest
-
 		customPersistenceConfig(opsManager),
 		statefulset.WithUpdateStrategyType(opsManager.GetAppDBUpdateStrategyType()),
 		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
@@ -394,19 +399,55 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		),
 		appDbLabels(opsManager),
 	)
-	// We merge the podspec sepcified in the CR
+	// We merge the podspec specified in the CR
 	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
 		sts.Spec = merge.StatefulSetSpecs(sts.Spec, appsv1.StatefulSetSpec{Template: *appDb.PodSpec.PodTemplateWrapper.PodTemplate})
 	}
 	return sts, nil
 }
 
-func getMongoDBImage(version string) string {
+// IsEnterprise returns whether the set image in activated with the enterprise module.
+// By default, it should be true, but
+// for safety mechanisms we implement a backdoor to deactivate the enterprise AC feature.
+func IsEnterprise() bool {
+	overrideAssumption, err := strconv.ParseBool(os.Getenv(construct.MongoDBAssumeEnterpriseEnv))
+	if err == nil {
+		return overrideAssumption
+	}
+	return true
+}
+
+func getAppDBImage(version string) string {
 	repoUrl := os.Getenv(construct.MongodbRepoUrl)
+	imageType := envvar.GetEnvOrDefault(construct.MongoDBImageType, construct.DefaultImageType)
+	imageURL := os.Getenv(construct.MongodbImageEnv)
+
 	if strings.HasSuffix(repoUrl, "/") {
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
-	mongoImageName := ContainerImage(construct.MongodbImageEnv, version)
+
+	usesDeprecatedImage := false
+	// In case the customer is still using a deprecated image input for instance 4.2.1-ent we should make sure that they use the new server images maintained by the server team.
+	if strings.HasSuffix(imageURL, util.DeprecatedImageAppdbUbiUrl) {
+		usesDeprecatedImage = true
+		imageURL = strings.Replace(imageURL, util.DeprecatedImageAppdbUbiUrl, util.OfficialServerImageAppdbUrl, 1)
+	}
+	if strings.HasSuffix(imageURL, util.DeprecatedImageAppdbUbuntuUrl) {
+		usesDeprecatedImage = true
+		imageURL = strings.Replace(imageURL, util.DeprecatedImageAppdbUbuntuUrl, util.OfficialServerImageAppdbUrl, 1)
+	}
+
+	// we want to make sure to replace all deprecated usages with the new official supported images!
+	if usesDeprecatedImage {
+		if strings.HasSuffix(version, "-ent") {
+			version = strings.Replace(version, "-ent", "-"+imageType, 1)
+		}
+	}
+
+	mongoImageName := ContainerImage(construct.MongodbImageEnv, version, func() string {
+		return imageURL
+	})
+
 	if strings.Contains(mongoImageName, "@sha256:") || strings.HasPrefix(mongoImageName, repoUrl) {
 		return mongoImageName
 	}
@@ -414,11 +455,12 @@ func getMongoDBImage(version string) string {
 	return fmt.Sprintf("%s/%s", repoUrl, mongoImageName)
 }
 
-func containerImageModification(containerName string, image string) statefulset.Modification {
+func containerImageModification(containerName string, image string, args []string) statefulset.Modification {
 	return func(sts *appsv1.StatefulSet) {
 		for i, c := range sts.Spec.Template.Spec.Containers {
 			if c.Name == containerName {
 				c.Image = image
+				c.Args = args
 				sts.Spec.Template.Spec.Containers[i] = c
 				break
 			}
@@ -517,9 +559,9 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 			monitoringContainer := podtemplatespec.FindContainerByName(construct.AgentName, podTemplateSpec).DeepCopy()
 			monitoringContainer.Name = monitoringAgentContainerName
 
-			// we ensure that the monitoring agent image is compatible with the version of Ops Manager we're using.
+			// we ensure that the monitoring agent image is compatible with the input of Ops Manager we're using.
 			if opts.MonitoringAgentVersion != "" {
-				monitoringContainer.Image = ContainerImage(construct.AgentImageEnv, opts.MonitoringAgentVersion)
+				monitoringContainer.Image = ContainerImage(construct.AgentImageEnv, opts.MonitoringAgentVersion, nil)
 			}
 
 			// Replace the automation config volume
@@ -532,7 +574,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				}
 			}
 
-			configMapIndex := getVolumeMountIndexByName(volumeMounts, "automation-config-goal-version")
+			configMapIndex := getVolumeMountIndexByName(volumeMounts, "automation-config-goal-input")
 			if configMapIndex != -1 {
 				volumeMounts[configMapIndex].Name = monitoringConfigMapVolume.Name
 			}

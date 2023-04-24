@@ -24,9 +24,7 @@ def replica_set(
     namespace: str,
     custom_mdb_version: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(custom_mdb_version)
     resource.create()
 
@@ -39,22 +37,18 @@ def ops_manager(
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
-    )
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace)
     om["spec"]["backup"] = {
         "enabled": False,
     }
     om.set_version(custom_version)
-    om.set_appdb_version(custom_appdb_version)
+    om.set_appdb_version("5.0.16-ent")
 
     return om.create()
 
 
 @mark.e2e_vault_setup_tls
-def test_vault_creation(
-    vault_tls: str, vault_name: str, vault_namespace: str, issuer: str
-):
+def test_vault_creation(vault_tls: str, vault_name: str, vault_namespace: str, issuer: str):
     vault_tls
 
     # assert if vault statefulset is ready, this is sort of redundant(we already assert for pod phase)
@@ -108,9 +102,7 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
 
     cmd = ["env"]
 
-    response = run_command_in_vault(
-        vault_namespace, vault_name, cmd, expected_message=[]
-    )
+    response = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
 
     response = response.split("\n")
     for line in response:
@@ -226,15 +218,11 @@ def test_enable_vault_role_for_operator_pod(
 
 
 @mark.e2e_vault_setup_tls
-def test_put_admin_credentials_to_vault(
-    namespace: str, vault_namespace: str, vault_name: str
-):
+def test_put_admin_credentials_to_vault(namespace: str, vault_namespace: str, vault_name: str):
     admin_credentials_secret_name = "ops-manager-admin-secret"
     # read the -admin-secret from namespace and store in vault
     data = read_secret(namespace, admin_credentials_secret_name)
-    path = (
-        f"secret/mongodbenterprise/operator/{namespace}/{admin_credentials_secret_name}"
-    )
+    path = f"secret/mongodbenterprise/operator/{namespace}/{admin_credentials_secret_name}"
     store_secret_in_vault(vault_namespace, vault_name, data, path)
     delete_secret(namespace, admin_credentials_secret_name)
 
@@ -258,9 +246,7 @@ def test_operator_install_with_vault_backend(
 
 
 @mark.e2e_vault_setup_tls
-def test_store_om_credentials_in_vault(
-    vault_namespace: str, vault_name: str, namespace: str
-):
+def test_store_om_credentials_in_vault(vault_namespace: str, vault_name: str, namespace: str):
     credentials = read_secret(namespace, "my-credentials")
     store_secret_in_vault(
         vault_namespace,
@@ -275,9 +261,7 @@ def test_store_om_credentials_in_vault(
         "get",
         f"secret/mongodbenterprise/operator/{namespace}/my-credentials",
     ]
-    run_command_in_vault(
-        vault_namespace, vault_name, cmd, expected_message=["publicApiKey"]
-    )
+    run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=["publicApiKey"])
     delete_secret(namespace, "my-credentials")
 
 

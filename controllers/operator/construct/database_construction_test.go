@@ -156,6 +156,7 @@ func TestLabelsAndAnotations(t *testing.T) {
 
 func TestReplaceImageTagOrDigestToTag(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"))
+	assert.Equal(t, "docker.io/mongodb/mongodb-enterprise-server:9876-54321", replaceImageTagOrDigestToTag("docker.io/mongodb/mongodb-enterprise-server:1234-567", "9876-54321"))
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a", "9876-54321"))
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:some-tag", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-enterprise-database:45678", "some-tag"))
 	assert.Equal(t, "quay.io:3000/mongodb/mongodb-enterprise-database:some-tag", replaceImageTagOrDigestToTag("quay.io:3000/mongodb/mongodb-enterprise-database:45678", "some-tag"))
@@ -172,36 +173,36 @@ func TestContainerImage(t *testing.T) {
 	t.Setenv(initDatabaseRelatedImageEnv3, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad")
 
 	// there is no related image for 0.0.1
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:0.0.1", ContainerImage(InitDatabaseVersionEnv, "0.0.1"))
-	// for 10.2.25.6008-1 there is no RELATED_IMAGE variable set, so we use version instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:10.2.25.6008-1", ContainerImage(InitDatabaseVersionEnv, "10.2.25.6008-1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:0.0.1", ContainerImage(InitDatabaseVersionEnv, "0.0.1", nil))
+	// for 10.2.25.6008-1 there is no RELATED_IMAGE variable set, so we use input instead of digest
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database:10.2.25.6008-1", ContainerImage(InitDatabaseVersionEnv, "10.2.25.6008-1", nil))
 	// for following versions we set RELATED_IMAGE_MONGODB_IMAGE_* env variables to sha256 digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(InitDatabaseVersionEnv, "1.0.0"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(InitDatabaseVersionEnv, "12.0.4.7554-1"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(InitDatabaseVersionEnv, "2.0.0-b20220912000000"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(InitDatabaseVersionEnv, "1.0.0", nil))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(InitDatabaseVersionEnv, "12.0.4.7554-1", nil))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(InitDatabaseVersionEnv, "2.0.0-b20220912000000", nil))
 
-	// env var has version already, so it is replaced
+	// env var has input already, so it is replaced
 	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb:12.0.4.7554-1")
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:10.2.25.6008-1", ContainerImage(util.InitAppdbImageUrlEnv, "10.2.25.6008-1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:10.2.25.6008-1", ContainerImage(util.InitAppdbImageUrlEnv, "10.2.25.6008-1", nil))
 
-	// env var has version already, but there is related image with this version
+	// env var has input already, but there is related image with this input
 	t.Setenv(fmt.Sprintf("RELATED_IMAGE_%s_12_0_4_7554_1", util.InitAppdbImageUrlEnv), "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c")
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1", nil))
 
 	t.Setenv(util.InitAppdbImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd")
-	// env var has version already as digest, but there is related image with this version
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1"))
-	// env var has version already as digest, there is no related image with this version, so we use version instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:1.2.3", ContainerImage(util.InitAppdbImageUrlEnv, "1.2.3"))
+	// env var has input already as digest, but there is related image with this input
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:a48829ce36bf479dc25a4de79234c5621b67beee62ca98a099d0a56fdb04791c", ContainerImage(util.InitAppdbImageUrlEnv, "12.0.4.7554-1", nil))
+	// env var has input already as digest, there is no related image with this input, so we use input instead of digest
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:1.2.3", ContainerImage(util.InitAppdbImageUrlEnv, "1.2.3", nil))
 
 	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/ops-manager-kubernetes")
-	assert.Equal(t, "quay.io:3000/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "quay.io:3000/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
 
 	t.Setenv(util.OpsManagerImageUrl, "localhost/mongodb/ops-manager-kubernetes")
-	assert.Equal(t, "localhost/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "localhost/mongodb/ops-manager-kubernetes:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
 
 	t.Setenv(util.OpsManagerImageUrl, "mongodb")
-	assert.Equal(t, "mongodb:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3"))
+	assert.Equal(t, "mongodb:1.2.3", ContainerImage(util.OpsManagerImageUrl, "1.2.3", nil))
 }
 
 func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
@@ -222,13 +223,69 @@ func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
 }
 
-func TestGettingMongoDBImageWithRelatedImages(t *testing.T) {
-	mongodbRelatedImageEnvUnpinned := "RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent"
-	repoUrlEnv := "MONGODB_REPO_URL"
+func TestGetAppDBImage(t *testing.T) {
+	// Note: if no construct.DefaultImageType is given, we will default to ubi8
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		setupEnvs func()
+	}{
+		{
+			name:  "Getting official image",
+			input: "4.2.11-ubi8",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func() {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+			},
+		},
+		{
+			name:  "Getting official image with legacy image",
+			input: "4.2.11-ent",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func() {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
+			},
+		},
+		{
+			name:  "Getting official image with legacy env",
+			input: "4.2.11-ent",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2020",
+			setupEnvs: func() {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongoDBImageType, "ubuntu2020")
+				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbuntuUrl)
 
-	t.Setenv(mongodbRelatedImageEnvUnpinned, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent")
-	t.Setenv(construct.MongodbImageEnv, "mongodb-enterprise-appdb-database-ubi")
-	t.Setenv(repoUrlEnv, "quay.io/mongodb")
-
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent", getMongoDBImage("4.2.11-ent"))
+			},
+		},
+		{
+			name:  "Getting official image with related image from deprecated URL",
+			input: "4.2.11-ubi8",
+			want:  "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func() {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv(construct.MongoDBImageType, "ubi8")
+				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
+				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[0])
+			},
+		},
+		{
+			name:  "Getting official image with related image from official URL. We do not replace -ent because the url is not a deprecated one we want to replace",
+			input: "4.2.11-ent",
+			want:  "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ent",
+			setupEnvs: func() {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[0])
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setupEnvs()
+			assert.Equalf(t, tt.want, getAppDBImage(tt.input), "getAppDBImage(%v)", tt.input)
+		})
+	}
 }

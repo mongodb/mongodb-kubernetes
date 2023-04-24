@@ -114,13 +114,6 @@ func (d DatabaseStatefulSetOptions) IsMongos() bool {
 	return d.StsType == Mongos
 }
 
-func GetPodEnvOptions() func(options *DatabaseStatefulSetOptions) {
-	return func(options *DatabaseStatefulSetOptions) {
-		options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
-
-	}
-}
-
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
 // a database StatefulSet.
 type databaseStatefulSetSource interface {
@@ -618,7 +611,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
 	// Database image version, should be a specific version to avoid using stale 'non-empty' versions (before versioning)
 	databaseImageVersion := env.ReadOrDefault(DatabaseVersionEnv, "latest")
-	databaseImageUrl := ContainerImage(util.AutomationAgentImage, databaseImageVersion)
+	databaseImageUrl := ContainerImage(util.AutomationAgentImage, databaseImageVersion, nil)
 
 	// scripts volume is shared by the init container and the AppDB so the startup
 	// script can be copied over
@@ -744,7 +737,7 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 // buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
 func buildDatabaseInitContainer() container.Modification {
 	version := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
-	initContainerImageURL := ContainerImage(util.InitDatabaseImageUrlEnv, version)
+	initContainerImageURL := ContainerImage(util.InitDatabaseImageUrlEnv, version, nil)
 
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
@@ -884,17 +877,18 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 	return volumes, volumeMounts
 }
 
-// replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to given version
+// replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
 func replaceImageTagOrDigestToTag(image string, newVersion string) string {
-	// quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
+	// example: quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
 	if strings.Contains(image, "sha256:") {
 		imageSplit := strings.Split(image, "@")
 		imageSplit[len(imageSplit)-1] = newVersion
 		return strings.Join(imageSplit, ":")
 	} else {
-		// quay.io/mongodb/mongodb-agent:1234-567
-		// private-registry.local:3000/mongodb/mongodb-agent:1234-567
-		// mongodb
+		// examples:
+		//  - quay.io/mongodb/mongodb-agent:1234-567
+		//  - private-registry.local:3000/mongodb/mongodb-agent:1234-567
+		//  - mongodb
 		idx := strings.IndexRune(image, '/')
 		// If there is no domain separator in the image string or the segment before the slash does not contain
 		// a '.' or ':' and is not 'localhost' to indicate that the segment is a host, assume the image will be pulled from
@@ -920,7 +914,7 @@ func replaceImageTagOrDigestToTag(image string, newVersion string) string {
 // It works by convention by looking up RELATED_IMAGE_{imageURLEnv}_{version_underscored}.
 // RELATED_IMAGE_* env variables are set in Helm chart for OpenShift.
 // In case there is no RELATED_IMAGE defined it replaces digest or tag to version.
-func ContainerImage(imageURLEnv string, version string) string {
+func ContainerImage(imageURLEnv string, version string, retrieveImageURL func() string) string {
 	versionUnderscored := strings.ReplaceAll(version, ".", "_")
 	versionUnderscored = strings.ReplaceAll(versionUnderscored, "-", "_")
 	relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_%s", imageURLEnv, versionUnderscored)
@@ -929,7 +923,13 @@ func ContainerImage(imageURLEnv string, version string) string {
 		return relatedImage
 	}
 
-	imageURL := os.Getenv(imageURLEnv)
+	var imageURL string
+	if retrieveImageURL != nil {
+		imageURL = retrieveImageURL()
+	} else {
+		imageURL = os.Getenv(imageURLEnv)
+	}
+
 	if strings.Contains(imageURL, ":") {
 		// here imageURL is not a host only but also with version or digest
 		// in that case we need to replace the version/digest.
@@ -940,5 +940,5 @@ func ContainerImage(imageURLEnv string, version string) string {
 		return replaceImageTagOrDigestToTag(imageURL, version)
 	}
 
-	return fmt.Sprintf("%s:%s", os.Getenv(imageURLEnv), version)
+	return fmt.Sprintf("%s:%s", imageURL, version)
 }

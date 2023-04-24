@@ -430,6 +430,7 @@ func (r ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mon
 		SetAuth(auth).
 		SetFCV(fcVersion).
 		AddVersions(existingAutomationConfig.Versions).
+		IsEnterprise(construct.IsEnterprise()).
 		SetMongoDBVersion(rs.GetMongoDBVersion()).
 		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
 		SetPreviousAutomationConfig(existingAutomationConfig).

@@ -332,8 +332,8 @@ def ca_path() -> str:
 @fixture(scope="module")
 def custom_mdb_version() -> str:
     """Returns a CUSTOM_MDB_VERSION for Mongodb to be created/upgraded to for testing.
-    Defaults to 5.0.5 (simplifies testing locally)"""
-    return os.getenv("CUSTOM_MDB_VERSION", "5.0.5")
+    Defaults to 5.0.14 (simplifies testing locally)"""
+    return os.getenv("CUSTOM_MDB_VERSION", "5.0.14")
 
 
 @fixture(scope="module")

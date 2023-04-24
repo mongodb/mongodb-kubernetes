@@ -15,9 +15,7 @@ MONITORING_AGENT_NAME = "mongodb-agent-monitoring"
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         find_fixture("om_appdb_configure_all_images.yaml"),
         namespace=namespace,
@@ -27,22 +25,18 @@ def ops_manager(
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    ensure_nested_objects(
-        resource, ["spec", "applicationDatabase", "podSpec", "podTemplate", "spec"]
-    )
+    ensure_nested_objects(resource, ["spec", "applicationDatabase", "podSpec", "podTemplate", "spec"])
 
     resource["spec"]["applicationDatabase"]["version"] = "4.4.0"
 
-    resource["spec"]["applicationDatabase"]["podSpec"]["podTemplate"]["spec"][
-        "containers"
-    ] = [
+    resource["spec"]["applicationDatabase"]["podSpec"]["podTemplate"]["spec"]["containers"] = [
         {
             "name": AGENT_NAME,
             "image": "quay.io/mongodb/mongodb-agent:10.29.0.6830-1",
         },
         {
             "name": MONGOD_NAME,
-            "image": "docker.io/mongo:4.4.0",
+            "image": "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8",
         },
         {
             "name": MONITORING_AGENT_NAME,
@@ -79,7 +73,7 @@ def test_statefulset_spec_is_updated(ops_manager: MongoDBOpsManager):
     mongod_container = _get_container_by_name(MONGOD_NAME, containers)
 
     assert mongod_container is not None
-    assert mongod_container.image == "docker.io/mongo:4.4.0"
+    assert mongod_container.image == "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"
 
     monitoring_container = _get_container_by_name(MONITORING_AGENT_NAME, containers)
 
@@ -87,7 +81,5 @@ def test_statefulset_spec_is_updated(ops_manager: MongoDBOpsManager):
     assert monitoring_container.image == "quay.io/mongodb/mongodb-agent:10.29.0.6830-1"
 
 
-def _get_container_by_name(
-    name: str, containers: List[V1Container]
-) -> Optional[V1Container]:
+def _get_container_by_name(name: str, containers: List[V1Container]) -> Optional[V1Container]:
     return next(filter(lambda c: c.name == name, containers))

@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
+
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"

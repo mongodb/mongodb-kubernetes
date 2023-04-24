@@ -17,6 +17,7 @@ fi
 # reading the 'om' file first and then the context file - this will allow to use custom connectivity parameters
 if [[ -f ${root_dir}/om ]]; then
     # shellcheck disable=SC1090
+    # shellcheck disable=SC1091
     source "${root_dir}/om"
 fi
 

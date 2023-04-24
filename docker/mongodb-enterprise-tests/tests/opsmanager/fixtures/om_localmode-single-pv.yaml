@@ -62,5 +62,5 @@ spec:
     enabled: false
 
   applicationDatabase:
-    version: "4.4.0-ent"
+    version: "4.4.20-ent"
     members: 3

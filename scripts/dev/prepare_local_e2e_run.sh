@@ -31,4 +31,6 @@ fi
 make install 2>&1 | prepend "make install: "
 test -f "docker/mongodb-enterprise-tests/.test_identifiers" && rm "docker/mongodb-enterprise-tests/.test_identifiers"
 scripts/dev/delete_om_projects.sh
+echo "Deleting ~/.docker/.config.json and re-creating it"
+rm ~/.docker/config.json
 scripts/dev/configure_docker_auth.sh

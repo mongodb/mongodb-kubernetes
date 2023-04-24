@@ -76,7 +76,7 @@ func TestResourceRequirements(t *testing.T) {
 
 func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	agentRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_10_26_0_6851_1", construct.AgentImageEnv)
-	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3_ent", construct.MongodbImageEnv)
+	mongodbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_2_3_ubi8", construct.MongodbImageEnv)
 	initAppdbRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_3_4_5", util.InitAppdbImageUrlEnv)
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
@@ -92,7 +92,7 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:1.2.3-ent", sts.Spec.Template.Spec.Containers[1].Image)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-server:1.2.3-ubi8", sts.Spec.Template.Spec.Containers[1].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-appdb:3.4.5", sts.Spec.Template.Spec.InitContainers[0].Image)
 
 	// sts should be configured with related images when they are defined

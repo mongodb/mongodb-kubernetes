@@ -309,7 +309,7 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 // backupAndOpsManagerSharedConfiguration returns a function which configures all of the shared
 // options between the backup and Ops Manager StatefulSet
 func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) statefulset.Modification {
-	omImageURL := ContainerImage(util.OpsManagerImageUrl, opts.Version)
+	omImageURL := ContainerImage(util.OpsManagerImageUrl, opts.Version, nil)
 
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -537,7 +537,7 @@ func opsManagerStartupProbe() probes.Modification {
 // copies the entry point script in the OM/Backup container
 func buildOpsManagerAndBackupInitContainer() container.Modification {
 	version := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
-	initContainerImageURL := ContainerImage(util.InitOpsManagerImageUrl, version)
+	initContainerImageURL := ContainerImage(util.InitOpsManagerImageUrl, version, nil)
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
