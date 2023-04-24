@@ -13,6 +13,7 @@ from kubetester.kubetester import (
     fixture as yaml_fixture,
     skip_if_local,
 )
+from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
@@ -26,16 +27,8 @@ def mongodb_multi_unmarshalled(
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
-    resource["spec"]["clusterSpecList"] = [
-        {"clusterName": member_cluster_names[0], "members": 2},
-        {"clusterName": member_cluster_names[1], "members": 1},
-        {"clusterName": member_cluster_names[2], "members": 2},
-    ]
-    # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"][2]["members"] = 2
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {

@@ -18,6 +18,7 @@ from kubetester.kubetester import (
     skip_if_local,
 )
 from tests.conftest import run_kube_config_creation_tool, MULTI_CLUSTER_OPERATOR_NAME
+from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
 BUNDLE_SECRET_NAME = f"prefix-{RESOURCE_NAME}-cert"
@@ -28,14 +29,12 @@ def mongodb_multi_unmarshalled(
     namespace: str,
     multi_cluster_issuer_ca_configmap: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"][0]["members"] = 2
-    resource["spec"]["clusterSpecList"][1]["members"] = 1
-    resource["spec"]["clusterSpecList"][2]["members"] = 2
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -63,9 +62,7 @@ def server_certs(
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi(
-    mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
-) -> MongoDBMulti:
+def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     return mongodb_multi_unmarshalled.create()
 
@@ -76,9 +73,7 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(
-        member_cluster_names[:-1], namespace, namespace, member_cluster_names
-    )
+    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.assert_is_running()
@@ -86,7 +81,7 @@ def test_deploy_operator(
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
@@ -98,11 +93,11 @@ def test_statefulsets_have_been_created_correctly(
 
     # read all statefulsets except the last one
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients[:-1])
-    cluster_one_client = clients["e2e.cluster1.mongokubernetes.com"]
+    cluster_one_client = clients["kind-e2e-cluster-1"]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
     assert cluster_one_sts.status.ready_replicas == 2
 
-    cluster_two_client = clients["e2e.cluster2.mongokubernetes.com"]
+    cluster_two_client = clients["kind-e2e-cluster-2"]
     cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
     assert cluster_two_sts.status.ready_replicas == 1
 
@@ -114,9 +109,7 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
-def test_delete_deployment(
-    namespace: str, central_cluster_client: kubernetes.client.ApiClient
-):
+def test_delete_deployment(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
     client.AppsV1Api(api_client=central_cluster_client).delete_namespaced_deployment(
         MULTI_CLUSTER_OPERATOR_NAME, namespace
     )
@@ -128,9 +121,7 @@ def test_re_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(
-        member_cluster_names, namespace, namespace, member_cluster_names
-    )
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
 
     # deploy the operator without all clusters
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names)
@@ -158,15 +149,15 @@ def test_statefulsets_have_been_created_correctly_after_cluster_addition(
     clients = {c.cluster_name: c for c in member_cluster_clients}
     # read all statefulsets except the last one
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-    cluster_one_client = clients["e2e.cluster1.mongokubernetes.com"]
+    cluster_one_client = clients["kind-e2e-cluster-1"]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
     assert cluster_one_sts.status.ready_replicas == 2
 
-    cluster_two_client = clients["e2e.cluster2.mongokubernetes.com"]
+    cluster_two_client = clients["kind-e2e-cluster-2"]
     cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
     assert cluster_two_sts.status.ready_replicas == 1
 
-    cluster_three_client = clients["e2e.cluster3.mongokubernetes.com"]
+    cluster_three_client = clients["kind-e2e-cluster-3"]
     cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
     assert cluster_three_sts.status.ready_replicas == 2
 

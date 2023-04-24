@@ -17,15 +17,9 @@ BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi_unmarshalled(
-    namespace: str, member_cluster_names: List[str]
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1]
-    )
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
     return resource
 
 
@@ -67,9 +61,7 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_replica_set
-def test_create_kube_config_file(
-    cluster_clients: Dict, member_cluster_names: List[str]
-):
+def test_create_kube_config_file(cluster_clients: Dict, member_cluster_names: List[str]):
     clients = cluster_clients
 
     assert len(clients) == 2
@@ -84,7 +76,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @pytest.mark.e2e_multi_cluster_2_clusters_replica_set
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_replica_set

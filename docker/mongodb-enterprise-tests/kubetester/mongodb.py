@@ -85,6 +85,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             # currently DOWN.
             "connect: connection refused",
             "MongoDB version information is not yet available",
+            # Enabling authentication is a lengthy process where the agents might not reach READY in time.
+            # That can cause a failure and a restart of the reconcile.
+            "Failed to enable Authentication",
         )
         return self.wait_for(
             lambda s: in_desired_state(

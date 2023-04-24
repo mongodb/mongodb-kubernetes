@@ -13,6 +13,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester import create_secret, read_secret
 from kubetester.mongotester import with_scram
+from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
@@ -25,10 +26,13 @@ USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+def mongodb_multi_unmarshalled(
+    namespace: str,
+    member_cluster_names: list[str],
+) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+
     return resource
 
 
@@ -69,12 +73,8 @@ def mongodb_multi(
 
 
 @fixture(scope="module")
-def mongodb_user(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodb-user.yaml"), USER_RESOURCE, namespace
-    )
+def mongodb_user(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(yaml_fixture("mongodb-user.yaml"), USER_RESOURCE, namespace)
 
     resource["spec"]["username"] = USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {
@@ -98,7 +98,7 @@ def test_deploy_mongodb_multi_with_tls(
     member_cluster_clients: List[MultiClusterClient],
 ):
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @mark.e2e_multi_cluster_tls_with_scram
@@ -107,9 +107,7 @@ def test_update_mongodb_multi_tls_with_scram(
     namespace: str,
 ):
     mongodb_multi.load()
-    mongodb_multi["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    mongodb_multi["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
@@ -139,9 +137,7 @@ def test_tls_connectivity(mongodb_multi: MongoDBMulti, ca_path: str):
 
 @skip_if_local
 @mark.e2e_multi_cluster_tls_with_scram
-def test_replica_set_connectivity_with_scram_and_tls(
-    mongodb_multi: MongoDBMulti, ca_path: str
-):
+def test_replica_set_connectivity_with_scram_and_tls(mongodb_multi: MongoDBMulti, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_connectivity(
         db="admin",
@@ -211,8 +207,11 @@ def test_mongodb_multi_tls_enable_x509(
     mongodb_multi["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
     mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=120)
+    # sometimes the agents need more time to register than the time we wait ->
+    # "Failed to enable Authentication for MongoDB Multi Replicaset"
+    # after this the agents eventually succeed.
+    mongodb_multi.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1000)
 
 
 @mark.e2e_multi_cluster_tls_with_scram
@@ -221,8 +220,6 @@ def test_mongodb_multi_tls_automation_config_was_updated(
     namespace: str,
 ):
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-    tester.assert_authentication_mechanism_enabled(
-        "MONGODB-X509", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)

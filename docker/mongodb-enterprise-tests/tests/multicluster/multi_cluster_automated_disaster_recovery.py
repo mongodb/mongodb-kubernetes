@@ -12,13 +12,19 @@ import time
 
 from kubetester import delete_pod, get_pod_when_ready, create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
-from .conftest import create_service_entries_objects
+from .conftest import create_service_entries_objects, cluster_spec_list
 
 
 @fixture(scope="module")
-def mongodb_multi(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBMulti:
+def mongodb_multi(
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names: list[str],
+) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
     resource["spec"]["persistent"] = False
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     return resource
@@ -50,33 +56,8 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 @mark.e2e_multi_cluster_disaster_recovery
 @mark.e2e_multi_cluster_multi_disaster_recovery
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
-    mongodb_multi.create()
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
-
-
-@mark.e2e_multi_cluster_multi_disaster_recovery
-def test_block_cluster2_traffic(
-    multi_cluster_operator: Operator,
-    central_cluster_client: kubernetes.client.ApiClient,
-):
-
-    deployment = multi_cluster_operator.read_deployment()
-    # add host alias for cluster2 and cluster3 to a non existent IP
-    deployment.spec.template.spec.host_aliases = [
-        client.V1HostAlias(
-            hostnames=[
-                "api.e2e.cluster2.mongokubernetes.com",
-            ],
-            ip="1.2.3.4",
-        )
-    ]
-    client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment(
-        multi_cluster_operator.name,
-        multi_cluster_operator.namespace,
-        deployment,
-    )
-
-    multi_cluster_operator._wait_for_operator_ready()
+    create_or_update(mongodb_multi)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @mark.e2e_multi_cluster_disaster_recovery
@@ -144,30 +125,20 @@ def test_sts_count_in_member_cluster(
     assert cluster_two_sts.status.ready_replicas == 2
 
 
-@mark.e2e_multi_cluster_multi_disaster_recovery
-def test_block_cluster2_and_cluster3_traffic(
-    multi_cluster_operator: Operator,
+@mark.e2e_multi_cluster_disaster_recovery
+def test_update_service_entry_block_cluster2_and_cluster3_traffic(
+    namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_names: List[str],
 ):
-
-    deployment = multi_cluster_operator.read_deployment()
-    # add host alias for cluster2 and cluster3 to a non existent IP
-    deployment.spec.template.spec.host_aliases = [
-        client.V1HostAlias(
-            hostnames=[
-                "api.e2e.cluster2.mongokubernetes.com",
-                "api.e2e.cluster3.mongokubernetes.com",
-            ],
-            ip="1.2.3.4",
-        )
-    ]
-    client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment(
-        multi_cluster_operator.name,
-        multi_cluster_operator.namespace,
-        deployment,
+    service_entries = create_service_entries_objects(
+        namespace,
+        central_cluster_client,
+        [member_cluster_names[0]],
     )
-
-    multi_cluster_operator._wait_for_operator_ready()
+    for service_entry in service_entries:
+        print(f"service_entry={service_entries}")
+        service_entry.update()
 
 
 @mark.e2e_multi_cluster_multi_disaster_recovery

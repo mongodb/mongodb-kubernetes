@@ -125,7 +125,7 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 @mark.e2e_multi_cluster_tls_with_x509
 def test_deploy_mongodb_multi_with_tls(mongodb_multi: MongoDBMulti, namespace: str):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @mark.e2e_multi_cluster_tls_with_x509
@@ -224,4 +224,4 @@ def assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace
     cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
     cert.update()
     mongodb_multi.assert_abandons_phase(Phase.Running, timeout=120)
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=900)
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)

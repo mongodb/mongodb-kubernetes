@@ -254,6 +254,7 @@ run_multi_cluster_kube_config_creator() {
     "--member-cluster-namespace" "${NAMESPACE}"
     "--central-cluster-namespace" "${NAMESPACE}"
     "--service-account" "mongodb-enterprise-operator-multi-cluster"
+    "--install-database-roles"
   )
 
   if [[ "${OPERATOR_CLUSTER_SCOPED}" == "true" ]]; then
