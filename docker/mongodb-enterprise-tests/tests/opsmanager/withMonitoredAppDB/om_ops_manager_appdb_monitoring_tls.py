@@ -23,9 +23,7 @@ def ops_manager_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, f"{OM_NAME}-db", "appdb-om-tls-monitored-appdb-db-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, f"{OM_NAME}-db", "appdb-om-tls-monitored-appdb-db-cert")
     return "appdb"
 
 
@@ -43,9 +41,7 @@ def ops_manager(
     create_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
 
     print("Creating OM object")
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace
-    )
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace)
     om.set_version(custom_version)
 
     # ensure the requests library will use this CA when communicating with Ops Manager
@@ -99,9 +95,7 @@ def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager)
     # We want to retrieve measurements from "new_database" which will indicate
     # that the monitoring agents are working with the new credentials.
     KubernetesTester.wait_until(
-        build_monitoring_agent_test_func(
-            ops_manager, database_name=database_name, period="PT100M"
-        ),
+        build_monitoring_agent_test_func(ops_manager, database_name=database_name, period="PT100M"),
         timeout=120,
     )
 

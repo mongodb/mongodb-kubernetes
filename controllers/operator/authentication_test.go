@@ -15,9 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
+
 	"k8s.io/utils/pointer"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 	certsv1 "k8s.io/api/certificates/v1beta1"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"

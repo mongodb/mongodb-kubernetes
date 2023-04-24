@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.2
 	github.com/hashicorp/vault/api v1.8.3
 	github.com/imdario/mergo v0.3.13
-	github.com/mongodb/mongodb-kubernetes-operator v0.7.10-0.20230414103924-c89563f28b3b
+	github.com/mongodb/mongodb-kubernetes-operator v0.7.10-0.20230420192725-0948b7ea7d6a
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.14.0
 	github.com/prometheus/common v0.39.0
@@ -127,3 +127,5 @@ require (
 go 1.19
 
 //replace github.com/mongodb/mongodb-kubernetes-operator => github.com/mongodb/mongodb-kubernetes-operator v0.7.9-0.20230317125411-fea505fde9f9
+
+replace github.com/mongodb/mongodb-kubernetes-operator => github.com/mongodb/mongodb-kubernetes-operator v0.7.10-0.20230424071648-0cdc8c5a8814

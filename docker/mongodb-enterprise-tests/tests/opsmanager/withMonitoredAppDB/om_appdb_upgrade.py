@@ -3,6 +3,7 @@ from typing import Optional
 import pytest
 from pytest import fixture
 
+from kubetester import create_or_update
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
@@ -12,7 +13,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-INITIAL_APPDB_VERSION = "4.4.0-ent"
+INITIAL_APPDB_VERSION = "4.4.20-ent"
 
 
 @fixture(scope="module")
@@ -22,7 +23,7 @@ def ops_manager(namespace: str, custom_version: Optional[str]) -> MongoDBOpsMana
     )
     resource.set_version(custom_version)
 
-    return resource.create()
+    return create_or_update(resource)
 
 
 @pytest.mark.e2e_om_appdb_upgrade
@@ -79,9 +80,7 @@ class TestOpsManagerCreation:
 
     def test_appdb_mongodb_options(self, ops_manager: MongoDBOpsManager):
         automation_config_tester = ops_manager.get_automation_config_tester()
-        for process in automation_config_tester.get_replica_set_processes(
-            ops_manager.app_db_name()
-        ):
+        for process in automation_config_tester.get_replica_set_processes(ops_manager.app_db_name()):
             assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
 
     def test_om_reaches_running(self, ops_manager: MongoDBOpsManager):
@@ -150,14 +149,10 @@ class TestOpsManagerMixed:
     Performs changes to both AppDB and Ops Manager spec
     """
 
-    def test_appdb_and_om_updated(
-        self, ops_manager: MongoDBOpsManager, custom_appdb_version: str
-    ):
+    def test_appdb_and_om_updated(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         ops_manager.load()
         ops_manager.set_appdb_version(custom_appdb_version)
-        ops_manager["spec"]["configuration"] = {
-            "mms.helpAndSupportPage.enabled": "true"
-        }
+        ops_manager["spec"]["configuration"] = {"mms.helpAndSupportPage.enabled": "true"}
         ops_manager.update()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)

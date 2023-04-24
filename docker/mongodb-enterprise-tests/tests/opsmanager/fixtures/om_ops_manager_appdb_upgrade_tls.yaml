@@ -13,7 +13,7 @@ spec:
       ca: issuer-ca
   applicationDatabase:
     members: 3
-    version: 4.2.11-ent
+    version: 5.0.14-ent
     security:
       tls:
         ca: issuer-ca

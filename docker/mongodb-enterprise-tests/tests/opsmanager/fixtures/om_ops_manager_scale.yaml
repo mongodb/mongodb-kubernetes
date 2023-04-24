@@ -23,4 +23,4 @@ spec:
     mms.monitoring.slowlogs.maintenanceEnabled: "false"
   applicationDatabase:
     members: 3
-    version: 4.2.1-ent
+    version: 4.4.20-ent

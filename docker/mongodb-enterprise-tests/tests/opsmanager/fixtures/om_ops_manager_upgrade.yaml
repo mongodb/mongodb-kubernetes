@@ -20,7 +20,7 @@ spec:
   applicationDatabase:
     # version is configured in the test
     members: 3
-    version: "4.2.1-ent"
+    version: "4.4.20-ent"
 
   # avoid wizard when opening OM UI
   configuration:

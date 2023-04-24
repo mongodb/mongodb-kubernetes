@@ -14,6 +14,7 @@ and `spec.applicationDatabase.memberConfig.tags` field.
 
 ## Breaking changes
 * Removal of `appdb.connectionSpec.Project` since it has been deprecated for over 2 years.
+* Automatic migration of `mongodb-enterprise-appdb-database-ubi` and `mongodb-enterprise-appdb-database` of AppDB images to `mongodb-enterprise-server`. This will should have not functional impact but might lead to a rolling restart since the images are replaced with the functionally same image from another repository.
 
 <!-- Past Releases -->
 
@@ -24,7 +25,7 @@ and `spec.applicationDatabase.memberConfig.tags` field.
 * Added support for setting replica set member priority by introducing the `spec.memberOptions.[*].priority` field.
 * Added support for setting replica set member tags by introducing the `spec.memberOptions.[*].tags` field.
 
-## MongoDBMulti Resouce
+## MongoDBMulti Resource
 * Added support for setting replica set member votes by introducing the `spec.clusterSpecList.[*].memberOptions.[*].votes` field.
 * Added support for setting replica set member priority by introducing the `spec.clusterSpecList.[*].memberOptions.[*].priority` field.
 * Added support for setting replica set member tags by introducing the `spec.clusterSpecList.[*].memberOptions.[*].tags` field.

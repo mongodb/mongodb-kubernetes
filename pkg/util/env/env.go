@@ -120,22 +120,6 @@ type SSLProjectConfig struct {
 	SSLMMSCAConfigMapContents string
 }
 
-// FromSecret returns a corev1.EnvVar that is a reference to a secret with the field
-// "secretKey" being used
-func FromSecret(envVarName, secretName, secretKey string) corev1.EnvVar {
-	return corev1.EnvVar{
-		Name: envVarName,
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: secretName,
-				},
-				Key: secretKey,
-			},
-		},
-	}
-}
-
 // ToMap accepts a variable number of EnvVars and returns them as a map
 // with the name as the key.
 func ToMap(vars ...corev1.EnvVar) map[string]string {
