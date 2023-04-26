@@ -1,3 +1,0 @@
-{% extends "Dockerfile.template" %}
-
-{% set base_image = "busybox" %}
