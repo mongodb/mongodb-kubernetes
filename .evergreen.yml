@@ -55,14 +55,6 @@ variables:
   - &kubernetes_environment_vanilla
     kube_environment_name: vanilla
 
-    # Multi Cluster Environment
-  - &kubernetes_environment_multi_cluster
-    kube_environment_name: multi
-    CLUSTER_TYPE: kops
-    member_clusters: "e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
-    central_cluster: e2e.operator.mongokubernetes.com
-    test_pod_cluster: e2e.cluster1.mongokubernetes.com
-
   - &kubernetes_environment_multi_cluster_kind
     kube_environment_name: multi
     CLUSTER_TYPE: kind
@@ -921,18 +913,6 @@ tasks:
     - func: prepare_test_env
       vars:
         <<: *ops_manager_50_current
-
-- name: prepare_multi_cluster
-  priority: 59
-  commands:
-    - func: clone
-    - func: download_kube_tools
-      vars:
-        <<: [ *kubernetes_environment_multi_cluster ]
-    - func: setup_kubernetes_environment
-      vars:
-        <<: [ *kubernetes_environment_multi_cluster ]
-    - func: prepare_test_env
 
 - name: prepare_aws
   priority: 59
@@ -2587,7 +2567,6 @@ buildvariants:
     - name: build_init_database_image_ubi
     - name: build_database_image_ubi
     - name: prepare_cluster_vanilla
-    - name: prepare_multi_cluster
     - name: prepare_aws
 
 - name: go_unit_tests
