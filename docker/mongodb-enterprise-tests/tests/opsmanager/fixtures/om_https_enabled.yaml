@@ -101,6 +101,17 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-6-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.5.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.5.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
             - name: setting-up-ubuntu1806-mongodb-5-0
               image: curlimages/curl:latest
               command:
@@ -109,6 +120,17 @@ spec:
                 - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1804-5.0.5.tgz
                 - -o
                 - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1804-5.0.5.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-ubuntu1806-mongodb-6-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu1804-6.0.5.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-ubuntu1804-6.0.5.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
