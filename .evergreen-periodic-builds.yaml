@@ -259,6 +259,10 @@ tasks:
       project_id: ${rhc_database_pid}
   - func: preflight_image
     vars:
+      image_name: mongodb-enterprise-server # official server images
+      project_id: ${rhc_official_database_pid}
+  - func: preflight_image
+    vars:
       image_name: mongodb-agent
       project_id: ${rhc_agent_pid}
 

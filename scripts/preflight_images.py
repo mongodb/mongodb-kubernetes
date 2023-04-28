@@ -27,11 +27,26 @@ def image_config(
     return image, args
 
 
+def official_server_image(
+    image: str,
+    rh_cert_project_id: str,
+) -> Tuple[str, Dict[str, str]]:
+    args = {
+        "registry": f"quay.io/mongodb/mongodb-enterprise-server",
+        "rh_cert_project_id": rh_cert_project_id,
+    }
+    return image, args
+
+
 def args_for_image(image: str) -> Dict[str, str]:
     image_configs = [
         image_config(
             "database",
             "633fc9e582f7934b1ad3be45",
+        ),
+        official_server_image(
+            "mongodb-enterprise-server",  # official server images
+            "643daaa56da4ecc48795693a",
         ),
         image_config(
             "init-appdb",
@@ -174,6 +189,9 @@ def main() -> int:
     # Attempt to run pre-flight checks on all the supported and unpublished versions of the image
     logging.info("Submitting preflight check for all unpublished image versions")
     missing_versions = [v for v in supported_versions if v not in available_versions]
+    # since we don't build them we have to certify all of them
+    if args.image == "mongodb-enterprise-server":
+        missing_versions = supported_versions
     if len(missing_versions) == 0:
         logging.info(f"Every supported version for: {args.image} was already checked")
     for version in missing_versions:
