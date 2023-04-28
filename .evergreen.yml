@@ -15,7 +15,7 @@ variables:
   - &ops_manager_50_appdb_version 4.4.20-ent
 
   - &ops_manager_60_latest 6.0.12
-  - &ops_manager_60_appdb_version 5.0.14-ent
+  - &ops_manager_60_appdb_version 6.0.5-ent
 
   - &ops_manager_50_current
     ops_manager_version: *ops_manager_50_latest
@@ -29,6 +29,11 @@ variables:
   # https://opsmanager.mongodb.com/static/version_manifest/5.0.json
   - &mdb_50_latest 5.0.5
   - &mdb_50_prev 5.0.1
+
+  # Latest MDB release as of today. Update this to latest `rc`s or GA version when
+  # it is released.
+  # https://opsmanager.mongodb.com/static/version_manifest/6.0.json
+  - &mdb_60_latest 6.0.5
 
   - &mdb_44_latest 4.4.20
 
@@ -2401,8 +2406,8 @@ buildvariants:
 
     custom_om_version: *ops_manager_60_latest
     custom_om_prev_version: *ops_manager_50_latest
-    custom_mdb_version: *mdb_50_latest
-    custom_mdb_prev_version: *mdb_44_latest
+    custom_mdb_version: *mdb_60_latest
+    custom_mdb_prev_version: *mdb_50_latest
     agent_version: *agent_version60
 
     custom_appdb_version: *ops_manager_60_appdb_version
