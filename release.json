@@ -173,6 +173,54 @@
         "ubuntu"
       ]
     },
+    "mongodb-enterprise-server": {
+      "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
+      "versions": [
+        "4.4.0-ubi8",
+        "4.4.1-ubi8",
+        "4.4.2-ubi8",
+        "4.4.3-ubi8",
+        "4.4.4-ubi8",
+        "4.4.5-ubi8",
+        "4.4.6-ubi8",
+        "4.4.7-ubi8",
+        "4.4.8-ubi8",
+        "4.4.9-ubi8",
+        "4.4.10-ubi8",
+        "4.4.11-ubi8",
+        "4.4.12-ubi8",
+        "4.4.13-ubi8",
+        "4.4.14-ubi8",
+        "4.4.15-ubi8",
+        "4.4.16-ubi8",
+        "4.4.17-ubi8",
+        "4.4.18-ubi8",
+        "4.4.19-ubi8",
+        "4.4.20-ubi8",
+        "4.4.21-ubi8",
+        "5.0.0-ubi8",
+        "5.0.1-ubi8",
+        "5.0.2-ubi8",
+        "5.0.3-ubi8",
+        "5.0.4-ubi8",
+        "5.0.5-ubi8",
+        "5.0.6-ubi8",
+        "5.0.7-ubi8",
+        "5.0.8-ubi8",
+        "5.0.9-ubi8",
+        "5.0.10-ubi8",
+        "5.0.11-ubi8",
+        "6.0.0-ubi8",
+        "6.0.1-ubi8",
+        "6.0.2-ubi8",
+        "6.0.3-ubi8",
+        "6.0.4-ubi8",
+        "6.0.5-ubi8"
+      ],
+      "variants": [
+        "ubi"
+      ]
+    },
     "appdb-database": {
       "Description": "4.2 onwards, see https://www.mongodb.com/support-policy/lifecycles",
       "versions": [
