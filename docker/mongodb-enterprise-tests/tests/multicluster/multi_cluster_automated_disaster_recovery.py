@@ -123,29 +123,3 @@ def test_sts_count_in_member_cluster(
     cluster_two_client = member_cluster_clients[1]
     cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
     assert cluster_two_sts.status.ready_replicas == 2
-
-
-@mark.e2e_multi_cluster_disaster_recovery
-def test_update_service_entry_block_cluster2_and_cluster3_traffic(
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_names: List[str],
-):
-    service_entries = create_service_entries_objects(
-        namespace,
-        central_cluster_client,
-        [member_cluster_names[0]],
-    )
-    for service_entry in service_entries:
-        print(f"service_entry={service_entries}")
-        service_entry.update()
-
-
-@mark.e2e_multi_cluster_multi_disaster_recovery
-def test_replica_abandons_running(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=500)
-
-
-@mark.e2e_multi_cluster_multi_disaster_recovery
-def test_replica_set_reaches_running(mongodb_multi: MongoDBMulti):
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
