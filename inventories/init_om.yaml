@@ -43,6 +43,10 @@ images:
       tag: $(inputs.params.version_id)
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager
       tag: latest
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-ubi
+      tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-ubi
+      tag: latest
 
   - name: init-ops-manager-release-context
     task_type: tag_image

@@ -53,32 +53,32 @@ operator:
 
 ## Database
 database:
-  name: mongodb-enterprise-database
+  name: mongodb-enterprise-database-ubi
   version: 2.0.2
 
 initDatabase:
-  name: mongodb-enterprise-init-database
+  name: mongodb-enterprise-init-database-ubi
   version: 1.0.16
 
 ## Ops Manager
 opsManager:
-  name: mongodb-enterprise-ops-manager
+  name: mongodb-enterprise-ops-manager-ubi
 
 initOpsManager:
-  name: mongodb-enterprise-init-ops-manager
+  name: mongodb-enterprise-init-ops-manager-ubi
   version: 1.0.10
 
 ## Application Database
 initAppDb:
-  name: mongodb-enterprise-init-appdb
+  name: mongodb-enterprise-init-appdb-ubi
   version: 1.0.16
 
 agent:
-  name: mongodb-agent
+  name: mongodb-agent-ubi
   version: 12.0.15.7646-1
 
 mongodb:
-  name: mongodb-enterprise-appdb-database
+  name: mongodb-enterprise-appdb-database-ubi
   repo: quay.io/mongodb
 
 

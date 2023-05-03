@@ -357,11 +357,6 @@ bundle: manifests kustomize
 bundle-build:
 	docker build $(EXPIRES) --platform linux/amd64 -f ./bundle/$(VERSION)/bundle.Dockerfile -t $(BUNDLE_IMG) .
 
-
-.PHONY: bundle-push
-bundle-push:
-	scripts/evergreen/operator-sdk/bundle-push.sh
-
 .PHONY: dockerfiles
 dockerfiles:
 	python scripts/update_supported_dockerfiles.py

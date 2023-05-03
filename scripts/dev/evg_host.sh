@@ -35,7 +35,11 @@ kubeconfig_path="$HOME/.operator-dev/evg-host.kubeconfig"
 
 configure() {
   echo "Configuring ${host_url}..."
-  ssh -T -q "${host_url}" "mkdir -p ~/multi_cluster/tools; mkdir -p ~/scripts/dev"
+  ssh -T -q "${host_url}" "mkdir -p ~/multi_cluster/tools; mkdir -p ~/scripts/dev; sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
+  if [[ -f "$HOME/.docker/config.json" ]]; then
+    scp "$HOME/.docker/config.json" "${host_url}:/home/ubuntu/.docker/"
+  fi
+
   scp -r multi_cluster/tools "${host_url}:~/multi_cluster/"
   scp -r scripts/dev "${host_url}:~/scripts/"
 

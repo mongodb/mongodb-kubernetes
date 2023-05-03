@@ -91,6 +91,57 @@ variables:
     e2e_cloud_qa_apikey_owner: ${e2e_cloud_qa_apikey_owner_ubi_cloudqa}
     e2e_cloud_qa_user_owner: ${e2e_cloud_qa_user_owner_ubi_cloudqa}
 
+  - &e2e_include_expansions_in_env
+    include_expansions_in_env:
+      - always_remove_testing_namespace
+      - custom_appdb_version
+      - custom_om_version
+      - custom_om_prev_version
+      - custom_mdb_version
+      - custom_mdb_prev_version
+      - ecr_registry
+      - ecr_registry_needs_auth
+      - kube_environment_name
+      - ops_manager_version
+      - version_id
+      - install_operator_in_python
+      - task_id
+      - GITHUB_TOKEN_READ
+      - usaf_operator_version
+      - usaf_database_version
+      - agent_version
+      - central_cluster
+      - member_clusters
+      - test_pod_cluster
+      - CLUSTER_TYPE
+
+  - &e2e_environment_variables
+      REGISTRY: ${ecr_registry}/dev/${image_type}
+      OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
+      APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
+      DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
+      INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
+      INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
+      INIT_DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
+      MANAGED_SECURITY_CONTEXT: ${managed_security_context}
+      TASK_NAME: ${task_name}
+      OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
+      OPS_MANAGER_ENV: ${workdir}/.ops-manager-env
+      NAMESPACE_FILE: ${workdir}/.namespace
+      NODE_PORT: ${node_port}
+      AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
+      AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
+      MMS_VERSION: ${ops_manager_version}
+      WATCH_NAMESPACE: ${watch_namespace}
+      STATIC_NAMESPACE: ${static_namespace}
+      TEST_MODE: ${test_mode}
+      KUBECONFIG: ${workdir}/${kube_environment_name}_config
+      IMAGE_TYPE: ${image_type}
+      KUBE_ENVIRONMENT_NAME: ${kube_environment_name}
+      CLUSTER_TYPE: ${CLUSTER_TYPE}
+      VERSION_ID: ${version_id}
+
+
 parameters:
 - key: registry
   value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
@@ -556,53 +607,9 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
         - ${workdir}/bin
-        include_expansions_in_env:
-          - always_remove_testing_namespace
-          - custom_appdb_version
-          - custom_om_version
-          - custom_om_prev_version
-          - custom_mdb_version
-          - custom_mdb_prev_version
-          - ecr_registry
-          - ecr_registry_needs_auth
-          - kube_environment_name
-          - ops_manager_version
-          - version_id
-          - install_operator_in_python
-          - task_id
-          - GITHUB_TOKEN_READ
-          - usaf_operator_version
-          - usaf_database_version
-          - agent_version
-          - central_cluster
-          - member_clusters
-          - test_pod_cluster
-          - CLUSTER_TYPE
+        <<: *e2e_include_expansions_in_env
         env:
-          REGISTRY: ${ecr_registry}/dev/${image_type}
-          OPS_MANAGER_REGISTRY: ${ops_manager_registry|quay.io/mongodb}
-          APPDB_REGISTRY: ${appdb_registry|quay.io/mongodb}
-          DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
-          INIT_OPS_MANAGER_REGISTRY: ${ecr_registry}/dev/${image_type}
-          INIT_APPDB_REGISTRY: ${ecr_registry}/dev/${image_type}
-          INIT_DATABASE_REGISTRY: ${ecr_registry}/dev/${image_type}
-          MANAGED_SECURITY_CONTEXT: ${managed_security_context}
-          TASK_NAME: ${task_name}
-          OPS_MANAGER_NAMESPACE: ${ops_manager_namespace}
-          OPS_MANAGER_ENV: ${workdir}/.ops-manager-env
-          NAMESPACE_FILE: ${workdir}/.namespace
-          NODE_PORT: ${node_port}
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          MMS_VERSION: ${ops_manager_version}
-          WATCH_NAMESPACE: ${watch_namespace}
-          STATIC_NAMESPACE: ${static_namespace}
-          TEST_MODE: ${test_mode}
-          KUBECONFIG: ${workdir}/${kube_environment_name}_config
-          IMAGE_TYPE: ${image_type}
-          KUBE_ENVIRONMENT_NAME: ${kube_environment_name}
-          CLUSTER_TYPE: ${CLUSTER_TYPE}
-
+          <<: *e2e_environment_variables
         binary: scripts/evergreen/e2e/e2e.sh
 
   run_retry_script:
@@ -661,20 +668,6 @@ functions:
 
         command: scripts/evergreen/prepare_aws.sh
 
-  operator-sdk-make-bundle:
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-      - ${workdir}/bin
-      - *go_bin
-      env:
-        <<: [ *go_options ]
-      include_expansions_in_env:
-      - workdir
-      command: scripts/evergreen/operator-sdk/make-bundle.sh
-
   build-dockerfiles:
   - *python_venv
   - *python_requirements
@@ -699,7 +692,51 @@ functions:
       - workdir
       command: "tar -czvf ./public/dockerfiles-${triggered_by_git_tag}.tgz ./public/dockerfiles"
 
+  setup_prepare_openshift_bundles:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - workdir
+        command: scripts/evergreen/setup_yq.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - workdir
+        command: scripts/evergreen/setup_prepare_openshift_bundles.sh
 
+  install_olm:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - workdir
+        env:
+          KUBECONFIG: ${workdir}/${kube_environment_name}_config
+        command: scripts/evergreen/operator-sdk/install-olm.sh
+
+  prepare_openshift_bundles_for_e2e:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - *go_bin
+          - ${workdir}/bin
+        <<: *e2e_include_expansions_in_env
+        env:
+          <<: [ *e2e_environment_variables, *go_options ]
+        command: scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
 
 tasks:
 - name: preflight_release_images
@@ -798,51 +835,6 @@ tasks:
     vars:
       image_name: init-ops-manager
       include_tags: release
-
-- name: prerelease_master_images
-  commands:
-    - func: clone
-    - func: download_kube_tools
-    - func: configure_docker_auth
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        tag_dest: '$(git describe --dirty)'
-        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-operator
-        image_target: quay.io/mongodb/mongodb-enterprise-operator-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        # sorry
-        tag_dest: '$(echo "$(jq --raw-output ".initOpsManagerVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
-        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-ops-manager
-        image_target: quay.io/mongodb/mongodb-enterprise-init-ops-manager-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        # sorry
-        tag_dest: '$(echo "$(jq --raw-output ".initAppDbVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
-        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-appdb
-        image_target: quay.io/mongodb/mongodb-enterprise-init-appdb-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
-
-    - func: release_docker_image_to_registry
-      vars:
-        tag_source: ${version_id}
-        # sorry
-        tag_dest: '$(echo "$(jq --raw-output ".initDatabaseVersion" < release.json)"-"$(git describe --dirty|cut -d\- -f2-)")'
-        image_source: ${ecr_registry}/dev/${image_type}/mongodb-enterprise-init-database
-        image_target: quay.io/mongodb/mongodb-enterprise-init-database-prerelease
-        docker_username: ${quay_prod_username}
-        docker_password: ${quay_prod_robot_token}
 
 - name: build_test_image
   priority: 60
@@ -1008,6 +1000,16 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_operator_upgrade_appdb_tls
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_olm_operator_upgrade
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_olm_operator_upgrade_with_resources
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1888,6 +1890,15 @@ tasks:
       image_name: ops-manager
       include_tags: release
 
+- name: prepare_and_upload_openshift_bundles_for_e2e
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - func: configure_docker_auth
+    - func: download_kube_tools
+    - func: setup_prepare_openshift_bundles
+    - func: prepare_openshift_bundles_for_e2e
+
 task_groups:
 - name: unit_task_group
   setup_group:
@@ -2237,6 +2248,27 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
+- name: e2e_kind_olm_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_prepare_openshift_bundles
+    - func: install_olm
+  tasks:
+    - e2e_olm_operator_upgrade
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+
 # This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
 # it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
 # that the Ops Manager tests will not overload the cluster if run in parallel builds.
@@ -2489,6 +2521,44 @@ buildvariants:
   tasks:
     - name: e2e_operator_task_group
 
+- name: e2e_kind_olm_ubi
+  display_name: e2e_kind_olm_ubi
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - name: build_om_images
+      variant: build_om60_images
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: prepare_and_upload_openshift_bundles_for_e2e
+      variant: init_tests_with_olm
+  expansions:
+    <<: [ *kubernetes_environment_kind ]
+    image_type: ubi
+    test_mode: opsmanager
+
+    custom_om_version: *ops_manager_60_latest
+    custom_om_prev_version: *ops_manager_50_latest
+    custom_mdb_version: *mdb_50_latest
+    custom_mdb_prev_version: *mdb_44_latest
+    agent_version: *agent_version60
+
+    custom_appdb_version: *ops_manager_60_appdb_version
+
+    ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+    appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+  tasks:
+    - name: e2e_kind_olm_group
 
 ### End of build variants for E2E
 
@@ -2567,12 +2637,36 @@ buildvariants:
     # Init AppDB images
     - name: build_init_appdb_images_ubi
 
-
     - name: build_init_om_images_ubi
     - name: build_init_database_image_ubi
     - name: build_database_image_ubi
     - name: prepare_cluster_vanilla
     - name: prepare_aws
+
+- name: init_tests_with_olm
+  display_name: init_tests_with_olm
+  depends_on:
+    - name: build_om_images
+      variant: build_om60_images
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+  run_on:
+    - ubuntu2204-small
+  expansions:
+    agent_version: *agent_version60
+    image_type: ubi
+  tasks:
+    - name: prepare_and_upload_openshift_bundles_for_e2e
 
 - name: go_unit_tests
   display_name: "go_unit_tests"

@@ -25,7 +25,7 @@ if [[ -n "${LOCAL_RUN-}" ]]; then
   fi
 fi
 
-title "Performing docker login to ECR and RedHat registries"
+title "Performing docker login to ECR registries"
 
 # There could be some leftovers on Evergreen
 if grep -q "credsStore" ~/.docker/config.json; then

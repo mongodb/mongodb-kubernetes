@@ -7,6 +7,8 @@ source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/funcs/multicluster
 
+DELETE_CRD=${DELETE_CRD:-"false"}
+
 reset_context() {
   context=$1
   namespace=$2
@@ -52,7 +54,19 @@ reset_context() {
   # certificates and issuers may not be installed
   kubectl delete --context "${context}" certificates --all -n "${namespace}" || true
   kubectl delete --context "${context}" issuers --all -n "${namespace}" || true
-  kubectl delete --context "${context}" pvc --all -n "${namespace}"
+  kubectl delete --context "${context}" pvc --all -n "${namespace}" || true
+
+  kubectl delete --context "${context}" catalogsources --all -n "${namespace}" || true
+  kubectl delete --context "${context}" subscriptions --all -n "${namespace}" || true
+  kubectl delete --context "${context}" clusterserviceversions --all -n "${namespace}" || true
+
+  if [[ "${DELETE_CRD}" == "true" ]]; then
+    kubectl delete --context "${context}" crd mongodb.mongodb.com || true
+    kubectl delete --context "${context}" crd mongodbmulti.mongodb.com || true
+    kubectl delete --context "${context}" crd mongodbmulticluster.mongodb.com || true
+    kubectl delete --context "${context}" crd mongodbusers.mongodb.com || true
+    kubectl delete --context "${context}" crd opsmanagers.mongodb.com || true
+  fi
 
   echo "Finished resetting context ${context}/${namespace}"
 }

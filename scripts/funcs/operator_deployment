@@ -1,56 +1,66 @@
 #!/usr/bin/env bash
 
 set -Eeou pipefail
+
+get_operator_helm_values() {
+  local version_id=${version_id:=latest}
+
+  local operator_version="${version_id}"
+  # shellcheck disable=SC2153
+  local database_registry=${DATABASE_REGISTRY}
+  local database_name=${DATABASE_NAME:=mongodb-enterprise-database-ubi}
+
+  declare -a config=(
+    "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
+    "registry.operator=${OPERATOR_REGISTRY:-${REGISTRY}}"
+    "registry.imagePullSecrets=image-registries-secret"
+    "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
+    "registry.initAppDb=${INIT_APPDB_REGISTRY}"
+    "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
+    "registry.opsManager=${OPS_MANAGER_REGISTRY}"
+    "registry.appDb=${APPDB_REGISTRY}"
+    "registry.database=${database_registry}"
+    "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
+    "database.name=${database_name:=mongodb-enterprise-database-ubi}"
+    "operator.version=${operator_version}"
+    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-latest}"
+    "initAppDb.version=${INIT_APPDB_VERSION:-latest}"
+    "initDatabase.version=${INIT_DATABASE_VERSION:-latest}"
+    "database.version=${DATABASE_VERSION:-latest}"
+    "agent.version=${agent_version}"
+  )
+
+  if [[ ${IMAGE_TYPE} == "ubi" ]]; then
+    config+=("agent.name=mongodb-agent-ubi")
+    config+=("mongodb.name=mongodb-enterprise-appdb-database-ubi")
+  else
+    config+=("agent.name=mongodb-agent")
+    config+=("mongodb.name=mongodb-enterprise-appdb-database")
+  fi
+   # shellcheck disable=SC2154
+  if [[ "${kube_environment_name-}" = "multi" ]]; then
+     comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
+     # shellcheck disable=SC2154
+     config+=("multiCluster.clusters={${comma_separated_list}}")
+  fi
+
+  if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
+    config+=("useRunningOperator=true")
+  fi
+
+  echo "${config[@]}"
+}
+
 prepare_operator_config_map() {
     local context=${1}
+    kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
     title "Preparing the ConfigMap with Operator installation configuration"
 
-    kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
-    local version_id=${version_id:=latest}
-
-    local operator_version="${version_id}"
-    # shellcheck disable=SC2153
-    local database_registry=${DATABASE_REGISTRY}
-    local database_name=${DATABASE_NAME:=mongodb-enterprise-database}
-
-    config=(
-      "--from-literal" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-      "--from-literal" "registry.operator=${OPERATOR_REGISTRY:-${REGISTRY}}"
-      "--from-literal" "registry.imagePullSecrets=image-registries-secret"
-      "--from-literal" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
-      "--from-literal" "registry.initAppDb=${INIT_APPDB_REGISTRY}"
-      "--from-literal" "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
-      "--from-literal" "registry.opsManager=${OPS_MANAGER_REGISTRY}"
-      "--from-literal" "registry.appDb=${APPDB_REGISTRY}"
-      "--from-literal" "registry.database=${database_registry}"
-      "--from-literal" "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager}"
-      "--from-literal" "database.name=${database_name:=mongodb-enterprise-database}"
-      "--from-literal" "operator.version=${operator_version}"
-      "--from-literal" "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-latest}"
-      "--from-literal" "initAppDb.version=${INIT_APPDB_VERSION:-latest}"
-      "--from-literal" "initDatabase.version=${INIT_DATABASE_VERSION:-latest}"
-      "--from-literal" "database.version=${DATABASE_VERSION:-latest}"
-      "--from-literal" "agent.version=${agent_version}"
-    )
-
-    if [[ ${IMAGE_TYPE} == "ubi" ]]; then
-      config+=("--from-literal" "agent.name=mongodb-agent-ubi")
-      config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database-ubi")
-    else
-      config+=("--from-literal" "agent.name=mongodb-agent")
-      config+=("--from-literal" "mongodb.name=mongodb-enterprise-appdb-database")
-    fi
-     # shellcheck disable=SC2154
-    if [[ "${kube_environment_name-}" = "multi" ]]; then
-       comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
-       # shellcheck disable=SC2154
-       config+=("--from-literal" "multiCluster.clusters={${comma_separated_list}}")
-    fi
-
-    if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
-      config+=("--from-literal useRunningOperator=true")
-    fi
-
+    read -ra helm_values < <(get_operator_helm_values)
+    declare -a config_map_values=()
+    for param in "${helm_values[@]}"; do
+      config_map_values+=("--from-literal" "${param}")
+    done
     # shellcheck disable=SC2086,SC2048
-    kubectl --context "${context}" create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config[*]} || true
+    kubectl --context "${context}" create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config_map_values[*]} || true
 }

@@ -4,7 +4,7 @@ import re
 import time
 import urllib.parse
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Optional, Tuple
 
 from kubeobject import CustomObject
 from kubernetes import client
@@ -15,7 +15,6 @@ from kubetester.kubetester import (
     ensure_nested_objects,
 )
 from kubetester.omtester import OMContext, OMTester
-
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
@@ -387,7 +386,6 @@ def in_desired_state(
     ignore_errors=False,
     intermediate_events: Tuple = (),
 ) -> bool:
-
     """Returns true if the current_state is equal to desired state, fails fast if got into Failed error.
     Optionally checks if the message matches the specified regexp expression"""
     if current_state is None:

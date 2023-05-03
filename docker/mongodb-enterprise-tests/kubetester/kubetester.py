@@ -1402,6 +1402,7 @@ def run_periodically(fn, *args, **kwargs):
     """
     Calls `fn` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
     If `timeout` is negative or zero, it never times out.
+    Callable fn can return single bool (condition result) or tuple[bool, str] ([condition result, status message]).
 
     >>> run_periodically(lambda: time.sleep(5), timeout=3, sleep_time=2)
     False
@@ -1410,20 +1411,33 @@ def run_periodically(fn, *args, **kwargs):
     """
     sleep_time = kwargs.get("sleep_time", SLEEP_TIME)
     timeout = kwargs.get("timeout", INFINITY)
+    msg = kwargs.get("msg", None)
 
     start_time = current_milliseconds()
     end = start_time + (timeout * 1000)
     callable_name = fn.__name__
 
     while current_milliseconds() < end or timeout <= 0:
-        if fn():
+        fn_result = fn()
+        fn_condition_msg = None
+        if isinstance(fn_result, bool):
+            fn_condition = fn_result
+        elif isinstance(fn_result, tuple) and len(fn_result) == 2:
+            fn_condition = fn_result[0]
+            fn_condition_msg = fn_result[1]
+        else:
+            raise Exception("Invalid fn return type. Fn have to return either bool or a tuple[bool, str].")
+
+        if fn_condition:
             print(
                 "{} executed successfully after {} seconds".format(
                     callable_name, (current_milliseconds() - start_time) / 1000
                 )
             )
             return True
-
+        if msg is not None:
+            condition_msg = f": {fn_condition_msg}" if fn_condition_msg is not None else ""
+            print(f"waiting for {msg}{condition_msg}...")
         time.sleep(sleep_time)
 
     raise AssertionError(

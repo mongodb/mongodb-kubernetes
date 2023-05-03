@@ -82,6 +82,8 @@ spec:
       value: 'mongodb-enterprise-operator-testing-pod'
     - name: VERSION_ID
       value: {{ .Values.tag }}
+    - name: REGISTRY
+      value: {{ .Values.registry }}
     {{- if .Values.multiCluster.memberClusters }}
     - name: KUBECONFIG
       value: /etc/config/kubeconfig

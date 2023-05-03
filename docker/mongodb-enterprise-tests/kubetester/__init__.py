@@ -383,20 +383,20 @@ def is_pod_ready(
         pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector)
 
         if len(pods.items) == 0:
-            return False
+            return None
 
         pod = pods.items[0]
 
         if pod.status.conditions is None:
-            return False
+            return None
 
         for condition in pod.status.conditions:
             if condition.type == "Ready" and condition.status == "True":
-                return True
-    except client.rest.ApiException as e:
-        return False
+                return pod
+    except client.rest.ApiException:
+        return None
 
-    return False
+    return None
 
 
 def get_default_storage_class() -> str:
