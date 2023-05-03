@@ -42,6 +42,10 @@ images:
       tag: $(inputs.params.version_id)
     - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database
       tag: latest
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database-ubi
+      tag: $(inputs.params.version_id)
+    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-database-ubi
+      tag: latest
 
   - name: database-release-context
     task_type: tag_image

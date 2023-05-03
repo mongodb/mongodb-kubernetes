@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 set -x
-#
-# This script should be run from the root evergreen work dir
 
 INSTALL_DIR="${workdir:?}/.local/lib/aws"
 BIN_LOCATION="${workdir}/bin"
 
 mkdir -p "${BIN_LOCATION}"
+
+tmpdir=$(mktemp -d)
+cd "${tmpdir}"
 
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip &> /dev/null
@@ -20,3 +21,6 @@ fi
 sudo chown "$USER":"$USER" "${docker_dir}" -R
 sudo chmod g+rwx "${docker_dir}" -R
 sudo ./aws/install --bin-dir "${BIN_LOCATION}" --install-dir "${INSTALL_DIR}" --update
+cd -
+
+rm -rf "${tmpdir}"

@@ -51,6 +51,7 @@ deploy_test_app() {
         "--set" "imageType=${IMAGE_TYPE}"
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
+        "--set" "registry=${BASE_REPO_URL:-268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${IMAGE_TYPE}}"
     )
 
     # shellcheck disable=SC2154

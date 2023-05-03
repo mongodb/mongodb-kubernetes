@@ -709,7 +709,7 @@ def install_cert_manager(
             f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
             api_client=cluster_client,
         )
-        if webhook_ready and controller_ready:
+        if webhook_ready is not None and controller_ready is not None:
             print("Cert manager already installed, skipping helm install")
             install_required = False
 

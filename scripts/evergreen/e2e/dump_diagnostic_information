@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 ## We need to make sure this script does not fail if one of
 ## the kubectl commands fails.
 set +e
@@ -51,7 +53,7 @@ dump_objects() {
 
     header "${msg}"
     # shellcheck disable=SC2086
-    kubectl -n "${namespace}" ${action} "${object}" 2> /dev/null
+    kubectl -n "${namespace}" ${action} "${object}" 2>&1
 }
 
 # get_operator_managed_pods returns a list of names of the Pods that are managed
@@ -59,6 +61,11 @@ dump_objects() {
 get_operator_managed_pods() {
     local namespace=${1}
     kubectl get pods --namespace "${namespace}" --selector=controller=mongodb-enterprise-operator --no-headers -o custom-columns=":metadata.name"
+}
+
+get_all_pods() {
+    local namespace=${1}
+    kubectl get pods --namespace "${namespace}" --no-headers -o custom-columns=":metadata.name"
 }
 
 is_mdb_resource_pod() {
@@ -224,6 +231,12 @@ dump_namespace() {
     dump_objects serviceaccounts "ServiceAccounts" "${namespace}" > "logs/${prefix}z_service_accounts.txt"
     dump_objects validatingwebhookconfigurations "Validating Webhook Configurations" "${namespace}" > "logs/${prefix}z_validatingwebhookconfigurations.txt"
     dump_objects certificates.cert-manager.io "Cert-manager certificates" "${namespace}"  2> /dev/null > "logs/${prefix}z_certificates_certmanager.txt"
+    dump_objects catalogsources "OLM CatalogSources" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_catalogsources.txt"
+    dump_objects operatorgroups "OLM OperatorGroups" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_operatorgroups.txt"
+    dump_objects subscriptions "OLM Subscriptions" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_subscriptions.txt"
+    dump_objects installplans "OLM InstallPlans" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_installplans.txt"
+    dump_objects clusterserviceversions "OLM ClusterServiceVersions" "${namespace}"  2> /dev/null > "logs/${prefix}z_olm_clusterserviceversions.txt"
+    dump_objects pods "Pods" "${namespace}"  2> /dev/null > "logs/${prefix}z_pods.txt"
 
     # shellcheck disable=SC2046
     kubectl describe $(kubectl get crd -o name | grep mongodb.com) > "logs/${prefix}z_mongodb_crds.log"

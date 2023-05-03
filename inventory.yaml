@@ -53,6 +53,10 @@ images:
         tag: $(inputs.params.version_id)
       - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator
         tag: latest
+      - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator-ubi
+        tag: $(inputs.params.version_id)
+      - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-operator-ubi
+        tag: latest
 
     - name: operator-context-release
       task_type: tag_image
