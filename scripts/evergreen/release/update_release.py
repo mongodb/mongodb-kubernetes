@@ -23,7 +23,7 @@ def update_release_json(versions):
         data = json.load(fd)
     for version in versions:
         if version not in data["supportedImages"]["ops-manager"]["versions"]:
-            data["supportedImages"]["ops-manager"]["versions"].insert(version)
+            data["supportedImages"]["ops-manager"]["versions"].insert(0, version)
     data["supportedImages"]["ops-manager"]["versions"].sort(key=StrictVersion)
 
     with open(release, "w") as f:
