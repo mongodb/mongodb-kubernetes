@@ -66,7 +66,22 @@ function update_values_yaml_files() {
     git add go.sum
 }
 
+function update_release_json() {
+    # ensure that release.json is up 2 date
+    # shellcheck disable=SC2154
+    if [[ -z "${workdir:-}" ]]; then
+      scripts/evergreen/release/update_release.py
+    else
+      "${workdir}"/venv/bin/python scripts/evergreen/release/update_release.py
+    fi
+
+    # commit any changes we made
+    git add release.json
+}
+
 function pre_commit() {
+  # Update release.json first in case there is a newer version
+  update_release_json
   # We need to generate the values files first
   update_values_yaml_files
   # The values files are used for generating the standalone yaml
