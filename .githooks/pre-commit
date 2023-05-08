@@ -79,6 +79,14 @@ function update_release_json() {
     git add release.json
 }
 
+function update_community_operator_dependency() {
+     go get github.com/mongodb/mongodb-kubernetes-operator@master
+
+     # these can change if the version of community operator is different
+     git add go.mod
+     git add go.sum
+}
+
 function pre_commit() {
   # Update release.json first in case there is a newer version
   update_release_json
@@ -86,7 +94,9 @@ function pre_commit() {
   update_values_yaml_files
   # The values files are used for generating the standalone yaml
   generate_standalone_yaml
-
+  # Update community operator dependency
+  update_community_operator_dependency
+  # Run black on python files that have changed
   black_formatting
 
   source scripts/evergreen/lint_code.sh
