@@ -272,13 +272,21 @@ class OMTester(object):
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
 
+    def check_healthiness(self) -> (str, str):
+        return OMTester.request_health(self.context.base_url)
+
     @staticmethod
-    def do_assert_healthiness(base_url: str):
+    def request_health(base_url: str) -> (str, str):
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint, verify=False)
+        return response.status_code, response.text
+
+    @staticmethod
+    def do_assert_healthiness(base_url: str):
+        status_code, _ = OMTester.request_health(base_url)
         assert (
-            response.status_code == requests.status_codes.codes.OK
-        ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(response.status_code, datetime.now())
+            status_code == requests.status_codes.codes.OK
+        ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
     def om_request(self, method, path, json_object: Optional[Dict] = None):
         """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
