@@ -2262,6 +2262,7 @@ task_groups:
     - func: install_olm
   tasks:
     - e2e_olm_operator_upgrade
+    - e2e_olm_operator_upgrade_with_resources
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

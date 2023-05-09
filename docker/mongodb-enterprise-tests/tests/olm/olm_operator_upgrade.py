@@ -11,6 +11,11 @@ from tests.olm.olm_test_commons import (
 import pytest
 
 
+# See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
+
+# This tests only OLM upgrade of the operator without deploying any resources.
+
+
 @pytest.mark.e2e_olm_operator_upgrade
 def test_upgrade_operator_only(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version()
@@ -26,11 +31,14 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
         "mongodb-enterprise-operator",
         namespace,
         {
-            "channel": "stable",
+            "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
             "name": "mongodb-enterprise",
             "source": catalog_source_resource.name,
             "sourceNamespace": namespace,
             "installPlanApproval": "Automatic",
+            # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
+            # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
+            "config": {"env": [{"name": "MANAGED_SECURITY_CONTEXT", "value": "false"}]},
         },
     )
 
@@ -39,7 +47,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
 
     subscription.load()
-    subscription["spec"]["channel"] = "fast"
+    subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
     wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
