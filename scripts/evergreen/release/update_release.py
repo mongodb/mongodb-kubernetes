@@ -26,6 +26,10 @@ def get_headers():
     """
 
     github_token = os.getenv("GITHUB_TOKEN_READ")
+    if github_token is None:
+        raise Exception(
+            "Missing GITHUB_TOKEN_READ environment variable; see https://wiki.corp.mongodb.com/display/MMS/Pre-Commit+Hook"
+        )
     return {
         "Authorization": f"token {github_token}",
     }
@@ -77,7 +81,7 @@ def update_tools_version(data, missing_version):
         version_name = f"mongodb-database-tools-rhel80-x86_64-{mongo_tool_version}.tgz"
         data["mongodbToolsBundle"]["ubi"] = version_name
     else:
-        print(f"was not able to request file from {url}")
+        print(f"was not able to request file from {url}: {response.text}")
         sys.exit(1)
 
 
@@ -97,7 +101,7 @@ def update_readiness_hook_version_if_newer(local_data):
         if Version(community_readiness) > Version(local_readiness):
             local_data["versionUpgradePostStartHookVersion"] = community_readiness
     else:
-        print(f"was not able to request file from {url}")
+        print(f"was not able to request file from {url}: {response.text}.")
         sys.exit(1)
 
 
