@@ -4,7 +4,7 @@ github.com/armon/go-radix,v1.0.0,https://github.com/armon/go-radix/blob/v1.0.0/L
 github.com/beorn7/perks/quantile,v1.0.1,https://github.com/beorn7/perks/blob/v1.0.1/LICENSE,MIT
 github.com/blang/semver,v3.5.1,https://github.com/blang/semver/blob/v3.5.1/LICENSE,MIT
 github.com/cenkalti/backoff/v3,v3.0.0,https://github.com/cenkalti/backoff/blob/v3.0.0/LICENSE,MIT
-github.com/cespare/xxhash/v2,v2.1.2,https://github.com/cespare/xxhash/blob/v2.1.2/LICENSE.txt,MIT
+github.com/cespare/xxhash/v2,v2.2.0,https://github.com/cespare/xxhash/blob/v2.2.0/LICENSE.txt,MIT
 github.com/davecgh/go-spew/spew,v1.1.1,https://github.com/davecgh/go-spew/blob/v1.1.1/LICENSE,ISC
 github.com/evanphx/json-patch,v5.6.0,https://github.com/evanphx/json-patch/blob/v5.6.0/LICENSE,BSD-3-Clause
 github.com/fatih/color,v1.7.0,https://github.com/fatih/color/blob/v1.7.0/LICENSE.md,MIT
@@ -13,9 +13,9 @@ github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE
 github.com/go-logr/logr,v1.2.3,https://github.com/go-logr/logr/blob/v1.2.3/LICENSE,Apache-2.0
 github.com/gogo/protobuf,v1.3.2,https://github.com/gogo/protobuf/blob/v1.3.2/LICENSE,BSD-3-Clause
 github.com/golang/groupcache/lru,v0.0.0-20210331224755-41bb18bfe9da,https://github.com/golang/groupcache/blob/41bb18bfe9da/LICENSE,Apache-2.0
-github.com/golang/protobuf,v1.5.2,https://github.com/golang/protobuf/blob/v1.5.2/LICENSE,BSD-3-Clause
+github.com/golang/protobuf,v1.5.3,https://github.com/golang/protobuf/blob/v1.5.3/LICENSE,BSD-3-Clause
 github.com/golang/snappy,v0.0.4,https://github.com/golang/snappy/blob/v0.0.4/LICENSE,BSD-3-Clause
-github.com/google/go-cmp/cmp,v0.5.8,https://github.com/google/go-cmp/blob/v0.5.8/LICENSE,BSD-3-Clause
+github.com/google/go-cmp/cmp,v0.5.9,https://github.com/google/go-cmp/blob/v0.5.9/LICENSE,BSD-3-Clause
 github.com/google/gofuzz,v1.1.0,https://github.com/google/gofuzz/blob/v1.1.0/LICENSE,Apache-2.0
 github.com/google/uuid,v1.3.0,https://github.com/google/uuid/blob/v1.3.0/LICENSE,BSD-3-Clause
 github.com/googleapis/gnostic,v0.5.5,https://github.com/googleapis/gnostic/blob/v0.5.5/LICENSE,Apache-2.0
@@ -71,9 +71,9 @@ go.uber.org/atomic,v1.9.0,https://github.com/uber-go/atomic/blob/v1.9.0/LICENSE.
 go.uber.org/multierr,v1.6.0,https://github.com/uber-go/multierr/blob/v1.6.0/LICENSE.txt,MIT
 go.uber.org/zap,v1.24.0,https://github.com/uber-go/zap/blob/v1.24.0/LICENSE.txt,MIT
 gomodules.xyz/jsonpatch/v2,v2.2.0,https://github.com/gomodules/jsonpatch/blob/v2.2.0/v2/LICENSE,Apache-2.0
-google.golang.org/genproto/googleapis/rpc/status,v0.0.0-20220628213854-d9e0b6570c03,https://github.com/googleapis/go-genproto/blob/d9e0b6570c03/LICENSE,Apache-2.0
-google.golang.org/grpc,v1.47.0,https://github.com/grpc/grpc-go/blob/v1.47.0/LICENSE,Apache-2.0
-google.golang.org/protobuf,v1.28.1,https://github.com/protocolbuffers/protobuf-go/blob/v1.28.1/LICENSE,BSD-3-Clause
+google.golang.org/genproto/googleapis/rpc/status,v0.0.0-20230410155749-daa745c078e1,https://github.com/googleapis/go-genproto/blob/daa745c078e1/LICENSE,Apache-2.0
+google.golang.org/grpc,v1.54.0,https://github.com/grpc/grpc-go/blob/v1.54.0/LICENSE,Apache-2.0
+google.golang.org/protobuf,v1.30.0,https://github.com/protocolbuffers/protobuf-go/blob/v1.30.0/LICENSE,BSD-3-Clause
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause
 gopkg.in/square/go-jose.v2,v2.5.1,https://github.com/square/go-jose/blob/v2.5.1/LICENSE,Apache-2.0
 gopkg.in/square/go-jose.v2/json,v2.5.1,https://github.com/square/go-jose/blob/v2.5.1/json/LICENSE,BSD-3-Clause
