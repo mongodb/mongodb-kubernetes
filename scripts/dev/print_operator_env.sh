@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
 source scripts/dev/set_env_context.sh
 
 UBI_IMAGE_SUFFIX=""
@@ -41,8 +43,8 @@ INIT_OPS_MANAGER_VERSION=\"${INIT_OPS_MANAGER_VERSION}\"
 INIT_APPDB_IMAGE_REPOSITORY=\"${INIT_APPDB_REGISTRY}/mongodb-enterprise-init-appdb${UBI_IMAGE_SUFFIX}\"
 INIT_APPDB_VERSION=\"${INIT_APPDB_VERSION}\"
 OPS_MANAGER_IMAGE_PULL_POLICY=\"Always\"
-AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${agent_version}\"
-MONGODB_IMAGE=\"mongodb-enterprise-appdb-database${UBI_IMAGE_SUFFIX_QUAY}\"
+AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${agent_version:-}\"
+MONGODB_IMAGE=\"mongodb-enterprise-server\"
 MONGODB_REPO_URL=\"quay.io/mongodb\"
 IMAGE_PULL_SECRETS=\"image-registries-secret\""
 

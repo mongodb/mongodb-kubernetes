@@ -28,14 +28,13 @@ get_operator_helm_values() {
     "initDatabase.version=${INIT_DATABASE_VERSION:-latest}"
     "database.version=${DATABASE_VERSION:-latest}"
     "agent.version=${agent_version}"
+    "mongodb.name=mongodb-enterprise-server"
   )
 
   if [[ ${IMAGE_TYPE} == "ubi" ]]; then
     config+=("agent.name=mongodb-agent-ubi")
-    config+=("mongodb.name=mongodb-enterprise-appdb-database-ubi")
   else
     config+=("agent.name=mongodb-agent")
-    config+=("mongodb.name=mongodb-enterprise-appdb-database")
   fi
    # shellcheck disable=SC2154
   if [[ "${kube_environment_name-}" = "multi" ]]; then

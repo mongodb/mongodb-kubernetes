@@ -77,9 +77,14 @@ agent:
   name: mongodb-agent-ubi
   version: 12.0.15.7646-1
 
-mongodb:
+mongodbLegacyAppDb:
   name: mongodb-enterprise-appdb-database-ubi
   repo: quay.io/mongodb
+
+mongodb:
+  name: mongodb-enterprise-server
+  repo: quay.io/mongodb
+  appdbAssumeOldFormat: false
 
 
 ## Registry

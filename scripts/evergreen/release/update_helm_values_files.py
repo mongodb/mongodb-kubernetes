@@ -43,8 +43,13 @@ def main() -> int:
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
-        "relatedImages.mongodb",
+        "relatedImages.mongodbLegacyAppDb",
         release["supportedImages"]["appdb-database"]["versions"],
+    )
+    set_value_in_yaml_file(
+        "helm_chart/values-openshift.yaml",
+        "relatedImages.mongodb",
+        release["supportedImages"]["mongodb-enterprise-server"]["versions"],
     )
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
