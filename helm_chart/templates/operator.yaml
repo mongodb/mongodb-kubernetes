@@ -140,6 +140,10 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
+    {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
+            - name: MDB_APPDB_ASSUME_OLD_FORMAT
+              value: 'true'
+    {{- end }}
     {{- if eq .Values.multiCluster.performFailOver true }}
             - name: PERFORM_FAILOVER
               value: 'true'
@@ -165,9 +169,15 @@ spec:
             - name: RELATED_IMAGE_{{ $opsManagerImageRepositoryEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.opsManager }}/{{ $.Values.opsManager.name }}:{{ $version }}"
       {{- end }}
+      # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
       {{- range $version := .Values.relatedImages.mongodb }}
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
+      {{- end }}
+      # mongodbLegacyAppDb will be deleted in 1.23 release 
+      {{- range $version := .Values.relatedImages.mongodbLegacyAppDb }}
+            - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
+              value: "{{ $.Values.mongodbLegacyAppDb.repo }}/{{ $.Values.mongodbLegacyAppDb.name }}:{{ $version }}"
       {{- end }}
     {{- end }}
     {{- if .Values.customEnvVars }}

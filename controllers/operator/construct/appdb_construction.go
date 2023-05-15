@@ -426,19 +426,8 @@ func getAppDBImage(version string) string {
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
-	usesDeprecatedImage := false
-	// In case the customer is still using a deprecated image input for instance 4.2.1-ent we should make sure that they use the new server images maintained by the server team.
-	if strings.HasSuffix(imageURL, util.DeprecatedImageAppdbUbiUrl) {
-		usesDeprecatedImage = true
-		imageURL = strings.Replace(imageURL, util.DeprecatedImageAppdbUbiUrl, util.OfficialServerImageAppdbUrl, 1)
-	}
-	if strings.HasSuffix(imageURL, util.DeprecatedImageAppdbUbuntuUrl) {
-		usesDeprecatedImage = true
-		imageURL = strings.Replace(imageURL, util.DeprecatedImageAppdbUbuntuUrl, util.OfficialServerImageAppdbUrl, 1)
-	}
-
-	// we want to make sure to replace all deprecated usages with the new official supported images!
-	if usesDeprecatedImage {
+	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
+	if strings.HasSuffix(imageURL, util.OfficialServerImageAppdbUrl) && !assumeOldFormat {
 		if strings.HasSuffix(version, "-ent") {
 			version = strings.Replace(version, "-ent", "-"+imageType, 1)
 		}

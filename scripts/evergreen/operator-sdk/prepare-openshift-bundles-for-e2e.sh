@@ -39,7 +39,7 @@ export DOCKER_PLATFORM=${DOCKER_PLATFORM:-"linux/amd64"}
 
 CERTIFIED_OPERATORS_REPO="https://github.com/redhat-openshift-ecosystem/certified-operators.git"
 
-# Generates helm charts the same way they are generatedas part of pre-commit hook.
+# Generates helm charts the same way they are generates part of pre-commit hook.
 # We also provide helm values override the same way it's done when installing the operator helm chart in e2e tests.
 generate_helm_charts() {
   read -ra helm_values < <(get_operator_helm_values)

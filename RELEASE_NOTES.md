@@ -14,7 +14,24 @@ and `spec.applicationDatabase.memberConfig.tags` field.
 
 ## Breaking changes
 * Removal of `appdb.connectionSpec.Project` since it has been deprecated for over 2 years.
-* Automatic migration of `mongodb-enterprise-appdb-database-ubi` and `mongodb-enterprise-appdb-database` of AppDB images to `mongodb-enterprise-server`. This will should have not functional impact but might lead to a rolling restart since the images are replaced with the functionally same image from another repository.
+* Automatic migration of the image version suffix `-ent` under specific circumstances: 
+  * Helm setting for appdb image: `mongodb.name` will now default to `mongodb-enterprise-server`. 
+  * The operator will automatically replace the suffix for image repositories
+    that end with `mongodb-enterprise-server`.
+    Operator will replace the suffix `-ent` with the value set in the environment variable
+    `MDB_IMAGE_TYPE`, which defaults to `-ubi8`.
+    For instance, the operator will migrate:
+    * `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8`.
+    * `MDB_IMAGE_TYPE=ubuntu2024 quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2024`.
+    * The operator will do the automatic migration of suffixes only for images
+      that reference the name `mongodb-enterprise-server`. 
+      It won't perform migration for any other image name, e.g.:
+      * `mongodb-enterprise-appdb-database-ubi:4.0.0-ent` will not be altered 
+    * To stop the automatic suffix migration behavior,
+    set the following environment variable to true: `MDB_APPDB_ASSUME_OLD_FORMAT=true`.
+    or alternatively in the following helm chart setting: `mongodb.appdbAssumeOldFormat=true`
+
+
 
 <!-- Past Releases -->
 

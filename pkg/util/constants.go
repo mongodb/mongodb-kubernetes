@@ -279,10 +279,11 @@ const (
 
 	RetryTimeSec = 10
 
-	DeprecatedImageAppdbUbiUrl    = "mongodb-enterprise-appdb-database-ubi"
-	DeprecatedImageAppdbUbuntuUrl = "mongodb-enterprise-appdb-database"
+	DeprecatedImageAppdbUbiUrl = "mongodb-enterprise-appdb-database-ubi"
 
 	OfficialServerImageAppdbUrl = "mongodb-enterprise-server"
+
+	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 )
 
 const (

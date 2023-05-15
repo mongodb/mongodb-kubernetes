@@ -275,7 +275,7 @@ spec:
             - name: AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.15.7646-1"
             - name: MONGODB_IMAGE
-              value: mongodb-enterprise-appdb-database-ubi
+              value: mongodb-enterprise-server
             - name: MONGODB_REPO_URL
               value: quay.io/mongodb
             - name: PERFORM_FAILOVER

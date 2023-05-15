@@ -229,13 +229,22 @@ func TestGetAppDBImage(t *testing.T) {
 		name      string
 		input     string
 		want      string
-		setupEnvs func()
+		setupEnvs func(t *testing.T)
 	}{
 		{
 			name:  "Getting official image",
 			input: "4.2.11-ubi8",
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
-			setupEnvs: func() {
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+			},
+		},
+		{
+			name:  "Getting official image with legacy suffix",
+			input: "4.2.11-ent",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
 				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
 			},
@@ -243,48 +252,59 @@ func TestGetAppDBImage(t *testing.T) {
 		{
 			name:  "Getting official image with legacy image",
 			input: "4.2.11-ent",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
-			setupEnvs: func() {
+			want:  "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent",
+			setupEnvs: func(t *testing.T) {
 				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
 				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
-			},
-		},
-		{
-			name:  "Getting official image with legacy env",
-			input: "4.2.11-ent",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2020",
-			setupEnvs: func() {
-				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
-				t.Setenv(construct.MongoDBImageType, "ubuntu2020")
-				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbuntuUrl)
-
 			},
 		},
 		{
 			name:  "Getting official image with related image from deprecated URL",
 			input: "4.2.11-ubi8",
-			want:  "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
-			setupEnvs: func() {
-				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
 				t.Setenv(construct.MongoDBImageType, "ubi8")
 				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
-				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[0])
+				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[1])
 			},
 		},
 		{
-			name:  "Getting official image with related image from official URL. We do not replace -ent because the url is not a deprecated one we want to replace",
+			name:  "Getting official image with related image with ent suffix even if old related image exists",
 			input: "4.2.11-ent",
-			want:  "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ent",
-			setupEnvs: func() {
-				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "docker.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent")
+				t.Setenv(construct.MongoDBImageType, "ubi8")
 				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
-				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[0])
+				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[1])
+			},
+		},
+		{
+			name:  "Getting deprecated image with related image from official URL. We do not replace -ent because the url is not a deprecated one we want to replace",
+			input: "4.2.11-ent",
+			want:  "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv(construct.MongodbImageEnv, util.DeprecatedImageAppdbUbiUrl)
+				t.Setenv(construct.MongodbRepoUrl, construct.OfficialMongodbRepoUrls[1])
+			},
+		},
+		{
+			name:  "Getting official image with legacy suffix but stopping migration",
+			input: "4.2.11-ent",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+				t.Setenv(util.MdbAppdbAssumeOldFormat, "true")
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.setupEnvs()
+			tt.setupEnvs(t)
 			assert.Equalf(t, tt.want, getAppDBImage(tt.input), "getAppDBImage(%v)", tt.input)
 		})
 	}

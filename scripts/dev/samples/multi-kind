@@ -85,7 +85,7 @@ export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-i
 export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager"
 export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
 export AGENT_IMAGE=quay.io/mongodb/mongodb-agent-ubi:${agent_version}
-export MONGODB_IMAGE=mongodb-enterprise-appdb-database-ubi
+export MONGODB_IMAGE=mongodb-enterprise-server
 export MONGODB_REPO_URL=quay.io/mongodb
 
 # values from .evergreen.yml

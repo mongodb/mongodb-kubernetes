@@ -64,9 +64,9 @@ agent:
   version: 12.0.15.7646-1
 
 mongodb:
-  name: mongodb-enterprise-appdb-database-ubi
+  name: mongodb-enterprise-server
   repo: quay.io/mongodb
-
+  appdbAssumeOldFormat: false
 
 ## Registry
 registry:
@@ -84,7 +84,7 @@ registry:
 
 # Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
 # Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
-# with sha256 digests pinning for certified operator bundle with disconnected environment feature enabled.
+# with sha256 digests pinning for the certified operator bundle with disconnected environment feature enabled.
 # https://docs.openshift.com/container-platform/4.11/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
 relatedImages:
   opsManager:
@@ -124,6 +124,53 @@ relatedImages:
   - 6.0.12
   - 6.0.13
   mongodb:
+  - 4.4.0-ubi8
+  - 4.4.1-ubi8
+  - 4.4.2-ubi8
+  - 4.4.3-ubi8
+  - 4.4.4-ubi8
+  - 4.4.5-ubi8
+  - 4.4.6-ubi8
+  - 4.4.7-ubi8
+  - 4.4.8-ubi8
+  - 4.4.9-ubi8
+  - 4.4.10-ubi8
+  - 4.4.11-ubi8
+  - 4.4.12-ubi8
+  - 4.4.13-ubi8
+  - 4.4.14-ubi8
+  - 4.4.15-ubi8
+  - 4.4.16-ubi8
+  - 4.4.17-ubi8
+  - 4.4.18-ubi8
+  - 4.4.19-ubi8
+  - 4.4.20-ubi8
+  - 4.4.21-ubi8
+  - 5.0.0-ubi8
+  - 5.0.1-ubi8
+  - 5.0.2-ubi8
+  - 5.0.3-ubi8
+  - 5.0.4-ubi8
+  - 5.0.5-ubi8
+  - 5.0.6-ubi8
+  - 5.0.7-ubi8
+  - 5.0.8-ubi8
+  - 5.0.9-ubi8
+  - 5.0.10-ubi8
+  - 5.0.11-ubi8
+  - 6.0.0-ubi8
+  - 6.0.1-ubi8
+  - 6.0.2-ubi8
+  - 6.0.3-ubi8
+  - 6.0.4-ubi8
+  - 6.0.5-ubi8
+  agent:
+  - 11.0.5.6963-1
+  - 11.12.0.7388-1
+  - 12.0.4.7554-1
+  - 12.0.15.7646-1
+  - 12.0.20.7686-1
+  mongodbLegacyAppDb:
   - 4.2.11-ent
   - 4.2.2-ent
   - 4.2.6-ent
@@ -134,10 +181,4 @@ relatedImages:
   - 5.0.1-ent
   - 5.0.5-ent
   - 5.0.7-ent
-  agent:
-  - 11.0.5.6963-1
-  - 11.12.0.7388-1
-  - 12.0.4.7554-1
-  - 12.0.15.7646-1
-  - 12.0.20.7686-1
 subresourceEnabled: true

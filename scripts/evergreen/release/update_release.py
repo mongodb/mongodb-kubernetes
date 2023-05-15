@@ -96,10 +96,10 @@ def update_readiness_hook_version_if_newer(local_data):
         local_readiness = local_data["readinessProbeVersion"]
         local_upgrade = local_data["versionUpgradePostStartHookVersion"]
 
-        if Version(community_upgrade) > Version(local_upgrade):
-            local_data["readinessProbeVersion"] = community_upgrade
         if Version(community_readiness) > Version(local_readiness):
-            local_data["versionUpgradePostStartHookVersion"] = community_readiness
+            local_data["readinessProbeVersion"] = community_readiness
+        if Version(community_upgrade) > Version(local_upgrade):
+            local_data["versionUpgradePostStartHookVersion"] = community_upgrade
     else:
         print(f"was not able to request file from {url}: {response.text}.")
         sys.exit(1)
