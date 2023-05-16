@@ -100,12 +100,12 @@ def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) 
     return resource
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def disable_istio(
     multi_cluster_operator: Operator,
     namespace: str,
     member_cluster_clients: List[MultiClusterClient],
-) -> str:
+):
     for mcc in member_cluster_clients:
         api = client.CoreV1Api(api_client=mcc.api_client)
         labels = {"istio-injection": "disabled"}
@@ -115,10 +115,10 @@ def disable_istio(
     return None
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def mongodb_multi(
     central_cluster_client: kubernetes.client.ApiClient,
-    disable_istio: str,
+    disable_istio,
     namespace: str,
     mongodb_multi_unmarshalled: MongoDBMulti,
     multi_cluster_issuer_ca_configmap: str,

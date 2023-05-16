@@ -1,36 +1,33 @@
+# This test sets up ops manager in a multicluster "no-mesh" environment.
+# It tests the back-up functionality with a multi-cluster replica-set when the replica-set is deployed outside of a service-mesh context.
+
 import datetime
 import time
-from typing import List
-from typing import Optional, Dict
+from typing import List, Optional, Tuple
 
 import kubernetes
 import kubernetes.client
 from kubernetes import client
-from pymongo.errors import ServerSelectionTimeoutError
-from pytest import mark, fixture
-
 from kubetester import (
     create_or_update,
     create_or_update_configmap,
-    delete_secret,
-)
-from kubetester import create_secret, create_or_update_secret, try_load
-from kubetester import (
+    create_or_update_secret,
     get_default_storage_class,
     read_service,
+    try_load,
 )
 from kubetester.certs import create_ops_manager_tls_certs
-from kubetester.kubetester import (
-    skip_if_local,
-    fixture as yaml_fixture,
-    KubernetesTester,
-)
-from kubetester.mongodb import Phase, MongoDB
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from pymongo.errors import ServerSelectionTimeoutError
+from pytest import fixture, mark
 from tests.conftest import update_coredns_hosts
 
 TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
@@ -81,7 +78,7 @@ def new_om_data_store(
     assignment_enabled: bool = True,
     user_name: Optional[str] = None,
     password: Optional[str] = None,
-) -> Dict:
+) -> dict:
     return {
         "id": id,
         "uri": mdb.mongo_uri(user_name=user_name, password=password),
@@ -234,12 +231,84 @@ def oplog_user(
     yield create_or_update(resource)
 
 
-@mark.e2e_multi_cluster_backup_restore
+@fixture(scope="module")
+def replica_set_external_hosts() -> List[Tuple[str, str]]:
+    return [
+        ("172.18.255.211", "test.kind-e2e-cluster-1.interconnected"),
+        (
+            "172.18.255.211",
+            "multi-replica-set-one-0-0.kind-e2e-cluster-1.interconnected",
+        ),
+        (
+            "172.18.255.212",
+            "multi-replica-set-one-0-1.kind-e2e-cluster-1.interconnected",
+        ),
+        (
+            "172.18.255.213",
+            "multi-replica-set-one-0-2.kind-e2e-cluster-1.interconnected",
+        ),
+        ("172.18.255.221", "test.kind-e2e-cluster-2.interconnected"),
+        (
+            "172.18.255.221",
+            "multi-replica-set-one-1-0.kind-e2e-cluster-2.interconnected",
+        ),
+        (
+            "172.18.255.222",
+            "multi-replica-set-one-1-1.kind-e2e-cluster-2.interconnected",
+        ),
+        (
+            "172.18.255.223",
+            "multi-replica-set-one-1-2.kind-e2e-cluster-2.interconnected",
+        ),
+        ("172.18.255.231", "test.kind-e2e-cluster-3.interconnected"),
+        (
+            "172.18.255.231",
+            "multi-replica-set-one-2-0.kind-e2e-cluster-3.interconnected",
+        ),
+        (
+            "172.18.255.232",
+            "multi-replica-set-one-2-1.kind-e2e-cluster-3.interconnected",
+        ),
+        (
+            "172.18.255.233",
+            "multi-replica-set-one-2-2.kind-e2e-cluster-3.interconnected",
+        ),
+    ]
+
+
+@fixture(scope="module")
+def disable_istio(
+    multi_cluster_operator: Operator,
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    for mcc in member_cluster_clients:
+        api = client.CoreV1Api(api_client=mcc.api_client)
+        labels = {"istio-injection": "disabled"}
+        ns = api.read_namespace(name=namespace)
+        ns.metadata.labels.update(labels)
+        api.replace_namespace(name=namespace, body=ns)
+    return None
+
+
+@mark.e2e_multi_cluster_backup_restore_no_mesh
+def test_update_coredns(
+    replica_set_external_hosts: List[Tuple[str, str]], cluster_clients: dict[str, kubernetes.client.ApiClient]
+):
+    """
+    This test updates the coredns config in the member clusters to allow connecting to the other replica set members
+    through an external address.
+    """
+    for cluster_name, cluster_api in cluster_clients.items():
+        update_coredns_hosts(replica_set_external_hosts, cluster_name, api_client=cluster_api)
+
+
+@mark.e2e_multi_cluster_backup_restore_no_mesh
 def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@mark.e2e_multi_cluster_backup_restore
+@mark.e2e_multi_cluster_backup_restore_no_mesh
 class TestOpsManagerCreation:
     """
     name: Ops Manager successful creation with backup and oplog stores enabled
@@ -293,7 +362,7 @@ class TestOpsManagerCreation:
         assert len(backup_services) >= 3
 
 
-@mark.e2e_multi_cluster_backup_restore
+@mark.e2e_multi_cluster_backup_restore_no_mesh
 class TestBackupDatabasesAdded:
     """name: Creates mongodb resources for oplog and blockstore and waits until OM resource gets to
     running state"""
@@ -340,7 +409,8 @@ class TestBackupForMongodb:
     ) -> str:
         """
         The base_url makes OM accessible from member clusters via a special interconnected dns address.
-        This address only works for member clusters.
+        We also use this address for the operator to connect to ops manager,
+        because the operator and the replica-sets rely on the same project configmap.
         """
         interconnected_field = f"https://om-backup.{ops_manager.namespace}.interconnected"
         new_address = f"{interconnected_field}:8443"
@@ -363,7 +433,17 @@ class TestBackupForMongodb:
 
     @fixture(scope="module")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
-        collection = mongodb_multi_one.tester(port=MONGODB_PORT).client["testdb"]
+        collection = mongodb_multi_one.tester(
+            port=MONGODB_PORT,
+            service_names=[
+                "multi-replica-set-one-0-0.kind-e2e-cluster-1.interconnected",
+                "multi-replica-set-one-0-1.kind-e2e-cluster-1.interconnected",
+                "multi-replica-set-one-1-0.kind-e2e-cluster-2.interconnected",
+                "multi-replica-set-one-2-0.kind-e2e-cluster-3.interconnected",
+                "multi-replica-set-one-2-1.kind-e2e-cluster-3.interconnected",
+            ],
+            external=True,
+        ).client["testdb"]
         return collection["testcollection"]
 
     @fixture(scope="module")
@@ -372,6 +452,7 @@ class TestBackupForMongodb:
         ops_manager: MongoDBOpsManager,
         multi_cluster_issuer_ca_configmap: str,
         central_cluster_client: kubernetes.client.ApiClient,
+        disable_istio,
         namespace: str,
         member_cluster_names: List[str],
         base_url,
@@ -388,6 +469,77 @@ class TestBackupForMongodb:
             {"clusterName": member_cluster_names[1], "members": 1},
             {"clusterName": member_cluster_names[2], "members": 2},
         ]
+
+        resource["spec"]["externalAccess"] = {}
+        resource["spec"]["clusterSpecList"][0]["externalAccess"] = {
+            "externalDomain": "kind-e2e-cluster-1.interconnected",
+            "externalService": {
+                "spec": {
+                    "type": "LoadBalancer",
+                    "publishNotReadyAddresses": False,
+                    "ports": [
+                        {
+                            "name": "mongodb",
+                            "port": MONGODB_PORT,
+                        },
+                        {
+                            "name": "backup",
+                            "port": MONGODB_PORT + 1,
+                        },
+                        {
+                            "name": "testing0",
+                            "port": MONGODB_PORT + 2,
+                        },
+                    ],
+                }
+            },
+        }
+        resource["spec"]["clusterSpecList"][1]["externalAccess"] = {
+            "externalDomain": "kind-e2e-cluster-2.interconnected",
+            "externalService": {
+                "spec": {
+                    "type": "LoadBalancer",
+                    "publishNotReadyAddresses": False,
+                    "ports": [
+                        {
+                            "name": "mongodb",
+                            "port": MONGODB_PORT,
+                        },
+                        {
+                            "name": "backup",
+                            "port": MONGODB_PORT + 1,
+                        },
+                        {
+                            "name": "testing1",
+                            "port": MONGODB_PORT + 2,
+                        },
+                    ],
+                }
+            },
+        }
+        resource["spec"]["clusterSpecList"][2]["externalAccess"] = {
+            "externalDomain": "kind-e2e-cluster-3.interconnected",
+            "externalService": {
+                "spec": {
+                    "type": "LoadBalancer",
+                    "publishNotReadyAddresses": False,
+                    "ports": [
+                        {
+                            "name": "mongodb",
+                            "port": MONGODB_PORT,
+                        },
+                        {
+                            "name": "backup",
+                            "port": MONGODB_PORT + 1,
+                        },
+                        {
+                            "name": "testing2",
+                            "port": MONGODB_PORT + 2,
+                        },
+                    ],
+                }
+            },
+        }
 
         # creating a cluster with backup should work with custom ports
         resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
@@ -410,15 +562,16 @@ class TestBackupForMongodb:
 
         return create_or_update(resource)
 
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_setup_om_connection(
         self,
+        replica_set_external_hosts: List[Tuple[str, str]],
         ops_manager: MongoDBOpsManager,
         central_cluster_client: kubernetes.client.ApiClient,
         member_cluster_clients: List[MultiClusterClient],
     ):
         """
-        The base_url makes OM accessible from member clusters via a special interconnected dns address.
+        test_setup_om_connection makes OM accessible from member clusters via a special interconnected dns address.
         """
         ops_manager.load()
         external_svc_name = ops_manager.external_svc_name()
@@ -429,9 +582,12 @@ class TestBackupForMongodb:
         interconnected_field = f"om-backup.{ops_manager.namespace}.interconnected"
 
         # let's make sure that every client can connect to OM.
+        hosts = replica_set_external_hosts[:]
+        hosts.append((ip, interconnected_field))
+
         for c in member_cluster_clients:
             update_coredns_hosts(
-                host_mappings=[(ip, interconnected_field)],
+                host_mappings=hosts,
                 api_client=c.api_client,
                 cluster_name=c.cluster_name,
             )
@@ -449,13 +605,13 @@ class TestBackupForMongodb:
         ops_manager["spec"]["configuration"]["mms.centralUrl"] = new_address
         ops_manager.update()
 
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
 
     @skip_if_local
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_add_test_data(self, mongodb_multi_one_collection):
         max_attempts = 100
         while max_attempts > 0:
@@ -467,18 +623,18 @@ class TestBackupForMongodb:
                 max_attempts -= 1
                 time.sleep(6)
 
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_mdb_backed_up(self, project_one: OMTester):
         project_one.wait_until_backup_snapshots_are_ready(expected_count=1)
 
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_change_mdb_data(self, mongodb_multi_one_collection):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
         time.sleep(30)
         mongodb_multi_one_collection.insert_one({"foo": "bar"})
 
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_pit_restore(self, project_one: OMTester):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
@@ -489,7 +645,7 @@ class TestBackupForMongodb:
 
         project_one.create_restore_job_pit(pit_millis)
 
-    @mark.e2e_multi_cluster_backup_restore
+    @mark.e2e_multi_cluster_backup_restore_no_mesh
     def test_data_got_restored(self, mongodb_multi_one_collection):
         """The data in the db has been restored to the initial state. Note, that this happens eventually - so
         we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a

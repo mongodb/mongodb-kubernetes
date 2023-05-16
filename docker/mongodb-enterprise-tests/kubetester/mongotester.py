@@ -375,9 +375,10 @@ class MultiReplicaSetTester(MongoTester):
         service_names: List[str],
         port: str,
         namespace: Optional[str] = None,
+        external: bool = False,
     ):
         super().__init__(
-            build_mongodb_multi_connection_uri(namespace, service_names, port),
+            build_mongodb_multi_connection_uri(namespace, service_names, port, external=external),
             use_ssl=False,
             ca_path=None,
         )
@@ -549,8 +550,10 @@ def build_mongodb_connection_uri(
         return build_mongodb_uri(build_list_of_hosts(mdb_resource, namespace, members, servicename, port))
 
 
-def build_mongodb_multi_connection_uri(namespace: str, service_names: List[str], port: str) -> str:
-    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port))
+def build_mongodb_multi_connection_uri(
+    namespace: str, service_names: List[str], port: str, external: bool = False
+) -> str:
+    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port, external=external))
 
 
 def build_list_of_hosts(mdb_resource: str, namespace: str, members: int, servicename: str, port: str) -> List[str]:
@@ -563,7 +566,9 @@ def build_list_of_hosts_with_external_domain(
     return [f"{mdb_resource}-{idx}.{external_domain}:{port}" for idx in range(members)]
 
 
-def build_list_of_multi_hosts(namespace: str, service_names: List[str], port) -> List[str]:
+def build_list_of_multi_hosts(namespace: str, service_names: List[str], port, external: bool = False) -> List[str]:
+    if external:
+        return [f"{service_name}:{port}" for service_name in service_names]
     return [build_host_service_fqdn(namespace, service_name, port) for service_name in service_names]
 
 

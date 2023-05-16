@@ -1759,6 +1759,12 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_backup_restore_no_mesh
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+
 - name: e2e_multi_cluster_tls_with_x509
   tags: ["patch-run"]
   commands:
@@ -2119,6 +2125,7 @@ task_groups:
     - e2e_multi_cluster_tls_with_scram
     - e2e_multi_cluster_upgrade_downgrade
     - e2e_multi_cluster_backup_restore
+    - e2e_multi_cluster_backup_restore_no_mesh
     - e2e_multi_cluster_disaster_recovery
     - e2e_multi_cluster_multi_disaster_recovery
     - e2e_multi_cluster_recover_network_partition
