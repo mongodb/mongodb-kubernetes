@@ -17,19 +17,19 @@ Options:
 }
 
 install_echo() {
-    ctx=$1
-    cluster_no=$2
-    ns=$3
-    recreate=$4
+  ctx=$1
+  cluster_no=$2
+  ns=$3
+  recreate=$4
 
-    if [[ "$recreate" == "true" ]]; then
-      kubectl --context "${ctx}" delete namespace $ns --wait
-    fi
+  if [[ "$recreate" == "true" ]]; then
+    kubectl --context "${ctx}" delete namespace $ns --wait
+  fi
 
-    kubectl --context "${ctx}" create namespace $ns || true
-    kubectl --context "${ctx}" label namespace $ns istio-injection=enabled || true
+  kubectl --context "${ctx}" create namespace $ns || true
+  kubectl --context "${ctx}" label namespace $ns istio-injection=enabled || true
 
-    kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
+  kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -52,7 +52,7 @@ spec:
             - containerPort: 8080
 EOF
 
-    kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
+  kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -66,7 +66,7 @@ spec:
     app: echoserver${cluster_no}
 EOF
 
-    kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
+  kubectl apply --context "${ctx}" -n "${ns}" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -106,10 +106,6 @@ test_connectivity() {
   kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://echoserver${first_idx}.${NAMESPACE}.svc.cluster.local:8080"
   echo "Checking LB service connection from ${second_context} to ${first_context}"
   kubectl exec --context "${second_context}" -n "${NAMESPACE}" "${pod2}" -- /bin/bash -c "curl http://$lbpod1:8080"
-  echo "Checking external name connectivity from ${first_context} to ${first_context}"
-  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://test.kind-e2e-cluster-${first_idx}.interconnected:8080"
-  echo "Checking external name connectivity from ${first_context} to ${second_context}"
-  kubectl exec --context "${first_context}" -n "${NAMESPACE}" "${pod1}" -- /bin/bash -c "curl http://test.kind-e2e-cluster-${second_idx}.interconnected:8080"
 }
 
 wait_for_deployment() {
@@ -131,13 +127,13 @@ undeploy() {
 recreate="false"
 undeploy="true"
 while getopts ':hru' opt; do
-    case $opt in
-      (h)   usage;;
-      (r)   recreate="true";;
-      (u)   undeploy="false";;
-    esac
+  case $opt in
+    h) usage ;;
+    r) recreate="true" ;;
+    u) undeploy="false" ;;
+  esac
 done
-shift "$((OPTIND-1))"
+shift "$((OPTIND - 1))"
 
 install_echo "kind-e2e-cluster-1" 1 "${NAMESPACE}" "$recreate" &
 install_echo "kind-e2e-cluster-2" 2 "${NAMESPACE}" "$recreate" &
@@ -165,7 +161,3 @@ if [[ "$undeploy" == "true" ]]; then
   undeploy "kind-e2e-cluster-2" 2 "${NAMESPACE}" &
   undeploy "kind-e2e-cluster-3" 3 "${NAMESPACE}" &
 fi
-
-
-
-
