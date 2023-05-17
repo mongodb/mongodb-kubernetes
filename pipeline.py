@@ -9,6 +9,8 @@ import copy
 import json
 import logging
 import os
+import re
+
 import semver
 import shutil
 import subprocess
@@ -17,6 +19,7 @@ import tarfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
+from distutils.version import StrictVersion
 from typing import Dict, List, Optional, Tuple, Union
 
 import requests
@@ -420,6 +423,20 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             # there is no ubuntu version of this image
             ubuntu_suffix="",
         ),
+        image_config(
+            image_name="mongodb-kubernetes-readinessprobe",
+            ubi_suffix="",
+            ubuntu_suffix="",
+            name_prefix="",
+            s3_bucket="enterprise-operator-dockerfiles",
+        ),
+        image_config(
+            image_name="mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+            ubi_suffix="",
+            ubuntu_suffix="",
+            name_prefix="",
+            s3_bucket="enterprise-operator-dockerfiles",
+        ),
     ]
 
     images = {k: v for k, v in image_configs}
@@ -427,13 +444,16 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
 
 
 def build_image_daily(
-    image_name: str, min_version: str = None, max_version: str = None
+    image_name: str,
+    min_version: str = None,
+    max_version: str = None,
 ):
     """Builds a daily image."""
 
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image(image_name)
         variants = get_supported_variants_for_image(image_name)
+
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
         logger.info(
@@ -619,6 +639,12 @@ def get_builder_function_for_image_name():
         #
         # Community images
         "mongodb-agent-daily": build_image_daily("mongodb-agent"),
+        "mongodb-kubernetes-readinessprobe-daily": build_image_daily(
+            "mongodb-kubernetes-readinessprobe",
+        ),
+        "mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily": build_image_daily(
+            "mongodb-kubernetes-operator-version-upgrade-post-start-hook",
+        ),
         "mongodb-kubernetes-operator-daily": build_image_daily(
             "mongodb-kubernetes-operator"
         ),

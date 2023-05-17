@@ -4,7 +4,7 @@ vars:
   quay_registry: quay.io/mongodb/<image-name-quay>
   s3_bucket_http: https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles/<image-name-bucket>
   ecr_registry_ubi: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/<image-name-ecr>
-  # ubi suffix is "-ubi" by default, but it's empty for mongodb-kubernetes-operator
+  # ubi suffix is "-ubi" by default, but it's empty for mongodb-kubernetes-operator, readiness and versionhook images
   ubi_suffix: "-ubi"
 
 
