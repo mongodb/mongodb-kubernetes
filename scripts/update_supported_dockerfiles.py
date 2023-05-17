@@ -77,7 +77,7 @@ def git_add_dockerfiles(base_directory: str):
 
 def save_supported_dockerfiles():
     """
-    Finds every supported release in the Atlas database and downloads the corresponding
+    Finds every supported release in the release.json and downloads the corresponding
     Dockerfile.
     """
     for image in SUPPORTED_IMAGES:
