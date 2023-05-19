@@ -81,15 +81,31 @@ ensure_certs_symlinks() {
 }
 
 # download_agent function downloads and unpacks the Mongodb Agent
+# if ${MDB_AGENT_DEBUG} is provided we will download dlv
 download_agent() {
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
+    debug="${MDB_AGENT_DEBUG-}"
+
     pushd /tmp >/dev/null
 
+    if [ "${debug}" = "true" ]; then
+      (
+      cd /var/lib/mongodb-mms-automation
+      curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
+      tar -xzf go1.20.1.linux-amd64.tar.gz # TODO: make the go and dlv version configurable?
+      mkdir -p /var/lib/mongodb-mms-automation/gopath
+      export GOPATH=/var/lib/mongodb-mms-automation/gopath
+      export GOCACHE=/var/lib/mongodb-mms-automation/.cache
+      export PATH=$PATH:/var/lib/mongodb-mms-automation/go/bin
+      go install github.com/go-delve/delve/cmd/dlv@latest
+      )
+    fi
+
+    script_log "Downloading a Mongodb Agent from ${base_url:?}"
     curl_opts=(
         "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
-    )
+    );
 
     if [ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" = "false" ]; then
         # If we are not expecting valid certs, `curl` should be run with `--insecure` option.
@@ -116,32 +132,7 @@ download_agent() {
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
     rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
     script_log "The Automation Agent was deployed at ${MMS_HOME}/files/mongodb-mms-automation-agent"
+
+
     popd >/dev/null
-}
-#https://stackoverflow.com/a/4025065/614239
-compare_versions() {
-    # shellcheck disable=SC2053
-    if [[ $1 == $2 ]]; then
-        return 0
-    fi
-    local IFS=.
-    # shellcheck disable=SC2206
-    local i ver1=($1) ver2=($2)
-    # fill empty fields in ver1 with zeros
-    for ((i = ${#ver1[@]}; i < ${#ver2[@]}; i++)); do
-        ver1[i]=0
-    done
-    for ((i = 0; i < ${#ver1[@]}; i++)); do
-        if [[ -z ${ver2[i]} ]]; then
-            # fill empty fields in ver2 with zeros
-            ver2[i]=0
-        fi
-        if ((10#${ver1[i]} > 10#${ver2[i]})); then
-            return 1
-        fi
-        if ((10#${ver1[i]} < 10#${ver2[i]})); then
-            return 2
-        fi
-    done
-    return 0
 }

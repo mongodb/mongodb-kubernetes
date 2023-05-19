@@ -94,22 +94,8 @@ elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
   agentOpts+=("-ephemeralPortOffset" "1")
 fi
 
-
-
-# this is the version of Automation Agent which has fixes for health file bugs
-# TODO we need to compare the Agent version until we support OM 4.0, then this check can be removed
-set +e
-compare_versions "${AGENT_VERSION}" 10.2.3.5866-1
-if [[ $? -le 1 ]]; then
-  agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
-fi
-
-# this is the version of Automation Agent which has support for local mongodb tools
-compare_versions "${AGENT_VERSION}" 10.14.15.6432-1
-if [[ $? -le 1 ]]; then
-  agentOpts+=("-useLocalMongoDbTools")
-fi
-set -e
+agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
+agentOpts+=("-useLocalMongoDbTools")
 
 if [[ -n "${base_url}" ]]; then
     agentOpts+=("-mmsBaseUrl" "${base_url}")
@@ -147,8 +133,15 @@ script_log "Launching automation agent with following arguments: ${agentOpts[*]}
 agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
 
 rm /tmp/mongodb-mms-automation-cluster-backup.json || true
-# Note, that we do logging in subshell - this allows us to save the сorrect PID to variable (not the logging one)
-"${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+
+debug="${MDB_AGENT_DEBUG-}"
+if [ "${debug}" = "true" ]; then
+  export PATH=$PATH:/var/lib/mongodb-mms-automation/gopath/bin
+  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${MMS_HOME}/files/mongodb-mms-automation-agent" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+else
+# Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
+  "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+fi
 export agentPid=$!
 
 trap cleanup SIGTERM
