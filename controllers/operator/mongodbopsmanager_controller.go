@@ -31,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/user"
@@ -70,6 +71,12 @@ const (
 	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json" // TODO: make that an envar to support local development
 	programmaticKeyVersion                 = "5.0.0"
 )
+
+type S3ConfigGetter interface {
+	GetAuthenticationModes() []string
+	GetResourceName() string
+	BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string
+}
 
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
@@ -1471,14 +1478,15 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		return backup.S3Config{}, status
 	}
 
-	if status := validateS3Config(mongodb, config); !status.IsOK() {
+	if status := validateS3Config(mongodb.GetAuthenticationModes(), mongodb.GetResourceName(), config); !status.IsOK() {
 		return backup.S3Config{}, status
 	}
 
-	userName, password, status := r.getS3MongoDbUserNameAndPassword(mongodb, opsManager.Namespace, config)
+	userName, password, status := r.getS3MongoDbUserNameAndPassword(mongodb.GetAuthenticationModes(), opsManager.Namespace, config)
 	if !status.IsOK() {
 		return backup.S3Config{}, status
 	}
+
 	var s3Creds *backup.S3Credentials
 	var err error
 
@@ -1533,25 +1541,37 @@ func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager
 }
 
 // getMongoDbForS3Config returns the referenced MongoDB resource which should be used when configuring the backup config.
-func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (mdbv1.MongoDB, workflow.Status) {
-	mongodb := mdbv1.MongoDB{}
+func (r *OpsManagerReconciler) getMongoDbForS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (S3ConfigGetter, workflow.Status) {
+	mongodb, mongodbMulti := &mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}
 	mongodbObjectKey := config.MongodbResourceObjectKey(opsManager)
-	err := r.client.Get(context.TODO(), mongodbObjectKey, &mongodb)
+
+	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
 	if err != nil {
 		if secrets.SecretNotExist(err) {
-			// Returning pending as the user may create the mongodb resource soon
-			return mdbv1.MongoDB{}, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
+
+			// try to fetch mongodbMulti if it exists
+			err = r.client.Get(context.TODO(), mongodbObjectKey, mongodbMulti)
+			if err != nil {
+				if secrets.SecretNotExist(err) {
+					// Returning pending as the user may create the mongodb resource soon
+					return nil, workflow.Pending("The MongoDB object %s doesn't exist", mongodbObjectKey)
+				}
+				return nil, workflow.Failed(err)
+			}
+			return mongodbMulti, workflow.OK()
 		}
-		return mdbv1.MongoDB{}, workflow.Failed(err)
+
+		return nil, workflow.Failed(err)
 	}
+
 	return mongodb, workflow.OK()
 }
 
 // getS3MongoDbUserNameAndPassword returns userName and password if MongoDB resource has scram-sha enabled.
 // Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 // user.
-func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.MongoDB, namespace string, config omv1.S3Config) (string, string, workflow.Status) {
-	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
+func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(modes []string, namespace string, config omv1.S3Config) (string, string, workflow.Status) {
+	if !stringutil.Contains(modes, util.SCRAM) {
 		return "", "", workflow.OK()
 	}
 	mongodbUser := &user.MongoDBUser{}
@@ -1576,6 +1596,7 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(mongodb mdbv1.Mon
 func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOpsManager, operatorConfig omv1.DataStoreConfig) (backup.DataStoreConfig, workflow.Status) {
 	mongodb := &mdbv1.MongoDB{}
 	mongodbObjectKey := operatorConfig.MongodbResourceObjectKey(opsManager.Namespace)
+
 	err := r.client.Get(context.TODO(), mongodbObjectKey, mongodb)
 	if err != nil {
 		if secrets.SecretNotExist(err) {
@@ -1585,7 +1606,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 		return backup.DataStoreConfig{}, workflow.Failed(err)
 	}
 
-	status := validateDataStoreConfig(*mongodb, operatorConfig)
+	status := validateDataStoreConfig(mongodb.Spec.Security.Authentication.GetModes(), mongodb.Name, operatorConfig)
 	if !status.IsOK() {
 		return backup.DataStoreConfig{}, status
 	}
@@ -1616,24 +1637,24 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(opsManager omv1.MongoDBOps
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls, operatorConfig.AssignmentLabels), workflow.OK()
 }
 
-func validateS3Config(mongodb mdbv1.MongoDB, s3Config omv1.S3Config) workflow.Status {
-	return validateConfig(mongodb, s3Config.MongoDBUserRef, "S3 metadata database")
+func validateS3Config(modes []string, mdbName string, s3Config omv1.S3Config) workflow.Status {
+	return validateConfig(modes, mdbName, s3Config.MongoDBUserRef, "S3 metadata database")
 }
 
-func validateDataStoreConfig(mongodb mdbv1.MongoDB, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
-	return validateConfig(mongodb, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
+func validateDataStoreConfig(modes []string, mdbName string, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
+	return validateConfig(modes, mdbName, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
 }
 
-func validateConfig(mongodb mdbv1.MongoDB, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
+func validateConfig(modes []string, mdbName string, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
 	// validate
-	if !stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
-		len(mongodb.Spec.Security.Authentication.GetModes()) > 0 {
+	if !stringutil.Contains(modes, util.SCRAM) &&
+		len(modes) > 0 {
 		return workflow.Failed(xerrors.Errorf("The only authentication mode supported for the %s is SCRAM-SHA", description))
 	}
-	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) &&
+	if stringutil.Contains(modes, util.SCRAM) &&
 		(userRef == nil || userRef.Name == "") {
 		return workflow.Failed(xerrors.Errorf("MongoDB resource %s is configured to use SCRAM-SHA authentication mode, the user must be"+
-			" specified using 'mongodbUserRef'", mongodb.Name))
+			" specified using 'mongodbUserRef'", mdbName))
 	}
 
 	return workflow.OK()

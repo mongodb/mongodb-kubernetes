@@ -1396,3 +1396,7 @@ func (m *MongoDB) BuildConnectionString(username, password string, scheme connec
 
 	return builder.Build()
 }
+
+func (m *MongoDB) GetAuthenticationModes() []string {
+	return m.Spec.Security.Authentication.GetModes()
+}

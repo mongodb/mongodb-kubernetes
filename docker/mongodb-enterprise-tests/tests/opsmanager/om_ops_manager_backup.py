@@ -9,6 +9,7 @@ from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
     run_periodically,
+    create_secret,
 )
 from kubetester import get_default_storage_class, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
@@ -83,14 +84,15 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
-def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
-    KubernetesTester.create_secret(
+def create_aws_secret(aws_s3_client, secret_name: str, namespace: str, api_client: Optional[client.ApiClient] = None):
+    create_secret(
         namespace,
         secret_name,
         {
             "accessKey": aws_s3_client.aws_access_key,
             "secretKey": aws_s3_client.aws_secret_access_key,
         },
+        api_client=api_client,
     )
     print("\nCreated a secret for S3 credentials", secret_name)
 
