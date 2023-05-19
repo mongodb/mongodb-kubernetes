@@ -85,6 +85,7 @@ mongodb:
   name: mongodb-enterprise-server
   repo: quay.io/mongodb
   appdbAssumeOldFormat: false
+  imageType: ubi8
 
 
 ## Registry

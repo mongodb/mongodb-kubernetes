@@ -140,6 +140,8 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
+            - name: MDB_IMAGE_TYPE
+              value: {{ .Values.mongodb.imageType }}
     {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
             - name: MDB_APPDB_ASSUME_OLD_FORMAT
               value: 'true'
