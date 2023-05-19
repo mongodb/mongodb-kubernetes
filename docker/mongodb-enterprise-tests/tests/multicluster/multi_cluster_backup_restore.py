@@ -12,9 +12,8 @@ from pytest import mark, fixture
 from kubetester import (
     create_or_update,
     create_or_update_configmap,
-    delete_secret,
 )
-from kubetester import create_secret, create_or_update_secret, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester import (
     get_default_storage_class,
     read_service,

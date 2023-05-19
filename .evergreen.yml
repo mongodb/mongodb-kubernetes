@@ -1759,11 +1759,15 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: e2e_multi_cluster_backup_restore_no_mesh
+- name: e2e_multi_cluster_s3_based_backup_restore
   tags: ["patch-run"]
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_backup_restore_no_mesh
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
 
 - name: e2e_multi_cluster_tls_with_x509
   tags: ["patch-run"]
@@ -2152,6 +2156,7 @@ task_groups:
   tasks:
     - e2e_multi_cluster_2_clusters_replica_set
     - e2e_multi_cluster_2_clusters_clusterwide
+    - e2e_multi_cluster_s3_based_backup_restore
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

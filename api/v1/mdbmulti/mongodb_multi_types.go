@@ -616,7 +616,7 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 //
 // Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
 // to complete.
-func (m MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
 		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
@@ -638,6 +638,10 @@ func (m MongoDBMultiCluster) BuildConnectionString(username, password string, sc
 		SetScheme(scheme)
 
 	return builder.Build()
+}
+
+func (m *MongoDBMultiCluster) GetAuthenticationModes() []string {
+	return m.Spec.Security.Authentication.GetModes()
 }
 
 // getNextIndex returns the next higher index from the current cluster indexes
