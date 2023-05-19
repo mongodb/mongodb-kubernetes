@@ -755,23 +755,23 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	}
 	vars := []corev1.EnvVar{
 		{
-			Name:  util.ENV_VAR_LOG_LEVEL,
-			Value: string(podVars.LogLevel),
+			Name:  util.EnvVarLogLevel,
+			Value: podVars.LogLevel,
 		},
 		{
-			Name:  util.ENV_VAR_BASE_URL,
+			Name:  util.EnvVarBaseUrl,
 			Value: podVars.BaseURL,
 		},
 		{
-			Name:  util.ENV_VAR_PROJECT_ID,
+			Name:  util.EnvVarProjectId,
 			Value: podVars.ProjectID,
 		},
 		{
-			Name:  util.ENV_VAR_USER,
+			Name:  util.EnvVarUser,
 			Value: podVars.User,
 		},
 		{
-			Name:  util.ENV_VAR_MULTI_CLUSTER_MODE,
+			Name:  util.EnvVarMultiClusterMode,
 			Value: opts.MultiClusterMode,
 		},
 	}
@@ -783,6 +783,11 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 				Value: strconv.FormatBool(opts.PodVars.SSLRequireValidMMSServerCertificates),
 			},
 		)
+	}
+
+	// This is only used for debugging
+	if useDebugAgent := os.Getenv(util.EnvVarDebug); useDebugAgent != "" {
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarDebug, Value: useDebugAgent})
 	}
 
 	// append any additional env vars specified.

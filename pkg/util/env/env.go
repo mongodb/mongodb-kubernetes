@@ -107,7 +107,7 @@ type PodEnvVars struct {
 	SSLProjectConfig
 }
 
-// SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuraiton
+// SSLProjectConfig contains the configuration options that are relevant for MMS SSL configuration
 type SSLProjectConfig struct {
 	// This is set to true if baseUrl is HTTPS
 	SSLRequireValidMMSServerCertificates bool
