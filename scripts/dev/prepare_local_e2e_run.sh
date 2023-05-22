@@ -34,3 +34,18 @@ scripts/dev/delete_om_projects.sh
 echo "Deleting ~/.docker/.config.json and re-creating it"
 rm ~/.docker/config.json
 scripts/dev/configure_docker_auth.sh
+
+echo "installing operator helm chart to create the necessary sa and roles"
+helm_values=$(get_operator_helm_values)
+
+# Conditionally append values to the helm_values variable
+if [[ "$LOCAL_OPERATOR" == true ]]; then
+  helm_values+=" operator.replicas=0"
+fi
+
+helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator --set "$(echo "$helm_values" | tr ' ' ',')"
+
+echo "patching default sa mongodb-enterprise-database-pods with imagePullSecrets to ensure we can deploy without setting it for each pod"
+kubectl patch serviceaccount mongodb-enterprise-database-pods  \
+  -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}" \
+  -n "${PROJECT_NAMESPACE}"
