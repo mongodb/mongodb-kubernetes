@@ -9,9 +9,9 @@ parameters:
 
 variables:
   - &go_bin
-      "/opt/golang/go1.19/bin"
+      "/opt/golang/go1.20/bin"
   - &go_options
-    GOROOT: "/opt/golang/go1.19"
+    GOROOT: "/opt/golang/go1.20"
 
 ### All the functions in this file are copies of what is in
 ### .evergreen.yml. If there's any modification on these, it should be also
@@ -219,8 +219,8 @@ functions:
           if ${condition_script}; then
             echo "Adding ${task} task to ${variant} variant"
             scripts/evergreen/add_evergreen_task.sh ${variant} ${task}
-          else 
-            echo "skipping task ${task} due to ${condition_script} result: $?" 
+          else
+            echo "skipping task ${task} due to ${condition_script} result: $?"
           fi
     - command: generate.tasks
       params:
