@@ -653,9 +653,3 @@ func getNextIndex(m map[string]int) int {
 	}
 	return maxi + 1
 }
-
-// removes the nth index element from the slice
-func removeFromSlice(arr []ClusterSpecItem, n int) []ClusterSpecItem {
-	arr[n] = arr[len(arr)-1]
-	return arr[:len(arr)-1]
-}

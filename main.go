@@ -230,7 +230,7 @@ func getMemberClusters(cfg *rest.Config) ([]string, error) {
 	}
 
 	var members []string
-	for member, _ := range m.Data {
+	for member := range m.Data {
 		members = append(members, member)
 	}
 
