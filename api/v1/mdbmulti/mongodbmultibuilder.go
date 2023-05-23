@@ -73,7 +73,7 @@ func (m *MultiReplicaSetBuilder) SetClusterSpecList(clusters []string) *MultiRep
 func (m *MultiReplicaSetBuilder) SetExternalAccess(configuration mdbv1.ExternalAccessConfiguration, externalDomainTemplate string) *MultiReplicaSetBuilder {
 	m.Spec.ExternalAccessConfiguration = &configuration
 
-	for i, _ := range m.Spec.ClusterSpecList {
+	for i := range m.Spec.ClusterSpecList {
 		s := fmt.Sprintf(externalDomainTemplate, i)
 		m.Spec.ClusterSpecList[i].ExternalAccessConfiguration.ExternalDomain = &s
 	}

@@ -42,18 +42,6 @@ func errorNotConfigurableForAppDB(field string) v1.ValidationResult {
 	return v1.OpsManagerResourceValidationError(fmt.Sprintf("%s field is not configurable for application databases", field), status.AppDb)
 }
 
-func deprecationErrorForOpsManager(deprecatedField, replacedWith string) v1.ValidationResult {
-	return v1.OpsManagerResourceValidationError(fmt.Sprintf("%s field is not configurable for Ops Manager, use the %s field instead", deprecatedField, replacedWith), status.OpsManager)
-}
-
-func deprecationErrorForBackup(deprecatedField, replacedWith string) v1.ValidationResult {
-	return v1.OpsManagerResourceValidationError(fmt.Sprintf("%s field is not configurable for Ops Manager Backup, use the %s field instead", deprecatedField, replacedWith), status.Backup)
-}
-
-func errorShardedClusterFieldsNotConfigurableForAppDB(field string) v1.ValidationResult {
-	return v1.OpsManagerResourceValidationError(fmt.Sprintf("%s field is not configurable for application databases as it is for sharded clusters and appdbs are replica sets", field), status.AppDb)
-}
-
 func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	_, err := versionutil.StringToSemverVersion(os.Version)
 	if err != nil {

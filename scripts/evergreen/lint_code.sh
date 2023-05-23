@@ -24,7 +24,7 @@ fi
 
 
 # check for dead code
-PATH=$GOPATH/bin:$PATH staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./controllers/...
+PATH=$GOPATH/bin:$PATH staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./...
 
 echo "Go Version: $(go version)"
 
