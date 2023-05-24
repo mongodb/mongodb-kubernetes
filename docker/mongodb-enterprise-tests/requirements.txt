@@ -6,7 +6,7 @@ pymongo==3.11.0
 pytest==6.0.2
 pytest-asyncio==0.14.0
 PyYAML==5.4.1
-requests==2.26.0
+requests==2.31.0
 urllib3==1.26.6
 dnspython==2.0.0
 cryptography==39.0.1
