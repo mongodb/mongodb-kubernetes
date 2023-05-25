@@ -306,6 +306,10 @@ functions:
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: text/plain
+    - command: attach.xunit_results
+      params:
+        file: "src/github.com/10gen/ops-manager-kubernetes/logs/myreport.xml"
+
 
   # cleanup_exec_environment is a very generic name when the only thing this function
   # does is to clean the logs directory. In the future, more "commands" can be

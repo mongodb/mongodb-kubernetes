@@ -37,8 +37,10 @@ spec:
   serviceAccountName: operator-tests-service-account
   restartPolicy: Never
   terminationGracePeriodSeconds: 0
-  {{ if .Values.multiCluster.memberClusters }}
   volumes:
+    - name: results
+      emptyDir: { }
+  {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
       secret:
         defaultMode: 420
@@ -49,6 +51,12 @@ spec:
         secretName: test-pod-multi-cluster-config
   {{ end }}
   containers:
+  - image: busybox
+    name: keepalive
+    command: [ "/bin/sh", "-c", "sleep 600" ]
+    volumeMounts:
+      - name: results
+        mountPath: /results
   - name: mongodb-enterprise-operator-tests
     env:
     - name: TASK_ID
@@ -127,8 +135,10 @@ spec:
     command: ["pytest"]
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
     imagePullPolicy: Always
-    {{ if .Values.multiCluster.memberClusters }}
     volumeMounts:
+      - mountPath: /results
+        name: results
+    {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume
       - mountPath: /etc/multicluster

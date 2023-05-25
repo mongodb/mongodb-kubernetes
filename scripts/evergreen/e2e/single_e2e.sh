@@ -158,17 +158,20 @@ run_tests() {
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
-        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f
+        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f
     else
         output_filename="logs/test_app.log"
         operator_filename="logs/0_operator.log"
 
-        # At this time both ${TEST_APP_PODNAME} have finished running, so we don't follow (-f) it
+        # At this time ${TEST_APP_PODNAME} has finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
-        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -f | tee "${output_filename}" || true
+        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f | tee "${output_filename}" || true
         kubectl --context "${operator_context}" -n "${PROJECT_NAMESPACE}" logs -l app.kubernetes.io/component=controller -c "${operator_container_name}" --tail -1 > "${operator_filename}"
+
+        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" cp "${TEST_APP_PODNAME}":/results/myreport.xml logs/myreport.xml
     fi
+
 
     # Waiting a bit until the pod gets to some end
     while ! test_app_ended "${test_pod_context}"; do printf .; sleep 1; done;

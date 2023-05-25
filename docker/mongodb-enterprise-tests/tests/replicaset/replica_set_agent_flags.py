@@ -9,13 +9,9 @@ from kubetester.kubetester import KubernetesTester
 
 @fixture(scope="module")
 def replica_set(namespace: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("replica-set-basic.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace)
 
-    resource["spec"]["agent"] = {
-        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
-    }
+    resource["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
     resource["spec"]["version"] = "4.4.0"
 
     return resource.create()
