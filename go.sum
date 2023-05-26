@@ -234,6 +234,8 @@ github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230522092052-c9d96491d
 github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230522092052-c9d96491d825/go.mod h1:4BZV3IUiD1QXCEJ8j+ohd5wSa7X29E/0cpU0HN6papQ=
 github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230524085407-8c2e684d910a h1:XDFQbKyB2NXBeMYY7WgaVx4WHNpRFwdLf2/c+Lv2/CE=
 github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230524085407-8c2e684d910a/go.mod h1:4BZV3IUiD1QXCEJ8j+ohd5wSa7X29E/0cpU0HN6papQ=
+github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230524141203-f3647e30aa46 h1:Q/7sNsP7zo0jwIye6CFs0ktgUEl7l6vS1oxJeRIOA8o=
+github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230524141203-f3647e30aa46/go.mod h1:4BZV3IUiD1QXCEJ8j+ohd5wSa7X29E/0cpU0HN6papQ=
 github.com/munnerz/goautoneg v0.0.0-20120707110453-a547fc61f48d/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
