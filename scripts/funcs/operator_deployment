@@ -61,5 +61,5 @@ prepare_operator_config_map() {
       config_map_values+=("--from-literal" "${param}")
     done
     # shellcheck disable=SC2086,SC2048
-    kubectl --context "${context}" create configmap operator-installation-config -n "${PROJECT_NAMESPACE}" ${config_map_values[*]} || true
+    kubectl --context "${context}" create configmap operator-installation-config -n "${NAMESPACE}" ${config_map_values[*]} || true
 }

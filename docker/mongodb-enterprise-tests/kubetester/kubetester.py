@@ -301,7 +301,7 @@ class KubernetesTester(object):
 
     @staticmethod
     def get_namespace():
-        return get_env_var_or_fail("PROJECT_NAMESPACE")
+        return get_env_var_or_fail("NAMESPACE")
 
     @staticmethod
     def get_om_group_name():

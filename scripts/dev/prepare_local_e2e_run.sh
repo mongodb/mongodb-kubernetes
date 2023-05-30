@@ -48,4 +48,4 @@ helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator -
 echo "patching default sa mongodb-enterprise-database-pods with imagePullSecrets to ensure we can deploy without setting it for each pod"
 kubectl patch serviceaccount mongodb-enterprise-database-pods  \
   -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}" \
-  -n "${PROJECT_NAMESPACE}"
+  -n "${NAMESPACE}"

@@ -13,9 +13,6 @@ source scripts/funcs/printing
 source scripts/funcs/multicluster
 source scripts/funcs/operator_deployment
 
-
-# This will allow to reuse the current namespace - it already has Operator installed
-export PROJECT_NAMESPACE=${NAMESPACE}
 export OM_BASE_URL=${OM_HOST}
 
 # shellcheck disable=SC2154
@@ -72,7 +69,7 @@ else
     TASK_NAME=${test} \
     WAIT_TIMEOUT="4m" \
     MODE="dev" \
-    WATCH_NAMESPACE=${watch_namespace:-$PROJECT_NAMESPACE} \
+    WATCH_NAMESPACE=${watch_namespace:-$NAMESPACE} \
     MANAGED_SECURITY_CONTEXT=${managed_security_context:-} \
     REGISTRY=${REPO_URL} \
     DEBUG=${debug-} \

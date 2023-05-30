@@ -48,7 +48,7 @@ CLUSTER_HOST_MAPPING = {
 
 @fixture(scope="module")
 def namespace() -> str:
-    return os.environ["PROJECT_NAMESPACE"]
+    return os.environ["NAMESPACE"]
 
 
 @fixture(scope="module")

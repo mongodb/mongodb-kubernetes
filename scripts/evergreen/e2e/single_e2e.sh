@@ -37,7 +37,7 @@ deploy_test_app() {
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
         "--set" "repo=${TEST_APP_REGISTRY:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
-        "--set" "namespace=${PROJECT_NAMESPACE}"
+        "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
         "--set" "pytest.addopts=${pytest_addopts:-}"
         "--set" "tag=${version_id:-$latest}"
@@ -89,9 +89,9 @@ deploy_test_app() {
 
     cat "${helm_template_file}"
 
-    kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" delete -f "${helm_template_file}" 2>/dev/null  || true
+    kubectl --context "${context}" -n "${NAMESPACE}" delete -f "${helm_template_file}" 2>/dev/null  || true
 
-    kubectl --context "${context}" -n "${PROJECT_NAMESPACE}" apply -f "${helm_template_file}"
+    kubectl --context "${context}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
 
     rm "${helm_template_file}"
 }
@@ -102,7 +102,7 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
     # Note that the pod may jump to Failed/Completed state quickly - so we need to give up waiting on this as well
     echo "Waiting until the test application gets to Running state..."
 
-    is_running_cmd="kubectl --context '${context}' -n ${PROJECT_NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
+    is_running_cmd="kubectl --context '${context}' -n ${NAMESPACE} get pod ${TEST_APP_PODNAME} -o jsonpath={.status.phase} | grep -q 'Running'"
 
     # test app usually starts instantly but sometimes (quite rarely though) may require more than a min to start
     # in Evergreen so let's wait for 2m
@@ -111,7 +111,7 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
 
     if ! eval "${is_running_cmd}"; then
         error "Test application failed to start on time!"
-        kubectl --context "${context}" -n "${PROJECT_NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
+        kubectl --context "${context}" -n "${NAMESPACE}"  describe pod "${TEST_APP_PODNAME}"
         fatal "Failed to run test application - exiting"
     fi
 }
@@ -119,7 +119,7 @@ wait_until_pod_is_running_or_failed_or_succeeded() {
 test_app_ended() {
     local context="${1}"
     local status
-    status="$(kubectl --context "${context}" get pod mongodb-enterprise-operator-tests -n "${PROJECT_NAMESPACE}" -o jsonpath="{.status}" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
+    status="$(kubectl --context "${context}" get pod mongodb-enterprise-operator-tests -n "${NAMESPACE}" -o jsonpath="{.status}" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" = "Error" || "${status}" = "Completed" ]]
 }
 
@@ -158,7 +158,7 @@ run_tests() {
 
     # we don't output logs to file when running tests locally
     if [[ "${MODE-}" == "dev" ]]; then
-        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f
+        kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f
     else
         output_filename="logs/test_app.log"
         operator_filename="logs/0_operator.log"
@@ -166,10 +166,10 @@ run_tests() {
         # At this time ${TEST_APP_PODNAME} has finished running, so we don't follow (-f) it
         # Similarly, the operator deployment has finished with our tests, so we print whatever we have
         # until this moment and go continue with our lives
-        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f | tee "${output_filename}" || true
-        kubectl --context "${operator_context}" -n "${PROJECT_NAMESPACE}" logs -l app.kubernetes.io/component=controller -c "${operator_container_name}" --tail -1 > "${operator_filename}"
+        kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f | tee "${output_filename}" || true
+        kubectl --context "${operator_context}" -n "${NAMESPACE}" logs -l app.kubernetes.io/component=controller -c "${operator_container_name}" --tail -1 > "${operator_filename}"
 
-        kubectl --context "${test_pod_context}" -n "${PROJECT_NAMESPACE}" cp "${TEST_APP_PODNAME}":/results/myreport.xml logs/myreport.xml
+        kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/results/myreport.xml logs/myreport.xml
     fi
 
 
@@ -177,7 +177,7 @@ run_tests() {
     while ! test_app_ended "${test_pod_context}"; do printf .; sleep 1; done;
     echo
 
-    status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${PROJECT_NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
+    status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]
 }
 
