@@ -1,4 +1,4 @@
-namespace: ${PROJECT_NAMESPACE}
+namespace: ${NAMESPACE}
 
 registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubi
 

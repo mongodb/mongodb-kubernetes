@@ -16,6 +16,7 @@ cache
 **/__pycache__
 **/myenv
 **/venv*/
+**/env*/
 *.bak
 **/pytest_cache/
 bin/*

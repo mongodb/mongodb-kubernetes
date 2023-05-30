@@ -5,12 +5,12 @@ source scripts/funcs/printing
 
 # Configuration of the resources for Ops Manager
 title "Creating admin secret for the new Ops Manager instance"
-kubectl --namespace "${PROJECT_NAMESPACE}" delete secrets ops-manager-admin-secret --ignore-not-found
+kubectl --namespace "${NAMESPACE}" delete secrets ops-manager-admin-secret --ignore-not-found
 kubectl create secret generic ops-manager-admin-secret  \
         --from-literal=Username="jane.doe@example.com" \
         --from-literal=Password="Passw0rd." \
         --from-literal=FirstName="Jane" \
-        --from-literal=LastName="Doe" -n "${PROJECT_NAMESPACE}"
+        --from-literal=LastName="Doe" -n "${NAMESPACE}"
 
 # Configuration of the resources for MongoDB
 title "Creating project and credentials Kubernetes object..."
@@ -23,15 +23,15 @@ fi
 
 # We always create the image pull secret from the docker config.json which gives access to all necessary image repositories
 echo "Creating/updating pull secret from docker configured file"
-kubectl -n "${PROJECT_NAMESPACE}" delete secret image-registries-secret --ignore-not-found
-kubectl -n "${PROJECT_NAMESPACE}" create secret generic image-registries-secret \
+kubectl -n "${NAMESPACE}" delete secret image-registries-secret --ignore-not-found
+kubectl -n "${NAMESPACE}" create secret generic image-registries-secret \
   --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
 
 # delete `my-project` if it exists
-kubectl --namespace "${PROJECT_NAMESPACE}" delete configmap my-project --ignore-not-found
+kubectl --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
 # Configuring project
-kubectl --namespace "${PROJECT_NAMESPACE}" create configmap my-project \
-        --from-literal=projectName="${PROJECT_NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
+kubectl --namespace "${NAMESPACE}" create configmap my-project \
+        --from-literal=projectName="${NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
         --from-literal=orgId="${OM_ORGID:-}"
 
 if [[ -z ${OM_USER-} ]] || [[ -z ${OM_API_KEY-} ]]; then
@@ -39,13 +39,13 @@ if [[ -z ${OM_USER-} ]] || [[ -z ${OM_API_KEY-} ]]; then
     echo "e2e test for MongoDbOpsManager, skipping creation of the credentials secret"
 else
     # delete `my-credentials` if it exists
-    kubectl --namespace "${PROJECT_NAMESPACE}" delete  secret my-credentials  --ignore-not-found
+    kubectl --namespace "${NAMESPACE}" delete  secret my-credentials  --ignore-not-found
     # Configure the Kubernetes credentials for Ops Manager
     if [[ -z ${OM_PUBLIC_API_KEY:-} ]]; then
-         kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+         kubectl --namespace "${NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_USER:-admin}" --from-literal=publicApiKey="${OM_API_KEY}"
     else
-        kubectl --namespace "${PROJECT_NAMESPACE}" create secret generic my-credentials \
+        kubectl --namespace "${NAMESPACE}" create secret generic my-credentials \
             --from-literal=user="${OM_PUBLIC_API_KEY}" --from-literal=publicApiKey="${OM_API_KEY}"
     fi
 fi

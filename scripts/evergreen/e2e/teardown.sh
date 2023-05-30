@@ -7,16 +7,16 @@ set -Eeou pipefail
 context="${1}"
 
 echo "Removing all CRs"
-kubectl --context "${context}" delete mdb --all -n "${PROJECT_NAMESPACE}" || true
-kubectl --context "${context}" delete mdbmc --all -n "${PROJECT_NAMESPACE}" || true
-kubectl --context "${context}" delete mdbu --all -n "${PROJECT_NAMESPACE}" || true
-kubectl --context "${context}" delete om --all -n "${PROJECT_NAMESPACE}" || true
+kubectl --context "${context}" delete mdb --all -n "${NAMESPACE}" || true
+kubectl --context "${context}" delete mdbmc --all -n "${NAMESPACE}" || true
+kubectl --context "${context}" delete mdbu --all -n "${NAMESPACE}" || true
+kubectl --context "${context}" delete om --all -n "${NAMESPACE}" || true
 
 echo "Removing the HELM chart"
-helm --kube-context "${context}" delete mongodb-enterprise-operator --namespace "${PROJECT_NAMESPACE}" || true
+helm --kube-context "${context}" delete mongodb-enterprise-operator --namespace "${NAMESPACE}" || true
 
-echo "Removing the test namespace ${PROJECT_NAMESPACE}"
-kubectl --context "${context}" delete "namespace/${PROJECT_NAMESPACE}" --wait=false || true
+echo "Removing the test namespace ${NAMESPACE}"
+kubectl --context "${context}" delete "namespace/${NAMESPACE}" --wait=false || true
 
 echo "Removing CSRs"
-kubectl --context "${context}" delete "$(kubectl get csr -o name | grep "${PROJECT_NAMESPACE}")" &> /dev/null || true
+kubectl --context "${context}" delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" &> /dev/null || true

@@ -30,14 +30,14 @@ check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2
 
 # 1. Ensure the namespace exists - generate its name if not specified
 
-if [[ -z "${PROJECT_NAMESPACE-}" ]]; then
-    PROJECT_NAMESPACE=$(generate_random_namespace)
-    export PROJECT_NAMESPACE
+if [[ -z "${NAMESPACE-}" ]]; then
+    NAMESPACE=$(generate_random_namespace)
+    export NAMESPACE
 
-    echo "$PROJECT_NAMESPACE" > "${NAMESPACE_FILE}"
+    echo "$NAMESPACE" > "${NAMESPACE_FILE}"
 fi
 
-ensure_namespace "${PROJECT_NAMESPACE}"
+ensure_namespace "${NAMESPACE}"
 
 # 2. Fetch OM connection information - it will be saved to environment variables
 # shellcheck disable=SC1091
@@ -47,7 +47,7 @@ ensure_namespace "${PROJECT_NAMESPACE}"
 . scripts/evergreen/e2e/configure_operator.sh
 
 export TEST_NAME="${TASK_NAME:?}"
-delete_operator "${PROJECT_NAMESPACE}"
+delete_operator "${NAMESPACE}"
 
 # 4. Main test run.
 
@@ -85,7 +85,7 @@ fi
 
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     # Mark namespace as failed to be cleaned later
-    kubectl label "namespace/${PROJECT_NAMESPACE}" "evg/state=failed" --overwrite=true
+    kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
 
     if [ "${always_remove_testing_namespace-}" = "true" ]; then
         # Failed namespaces might cascade into more failures if the namespaces

@@ -69,7 +69,7 @@ spec:
       value: {{ .Values.apiUser }}
     - name: OM_ORGID
       value: {{ .Values.orgId }}
-    - name: PROJECT_NAMESPACE
+    - name: NAMESPACE
       value: {{ .Values.namespace }}
     # We can pass additional options to pytest. For instance -s
     - name: PYTEST_ADDOPTS

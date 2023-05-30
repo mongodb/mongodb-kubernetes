@@ -81,7 +81,7 @@ ensure_ops_manager_k8s() {
             --set initOpsManager.version="${version_id}" \
             --set initAppDb.version="${version_id}" \
             helm_chart > operator.yaml
-        PROJECT_NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
+        NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
 
         # revert after the file is generated
         kubectl config set-context "$(kubectl config current-context)" "--namespace=default"
@@ -168,8 +168,8 @@ delete_operator() {
     local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
 
     title "Removing the Operator deployment ${name}"
-    ! kubectl --namespace "${ns}" get deployments | grep -q ${name} \
-        || kubectl delete deployment $name -n "${ns}" || true
+    ! kubectl --namespace "${ns}" get deployments | grep -q "${name}" \
+        || kubectl delete deployment "$name" -n "${ns}" || true
 }
 
 # wait_for_operator waits for the Operator to start
