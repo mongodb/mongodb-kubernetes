@@ -438,6 +438,20 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:5.0.10-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_11_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:5.0.11-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_12_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.12-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_13_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.13-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_14_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.14-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_15_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.15-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_16_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.16-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_17_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.17-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_18_ubi8
+              value: "quay.io/mongodb/mongodb-enterprise-server:5.0.18-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_6_0_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:6.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_6_0_1_ubi8
@@ -471,3 +485,7 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.5-ent"
             - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_7_ent
               value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.7-ent"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_14_ent
+              value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.14-ent"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_5_0_18_ent
+              value: "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.18-ent"

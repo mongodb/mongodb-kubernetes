@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-set -Eou pipefail
+set -Eeou pipefail
 
-_44_versions="4.4.0 4.4.4 4.4.11"
-_50_versions="5.0.1 5.0.5 5.0.7 5.0.14"
+_44_versions=$(jq  -rc '.supportedImages."appdb-database".versions[] | select(test("^4.4"))' < ../../release.json | sed 's/-ent//g' | tr '\n' ' ')
+_50_versions=$(jq  -rc '.supportedImages."appdb-database".versions[] | select(test("^5.0"))' < ../../release.json | sed 's/-ent//g' | tr '\n' ' ')
+
+echo "4.4 versions: ${_44_versions}"
+echo "5.0 versions: ${_50_versions}"
 
 build_id="b$(date '+%Y%m%dT000000Z')"
 
