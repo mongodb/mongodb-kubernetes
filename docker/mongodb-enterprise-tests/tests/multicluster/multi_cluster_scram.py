@@ -28,6 +28,7 @@ USER_RESOURCE = "multi-replica-set-scram-user"
 USER_DATABASE = "admin"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+NEW_USER_PASSWORD = "my-new-password7"
 
 
 @pytest.fixture(scope="function")
@@ -104,9 +105,14 @@ def test_user_reaches_updated(
     mongodb_user.assert_reaches_phase(Phase.Updated, timeout=100)
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
-def test_user_can_authenticate_with_new_password(
+def test_replica_set_connectivity_using_user_password(mongodb_multi: MongoDBMulti):
+    tester = mongodb_multi.tester()
+    tester.assert_connectivity(db="admin", opts=[with_scram(USER_NAME, USER_PASSWORD)])
+
+
+@pytest.mark.e2e_multi_cluster_scram
+def test_change_password_and_check_connectivity(
     namespace: str,
     mongodb_multi: MongoDBMulti,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -114,23 +120,22 @@ def test_user_can_authenticate_with_new_password(
     create_or_update_secret(
         namespace,
         PASSWORD_SECRET_NAME,
-        {"password": "my-new-password7"},
+        {"password": NEW_USER_PASSWORD},
         api_client=central_cluster_client,
     )
     tester = mongodb_multi.tester()
-    tester.assert_scram_sha_authentication_fails(
-        password="my-new-password7",
+    tester.assert_scram_sha_authentication(
+        password=NEW_USER_PASSWORD,
         username=USER_NAME,
         auth_mechanism="SCRAM-SHA-256",
     )
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
 def test_user_cannot_authenticate_with_old_password(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_scram_sha_authentication_fails(
-        password="my-new-password",
+        password=USER_PASSWORD,
         username=USER_NAME,
         auth_mechanism="SCRAM-SHA-256",
     )
@@ -171,14 +176,12 @@ def test_om_configured_correctly():
     tester.assert_authentication_mechanism_enabled("MONGODB-CR", active_auth_mechanism=False)
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
 def test_replica_set_connectivity(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
-    tester.assert_connectivity(db="admin", opts=[with_scram(USER_NAME, USER_PASSWORD)])
+    tester.assert_connectivity(db="admin", opts=[with_scram(USER_NAME, NEW_USER_PASSWORD)])
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
 def test_replica_set_connectivity_from_connection_string_standard(
     namespace: str,
@@ -194,11 +197,10 @@ def test_replica_set_connectivity_from_connection_string_standard(
     tester.cnx_string = secret_data["connectionString.standard"]
     tester.assert_connectivity(
         db="admin",
-        opts=[with_scram(USER_NAME, USER_PASSWORD)],
+        opts=[with_scram(USER_NAME, NEW_USER_PASSWORD)],
     )
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_scram
 def test_replica_set_connectivity_from_connection_string_standard_srv(
     namespace: str,
@@ -215,6 +217,6 @@ def test_replica_set_connectivity_from_connection_string_standard_srv(
     tester.assert_connectivity(
         db="admin",
         opts=[
-            with_scram(USER_NAME, USER_PASSWORD),
+            with_scram(USER_NAME, NEW_USER_PASSWORD),
         ],
     )
