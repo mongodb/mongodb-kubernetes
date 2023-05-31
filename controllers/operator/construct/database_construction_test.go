@@ -241,6 +241,24 @@ func TestGetAppDBImage(t *testing.T) {
 			},
 		},
 		{
+			name:  "Getting official image without suffix",
+			input: "4.2.11",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+			},
+		},
+		{
+			name:  "Getting official image keep suffix",
+			input: "4.2.11-something",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-something",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(construct.MongodbRepoUrl, "quay.io/mongodb")
+				t.Setenv(construct.MongodbImageEnv, util.OfficialServerImageAppdbUrl)
+			},
+		},
+		{
 			name:  "Getting official image with legacy suffix",
 			input: "4.2.11-ent",
 			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
