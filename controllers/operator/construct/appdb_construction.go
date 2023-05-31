@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -428,9 +429,16 @@ func getAppDBImage(version string) string {
 
 	assumeOldFormat := envvar.ReadBool(util.MdbAppdbAssumeOldFormat)
 	if strings.HasSuffix(imageURL, util.OfficialServerImageAppdbUrl) && !assumeOldFormat {
+		// 5.0.6-ent -> 5.0.6-ubi8
 		if strings.HasSuffix(version, "-ent") {
 			version = strings.Replace(version, "-ent", "-"+imageType, 1)
 		}
+		// 5.0.6 ->  5.0.6-ubi8
+		r := regexp.MustCompile("-.+$")
+		if !r.MatchString(version) {
+			version = version + "-" + imageType
+		}
+		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
 	}
 
 	mongoImageName := ContainerImage(construct.MongodbImageEnv, version, func() string {
