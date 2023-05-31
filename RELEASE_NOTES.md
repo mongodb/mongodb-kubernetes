@@ -3,35 +3,48 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.20.0
 
-# OpsManager Resource
+# MongoDBOpsManager Resource
 * Added support for votes, priority and tags by introducing the `spec.applicationDatabase.memberConfig.votes`, `spec.applicationDatabase.memberConfig.priority`
 and `spec.applicationDatabase.memberConfig.tags` field.
-
+* Introduced automatic change of the AppDB's image version suffix `-ent` to `-ubi8`. 
+  * This enables migration of AppDB images from the legacy repository (`quay.io/mongodb/mongodb-enterprise-appdb-database-ubi`) to the new official one (`quay.io/mongodb/mongodb-enterprise-server`) without changing the version in MongoDBOpsManager's `applicationDatabase.version` field. 
+  * The change will result a rolling update of AppDB replica set pods to the new, official images (referenced in Helm Chart in `values.mongodb.name` field), which are functionally equivalent to the previous ones (the same MongoDB version). 
+  * Suffix change occurs under specific circumstances:
+    * Helm setting for appdb image: `mongodb.name` will now default to `mongodb-enterprise-server`.
+    * The operator will automatically replace the suffix for image repositories
+      that end with `mongodb-enterprise-server`.
+      Operator will replace the suffix `-ent` with the value set in the environment variable
+      `MDB_IMAGE_TYPE`, which defaults to `-ubi8`.
+      For instance, the operator will migrate:
+      * `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8`.
+      * `MDB_IMAGE_TYPE=ubuntu2024 quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2024`.
+      * The operator will do the automatic migration of suffixes only for images
+        that reference the name `mongodb-enterprise-server`.
+        It won't perform migration for any other image name, e.g.:
+        * `mongodb-enterprise-appdb-database-ubi:4.0.0-ent` will not be altered
+      * To stop the automatic suffix migration behavior,
+        set the following environment variable to true: `MDB_APPDB_ASSUME_OLD_FORMAT=true`
+        or alternatively in the following helm chart setting: `mongodb.appdbAssumeOldFormat=true`
+* Added support for defining bare versions in `spec.applicationDatabase.version`. Previously, it was required to specify AppDB's version with `-ent` suffix. Currently, it is possible to specify a bare version, e.g. `6.0.5` and the operator will convert it to `6.0.5-${MDB_IMAGE_TYPE}`. The default for environment variable `MDB_IMAGE_TYPE` is `-ubi8`.
 
 ## Bug fixes
-* Fixed MongoDBMultiCluster not watching `OM` connection configmap and secret
-* Fixed support for rotating `-clusterfile` for MongoDBMultiCluster, ReplicaSets and ShardedClusters
+* Fixed MongoDBMultiCluster not watching Ops Manager's connection configmap and secret.
+* Fixed support for rotating the clusterfile secret, which is used for internal x509 authentication in MongoDB and MongoDBMultiCluster resources.
+
+## Helm Chart
+* All images reference ubi variants by default (added suffix -ubi) 
+  * quay.io/mongodb/mongodb-enterprise-database-ubi
+  * quay.io/mongodb/mongodb-enterprise-init-database-ubi
+  * quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
+  * quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi
+  * quay.io/mongodb/mongodb-enterprise-init-appdb-ubi
+  * quay.io/mongodb/mongodb-agent-ubi
+  * quay.io/mongodb/mongodb-enterprise-appdb-database-ubi
+* Changed default AppDB repository to official MongoDB Enterprise repository in `values.mongodb.name` field: quay.io/mongodb/mongodb-enterprise-server.
+* Introduced `values.mongodb.imageType` variable to specify a default image type suffix added to AppDB's version used by MongoDBOpsManager resource.
 
 ## Breaking changes
 * Removal of `appdb.connectionSpec.Project` since it has been deprecated for over 2 years.
-* Automatic migration of the image version suffix `-ent` under specific circumstances: 
-  * Helm setting for appdb image: `mongodb.name` will now default to `mongodb-enterprise-server`. 
-  * The operator will automatically replace the suffix for image repositories
-    that end with `mongodb-enterprise-server`.
-    Operator will replace the suffix `-ent` with the value set in the environment variable
-    `MDB_IMAGE_TYPE`, which defaults to `-ubi8`.
-    For instance, the operator will migrate:
-    * `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8`.
-    * `MDB_IMAGE_TYPE=ubuntu2024 quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent` to `quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2024`.
-    * The operator will do the automatic migration of suffixes only for images
-      that reference the name `mongodb-enterprise-server`. 
-      It won't perform migration for any other image name, e.g.:
-      * `mongodb-enterprise-appdb-database-ubi:4.0.0-ent` will not be altered 
-    * To stop the automatic suffix migration behavior,
-    set the following environment variable to true: `MDB_APPDB_ASSUME_OLD_FORMAT=true`.
-    or alternatively in the following helm chart setting: `mongodb.appdbAssumeOldFormat=true`
-
-
 
 <!-- Past Releases -->
 
