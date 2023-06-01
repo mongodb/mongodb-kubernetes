@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+
+source scripts/dev/read_context.sh
+
+# todo plenty of things can be done here (OM status, images version, mainly checking for errors etc)
+
+echo "Current context"
+echo
+printf "\t%-20s: %-20s\n" "Operator context" "${CURRENT_CONTEXT}"
+printf "\t%-20s: %-20s\n" "Kubectl context" "$(kubectl config current-context)"
+printf "\t%-20s: %-20s\n" "Namespace" "${NAMESPACE}"
+printf "\t%-20s: %-20s\n" "Image registry" "${REPO_URL}"
+
+echo
+echo "Current state in Kubernetes cluster:"
+echo
+kubectl get all

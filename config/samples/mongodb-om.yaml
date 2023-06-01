@@ -1,0 +1,15 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: ops-manager
+spec:
+  version: 6.0.3
+  adminCredentials: ops-manager-admin
+  configuration:
+    mms.fromEmailAddr: admin@thecompany.com
+  externalConnectivity:
+    type: LoadBalancer
+  applicationDatabase:
+    members: 3
+    podSpec:
+      cpu: 1

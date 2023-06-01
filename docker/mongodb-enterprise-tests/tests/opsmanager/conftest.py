@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+
+import os
+
+from pytest import fixture, skip
+from kubetester.opsmanager import MongoDBOpsManager
+
+
+def pytest_runtest_setup(item):
+    """This allows to automatically install the default Operator before running any test"""
+    if (
+        "default_operator" not in item.fixturenames
+        and "operator_with_monitored_appdb" not in item.fixturenames
+    ):
+        item.fixturenames.insert(0, "default_operator")
+
+
+@fixture(scope="module")
+def custom_om_prev_version() -> str:
+    """Returns a CUSTOM_OM_PREV_VERSION for OpsManager to be created/upgraded."""
+    return os.getenv("CUSTOM_OM_PREV_VERSION", "4.4.15")
+
+
+@fixture(scope="module")
+def custom_mdb_prev_version() -> str:
+    """Returns a CUSTOM_MDB_PREV_VERSION for Mongodb to be created/upgraded to for testing.
+    Used for backup mainly (to test backup for different mdb versions).
+    Defaults to 4.4.24 (simplifies testing locally)"""
+    return os.getenv("CUSTOM_MDB_PREV_VERSION", "4.4.24")
+
+
+def ensure_ent_version(mdb_version: str) -> str:
+    if "-ent" not in mdb_version:
+        return mdb_version + "-ent"
+    return mdb_version
+
+
+@fixture(scope="module")
+def gen_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
+    secret = ops_manager.read_gen_key_secret()
+    return secret.metadata.resource_version
+
+
+@fixture(scope="module")
+def admin_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
+    secret = ops_manager.read_api_key_secret()
+    return secret.metadata.resource_version
+
+
+@fixture
+def skip_if_om5(custom_version: str):
+    """
+    When including this fixture on a test, the test will be skipped,
+    if the "custom_version" is set to OM5.0
+    """
+    if custom_version.startswith("5."):
+        raise skip("Skipping on OM5.0 tests")

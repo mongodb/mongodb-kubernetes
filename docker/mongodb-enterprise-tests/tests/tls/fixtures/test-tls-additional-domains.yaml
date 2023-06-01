@@ -1,0 +1,21 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-additional-domains
+spec:
+  members: 3
+  version: 4.4.0
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+  security:
+    tls:
+      enabled: true
+      additionalCertificateDomains:
+        - "additional-cert-test.com"

@@ -1,0 +1,18 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  labels:
+    controller: mongodb-enterprise-operator
+    mongodbmulticluster: <NAMESPACE>-multi-cluster-replica-set
+    statefulset.kubernetes.io/pod-name: multi-cluster-replica-set-0-0
+spec:
+  type: NodePort
+  selector:
+    controller: mongodb-enterprise-operator
+    statefulset.kubernetes.io/pod-name: multi-cluster-replica-set-0-0
+  ports:
+    - port: 30100
+      targetPort: 27017
+      nodePort: 30100

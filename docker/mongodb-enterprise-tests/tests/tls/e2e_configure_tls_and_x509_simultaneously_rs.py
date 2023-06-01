@@ -1,0 +1,56 @@
+import pytest
+
+from kubetester.kubetester import KubernetesTester
+from kubetester.mongotester import ReplicaSetTester
+from kubetester.omtester import get_rs_cert_names
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.certs import (
+    Certificate,
+    ISSUER_CA_NAME,
+    create_mongodb_tls_certs,
+    create_agent_tls_certs,
+)
+from kubetester.kubetester import fixture as load_fixture
+
+MDB_RESOURCE = "my-replica-set"
+
+
+@pytest.fixture(scope="module")
+def server_certs(issuer: str, namespace: str):
+    return create_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
+
+
+@pytest.fixture(scope="module")
+def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("replica-set.yaml"), namespace=namespace)
+    res["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap}}
+    return res.create()
+
+
+@pytest.fixture(scope="module")
+def agent_certs(issuer: str, namespace: str) -> str:
+    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
+def test_mdb_running(mdb: MongoDB):
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
+def test_connectivity():
+    tester = ReplicaSetTester(MDB_RESOURCE, 3)
+    tester.assert_connectivity()
+
+
+@pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
+def test_enable_x509(mdb: MongoDB, agent_certs: str):
+    mdb.load()
+    mdb["spec"]["security"] = {
+        "authentication": {"enabled": True},
+        "modes": ["X509"],
+    }
+
+    mdb.assert_reaches_phase(Phase.Running, timeout=400)

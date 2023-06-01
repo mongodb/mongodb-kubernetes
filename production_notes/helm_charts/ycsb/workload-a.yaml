@@ -1,0 +1,24 @@
+# Default values for ycsb-benchmark.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+binding:
+db: "mongodb"    # Or "mongodb-async", no other values supported!
+
+parallelism: 8
+
+workloadDefaults: |+
+  recordcount=1000000
+  operationcount=10000000
+  #batchsize=1000
+  workload=site.ycsb.workloads.CoreWorkload
+  readallfields=true
+  readproportion=0.5
+  updateproportion=0.5
+  scanproportion=0
+  insertproportion=0
+  requestdistribution=zipfian
+  table=workload-a
+  fieldcount=50
+  fieldlength=250
+  threadcount=16

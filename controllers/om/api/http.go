@@ -1,0 +1,299 @@
+package api
+
+import (
+	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"net/http/httputil"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	"go.uber.org/zap"
+
+	"github.com/hashicorp/go-retryablehttp"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+)
+
+const (
+	OMClientSubsystem = "om_client"
+	ResultKey         = "requests_total"
+)
+
+var (
+	omClient = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Subsystem: OMClientSubsystem,
+		Name:      ResultKey,
+		Help:      "Number of HTTP requests, partitioned by status code, method, and path.",
+	}, []string{"code", "method", "path"})
+)
+
+func init() {
+	// Register custom metrics with the global prometheus registry
+	if os.Getenv(util.OmOperatorEnv) != util.OperatorEnvironmentProd {
+		zap.S().Debugf("collecting operator specific debug metrics")
+		registerClientMetrics()
+	}
+}
+
+// registerClientMetrics sets up the operator om client metrics.
+func registerClientMetrics() {
+	// register the metrics with our registry
+	metrics.Registry.MustRegister(omClient)
+}
+
+const (
+	defaultRetryWaitMin = 1 * time.Second
+	defaultRetryWaitMax = 10 * time.Second
+	defaultRetryMax     = 3
+)
+
+type Client struct {
+	*retryablehttp.Client
+
+	// Digest username and password
+	username string
+	password string
+
+	// Enable debugging information on this client
+	debug bool
+}
+
+// NewHTTPClient is a functional options constructor, based on this blog post:
+// https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis
+// The default clients specifies some important timeouts (some of them are synced with AA one):
+// 10 seconds for connection (TLS/non TLS)
+// 10 minutes for requests (time to get the first response headers)
+func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
+	client := &Client{
+		Client: newDefaultHTTPClient(),
+	}
+
+	return applyOptions(client, options...)
+}
+
+func newDefaultHTTPClient() *retryablehttp.Client {
+	return &retryablehttp.Client{
+		HTTPClient:   &http.Client{Transport: http.DefaultTransport},
+		RetryWaitMin: defaultRetryWaitMin,
+		RetryWaitMax: defaultRetryWaitMax,
+		RetryMax:     defaultRetryMax,
+		// Will retry on all errors
+		CheckRetry: retryablehttp.DefaultRetryPolicy,
+		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
+		// We don't need Jitter here as we're the only client to the OM, so there's no risk
+		// of overwhelming it in a peek.
+		Backoff: retryablehttp.DefaultBackoff,
+	}
+}
+
+func applyOptions(client *Client, options ...func(*Client) error) (*Client, error) {
+	for _, op := range options {
+		err := op(client)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return client, nil
+}
+
+// NewHTTPOptions returns a list of options that can be used to construct an
+// *http.Client using `NewHTTPClient`.
+func NewHTTPOptions() []func(*Client) error {
+	return make([]func(*Client) error, 0)
+}
+
+// OptionsDigestAuth enables Digest authentication.
+func OptionDigestAuth(username, password string) func(client *Client) error {
+	return func(client *Client) error {
+		client.username = username
+		client.password = password
+
+		return nil
+	}
+}
+
+// OptionDebug enables debug on the http client.
+func OptionDebug(client *Client) error {
+	client.debug = true
+
+	return nil
+}
+
+// OptionSkipVerify will set the Insecure Skip which means that TLS certs will not be
+// verified for validity.
+func OptionSkipVerify(client *Client) error {
+	TLSClientConfig := &tls.Config{InsecureSkipVerify: true}
+
+	transport := client.HTTPClient.Transport.(*http.Transport)
+	transport.TLSClientConfig = TLSClientConfig
+	client.HTTPClient.Transport = transport
+
+	return nil
+}
+
+// OptionCAValidate will use the CA certificate, passed as a string, to validate the
+// certificates presented by Ops Manager.
+func OptionCAValidate(ca string) func(client *Client) error {
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM([]byte(ca))
+	TLSClientConfig := &tls.Config{
+		InsecureSkipVerify: false,
+		RootCAs:            caCertPool,
+	}
+
+	return func(client *Client) error {
+		transport := client.HTTPClient.Transport.(*http.Transport)
+		transport.TLSClientConfig = TLSClientConfig
+		client.HTTPClient.Transport = transport
+
+		return nil
+	}
+}
+
+// Request executes an HTTP request, given a series of parameters, over this *Client object.
+// It handles Digest when needed and json marshaling of the `v` struct.
+func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
+	url := hostname + path
+
+	buffer, err := serializeToBuffer(v)
+	if err != nil {
+		return nil, nil, apierror.New(err)
+	}
+
+	req, _ := createHTTPRequest(method, url, buffer)
+
+	if client.username != "" && client.password != "" {
+		// Only add Digest auth when needed.
+		err = client.authorizeRequest(method, hostname, path, req)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
+		if client.debug {
+			dumpRequest, _ := httputil.DumpRequest(request, true)
+			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
+		} else {
+			zap.S().Debugf("Ops Manager request: %s %s", method, url)
+		}
+	}
+
+	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
+		if client.debug {
+			if !strings.Contains(path, "automationConfig") {
+				dumpRequest, _ := httputil.DumpResponse(response, true)
+				zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpRequest)
+			} else {
+				zap.S().Debugf("Ops Manager response: %s %s\n", method, path)
+			}
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
+	}
+
+	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
+
+	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
+	// resulting in logging authorizeRequest
+	client.RequestLogHook = nil
+	client.ResponseLogHook = nil
+
+	// It is required for the body to be read completely for the connection to be reused.
+	// https://stackoverflow.com/a/17953506/75928
+	body, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, nil, apierror.New(xerrors.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiError := parseAPIError(resp.StatusCode, method, url, body)
+		return nil, nil, apiError
+	}
+
+	return body, resp.Header, nil
+}
+
+// authorizeRequest executes one request that's meant to be challenged by the
+// server in order to build the next one. The `request` parameter is aggregated
+// with the required `Authorization` header.
+func (client *Client) authorizeRequest(method, hostname, path string, request *retryablehttp.Request) error {
+	url := hostname + path
+
+	digestRequest, err := retryablehttp.NewRequest(method, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(digestRequest)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	_, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		return apierror.New(
+			xerrors.Errorf(
+				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
+				resp.StatusCode,
+				resp.Status,
+				http.StatusUnauthorized,
+				digestRequest.URL,
+			),
+		)
+
+	}
+	digestParts := digestParts(resp)
+	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)
+
+	request.Header.Set("Authorization", digestAuth)
+
+	return nil
+}
+
+// createHTTPRequest
+func createHTTPRequest(method string, url string, reader io.Reader) (*retryablehttp.Request, error) {
+	req, err := retryablehttp.NewRequest(method, url, reader)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", "application/json; charset=UTF-8")
+	req.Header.Add("Provider", "KUBERNETES")
+
+	return req, nil
+}
+
+// serializeToBuffer takes any object and tries to serialize it to the buffer
+func serializeToBuffer(v interface{}) (io.Reader, error) {
+	var buffer io.Reader
+	if v != nil {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		buffer = bytes.NewBuffer(b)
+	}
+	return buffer, nil
+}

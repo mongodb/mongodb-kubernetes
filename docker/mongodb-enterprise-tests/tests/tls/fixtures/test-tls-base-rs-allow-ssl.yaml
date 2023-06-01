@@ -1,0 +1,25 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-tls-base-rs-allow-ssl
+spec:
+  members: 3
+  version: 4.4.2
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+
+  security:
+    tls:
+      enabled: true
+
+  additionalMongodConfig:
+    net:
+      ssl:
+        mode: "allowSSL"

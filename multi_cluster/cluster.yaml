@@ -1,0 +1,106 @@
+# This configuration allows us to create a K8s cluster in AWS, with sharing VPC
+# and connectivity b/w the different clusters. it makes the pod IPs routable accross clusters, which is needed for
+# Istio setup with shared network.
+# To use the YAML spec below:
+# i. Make sure you have an exisiting cluster running in an isolated VPC.
+# ii. Edit the "<CLUSTER_NAME>" variable with the clustername you want in this spec.
+# iii. Set the "<VPC_ID>" of the cluster previosuly setup.
+# iv. Provive a non-overlapping CIDR for this new cluster
+# v. kops create -f cluster.yaml
+# verify by deploying a pod in cluster1 and make sure it's curl"able" from cluster2
+apiVersion: kops.k8s.io/v1alpha2
+kind: Cluster
+metadata:
+  creationTimestamp: null
+  name: <CLUSTER_NAME>
+spec:
+  api:
+    dns: {}
+  authorization:
+    rbac: {}
+  channel: stable
+  cloudProvider: aws
+  configBase: s3://kube-om-state-store/<CLUSTER_NAME>
+  containerRuntime: docker
+  etcdClusters:
+  - cpuRequest: 200m
+    etcdMembers:
+    - instanceGroup: master-<REGION>
+      name: a
+    memoryRequest: 100Mi
+    name: main
+  - cpuRequest: 100m
+    etcdMembers:
+    - instanceGroup: master-<REGION>
+      name: a
+    memoryRequest: 100Mi
+    name: events
+  iam:
+    allowContainerRegistry: true
+    legacy: false
+  kubelet:
+    anonymousAuth: false
+  kubernetesApiAccess:
+  - 0.0.0.0/0
+  kubernetesVersion: 1.20.10
+  masterPublicName: api.<CLUSTER_NAME>
+  networkID: <VPC_ID>
+  # configure the CNI, default "kubenet" CNI which KOPS uses won't work
+  networking:
+    amazonvpc: {}
+  # select a non overlapping CIDR block, separate from the one previously deployed, else
+  # the API server will get confused seeing the same IP coming from two different clusters
+  nonMasqueradeCIDR: 172.20.64.0/19
+  sshAccess:
+  - 0.0.0.0/0
+  subnets:
+  - cidr: <CIDR>
+    name: <REGION>
+    type: Public
+    zone: <REGION>
+  topology:
+    dns:
+      type: Public
+    masters: public
+    nodes: public
+---
+# master instance group
+apiVersion: kops.k8s.io/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: <CLUSTER_NAME>
+  name: master-<REGION>
+spec:
+  image: 099720109477/ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20210315
+  machineType: <MASTER_SIZE>
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-<REGION>
+  role: Master
+  rootVolumeSize: 16
+  subnets:
+  - <REGION>
+
+---
+# node instance group
+apiVersion: kops.k8s.io/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: <CLUSTER_NAME>
+  name: nodes-<REGION>
+spec:
+  image: 099720109477/ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-20210315
+  machineType: <NODE_SIZE>
+  maxSize: 4
+  minSize: 4
+  nodeLabels:
+    kops.k8s.io/instancegroup: nodes-<REGION>
+  role: Node
+  rootVolumeSize: 40
+  subnets:
+  - <REGION>

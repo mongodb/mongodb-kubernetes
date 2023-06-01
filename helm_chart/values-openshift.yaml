@@ -1,0 +1,197 @@
+# Name of the Namespace to use
+namespace: mongodb
+
+# OpenShift manages security context on its own
+managedSecurityContext: true
+
+operator:
+  # Execution environment for the operator, dev or prod. Use dev for more verbose logging
+  env: prod
+
+  # Name that will be assigned to most of the internal Kubernetes objects like ServiceAccount, Role etc.
+  name: mongodb-enterprise-operator
+
+  # Name of the operator image
+  operator_image_name: mongodb-enterprise-operator-ubi
+
+  # Version of mongodb-enterprise-operator
+  version: 1.20.0
+
+  # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
+  watchedResources:
+  - mongodb
+  - opsmanagers
+  - mongodbusers
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+# operator cpu requests and limits
+resources:
+  requests:
+    cpu: 500m
+    memory: 200Mi
+  limits:
+    cpu: 1100m
+    memory: 1Gi
+
+## Database
+database:
+  name: mongodb-enterprise-database-ubi
+  version: 2.0.2
+
+initDatabase:
+  name: mongodb-enterprise-init-database-ubi
+  version: 1.0.17
+
+## Ops Manager
+opsManager:
+  name: mongodb-enterprise-ops-manager-ubi
+
+initOpsManager:
+  name: mongodb-enterprise-init-ops-manager-ubi
+  version: 1.0.11
+
+initAppDb:
+  name: mongodb-enterprise-init-appdb-ubi
+  version: 1.0.17
+
+agent:
+  name: mongodb-agent-ubi
+  version: 12.0.21.7698-1
+
+mongodb:
+  name: mongodb-enterprise-server
+  repo: quay.io/mongodb
+  appdbAssumeOldFormat: false
+
+## Registry
+registry:
+  # The pull secret must be specified
+  imagePullSecrets:
+  pullPolicy: Always
+  database: quay.io/mongodb
+  operator: quay.io/mongodb
+  initDatabase: quay.io/mongodb
+  initOpsManager: quay.io/mongodb
+  opsManager: quay.io/mongodb
+  initAppDb: quay.io/mongodb
+  appDb: quay.io/mongodb
+  agent: quay.io/mongodb
+
+# Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
+# Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
+# with sha256 digests pinning for the certified operator bundle with disconnected environment feature enabled.
+# https://docs.openshift.com/container-platform/4.11/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
+relatedImages:
+  opsManager:
+  - 5.0.0
+  - 5.0.1
+  - 5.0.2
+  - 5.0.3
+  - 5.0.4
+  - 5.0.5
+  - 5.0.6
+  - 5.0.7
+  - 5.0.8
+  - 5.0.9
+  - 5.0.10
+  - 5.0.11
+  - 5.0.12
+  - 5.0.13
+  - 5.0.14
+  - 5.0.15
+  - 5.0.16
+  - 5.0.17
+  - 5.0.18
+  - 5.0.19
+  - 5.0.20
+  - 6.0.0
+  - 6.0.1
+  - 6.0.2
+  - 6.0.3
+  - 6.0.4
+  - 6.0.5
+  - 6.0.6
+  - 6.0.7
+  - 6.0.8
+  - 6.0.9
+  - 6.0.10
+  - 6.0.11
+  - 6.0.12
+  - 6.0.13
+  mongodb:
+  - 4.4.0-ubi8
+  - 4.4.1-ubi8
+  - 4.4.2-ubi8
+  - 4.4.3-ubi8
+  - 4.4.4-ubi8
+  - 4.4.5-ubi8
+  - 4.4.6-ubi8
+  - 4.4.7-ubi8
+  - 4.4.8-ubi8
+  - 4.4.9-ubi8
+  - 4.4.10-ubi8
+  - 4.4.11-ubi8
+  - 4.4.12-ubi8
+  - 4.4.13-ubi8
+  - 4.4.14-ubi8
+  - 4.4.15-ubi8
+  - 4.4.16-ubi8
+  - 4.4.17-ubi8
+  - 4.4.18-ubi8
+  - 4.4.19-ubi8
+  - 4.4.20-ubi8
+  - 4.4.21-ubi8
+  - 5.0.0-ubi8
+  - 5.0.1-ubi8
+  - 5.0.2-ubi8
+  - 5.0.3-ubi8
+  - 5.0.4-ubi8
+  - 5.0.5-ubi8
+  - 5.0.6-ubi8
+  - 5.0.7-ubi8
+  - 5.0.8-ubi8
+  - 5.0.9-ubi8
+  - 5.0.10-ubi8
+  - 5.0.11-ubi8
+  - 5.0.12-ubi8
+  - 5.0.13-ubi8
+  - 5.0.14-ubi8
+  - 5.0.15-ubi8
+  - 5.0.16-ubi8
+  - 5.0.17-ubi8
+  - 5.0.18-ubi8
+  - 6.0.0-ubi8
+  - 6.0.1-ubi8
+  - 6.0.2-ubi8
+  - 6.0.3-ubi8
+  - 6.0.4-ubi8
+  - 6.0.5-ubi8
+  agent:
+  - 11.0.5.6963-1
+  - 11.12.0.7388-1
+  - 12.0.4.7554-1
+  - 12.0.15.7646-1
+  - 12.0.20.7686-1
+  - 12.0.21.7698-1
+  mongodbLegacyAppDb:
+  - 4.2.11-ent
+  - 4.2.2-ent
+  - 4.2.24-ent
+  - 4.2.6-ent
+  - 4.2.8-ent
+  - 4.4.0-ent
+  - 4.4.11-ent
+  - 4.4.4-ent
+  - 4.4.21-ent
+  - 5.0.1-ent
+  - 5.0.5-ent
+  - 5.0.6-ent
+  - 5.0.7-ent
+  - 5.0.14-ent
+  - 5.0.18-ent
+subresourceEnabled: true

@@ -1,0 +1,251 @@
+package mdb
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+)
+
+var _ webhook.Validator = &MongoDB{}
+
+const UseOfDeprecatedShortcutFieldsWarning = `The use of the spec.podSpec to set cpu, cpuLimits, memory or memoryLimits has been DEPRECATED.
+Use spec.podSpec.podTemplate.spec.containers[].resources instead.`
+
+// ValidateCreate and ValidateUpdate should be the same if we intend to do this
+// on every reconciliation as well
+func (m *MongoDB) ValidateCreate() error {
+	return m.ProcessValidationsOnReconcile(nil)
+}
+
+func (m *MongoDB) ValidateUpdate(old runtime.Object) error {
+	return m.ProcessValidationsOnReconcile(old.(*MongoDB))
+}
+
+// ValidateDelete does nothing as we assume validation on deletion is
+// unnecessary
+func (m *MongoDB) ValidateDelete() error {
+	return nil
+}
+
+func replicaSetHorizonsRequireTLS(d DbCommonSpec) v1.ValidationResult {
+	if len(d.Connectivity.ReplicaSetHorizons) > 0 && !d.IsSecurityTLSConfigEnabled() {
+		msg := "TLS must be enabled in order to use replica set horizons"
+		return v1.ValidationError(msg)
+	}
+	return v1.ValidationSuccess()
+}
+
+func horizonsMustEqualMembers(ms MongoDbSpec) v1.ValidationResult {
+	numHorizonMembers := len(ms.Connectivity.ReplicaSetHorizons)
+	if numHorizonMembers > 0 && numHorizonMembers != ms.Members {
+		return v1.ValidationError("Number of horizons must be equal to number of members in replica set")
+	}
+	return v1.ValidationSuccess()
+}
+
+func deploymentsMustHaveTLSInX509Env(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
+	if authSpec == nil {
+		return v1.ValidationSuccess()
+	}
+	if authSpec.Enabled && authSpec.IsX509Enabled() && !d.GetSecurity().IsTLSEnabled() {
+		return v1.ValidationError("Cannot have a non-tls deployment when x509 authentication is enabled")
+	}
+	return v1.ValidationSuccess()
+}
+
+func deploymentsMustHaveAgentModesIfAuthIsEnabled(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
+	if authSpec == nil {
+		return v1.ValidationSuccess()
+	}
+	if authSpec.Enabled && len(authSpec.Modes) == 0 {
+		return v1.ValidationError("Cannot enable authentication without modes specified")
+	}
+	return v1.ValidationSuccess()
+}
+
+func deploymentsMustHaveAgentModeInAuthModes(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
+	if authSpec == nil {
+		return v1.ValidationSuccess()
+	}
+	if !authSpec.Enabled {
+		return v1.ValidationSuccess()
+	}
+
+	if authSpec.Agents.Mode != "" && !stringutil.Contains(authSpec.Modes, authSpec.Agents.Mode) {
+		return v1.ValidationError("Cannot configure an Agent authentication mechanism that is not specified in authentication modes")
+	}
+	return v1.ValidationSuccess()
+}
+
+// scramSha1AuthValidation performs the same validation as the Ops Manager does in
+// https://github.com/10gen/mms/blob/107304ce6988f6280e8af069d19b7c6226c4f3ce/server/src/main/com/xgen/cloud/atm/publish/_public/svc/AutomationValidationSvc.java
+func scramSha1AuthValidation(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
+	if authSpec == nil {
+		return v1.ValidationSuccess()
+	}
+	if !authSpec.Enabled {
+		return v1.ValidationSuccess()
+	}
+
+	if stringutil.Contains(authSpec.Modes, util.SCRAMSHA1) {
+		if authSpec.Agents.Mode != util.MONGODBCR {
+			return v1.ValidationError("Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode")
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+func ldapAuthRequiresEnterprise(d DbCommonSpec) v1.ValidationResult {
+	authSpec := d.Security.Authentication
+	if authSpec != nil && authSpec.isLDAPEnabled() && !strings.HasSuffix(d.Version, "-ent") {
+		return v1.ValidationError("Cannot enable LDAP authentication with MongoDB Community Builds")
+	}
+	return v1.ValidationSuccess()
+}
+
+func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
+	if ms.ResourceType == ShardedCluster {
+		if ms.AdditionalMongodConfig != nil && ms.AdditionalMongodConfig.object != nil && len(ms.AdditionalMongodConfig.object) > 0 {
+			return v1.ValidationError("'spec.additionalMongodConfig' cannot be specified if type of MongoDB is %s", ShardedCluster)
+		}
+		return v1.ValidationSuccess()
+	}
+	// Standalone or ReplicaSet
+	if ms.ShardSpec != nil || ms.ConfigSrvSpec != nil || ms.MongosSpec != nil {
+		return v1.ValidationError("'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is %s", ms.ResourceType)
+	}
+	return v1.ValidationSuccess()
+}
+
+func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
+	if ms.ResourceType == ReplicaSet && ms.Members == 0 {
+		return v1.ValidationError("'spec.members' must be specified if type of MongoDB is %s", ms.ResourceType)
+	}
+	return v1.ValidationSuccess()
+}
+
+func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.ValidationResult {
+	if d.Security == nil || d.Security.Authentication == nil {
+		return v1.ValidationSuccess()
+	}
+	if len(d.Security.Authentication.Modes) > 1 && d.Security.Authentication.Agents.Mode == "" {
+		return v1.ValidationError("spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
+	}
+	return v1.ValidationSuccess()
+}
+
+func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(d DbCommonSpec) v1.ValidationResult {
+	if d.Security == nil || d.Security.Authentication == nil || d.Security.Authentication.Ldap == nil {
+		return v1.ValidationSuccess()
+	}
+	auth := d.Security.Authentication
+	if auth.Ldap.AuthzQueryTemplate != "" && auth.Agents.AutomationLdapGroupDN == "" && stringutil.Contains([]string{"X509", "LDAP"}, auth.Agents.Mode) {
+		return v1.ValidationError("automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)")
+	}
+	return v1.ValidationSuccess()
+}
+
+func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if newObj.ResourceType != oldObj.ResourceType {
+		return v1.ValidationError("'resourceType' cannot be changed once created")
+	}
+	return v1.ValidationSuccess()
+}
+
+// specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
+// is configured, doing the "oneOf" validation in the webhook.
+func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
+	count := 0
+	if *d.OpsManagerConfig != (PrivateCloudConfig{}) {
+		count += 1
+	}
+	if *d.CloudManagerConfig != (PrivateCloudConfig{}) {
+		count += 1
+	}
+
+	if count != 1 {
+		return v1.ValidationError("must validate one and only one schema")
+	}
+	return v1.ValidationSuccess()
+}
+
+func CommonValidators() []func(d DbCommonSpec) v1.ValidationResult {
+	return []func(d DbCommonSpec) v1.ValidationResult{
+		replicaSetHorizonsRequireTLS,
+		deploymentsMustHaveTLSInX509Env,
+		deploymentsMustHaveAgentModesIfAuthIsEnabled,
+		deploymentsMustHaveAgentModeInAuthModes,
+		scramSha1AuthValidation,
+		ldapAuthRequiresEnterprise,
+		rolesAttributeisCorrectlyConfigured,
+		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
+		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
+		specWithExactlyOneSchema,
+	}
+}
+
+func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
+
+	// apply validators specific to single cluster
+	singleClusterValidators := []func(m MongoDbSpec) v1.ValidationResult{
+		horizonsMustEqualMembers,
+		additionalMongodConfig,
+		replicasetMemberIsSpecified,
+	}
+
+	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
+		resourceTypeImmutable,
+	}
+
+	var validationResults []v1.ValidationResult
+
+	for _, validator := range singleClusterValidators {
+		res := validator(m.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	for _, validator := range CommonValidators() {
+		res := validator(m.Spec.DbCommonSpec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	if old == nil {
+		return validationResults
+	}
+	for _, validator := range updateValidators {
+		res := validator(m.Spec, old.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+	return validationResults
+}
+
+func (m *MongoDB) ProcessValidationsOnReconcile(old *MongoDB) error {
+	for _, res := range m.RunValidations(old) {
+		if res.Level == v1.ErrorLevel {
+			return errors.New(res.Msg)
+		}
+
+		if res.Level == v1.WarningLevel {
+			m.AddWarningIfNotExists(status.Warning(res.Msg))
+		}
+	}
+
+	return nil
+}

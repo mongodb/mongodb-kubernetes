@@ -1,0 +1,68 @@
+export NAMESPACE=your-namespace
+# absolute path to ops-manager-kubernetes dir
+export PROJECT_DIR=/path/to/ops-manager-kubernetes
+export RED_HAT_TOKEN=eyJhb...
+export AWS_ACCESS_KEY_ID=ABC...
+export AWS_SECRET_ACCESS_KEY=e4af...
+# repo used as OPERATOR_REGISTRY when not using local operator
+export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/lsierant-kops2
+
+# comment this or set to empty to use local kind clusters
+# export EVG_HOST_NAME=""
+
+# set to ubi or ubuntu
+export IMAGE_TYPE=ubi
+# set to true if using ubi images in ECR registry. Set to false if using ubi from quay.
+export UBI_IMAGE_WITHOUT_SUFFIX=true
+# set to true if running operator locally and not in a pod
+export LOCAL_OPERATOR=true
+# set to true for running cluster-wide operator
+export OPERATOR_CLUSTER_SCOPED=${OPERATOR_CLUSTER_SCOPED:-false}
+# by default watch only main NAMESPACE, set other watched namespaces for cluster-wide operator (comma-separated)
+export WATCH_NAMESPACE="${WATCH_NAMESPACE:-${NAMESPACE}}"
+# set:
+#   multi - for multicluster
+#   kops  - for kops cluster
+#   kind  - for local/evg kind clusters
+export kube_environment_name=kind
+export CLUSTER_TYPE="kind"
+
+#
+# changing variables below should not be necessary
+#
+
+# these are fixed when using scripts/dev/recreate_kind_clusters.sh
+export CLUSTER_NAME=kind-test-cluster
+
+# when using EVG ec2 instance, we copy kubeconfig locally and use it
+if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
+  export KUBECONFIG=~/.operator-dev/evg-host.kubeconfig
+else
+  export KUBECONFIG=~/.kube/config
+fi
+
+export OPERATOR_ENV="dev"
+export OPERATOR_REGISTRY=${BASE_REPO_URL}/${IMAGE_TYPE}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${IMAGE_TYPE}}
+
+export QUAY_REGISTRY=quay.io/mongodb
+
+export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_APPDB_VERSION=latest
+export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_OPS_MANAGER_VERSION=latest
+export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_DATABASE_VERSION=latest
+export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export DATABASE_VERSION=latest
+export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
+export APPDB_REGISTRY=${QUAY_REGISTRY}
+
+export agent_version=12.0.4.7554-1
+
+# values from .evergreen.yml
+export CUSTOM_APPDB_VERSION=5.0.7-ent
+export CUSTOM_OM_VERSION=6.0.7
+export CUSTOM_OM_PREV_VERSION=5.0.1
+export CUSTOM_MDB_VERSION=5.0.5
+export CUSTOM_MDB_PREV_VERSION=5.0.1

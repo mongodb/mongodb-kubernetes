@@ -1,0 +1,21 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: test-invalid-replica-set-no-agent-auth-mode
+spec:
+  members: 3
+  version: 4.0.12-ent
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+
+  persistent: false
+
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM", "LDAP"]

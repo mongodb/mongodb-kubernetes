@@ -1,0 +1,100 @@
+# This is a configuration file for working with Operator in multi cluster mode.
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+export NAMESPACE=your-namespace # <UPDATE ME>
+# absolute path to ops-manager-kubernetes dir
+export PROJECT_DIR=/path/to/ops-manager-kubernetes # <UPDATE ME>
+export AWS_ACCESS_KEY_ID=ABC... # <UPDATE ME>
+export AWS_SECRET_ACCESS_KEY=e4af... # <UPDATE ME>
+export CURRENT_NAMESPACE=evg-namespace # <UPDATE ME>
+# repo used as OPERATOR_REGISTRY when not using local operator
+export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/<your-ecr-registry> # <UPDATE ME>
+
+
+# set to ubi or ubuntu
+export IMAGE_TYPE=ubi
+# set to true if using ubi images in ECR registry. Set to false if using ubi from quay.
+export UBI_IMAGE_WITHOUT_SUFFIX=true
+# set to true if running operator locally and not in a pod
+export LOCAL_OPERATOR=true
+# set to true for running cluster-wide operator
+export OPERATOR_CLUSTER_SCOPED=${OPERATOR_CLUSTER_SCOPED:-false}
+# by default watch only main NAMESPACE, set other watched namespaces for cluster-wide operator
+export WATCH_NAMESPACE="${WATCH_NAMESPACE:-${NAMESPACE}}"
+# set:
+#   multi - for multicluster
+#   kops  - for kops cluster
+#   kind  - for local/evg kind clusters
+export kube_environment_name=multi
+export CLUSTER_TYPE="multi"
+
+#
+# changing variables below should not be necessary
+#
+
+# these are fixed when using scripts/dev/recreate_kind_clusters.sh
+export CLUSTER_NAME=e2e.operator.mongokubernetes.com # this has to be central-cluster
+export test_pod_cluster=e2e.cluster1.mongokubernetes.com
+export member_clusters="e2e.cluster1.mongokubernetes.com e2e.cluster2.mongokubernetes.com e2e.cluster3.mongokubernetes.com"
+
+export KUBECONFIG=~/.kube/config
+
+export central_cluster=${CLUSTER_NAME}
+export MEMBER_CLUSTERS=${member_clusters}
+export CENTRAL_CLUSTER=${central_cluster}
+export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
+export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator
+
+# override for /etc/config/kubeconfig file mounted in operator's pod
+if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
+  export KUBE_CONFIG_PATH=$HOME/.operator-dev/multicluster_kubeconfig
+  export PERFORM_FAILOVER=false
+fi
+
+
+export OPERATOR_ENV="dev"
+export OPERATOR_REGISTRY=${BASE_REPO_URL}/${IMAGE_TYPE}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${IMAGE_TYPE}}
+
+export QUAY_REGISTRY=quay.io/mongodb
+
+export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_APPDB_VERSION=latest
+export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_OPS_MANAGER_VERSION=latest
+export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_DATABASE_VERSION=latest # will default to latest, the make script will upload latest
+export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY}
+export DATABASE_VERSION=latest
+export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
+export APPDB_REGISTRY=${QUAY_REGISTRY}
+
+export agent_version=12.0.4.7554-1
+
+# values from .evergreen.yml
+export CUSTOM_APPDB_VERSION=5.0.7-ent
+export CUSTOM_OM_VERSION=6.0.7
+export CUSTOM_OM_PREV_VERSION=5.0.1
+export CUSTOM_MDB_VERSION=5.0.5
+export CUSTOM_MDB_PREV_VERSION=5.0.1
+
+
+#  ------------
+# NEWLY ADDED / comments
+export CURRENT_NAMESPACE=nnguyen-evg
+export OPS_MANAGER_IMAGE_PULL_POLICY=IfNotPresent
+export IMAGE_PULL_POLICY=IfNotPresent
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database" # used by mongodb crd
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
+export OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-ops-manager"
+
+# Ops Manager related options
+export OM_HOST=https://cloud-qa.mongodb.com
+export OM_BASE_URL=https://cloud-qa.mongodb.com
+export OM_USER=rctanfjm
+export OM_API_KEY=3410c803-4e3a-4363-93b9-2cf43f7cf608
+export OM_ORGID=63bec8638facb45e76c9cfe8
+#  ------------

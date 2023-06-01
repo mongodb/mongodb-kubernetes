@@ -1,0 +1,7 @@
+-r requirements.txt
+jedi
+rope
+black==22.12.0
+flake8
+autopep8
+jinja2

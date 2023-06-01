@@ -1,0 +1,29 @@
+# The content of this file has been taken from the Vault tutorial
+# at https://vaultproject.io/docs/platform/k8s/helm/examples/standalone-tls
+
+global:
+  enabled: true
+  tlsDisable: false
+
+server:
+  extraEnvironmentVars:
+    VAULT_CACERT: /vault/userconfig/vault-tls/ca.crt
+
+  extraVolumes:
+    - type: secret
+      name: vault-tls
+
+  standalone:
+    enabled: true
+    config: |
+      listener "tcp" {
+        address = "0.0.0.0:8200"
+        cluster_address = "0.0.0.0:8201"
+        tls_cert_file = "/vault/userconfig/vault-tls/tls.crt"
+        tls_key_file  = "/vault/userconfig/vault-tls/tls.key"
+        tls_client_ca_file = "/vault/userconfig/vault-tls/ca.crt"
+      }
+
+      storage "file" {
+        path = "/vault/data"
+      }

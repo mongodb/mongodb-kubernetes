@@ -1,0 +1,5 @@
+apiVersion: v2
+name: operator
+description: MongoDB Enterprise Operator
+
+version: 0.0.1

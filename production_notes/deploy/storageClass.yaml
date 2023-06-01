@@ -1,0 +1,7 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: io2 #io2 and io1 have the same prices. io2 provides more durability, while io1 has the additional support for "Amazon EBS Multi-attach"

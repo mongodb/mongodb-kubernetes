@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+pushd "$PWD" > /dev/null || return
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "$DIR" || return
+# shellcheck source=scripts/funcs/checks
+source checks
+# shellcheck source=scripts/funcs/errors
+source errors
+# shellcheck source=scripts/funcs/printing
+source printing
+popd > /dev/null || return
+
+ensure_namespace() {
+    local namespace="${1}"
+    local tmp_file
+    tmp_file=$(mktemp)
+    cat <<EOF > "${tmp_file}"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${namespace}
+  labels:
+    evg: task
+  annotations:
+    evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
+    evg/task-name: ${TASK_NAME:-'not-specified'}
+    evg/task: "https://evergreen.mongodb.com/task/${task_id:-'not-specified'}"
+    evg/mms-version: "${MMS_VERSION:-'not-specified'}"
+EOF
+
+    if kubectl get "ns/${namespace}" -o name &> /dev/null; then
+        echo "Namespace ${namespace} already exists!"
+    else
+        echo "Creating new namespace: ${namespace}"
+        cat "${tmp_file}"
+        kubectl create -f "${tmp_file}"
+    fi
+}
+
+# the function installs Ops Manager (legacy dev version) into Kubernetes cluster if it's not installed already
+# Note, that this requires the k8s node with 4 Gb of free memory
+ensure_ops_manager_k8s() {
+    local ops_manager_namespace="${1}"
+    local ops_manager_version="${2}"
+    local node_port="${3}"
+    local ecr_registry="${4}"
+    local version_id="${5}"
+
+    local om_name="ops-manager"
+
+    if [ -z "${ops_manager_namespace}" ]; then
+        error "ops_manager_namespace must be set!"
+        exit 1
+    fi
+    if [ -z "${ops_manager_version}" ]; then
+        error "ops_manager_version must be set!"
+        exit 1
+    fi
+    if [ -z "${node_port}" ]; then
+        error "node_port must be set!"
+        exit 1
+    fi
+
+    echo "##### Installing Ops Manager ${ops_manager_version} (namespace ${ops_manager_namespace} into Kubernetes..."
+
+    if _is_ops_manager_down "${ops_manager_namespace}"; then
+
+        # set the context to the ops manager namespace so the templated file will contain the correct release namespace.
+        kubectl config set-context "$(kubectl config current-context)" "--namespace=${ops_manager_namespace}"
+        echo "Installing the operator in the OpsManager namespace"
+        helm template -f helm_chart/values.yaml \
+            --set namespace="${ops_manager_namespace}" \
+            --set registry.operator="${ecr_registry}/dev/ubuntu" \
+            --set operator.version="${version_id}" \
+            --set registry.initAppDb="${ecr_registry}/dev/ubuntu" \
+            --set registry.OpsManager="${ecr_registry}/dev/ubuntu" \
+            --set registry.initOpsManager="${ecr_registry}/dev/ubuntu" \
+            --set initOpsManager.version="${version_id}" \
+            --set initAppDb.version="${version_id}" \
+            helm_chart > operator.yaml
+        NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
+
+        # revert after the file is generated
+        kubectl config set-context "$(kubectl config current-context)" "--namespace=default"
+
+        echo "Deleting old OpsManager Resources in case something is stuck"
+        kubectl delete opsmanagers.mongodb.com "$om_name" -n "${ops_manager_namespace}" --ignore-not-found=true
+        echo "Deleting AppDB PVC, if they exist"
+        kubectl delete pvc -l app=ops-manager-db-svc -n "${ops_manager_namespace}"
+
+        echo "Installing Ops Manager ${ops_manager_version}"
+        kubectl apply -f scripts/evergreen/deployments/ops-manager-vanilla.yaml -n "${ops_manager_namespace}"
+        kubectl patch opsmanagers.mongodb.com "$om_name" --type=json -p='[{"op": "replace", "path" : "/spec/version", "value" : "'"${ops_manager_version}"'"}]' -n "${ops_manager_namespace}"
+
+
+        kubectl apply -f operator.yaml -n "${ops_manager_namespace}"
+        rm operator.yaml
+
+
+        echo "Waiting for OpsManager to be ready"
+        until [[ $(kubectl get om "$om_name" -n "${ops_manager_namespace}" -o jsonpath='{.status.applicationDatabase.phase}') = "Running" && $(kubectl get om ops-manager  -n "${ops_manager_namespace}" -o jsonpath='{.status.opsManager.phase}') = "Running" ]]; do echo "OpsManager not yet ready, will retry in 20 seconds"; sleep 20; done
+
+
+        # we try to open ports for both security groups - in kops and openshift clusters
+        _ensure_vpc_rules "us-east-2" "nodes.e2e"
+
+        echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
+    else
+        echo "Ops Manager is already installed in this cluster."
+        echo "If you want to start with a fresh Ops Manager installation, please delete the \"${ops_manager_namespace}\" namespace."
+    fi
+
+    echo "##### Ops Manager is ready"
+
+    _print_om_endpoint "" "${ops_manager_namespace}" "${node_port}"
+}
+
+_print_om_endpoint() {
+    local ops_manager_namespace="${2}"
+    if [ -z "$ops_manager_namespace" ]; then
+        error "No ops_manager_namespace set: not able to find Ops Manager external IP"
+    else
+        local node_port="${3}"
+        local node_name
+        node_name=$(kubectl get pods/"$om_name"-0 -n "${ops_manager_namespace}" -o wide | tail -n 1 | awk '{print $7}')
+        local external_ip
+        external_ip="$(kubectl get nodes -o wide | grep "${node_name}" | awk '{print $7}')"
+
+        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
+    fi
+}
+
+_ensure_vpc_rules() {
+    local region="$1"
+    local prefix="$2"
+    local group_id
+    group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
+
+    if [[ -z $group_id ]]; then
+        echo "Failed to find group id for EC2 security group with prefix $prefix"
+        return 1
+    fi
+    # note, that the attempt to add the same rule will result in "already exists" error - so we just ignore errors by now
+    # open multiple node ports for different versions of Ops Manager
+    for i in $(seq 30039 30043); do
+        aws ec2 authorize-security-group-ingress --region "${region}" --group-id "${group_id}" --protocol tcp --port "${i}" --cidr "0.0.0.0/0" 2>/dev/null || true
+        echo "Opened port ${i} in AWS for the security group with prefix $prefix (group id: $group_id)"
+    done
+
+}
+# returns true if the namespace doesn't exist or if the OM pod is not running and this lasts for more than or equal to 1 hour.
+# This is supposed to work for concurrent builds when one of the builds is starting Ops Manager (ideally we need to check for 10 minutes
+# but parsing dates in bash is hard :( )
+_is_ops_manager_down() {
+    ! kubectl get "namespace/${1}" &> /dev/null || \
+    ! kubectl get pod/"$om_name"-0 -n "${1}" 2>/dev/null ||
+    kubectl get pod/"$om_name"-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${1}" | grep -q "false"
+
+}
+
+delete_operator() {
+    [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]] && return
+
+    local ns="$1"
+    local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
+
+    title "Removing the Operator deployment ${name}"
+    ! kubectl --namespace "${ns}" get deployments | grep -q "${name}" \
+        || kubectl delete deployment "$name" -n "${ns}" || true
+}
+
+# wait_for_operator waits for the Operator to start
+wait_for_operator_start() {
+    local ns="$1"
+    local timeout="${2:-2m}"
+    echo "Waiting until the Operator gets to Running state..."
+    export OPERATOR_NAME
+
+    local cmd
+
+    # Waiting until there is only one pod left as this could be the upgrade operation (very fast in practice)
+    # shellcheck disable=SC2016
+    cmd='while [[ $(kubectl -n '"${ns}"' get pods -l app.kubernetes.io/name=${OPERATOR_NAME}  --no-headers 2>/dev/null | wc -l) -gt 1 ]] ; do printf .; sleep 1; done'
+    timeout --foreground "1m" bash -c "${cmd}" || true
+
+    cmd="while ! kubectl -n ${ns} get pods -l app.kubernetes.io/name=${OPERATOR_NAME} -o jsonpath={.items[0].status.phase} 2>/dev/null | grep -q Running ; do printf .; sleep 1; done"
+    timeout --foreground "${timeout}" bash -c "${cmd}" || true
+
+    # In the end let's check again and print the state
+    if ! kubectl -n "${ns}" get pods -l "app.kubernetes.io/name=${OPERATOR_NAME}" -o jsonpath="{.items[0].status.phase}" | grep -q "Running"; then
+        error "Operator hasn't reached RUNNING state after ${timeout}. The full yaml configuration for the pod is:"
+        kubectl -n "${ns}" get pods -l "app.kubernetes.io/name=${OPERATOR_NAME}" -o yaml
+
+        title "Operator failed to start, exiting"
+        return 1
+    fi
+    echo ""
+
+    title "The Operator successfully installed to the Kubernetes cluster"
+}
+
+# Creates kops cluster and adds the support for dashboard
+create_kops_cluster() {
+    local cluster_name="${1}"
+    local node_count=${2}
+    local node_volume_size=${3}
+    local node_size="${4}"
+    local master_size="${5}"
+    local zones="${6}"
+    local k8s_version="${7:-}"
+
+    if [[ -z "${k8s_version}" ]]; then
+        k8s_version='v1.19.0'
+    fi
+
+    title "Creating kops cluster $cluster_name (master: $master_size, nodes: $master_size, zones: $zones)"
+
+    check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
+
+    echo "Make sure you use the latest version of kops (>= 1.19.0): 'brew upgrade kops'"
+    kops create cluster \
+         --node-count "$node_count" \
+         --zones "${zones}" \
+         --node-size "${node_size}" \
+         --node-volume-size "${node_volume_size}" \
+         --master-size="${master_size}" \
+         --master-volume-size 16  \
+         --kubernetes-version="${k8s_version}" \
+         --ssh-public-key=~/.ssh/id_rsa.pub \
+         --authorization RBAC "${cluster_name}"
+
+    kops create secret --name "${cluster_name}" sshpublickey admin -i ~/.ssh/id_rsa.pub
+
+    kops update cluster "${cluster_name}" --yes
+
+    echo "Waiting until kops cluster gets ready..."
+    kops validate cluster "${cluster_name}" --wait 10m
+
+    title "Kops cluster ${cluster_name} is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
+
+    title "Adding support for Kubernetes dashboard"
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml
+
+    title 'Kubernetes dashboard is installed, use "make dashboard" to open it'
+}
+
+# Makes sure the ECR repository exists.
+# The incoming parameter is expected to be the full ECR url (e.g. "268558157000.dkr.ecr.us-east-1.amazonaws.com/alis/ubuntu/mongodb-enterprise-appdb")
+ensure_ecr_repository() {
+    local repo_url=$1
+    local repo_name
+
+    if [[ $(expr "${BASE_REPO_URL}" : '.*\.ecr\..*') -gt 0 ]]; then
+        repo_name="$(echo "${repo_url}" | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
+        if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
+            echo "Creating repository ${repo_name} as it doesn't exist"
+            aws ecr create-repository --repository-name="${repo_name}"
+        fi
+    fi
+}

@@ -1,0 +1,17 @@
+# This is a standalone that references the non-existent storageClass "foo" which is created eventually
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-vol-broken
+spec:
+  type: Standalone
+  version: 5.0.5-ent
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  podSpec:
+    persistence:
+      single:
+        storage: 2G

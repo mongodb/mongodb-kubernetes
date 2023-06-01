@@ -1,0 +1,181 @@
+import time
+from typing import Optional
+
+from kubetester import create_or_update
+from kubetester.certs import (
+    create_mongodb_tls_certs,
+    create_ops_manager_tls_certs,
+    Certificate,
+)
+from kubetester.kubetester import KubernetesTester, fixture as _fixture, skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
+
+
+@fixture(scope="module")
+def appdb_certs(namespace: str, issuer: str) -> str:
+    create_mongodb_tls_certs(issuer, namespace, "om-with-https-db", "appdb-om-with-https-db-cert")
+    return "appdb"
+
+
+@fixture(scope="module")
+def ops_manager_certs(namespace: str, issuer: str):
+    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https", "prefix-om-with-https-cert")
+
+
+@fixture(scope="module")
+def ops_manager(
+    namespace: str,
+    issuer_ca_configmap: str,
+    appdb_certs: str,
+    ops_manager_certs: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
+) -> MongoDBOpsManager:
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
+    om.set_version(custom_version)
+    om.set_appdb_version(custom_appdb_version)
+    om.allow_mdb_rc_versions()
+
+    return create_or_update(om)
+
+
+@fixture(scope="module")
+def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
+    """First replicaset to be created before Ops Manager is configured with HTTPS."""
+    resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
+        ops_manager, "replicaset0"
+    )
+    resource["spec"]["version"] = custom_mdb_version
+
+    return create_or_update(resource)
+
+
+@fixture(scope="module")
+def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
+    """Second replicaset to be created when Ops Manager was restarted with HTTPS."""
+    resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset1", namespace=namespace).configure(
+        ops_manager, "replicaset1"
+    )
+    resource["spec"]["version"] = custom_mdb_version
+
+    return create_or_update(resource)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
+    """Ops Manager is started over plain HTTP. AppDB also doesn't have TLS enabled"""
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert ops_manager.om_status().get_url().startswith("http://")
+    assert ops_manager.om_status().get_url().endswith(":8080")
+
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_running_no_tls(ops_manager: MongoDBOpsManager):
+    ops_manager.get_appdb_tester().assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_enable_tls(ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, appdb_certs: str):
+    """Enable TLS for the AppDB (not for OM though)."""
+    ops_manager.load()
+    ops_manager["spec"]["applicationDatabase"]["security"] = {
+        "certsSecretPrefix": appdb_certs,
+        "tls": {"ca": issuer_ca_configmap},
+    }
+    ops_manager.update()
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_running_over_tls(ops_manager: MongoDBOpsManager, ca_path: str):
+    ops_manager.get_appdb_tester(ssl=True, ca_path=ca_path).assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_appdb_not_connectibel_without_tls(ops_manager: MongoDBOpsManager):
+    ops_manager.get_appdb_tester().assert_no_connection()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_replica_set_over_non_https_ops_manager(replicaset0: MongoDB):
+    """First replicaset is started over non-HTTPS Ops Manager."""
+    replicaset0.assert_reaches_phase(Phase.Running)
+    replicaset0.assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_enable_https_on_opsmanager(ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_certs: str):
+    """Ops Manager is restarted with HTTPS enabled."""
+    ops_manager.load()
+    ops_manager["spec"]["security"] = {
+        "certsSecretPrefix": "prefix",
+        "tls": {"ca": issuer_ca_configmap},
+    }
+    ops_manager.update()
+
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert ops_manager.om_status().get_url().startswith("https://")
+    assert ops_manager.om_status().get_url().endswith(":8443")
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_project_is_configured_with_custom_ca(
+    ops_manager: MongoDBOpsManager,
+    namespace: str,
+    issuer_ca_configmap: str,
+):
+    """Both projects are configured with the new HTTPS enabled Ops Manager."""
+    project1 = ops_manager.get_or_create_mongodb_connection_config_map("replicaset0", "replicaset0")
+    project2 = ops_manager.get_or_create_mongodb_connection_config_map("replicaset1", "replicaset1")
+
+    data = {
+        "sslMMSCAConfigMap": issuer_ca_configmap,
+    }
+    KubernetesTester.update_configmap(namespace, project1, data)
+    KubernetesTester.update_configmap(namespace, project2, data)
+
+    # Give a few seconds for the operator to catch the changes on
+    # the project ConfigMaps
+    time.sleep(10)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, replicaset1: MongoDB):
+    """Both replicasets get to running state and are reachable.
+    Note that 'replicaset1' is created just now."""
+
+    # TODO: Find a way to fix this, after discussing CLOUDP-92131.
+    # replicaset0.assert_reaches_phase(Phase.Running, timeout=360)
+    # replicaset0.assert_connectivity()
+
+    replicaset1.assert_reaches_phase(Phase.Running, timeout=360)
+    replicaset1.assert_connectivity()
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_change_om_certificate_and_wait_for_running(ops_manager: MongoDBOpsManager, namespace: str):
+    cert = Certificate(name="prefix-om-with-https-cert", namespace=namespace).load()
+    cert["spec"]["dnsNames"].append("foo")
+    cert.update()
+    ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=60)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+    assert ops_manager.om_status().get_url().startswith("https://")
+    assert ops_manager.om_status().get_url().endswith(":8443")
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_change_appdb_certificate_and_wait_for_running(ops_manager: MongoDBOpsManager, namespace: str):
+    cert = Certificate(name="appdb-om-with-https-db-cert", namespace=namespace).load()
+    cert["spec"]["dnsNames"].append("foo")
+    cert.update()
+    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)

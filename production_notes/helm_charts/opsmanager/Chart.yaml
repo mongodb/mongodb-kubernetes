@@ -1,0 +1,12 @@
+apiVersion: v2
+name: opsmanager
+description: OpsManager
+
+version: 0.0.1
+dependencies:
+- name: operator
+  version: ">=0.0.1"
+  repository: "file://../operator"
+- name: cert-manager
+  version: "1.0.4"
+  repository: https://charts.jetstack.io

@@ -1,0 +1,27 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-remotemode
+spec:
+  replicas: 1
+  version: 4.4.0-rc2 # OM version with "remote" mode support
+  adminCredentials: ops-manager-admin-secret
+  configuration:
+    # CLOUDP-83792: as of OM 4.4.9 this property is critical to make remote mode work with enterprise build
+    automation.versions.download.baseUrl.allowOnlyAvailableBuilds: "false"
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com
+  backup:
+    enabled: false
+
+  applicationDatabase:
+    members: 3
+    version: "4.4.20-ent"

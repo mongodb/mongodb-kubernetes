@@ -1,0 +1,17 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set
+spec:
+  members: 3
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: true
+  # Use a version that does not exist
+  # This way mongod will never start
+  version: 4.4.100

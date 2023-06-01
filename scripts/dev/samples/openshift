@@ -1,0 +1,14 @@
+# This is a configuration file for working with Operator remotely using Openshift.
+# The docker builds (based on UBI image) are pushed to the ECR registry.
+# Note, that to work with Openshift you need to login to the cluster using token
+# (get the login command from https://console-openshift-console.apps.openshift.mongokubernetes.com)
+#
+# See 'scripts/dev/samples/README.md' for full description of configuration parameters
+
+# IMPORTANT: this file is just an example, you need to change the values proper way
+
+export IMAGE_TYPE=ubi
+export CLUSTER_TYPE=openshift
+export CLUSTER_NAME=default/api-openshift-mongokubernetes-com:6443/kube:admin
+export BASE_REPO_URL=268558157000.dkr.ecr.eu-west-1.amazonaws.com/myname
+export NAMESPACE=myname

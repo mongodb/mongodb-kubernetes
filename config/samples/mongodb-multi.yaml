@@ -1,0 +1,20 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  name: multi-replica-set
+spec:
+  version: 4.4.0-ent
+  type: ReplicaSet
+  persistent: true
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList:
+    - clusterName: e2e.cluster1.mongokubernetes.com
+      members: 2
+    - clusterName: e2e.cluster2.mongokubernetes.com
+      members: 1
+    - clusterName: e2e.cluster3.mongokubernetes.com
+      members: 2

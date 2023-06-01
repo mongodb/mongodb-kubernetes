@@ -1,0 +1,24 @@
+# permissions for end users to edit mongodbopsmanagers.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mongodbopsmanager-editor-role
+rules:
+- apiGroups:
+  - mongodb.com
+  resources:
+  - opsmanagers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - mongodb.com
+  resources:
+  - opsmanagers/status
+  verbs:
+  - get

@@ -1,0 +1,23 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set-scram-sha-1
+spec:
+  members: 3
+  version: 5.0.5
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  logLevel: DEBUG
+  persistent: false
+  security:
+    authentication:
+      agents:
+        # This may look weird, but without it we'll get this from OpsManager:
+        # Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode","reason":"Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode
+        mode: MONGODB-CR
+      enabled: true
+      modes: ["SCRAM-SHA-1", "MONGODB-CR"]
