@@ -497,7 +497,7 @@ buildvariants:
     - name: periodic_build_appdb_database
       variant: periodic_build
   run_on:
-    - ubuntu2004-small
+    - ubuntu2204-small
   tasks:
     - name: run_conditionally_prepare_and_upload_openshift_bundles
 
