@@ -685,11 +685,6 @@ func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
 	return names
 }
 
-func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
-	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
-	return podnames
-}
-
 func (m MongoDBOpsManager) BackupDaemonFQDNs() []string {
 	hostnames, _ := dns.GetDNSNames(m.BackupStatefulSetName(), m.BackupServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
 	return hostnames
@@ -713,7 +708,7 @@ func (m MongoDBOpsManager) getPreviousVersion() string {
 }
 
 // GetAppDBUpdateStrategyType returns the update strategy type the AppDB Statefulset needs to be configured with.
-// This depends whether or not a version change is in progress.
+// This depends on whether a version change is in progress.
 func (m MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
 	if !m.IsChangingVersion() {
 		return appsv1.RollingUpdateStatefulSetStrategyType

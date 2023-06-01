@@ -10,6 +10,7 @@ from kubetester import (
     assert_pod_security_context,
     run_periodically,
     create_secret,
+    create_or_update_secret,
 )
 from kubetester import get_default_storage_class, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
@@ -85,7 +86,7 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 def create_aws_secret(aws_s3_client, secret_name: str, namespace: str, api_client: Optional[client.ApiClient] = None):
-    create_secret(
+    create_or_update_secret(
         namespace,
         secret_name,
         {

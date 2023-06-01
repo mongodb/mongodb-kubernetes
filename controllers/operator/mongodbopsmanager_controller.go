@@ -478,7 +478,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 		var backupStatus workflow.Status
 		backupStatus = workflow.OK()
 
-		for _, hostName := range opsManager.BackupDaemonHostNames() {
+		for _, hostName := range opsManager.BackupDaemonFQDNs() {
 			_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
 			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
 				backupStatus = workflow.Disabled()

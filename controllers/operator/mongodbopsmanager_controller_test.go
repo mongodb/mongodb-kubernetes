@@ -495,14 +495,14 @@ func TestOpsManagerCentralUrl(t *testing.T) {
 
 // TODO move this test to 'opsmanager_types_test.go' when the builder is moved to 'apis' package
 func TestOpsManagerBackupDaemonHostName(t *testing.T) {
-	assert.Equal(t, []string{"test-om-backup-daemon-0"},
-		DefaultOpsManagerBuilder().Build().BackupDaemonHostNames())
+	assert.Equal(t, []string{"test-om-backup-daemon-0.test-om-backup-daemon-svc.my-namespace.svc.cluster.local"},
+		DefaultOpsManagerBuilder().Build().BackupDaemonFQDNs())
 	// The host name doesn't depend on cluster domain
-	assert.Equal(t, []string{"test-om-backup-daemon-0"},
-		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().BackupDaemonHostNames())
+	assert.Equal(t, []string{"test-om-backup-daemon-0.test-om-backup-daemon-svc.my-namespace.svc.some.domain"},
+		DefaultOpsManagerBuilder().SetClusterDomain("some.domain").Build().BackupDaemonFQDNs())
 
-	assert.Equal(t, []string{"test-om-backup-daemon-0", "test-om-backup-daemon-1", "test-om-backup-daemon-2"},
-		DefaultOpsManagerBuilder().SetBackupMembers(3).Build().BackupDaemonHostNames())
+	assert.Equal(t, []string{"test-om-backup-daemon-0.test-om-backup-daemon-svc.my-namespace.svc.cluster.local", "test-om-backup-daemon-1.test-om-backup-daemon-svc.my-namespace.svc.cluster.local", "test-om-backup-daemon-2.test-om-backup-daemon-svc.my-namespace.svc.cluster.local"},
+		DefaultOpsManagerBuilder().SetBackupMembers(3).Build().BackupDaemonFQDNs())
 }
 
 func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
