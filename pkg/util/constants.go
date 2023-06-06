@@ -174,7 +174,7 @@ const (
 	BackupDisableWaitSecondsEnv = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv = "BACKUP_WAIT_RETRIES"
 	ManagedSecurityContextEnv   = "MANAGED_SECURITY_CONTEXT"
-	CurrentNamespace            = "NAMESPACE"
+	CurrentNamespace            = "CURRENT_NAMESPACE"
 	WatchNamespace              = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB      = "OPS_MANAGER_MONITOR_APPDB"
 

@@ -59,7 +59,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
 {{- end }}
-        - name: NAMESPACE
+        - name: CURRENT_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
