@@ -7,6 +7,7 @@ export NAMESPACE=your-namespace # <UPDATE ME>
 export PROJECT_DIR=/path/to/ops-manager-kubernetes # <UPDATE ME>
 export AWS_ACCESS_KEY_ID=ABC... # <UPDATE ME>
 export AWS_SECRET_ACCESS_KEY=e4af... # <UPDATE ME>
+export CURRENT_NAMESPACE=evg-namespace # <UPDATE ME>
 # repo used as OPERATOR_REGISTRY when not using local operator
 export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/<your-ecr-registry> # <UPDATE ME>
 
@@ -82,6 +83,7 @@ export CUSTOM_MDB_PREV_VERSION=5.0.1
 
 #  ------------
 # NEWLY ADDED / comments
+export CURRENT_NAMESPACE=nnguyen-evg
 export OPS_MANAGER_IMAGE_PULL_POLICY=IfNotPresent
 export IMAGE_PULL_POLICY=IfNotPresent
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database" # used by mongodb crd
