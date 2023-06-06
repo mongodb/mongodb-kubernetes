@@ -1,7 +1,9 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
-# MongoDB Enterprise Kubernetes Operator 1.20.0
+# MongoDB Enterprise Kubernetes Operator 1.20.1
+
+This release fixes an issue that prevented upgrading the Kubernetes Operator to 1.20.0 in OpenShift. Upgrade to this release instead.
 
 # MongoDBOpsManager Resource
 * Added support for votes, priority and tags by introducing the `spec.applicationDatabase.memberConfig.votes`, `spec.applicationDatabase.memberConfig.priority`
