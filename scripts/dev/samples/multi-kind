@@ -3,6 +3,7 @@ export NAMESPACE=your-namespace # <UPDATE ME>
 export PROJECT_DIR=/path/to/ops-manager-kubernetes # <UPDATE ME>
 export AWS_ACCESS_KEY_ID=ABC... # <UPDATE ME>
 export AWS_SECRET_ACCESS_KEY=e4af... # <UPDATE ME>
+export CURRENT_NAMESPACE=evg-namespace # <UPDATE ME>
 # repo used as OPERATOR_REGISTRY when not using local operator
 export BASE_REPO_URL=268558157000.dkr.ecr.us-east-1.amazonaws.com/<your-ecr-registry> # <UPDATE ME>
 
