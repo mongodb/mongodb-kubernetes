@@ -597,7 +597,7 @@ def official_operator(
     # Note, that we don't intend to install the official Operator to standalone clusters (kops/openshift) as we want to
     # avoid damaged CRDs. But we may need to install the "openshift like" environment to Kind instead if the "ubi" images
     # are used for installing the dev Operator
-    helm_args["operator.operator_image_name"] = name
+    helm_args["operator.operator_image_name"] = "{}-ubi".format(name)
 
     temp_dir = tempfile.mkdtemp()
     # Values files are now located in `helm-charts` repo.
