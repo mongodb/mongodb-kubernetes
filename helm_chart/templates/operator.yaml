@@ -85,7 +85,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
     {{- end }}
-            - name: CURRENT_NAMESPACE
+            - name: NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
@@ -176,7 +176,7 @@ spec:
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodb.repo }}/{{ $.Values.mongodb.name }}:{{ $version }}"
       {{- end }}
-      # mongodbLegacyAppDb will be deleted in 1.23 release 
+      # mongodbLegacyAppDb will be deleted in 1.23 release
       {{- range $version := .Values.relatedImages.mongodbLegacyAppDb }}
             - name: RELATED_IMAGE_{{ $mongodbImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.mongodbLegacyAppDb.repo }}/{{ $.Values.mongodbLegacyAppDb.name }}:{{ $version }}"
