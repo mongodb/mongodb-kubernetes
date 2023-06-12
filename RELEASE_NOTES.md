@@ -1,16 +1,24 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
+# MongoDB Enterprise Kubernetes Operator 1.21.0
+## Breaking changes
+
+* The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.20.1
 
 This release fixes an issue that prevented upgrading the Kubernetes Operator to 1.20.0 in OpenShift. Upgrade to this release instead.
 
+# MongoDB Enterprise Kubernetes Operator 1.20.0
+
 # MongoDBOpsManager Resource
 * Added support for votes, priority and tags by introducing the `spec.applicationDatabase.memberConfig.votes`, `spec.applicationDatabase.memberConfig.priority`
 and `spec.applicationDatabase.memberConfig.tags` field.
-* Introduced automatic change of the AppDB's image version suffix `-ent` to `-ubi8`. 
-  * This enables migration of AppDB images from the legacy repository (`quay.io/mongodb/mongodb-enterprise-appdb-database-ubi`) to the new official one (`quay.io/mongodb/mongodb-enterprise-server`) without changing the version in MongoDBOpsManager's `applicationDatabase.version` field. 
-  * The change will result a rolling update of AppDB replica set pods to the new, official images (referenced in Helm Chart in `values.mongodb.name` field), which are functionally equivalent to the previous ones (the same MongoDB version). 
+* Introduced automatic change of the AppDB's image version suffix `-ent` to `-ubi8`.
+  * This enables migration of AppDB images from the legacy repository (`quay.io/mongodb/mongodb-enterprise-appdb-database-ubi`) to the new official one (`quay.io/mongodb/mongodb-enterprise-server`) without changing the version in MongoDBOpsManager's `applicationDatabase.version` field.
+  * The change will result a rolling update of AppDB replica set pods to the new, official images (referenced in Helm Chart in `values.mongodb.name` field), which are functionally equivalent to the previous ones (the same MongoDB version).
   * Suffix change occurs under specific circumstances:
     * Helm setting for appdb image: `mongodb.name` will now default to `mongodb-enterprise-server`.
     * The operator will automatically replace the suffix for image repositories
@@ -34,7 +42,7 @@ and `spec.applicationDatabase.memberConfig.tags` field.
 * Fixed support for rotating the clusterfile secret, which is used for internal x509 authentication in MongoDB and MongoDBMultiCluster resources.
 
 ## Helm Chart
-* All images reference ubi variants by default (added suffix -ubi) 
+* All images reference ubi variants by default (added suffix -ubi)
   * quay.io/mongodb/mongodb-enterprise-database-ubi
   * quay.io/mongodb/mongodb-enterprise-init-database-ubi
   * quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
@@ -47,8 +55,6 @@ and `spec.applicationDatabase.memberConfig.tags` field.
 
 ## Breaking changes
 * Removal of `appdb.connectionSpec.Project` since it has been deprecated for over 2 years.
-
-<!-- Past Releases -->
 
 # MongoDB Enterprise Kubernetes Operator 1.19.0
 
