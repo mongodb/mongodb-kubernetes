@@ -11,6 +11,9 @@
 
 This release fixes an issue that prevented upgrading the Kubernetes Operator to 1.20.0 in OpenShift. Upgrade to this release instead.
 
+## Helm Chart
+Fixes a bug where the operator container image was referencing to the deprecated ubuntu image. This has been patched to refer to the `ubi` based images.
+
 # MongoDB Enterprise Kubernetes Operator 1.20.0
 
 # MongoDBOpsManager Resource

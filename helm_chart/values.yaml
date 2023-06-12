@@ -12,7 +12,7 @@ operator:
   name: mongodb-enterprise-operator
 
   # Name of the operator image
-  operator_image_name: mongodb-enterprise-operator
+  operator_image_name: mongodb-enterprise-operator-ubi
 
   # Name of the deployment of the operator pod
   deployment_name: mongodb-enterprise-operator
