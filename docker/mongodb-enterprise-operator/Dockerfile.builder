@@ -18,7 +18,7 @@ COPY . /go/src/github.com/10gen/ops-manager-kubernetes
 
 RUN go version
 RUN git version
-RUN mkdir /build && go build -o /build/mongodb-enterprise-operator \
+RUN mkdir /build && CGO_ENABLED=0 go build -o /build/mongodb-enterprise-operator \
         -buildvcs=false \
         -ldflags="-s -w -X github.com/10gen/ops-manager-kubernetes/pkg/util.OperatorVersion=${release_version} \
         -X github.com/10gen/ops-manager-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"
