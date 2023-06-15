@@ -8,6 +8,8 @@ import subprocess
 from typing import Dict, List
 
 import requests
+from requests import Response
+
 from git import Repo
 
 
@@ -26,7 +28,6 @@ SUPPORTED_IMAGES = (
     "mongodb-enterprise-init-ops-manager",
     "mongodb-enterprise-operator",
 )
-
 
 URL_LOCATION_BASE = (
     "https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles"
@@ -56,9 +57,9 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     return get_release()["supportedImages"][image]["versions"]
 
 
-def download_dockerfile_from_s3(image: str, version: str, distro: str) -> str:
+def download_dockerfile_from_s3(image: str, version: str, distro: str) -> Response:
     url = f"{URL_LOCATION_BASE}/{image}/{version}/{distro}/Dockerfile"
-    return requests.get(url).text
+    return requests.get(url)
 
 
 def git_add_dockerfiles(base_directory: str):
@@ -85,13 +86,19 @@ def save_supported_dockerfiles():
         versions = get_supported_version_for_image(image)
         for version in versions:
             for variant in get_supported_variants_for_image(image):
-                dockerdir = f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version}/{variant}"
-                os.makedirs(dockerdir, exist_ok=True)
-                dockerfile = download_dockerfile_from_s3(image, version, variant)
-                dockerpath = os.path.join(dockerdir, DOCKERFILE_NAME)
-                with open(dockerpath, "w") as fd:
-                    fd.write(dockerfile)
-                    print("* {} - {}: {}".format(version, variant, dockerpath))
+                response = download_dockerfile_from_s3(image, version, variant)
+                if response.ok:
+                    dockerfile = response.text
+                    docker_dir = (
+                        f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version}/{variant}"
+                    )
+                    os.makedirs(docker_dir, exist_ok=True)
+                    docker_path = os.path.join(docker_dir, DOCKERFILE_NAME)
+                    with open(docker_path, "w") as fd:
+                        fd.write(dockerfile)
+                        print("* {} - {}: {}".format(version, variant, docker_path))
+                else:
+                    print("* {} - {}: does not exist".format(version, variant))
 
 
 def main() -> int:
