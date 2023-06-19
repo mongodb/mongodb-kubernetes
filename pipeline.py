@@ -139,16 +139,31 @@ def operator_build_configuration(
     )
 
 
+class MissingEnvironmentVariable(Exception):
+    pass
+
+
 def should_pin_at() -> Optional[Tuple[str, str]]:
     """Gets the value of the pin_tag_at to tag the images with.
 
-    Returns its value splited on :.
+    Returns its value split on :.
     """
     # We need to return something so `partition` does not raise
     # AttributeError
-    pinned = os.environ.get("pin_tag_at", "-")
-    hour, _, minute = pinned.partition(":")
+    is_patch = os.environ.get("IS_PATCH", True)
 
+    try:
+        pinned = os.environ["pin_tag_at"]
+    except KeyError:
+        raise MissingEnvironmentVariable(
+            f"pin_tag_at environment variable does not exist, but is required"
+        )
+
+    if is_patch:
+        if pinned == "00:00":
+            raise "Pinning to midnight during a patch is not supported. Please pin to another date!"
+
+    hour, _, minute = pinned.partition(":")
     return hour, minute
 
 
@@ -174,9 +189,16 @@ def build_id() -> str:
 
     hour, minute = should_pin_at()
     if hour and minute:
+        print(f"we are pinning to, hour: {hour}, minute: {minute}")
         date = date.replace(hour=int(hour), minute=int(minute), second=0)
+    else:
+        print(
+            f"hour and minute cannot be extracted from provided pin_tag_at env, pinning to now"
+        )
 
-    return date.strftime("%Y%m%dT%H%M%SZ")
+    string_time = date.strftime("%Y%m%dT%H%M%SZ")
+
+    return string_time
 
 
 def get_release() -> Dict[str, str]:
