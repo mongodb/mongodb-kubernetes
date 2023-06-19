@@ -141,6 +141,7 @@ functions:
         AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
         AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
         AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
+        IS_PATCH: ${is_patch}
       include_expansions_in_env:
       - version_id
       - registry
