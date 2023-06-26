@@ -2454,13 +2454,19 @@ buildvariants:
   run_on:
     - ubuntu1804-xlarge
   depends_on:
+    - name: build_om_images
+      variant: build_om60_images
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
     - name: build_init_database_image_ubi
       variant: init_test_run
     - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
       variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_kind ]
@@ -2474,13 +2480,19 @@ buildvariants:
   run_on:
     - ubuntu1804-xlarge
   depends_on:
+    - name: build_om_images
+      variant: build_om60_images
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
       variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
     - name: build_init_database_image_ubi
       variant: init_test_run
     - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
       variant: init_test_run
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_2_clusters ]
