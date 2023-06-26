@@ -268,10 +268,18 @@ func buildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 
 	serviceType := mongoServiceDefinition.Type
 	switch serviceType {
-	case corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer:
+	case corev1.ServiceTypeNodePort:
 		// Service will have a NodePort
 		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
 		svcPort.NodePort = mongoServiceDefinition.Port
+		if mongoServiceDefinition.Port != 0 {
+			svcPort.Port = mongoServiceDefinition.Port
+		} else {
+			svcPort.Port = port
+		}
+		svcBuilder.AddPort(&svcPort).SetClusterIP("")
+	case corev1.ServiceTypeLoadBalancer:
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
 		if mongoServiceDefinition.Port != 0 {
 			svcPort.Port = mongoServiceDefinition.Port
 		} else {

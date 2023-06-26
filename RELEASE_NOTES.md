@@ -6,6 +6,10 @@
 
 * The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
 
+# MongoDBOpsManager Resource
+## Bug fixes
+* Allowed setting an arbitrary port number in `spec.externalConnectivity.port` when `LoadBalancer` service type is used for exposing externally Ops Manager instance.
+
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.20.1
 
