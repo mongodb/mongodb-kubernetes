@@ -15,6 +15,7 @@ from kubetester.kubetester import (
     ensure_nested_objects,
 )
 from kubetester.omtester import OMContext, OMTester
+from opsmanager import MongoDBOpsManager
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
