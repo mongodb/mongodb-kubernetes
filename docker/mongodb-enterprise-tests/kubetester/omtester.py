@@ -272,11 +272,11 @@ class OMTester(object):
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
 
-    def check_healthiness(self) -> (str, str):
+    def check_healthiness(self) -> tuple[str, str]:
         return OMTester.request_health(self.context.base_url)
 
     @staticmethod
-    def request_health(base_url: str) -> (str, str):
+    def request_health(base_url: str) -> tuple[str, str]:
         endpoint = base_url + "/monitor/health"
         response = requests.request("get", endpoint, verify=False)
         return response.status_code, response.text
