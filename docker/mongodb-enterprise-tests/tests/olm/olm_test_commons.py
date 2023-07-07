@@ -69,7 +69,7 @@ def list_operator_pods(namespace: str, name: str) -> list[client.V1Pod]:
 
 def check_operator_pod_ready_and_with_condition_version(
     namespace: str, name: str, expected_condition_version
-) -> (bool, str):
+) -> tuple[str, str]:
     pod = kubetester.is_pod_ready(namespace=namespace, label_selector=f"app.kubernetes.io/name={name}")
     if pod is None:
         return False, f"pod {namespace}/{name} is not ready yet"
