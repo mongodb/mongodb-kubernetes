@@ -254,12 +254,6 @@ func (r *ReconcileAppDbReplicaSet) reconcileAppDB(opsManager omv1.MongoDBOpsMana
 		automationConfigFirst = false
 	}
 
-	// Set it to true if the currentAC has the old keyfile path
-	// This is needed for appdb upgrade from 1 to 3 contaienrs
-	// as the AC contains the new path of the keyfile and the agents needs it
-	if currentAc.Auth.KeyFile == util.AutomationAgentKeyFilePathInContainer {
-		automationConfigFirst = true
-	}
 	if opsManager.IsChangingVersion() {
 		log.Info("Version change in progress, the StatefulSet must be updated first")
 		automationConfigFirst = false
