@@ -799,6 +799,11 @@ tasks:
 
 - name: upload_dockerfiles
   git_tag_only: true
+  # CLOUDP-182323 This ensures that there will be Operator Dockerfile availabale in S3 before
+  # syncing and uploading the bundle TAR archive.
+  depends_on:
+    - name: release_operator
+      variant: release
   commands:
     - func: clone
     - func: setup_building_host
