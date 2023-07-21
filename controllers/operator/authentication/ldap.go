@@ -2,6 +2,7 @@ package authentication
 
 import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/ldap"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"go.uber.org/zap"
@@ -128,5 +129,9 @@ func (l *ldapAuthMechanism) IsAgentAuthenticationConfigured() bool {
 
 func (l *ldapAuthMechanism) IsDeploymentAuthenticationConfigured() bool {
 	ac := l.AutomationConfig
-	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain)) && ac.Ldap != nil && *ac.Ldap == *l.Options.Ldap
+	return stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain)) && ldapObjectsEqual(ac.Ldap, l.Options.Ldap)
+}
+
+func ldapObjectsEqual(lhs *ldap.Ldap, rhs *ldap.Ldap) bool {
+	return lhs != nil && rhs != nil && *lhs == *rhs
 }
