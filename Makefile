@@ -301,6 +301,7 @@ vet:
 # Generate code
 generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	find "$(PROJECT_DIR)/api" -type f -name "zz_*.go" -exec goimports -w '{}' \;
 
 # Build the docker image
 docker-build: test
