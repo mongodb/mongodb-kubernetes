@@ -35,22 +35,15 @@ def get_headers():
     }
 
 
-def update_release_json(versions):
+def update_release_json():
     # Define a custom constructor to preserve the anchors in the YAML file
     release = os.path.join(os.getcwd(), "release.json")
-    missing_version = ""
     with open(release, "r") as fd:
         data = json.load(fd)
-    # Update opsmanager versions
-    for version in versions:
-        if version not in data["supportedImages"]["ops-manager"]["versions"]:
-            data["supportedImages"]["ops-manager"]["versions"].insert(0, version)
-            missing_version = version
-    data["supportedImages"]["ops-manager"]["versions"].sort(key=Version)
 
-    if missing_version != "":
-        print("updating missing version")
-        update_tools_version(data, missing_version)
+    # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
+    newest_version = data["supportedImages"]["ops-manager"]["versions"][-1]
+    update_tools_version(data, newest_version)
 
     update_readiness_hook_version_if_newer(data)
 
@@ -106,4 +99,4 @@ def update_readiness_hook_version_if_newer(local_data):
 
 
 latest_5, latest_6 = get_latest_om_versions_from_evergreen_yml()
-update_release_json([latest_5, latest_6])
+update_release_json()
