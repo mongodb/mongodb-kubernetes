@@ -44,7 +44,7 @@ func WriteToFile(path string, collectionResults ...CollectionResult) (string, st
 			}
 		}
 		for _, obj := range collectionResult.rawObjects {
-			fileName := fmt.Sprintf("%s/%s-%s-%s-%s.txt", path, collectionResult.context, collectionResult.namespace, "txt", obj.Name)
+			fileName := fmt.Sprintf("%s/%s-%s-%s-%s-%s.txt", path, collectionResult.context, collectionResult.namespace, "txt", obj.ContainerName, obj.Name)
 			err = os.WriteFile(fileName, obj.content, os.ModePerm)
 			if err != nil {
 				return "", "", err
