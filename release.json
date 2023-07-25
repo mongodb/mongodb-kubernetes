@@ -1,6 +1,6 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel80-x86_64-100.7.0.tgz"
+    "ubi": "mongodb-database-tools-rhel80-x86_64-100.7.3.tgz"
   },
   "mongodbOperator": "1.20.1",
   "initDatabaseVersion": "1.0.17",
