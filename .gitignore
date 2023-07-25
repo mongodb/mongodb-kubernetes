@@ -70,3 +70,4 @@ tmp
 licenses_full.csv
 licenses_stderr
 docker/mongodb-enterprise-tests/.test_identifiers*
+logs-debug/
