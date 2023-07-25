@@ -32,8 +32,9 @@ func TestWriteToFile(t *testing.T) {
 		},
 	}
 	testFile := RawFile{
-		Name:    "testFile",
-		content: []byte("test"),
+		Name:          "testFile",
+		content:       []byte("test"),
+		ContainerName: "testContainer",
 	}
 	collectionResult := CollectionResult{
 		kubeResources: []runtime.Object{testSecret},
@@ -42,7 +43,7 @@ func TestWriteToFile(t *testing.T) {
 		namespace:     testNamespace,
 		context:       testContext,
 	}
-	outputFiles := []string{"testContext-testNamespace-txt-testFile.txt", "testContext-testNamespace-v1.Secret-test-secret.yaml"}
+	outputFiles := []string{"testContext-testNamespace-txt-testContainer-testFile.txt", "testContext-testNamespace-v1.Secret-test-secret.yaml"}
 
 	//when
 	path, compressedFile, err := WriteToFile(uniqueTempDir, collectionResult)
