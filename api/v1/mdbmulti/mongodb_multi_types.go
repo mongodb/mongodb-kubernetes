@@ -217,7 +217,7 @@ type ClusterSpecItem struct {
 	// +optional
 	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
-	// for a reconcilliation
+	// for a reconciliation
 	Discard bool `json:"-"`
 }
 
@@ -301,20 +301,32 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
 func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
-	clusterSpecs := m.GetDesiredSpecList()
+	desiredSpecList := m.GetDesiredSpecList()
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
 		return nil, err
 	}
 
 	if prevSpec == nil {
-		return clusterSpecs, nil
+		return desiredSpecList, nil
 	}
 
 	prevSpecs := prevSpec.GetClusterSpecList()
 
+	desiredSpecMap := clusterSpecItemListToMap(desiredSpecList)
+	prevSpecsMap := clusterSpecItemListToMap(prevSpecs)
+
 	var specsForThisReconciliation []ClusterSpecItem
-	specsForThisReconciliation = append(specsForThisReconciliation, prevSpecs...)
+
+	// We only care about the members of the previous reconcile, the rest should be reflecting the CRD definition.
+	for _, spec := range prevSpecs {
+		if desiredSpec, ok := desiredSpecMap[spec.ClusterName]; ok {
+			prevMembers := spec.Members
+			spec = desiredSpec
+			spec.Members = prevMembers
+		}
+		specsForThisReconciliation = append(specsForThisReconciliation, spec)
+	}
 
 	// When we remove a cluster, this means that there will be an entry in the resource annotation (the previous spec)
 	// but not in the current spec. In order to make scaling work, we add an entry for the removed cluster that has
@@ -326,7 +338,7 @@ func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	// Reconciliation 1:
 	//    3 clusters all with 3 members
 	// Reconciliation 2:
-	//    2 clusters with 3 members (we removed the last cluster.
+	//    2 clusters with 3 members (we removed the last cluster).
 	//    The spec has 2 members, but we add a third with 0 members.
 	//    This "dummy" item will be handled the same as another spec item.
 	//    This is only relevant for the first reconciliation after removal since this cluster spec will be saved
@@ -337,19 +349,17 @@ func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	// Reconciliation 4:
 	//   We go from 3-3-1 to 3-3-0 (and then delete the StatefulSet in this final reconciliation)
 
-	clusterSpecsMap := clusterSpecItemListToMap(clusterSpecs)
 	for _, previousItem := range prevSpecs {
-		if _, ok := clusterSpecsMap[previousItem.ClusterName]; !ok {
+		if _, ok := desiredSpecMap[previousItem.ClusterName]; !ok {
 			previousItem.Members = 0
-			clusterSpecs = append(clusterSpecs, previousItem)
+			desiredSpecList = append(desiredSpecList, previousItem)
 		}
 	}
 
-	prevSpecsMap := clusterSpecItemListToMap(prevSpecs)
-	for _, item := range clusterSpecs {
-		// if a spec item exists but was not there previously, we add it with a single member.
-		// this allows subsequent reconciliations to go from 1-> n  one member at a time as usual.
-		// it will never be possible to add a new member at the maximum members since scaling can only ever be done
+	for _, item := range desiredSpecList {
+		// If a spec item exists but was not there previously, we add it with a single member.
+		// This allows subsequent reconciliations to go from 1-> n one member at a time as usual.
+		// It will never be possible to add a new member at the maximum members since scaling can only ever be done
 		// one at a time. Adding the item with 1 member allows the regular logic to handle scaling one a time until
 		// we reach the desired member count.
 		prevItem, ok := prevSpecsMap[item.ClusterName]
@@ -359,7 +369,7 @@ func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 			}
 			return append(specsForThisReconciliation, item), nil
 		}
-		// can only scale one member at a time so we return early on each increment.
+		// can only scale one member at a time, so we return early on each increment.
 		if item.Members > prevItem.Members {
 			specsForThisReconciliation[m.ClusterNum(item.ClusterName)].Members += 1
 			return specsForThisReconciliation, nil

@@ -43,9 +43,12 @@ if [[ "$LOCAL_OPERATOR" == true ]]; then
   helm_values+=" operator.replicas=0"
 fi
 
-helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator --set "$(echo "$helm_values" | tr ' ' ',')"
 
-echo "patching default sa mongodb-enterprise-database-pods with imagePullSecrets to ensure we can deploy without setting it for each pod"
-kubectl patch serviceaccount mongodb-enterprise-database-pods  \
-  -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}" \
-  -n "${NAMESPACE}"
+if [[ "$kube_environment_name" == "kind" ]]; then
+  helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator --set "$(echo "$helm_values" | tr ' ' ',')"
+
+  echo "patching default sa mongodb-enterprise-database-pods with imagePullSecrets to ensure we can deploy without setting it for each pod"
+  kubectl patch serviceaccount mongodb-enterprise-database-pods  \
+    -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}" \
+    -n "${NAMESPACE}"
+fi

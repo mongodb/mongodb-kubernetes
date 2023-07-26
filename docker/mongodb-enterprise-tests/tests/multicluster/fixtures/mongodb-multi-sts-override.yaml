@@ -16,7 +16,13 @@ spec:
       members: 2
       statefulSet:
         spec:
+          selector:
+            matchLabels:
+              app: "multi-replica-set"
           template:
+            metadata:
+              labels:
+                app: "multi-replica-set"
             spec:
               containers:
               - name: sidecar1

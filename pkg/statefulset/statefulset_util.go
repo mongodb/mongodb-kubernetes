@@ -5,8 +5,10 @@ import (
 	"reflect"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/certs"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
@@ -14,17 +16,18 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-// isVolumeClaimUpdatableTo takes two sts' PVC and returns wether we are allowed to update the first one to the second one.
-func isVolumeClaimUpdatableTo(existing, desired corev1.PersistentVolumeClaim) bool {
+// isVolumeClaimEqualOnForbiddenFields takes two sts PVCs
+// and returns whether we are allowed to update the first one to the second one.
+func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolumeClaim) bool {
 
 	oldSpec := existing.Spec
 	newSpec := desired.Spec
 
-	if !reflect.DeepEqual(oldSpec.AccessModes, newSpec.AccessModes) {
+	if !cmp.Equal(oldSpec.AccessModes, newSpec.AccessModes, cmpopts.EquateEmpty()) {
 		return false
 	}
 
-	if newSpec.Selector != nil && !reflect.DeepEqual(oldSpec.Selector, newSpec.Selector) {
+	if newSpec.Selector != nil && !cmp.Equal(oldSpec.Selector, newSpec.Selector, cmpopts.EquateEmpty()) {
 		return false
 	}
 
@@ -52,9 +55,12 @@ func isVolumeClaimUpdatableTo(existing, desired corev1.PersistentVolumeClaim) bo
 	return true
 }
 
-// isStatefulSetUpdatableTo takes two statefulsts and returns wether we are allowed to update the first one to the second one.
-func isStatefulSetUpdatableTo(existing, desired appsv1.StatefulSet) bool {
-	selectorsEqual := desired.Spec.Selector == nil || reflect.DeepEqual(existing.Spec.Selector, desired.Spec.Selector)
+// isStatefulSetEqualOnForbiddenFields takes two statefulsets
+// and returns whether we are allowed to update the first one to the second one.
+// This is decided on equality on forbidden fields.
+func isStatefulSetEqualOnForbiddenFields(existing, desired appsv1.StatefulSet) bool {
+	// We are using cmp equal on purpose to enforce equality between nil and []
+	selectorsEqual := desired.Spec.Selector == nil || cmp.Equal(existing.Spec.Selector, desired.Spec.Selector, cmpopts.EquateEmpty())
 	serviceNamesEqual := existing.Spec.ServiceName == desired.Spec.ServiceName
 	podMgmtEqual := desired.Spec.PodManagementPolicy == "" || desired.Spec.PodManagementPolicy == existing.Spec.PodManagementPolicy
 	revHistoryLimitEqual := desired.Spec.RevisionHistoryLimit == nil || reflect.DeepEqual(desired.Spec.RevisionHistoryLimit, existing.Spec.RevisionHistoryLimit)
@@ -65,7 +71,7 @@ func isStatefulSetUpdatableTo(existing, desired appsv1.StatefulSet) bool {
 
 	// VolumeClaimTemplates must be checked one-by-one, to deal with empty string, nil pointers
 	for index, existingClaim := range existing.Spec.VolumeClaimTemplates {
-		if !isVolumeClaimUpdatableTo(existingClaim, desired.Spec.VolumeClaimTemplates[index]) {
+		if !isVolumeClaimEqualOnForbiddenFields(existingClaim, desired.Spec.VolumeClaimTemplates[index]) {
 			return false
 		}
 	}
@@ -113,7 +119,8 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 	}
 
 	log.Debug("Checking if we can update the current statefulset")
-	if !isStatefulSetUpdatableTo(existingStatefulSet, *statefulSetToCreate) {
+	if !isStatefulSetEqualOnForbiddenFields(existingStatefulSet, *statefulSetToCreate) {
+		// Running into this code means we have updated sts fields which are not allowed to be changed.
 		log.Debug("Can't update the stateful set")
 		return nil, StatefulSetCantBeUpdatedError{
 			msg: "can't execute update on forbidden fields",

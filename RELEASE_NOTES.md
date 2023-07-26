@@ -3,8 +3,10 @@
 
 # MongoDB Enterprise Kubernetes Operator 1.21.0
 ## Breaking changes
-
 * The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
+
+## Bug fixes
+* Fixes a bug where passing the labels via statefulset override mechanism would not lead to an override on the actual statefulset.
 
 # MongoDBOpsManager Resource
 ## Bug fixes
