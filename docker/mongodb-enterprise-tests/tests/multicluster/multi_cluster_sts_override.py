@@ -43,6 +43,7 @@ def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clien
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
     assert_container_in_sts("sidecar1", cluster_one_sts)
+    assert "multi-replica-set" in cluster_one_sts.spec.template.metadata.labels["app"]
 
     # assert sts.podspec override in cluster2
     cluster_two_client = member_cluster_clients[1]
