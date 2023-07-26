@@ -9,6 +9,9 @@ import (
 	"sort"
 	"testing"
 
+	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/utils/pointer"
@@ -390,8 +393,18 @@ func TestScaling(t *testing.T) {
 	})
 
 	t.Run("Scale one at a time when scaling up", func(t *testing.T) {
+		stsWrapper := &mdbc.StatefulSetConfiguration{
+			SpecWrapper: mdbc.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"a": "b"},
+					},
+				},
+			},
+		}
 		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 		mrs.Spec.ClusterSpecList[0].Members = 1
+		mrs.Spec.ClusterSpecList[0].StatefulSetConfiguration = stsWrapper
 		mrs.Spec.ClusterSpecList[1].Members = 1
 		mrs.Spec.ClusterSpecList[2].Members = 1
 		reconciler, client, memberClusters := defaultMultiReplicaSetReconciler(mrs, t)
@@ -406,6 +419,9 @@ func TestScaling(t *testing.T) {
 			sts := statefulSets[item.ClusterName]
 			assert.Equal(t, 1, int(*sts.Spec.Replicas))
 		}
+
+		// make sure we return internal object modifications
+		assert.Equal(t, clusterSpecs[0].StatefulSetConfiguration, stsWrapper)
 
 		// scale up in two different clusters at once.
 		mrs.Spec.ClusterSpecList[0].Members = 3
@@ -426,6 +442,10 @@ func TestScaling(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 		assertStatefulSetReplicas(t, mrs, memberClusters, 3, 1, 3)
 		assert.Len(t, om.CurrMockedConnection.GetProcesses(), 7)
+
+		clusterSpecs, _ = mrs.GetClusterSpecItems()
+		// make sure we return internal object modifications
+		assert.Equal(t, clusterSpecs[0].StatefulSetConfiguration, stsWrapper)
 	})
 
 	t.Run("Scale one at a time when scaling down", func(t *testing.T) {
