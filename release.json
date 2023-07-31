@@ -7,7 +7,7 @@
   "initOpsManagerVersion": "1.0.11",
   "initAppDbVersion": "1.0.17",
   "databaseImageVersion": "2.0.2",
-  "readinessProbeVersion": "1.0.14",
+  "readinessProbeVersion": "1.0.15",
   "versionUpgradePostStartHookVersion": "1.0.7",
   "agentVersion": "12.0.21.7698-1",
   "openshift": {
@@ -73,8 +73,7 @@
         "6.0.16"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     },
     "operator": {
@@ -90,8 +89,7 @@
         "1.17.0"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     },
     "mongodb-kubernetes-operator": {
@@ -153,8 +151,7 @@
         "1.0.11"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     },
     "init-database": {
@@ -171,8 +168,7 @@
         "1.0.17"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     },
     "init-appdb": {
@@ -189,8 +185,7 @@
         "1.0.17"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     },
     "database": {
@@ -199,8 +194,7 @@
         "2.0.2"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     },
     "mongodb-enterprise-server": {
@@ -278,8 +272,7 @@
         "5.0.18-ent"
       ],
       "variants": [
-        "ubi",
-        "ubuntu"
+        "ubi"
       ]
     }
   }
