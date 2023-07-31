@@ -4,7 +4,7 @@ module github.com/10gen/ops-manager-kubernetes
 
 require (
 	cloud.google.com/go v0.110.2
-	github.com/aws/aws-sdk-go v1.44.261
+	github.com/aws/aws-sdk-go v1.44.307
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/evanphx/json-patch v5.6.0+incompatible
 	github.com/ghodss/yaml v1.0.0
@@ -17,8 +17,8 @@ require (
 	github.com/imdario/mergo v0.3.15
 	github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230524141203-f3647e30aa46
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.14.0
-	github.com/prometheus/common v0.39.0
+	github.com/prometheus/client_golang v1.16.0
+	github.com/prometheus/common v0.42.0
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/spf13/cast v1.5.1
 	github.com/spf13/pflag v1.0.5
@@ -45,7 +45,7 @@ require (
 	github.com/cenkalti/backoff/v3 v3.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/emicklei/go-restful v2.9.6+incompatible // indirect
+	github.com/emicklei/go-restful v2.16.0+incompatible // indirect
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
@@ -92,7 +92,7 @@ require (
 	github.com/pierrec/lz4 v2.5.2+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
-	github.com/prometheus/procfs v0.8.0 // indirect
+	github.com/prometheus/procfs v0.10.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.3.5 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect

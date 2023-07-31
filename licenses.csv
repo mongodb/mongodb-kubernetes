@@ -8,7 +8,7 @@ github.com/blang/semver,v3.5.1,https://github.com/blang/semver/blob/v3.5.1/LICEN
 github.com/cenkalti/backoff/v3,v3.0.0,https://github.com/cenkalti/backoff/blob/v3.0.0/LICENSE,MIT
 github.com/cespare/xxhash/v2,v2.2.0,https://github.com/cespare/xxhash/blob/v2.2.0/LICENSE.txt,MIT
 github.com/davecgh/go-spew/spew,v1.1.1,https://github.com/davecgh/go-spew/blob/v1.1.1/LICENSE,ISC
-github.com/emicklei/go-restful,v2.9.6,https://github.com/emicklei/go-restful/blob/v2.9.6/LICENSE,MIT
+github.com/emicklei/go-restful,v2.16.0,https://github.com/emicklei/go-restful/blob/v2.16.0/LICENSE,MIT
 github.com/evanphx/json-patch,v5.6.0,https://github.com/evanphx/json-patch/blob/v5.6.0/LICENSE,BSD-3-Clause
 github.com/fatih/color,v1.7.0,https://github.com/fatih/color/blob/v1.7.0/LICENSE.md,MIT
 github.com/fsnotify/fsnotify,v1.5.1,https://github.com/fsnotify/fsnotify/blob/v1.5.1/LICENSE,BSD-3-Clause
@@ -62,11 +62,11 @@ github.com/oklog/run,v1.0.0,https://github.com/oklog/run/blob/v1.0.0/LICENSE,Apa
 github.com/pierrec/lz4,v2.5.2,https://github.com/pierrec/lz4/blob/v2.5.2/LICENSE,BSD-3-Clause
 github.com/pkg/errors,v0.9.1,https://github.com/pkg/errors/blob/v0.9.1/LICENSE,BSD-2-Clause
 github.com/pmezard/go-difflib/difflib,v1.0.0,https://github.com/pmezard/go-difflib/blob/v1.0.0/LICENSE,BSD-3-Clause
-github.com/prometheus/client_golang/prometheus,v1.14.0,https://github.com/prometheus/client_golang/blob/v1.14.0/LICENSE,Apache-2.0
+github.com/prometheus/client_golang/prometheus,v1.16.0,https://github.com/prometheus/client_golang/blob/v1.16.0/LICENSE,Apache-2.0
 github.com/prometheus/client_model/go,v0.3.0,https://github.com/prometheus/client_model/blob/v0.3.0/LICENSE,Apache-2.0
-github.com/prometheus/common,v0.39.0,https://github.com/prometheus/common/blob/v0.39.0/LICENSE,Apache-2.0
-github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg,v0.39.0,https://github.com/prometheus/common/blob/v0.39.0/internal/bitbucket.org/ww/goautoneg/README.txt,BSD-3-Clause
-github.com/prometheus/procfs,v0.8.0,https://github.com/prometheus/procfs/blob/v0.8.0/LICENSE,Apache-2.0
+github.com/prometheus/common,v0.42.0,https://github.com/prometheus/common/blob/v0.42.0/LICENSE,Apache-2.0
+github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg,v0.42.0,https://github.com/prometheus/common/blob/v0.42.0/internal/bitbucket.org/ww/goautoneg/README.txt,BSD-3-Clause
+github.com/prometheus/procfs,v0.10.1,https://github.com/prometheus/procfs/blob/v0.10.1/LICENSE,Apache-2.0
 github.com/r3labs/diff/v3,v3.0.1,https://github.com/r3labs/diff/blob/v3.0.1/LICENSE,MPL-2.0
 github.com/ryanuber/go-glob,v1.0.0,https://github.com/ryanuber/go-glob/blob/v1.0.0/LICENSE,MIT
 github.com/spf13/cast,v1.5.1,https://github.com/spf13/cast/blob/v1.5.1/LICENSE,MIT
