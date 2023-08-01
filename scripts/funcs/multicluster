@@ -2,6 +2,8 @@
 
 set -Eeou pipefail
 
+source scripts/funcs/kubernetes
+
 ensure_test_namespace() {
   local context=${1}
   kubectl create ns --context "${context}" "${NAMESPACE}" &>/dev/null || true
@@ -99,15 +101,7 @@ EOF
     --from-literal=projectName="${NAMESPACE}" --from-literal=baseUrl="${OM_BASE_URL}" \
     --from-literal=orgId="${OM_ORGID:-}"
 
-  echo "Creating/updating pull secret from docker configured file"
-  kubectl -n "${NAMESPACE}" delete secret image-registries-secret --ignore-not-found
-  kubectl --context "${central_cluster}" -n "${NAMESPACE}" create secret generic image-registries-secret \
-    --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
-  for member_cluster in ${member_clusters}; do
-    kubectl --context "${member_cluster}" -n "${NAMESPACE}" delete secret image-registries-secret --ignore-not-found
-    kubectl --context "${member_cluster}" -n "${NAMESPACE}" create secret generic image-registries-secret \
-      --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
-  done
+  create_image_registries_secret
 
   echo "Creating credentials secret"
   # delete `my-credentials` if it exists
