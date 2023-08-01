@@ -51,10 +51,7 @@ if [[ ${IMAGE_TYPE} = "ubi" ]]; then
 fi
 
 # We always create the image pull secret from the docker config.json which gives access to all necesary image repositories
-echo "Creating/updating pull secret from docker configured file"
-kubectl -n "${NAMESPACE}" delete secret image-registries-secret --ignore-not-found
-kubectl -n "${NAMESPACE}" create secret generic image-registries-secret \
-  --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+create_image_registries_secret
 
 ## Delete Operator
 delete_operator "${NAMESPACE:-mongodb}"

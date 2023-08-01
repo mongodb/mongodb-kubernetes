@@ -261,3 +261,40 @@ ensure_ecr_repository() {
         fi
     fi
 }
+
+# recreates docker credentials secret in the cluster
+create_image_registries_secret() {
+  secret_name="image-registries-secret"
+
+  if [[ "${NAMESPACE:-""}" == "" ]]; then
+    echo "NAMESPACE env var is not set, skipping creating image-registries-secret"
+    exit 0
+  fi
+
+  echo "Creating/updating pull secret from docker configured file"
+  if [[ "${kube_environment_name:-}" == "multi" ]]; then
+      # shellcheck disable=SC2154
+      if kubectl --context "${central_cluster}" get namespace "${NAMESPACE}"; then
+        kubectl -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
+        kubectl --context "${central_cluster}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
+          --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+      else
+        echo "Skipping creating pull secret in ${central_cluster}/${NAMESPACE} as it doesn't exist yet."
+      fi
+
+      # shellcheck disable=SC2154
+      for member_cluster in ${member_clusters}; do
+        if kubectl --context "${member_cluster}" get namespace "${NAMESPACE}"; then
+          kubectl --context "${member_cluster}" -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
+          kubectl --context "${member_cluster}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
+            --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+        else
+          echo "Skipping creating pull secret in ${member_cluster}/${NAMESPACE} as it doesn't exist yet."
+        fi
+      done
+  else
+    kubectl -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
+    kubectl -n "${NAMESPACE}" create secret generic "${secret_name}" \
+      --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+  fi
+}
