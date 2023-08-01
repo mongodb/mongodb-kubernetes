@@ -4,6 +4,7 @@ set -Eeou pipefail
 
 source scripts/funcs/checks
 source scripts/funcs/printing
+source scripts/funcs/kubernetes
 
 remove_element() {
   config_option="${1}"
@@ -48,3 +49,6 @@ if grep -q "credsStore" ~/.docker/config.json; then
   aws ecr get-login-password --region "us-east-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.us-east-1.amazonaws.com
 fi
 aws ecr get-login-password --region "eu-west-1" | docker login --username AWS --password-stdin 268558157000.dkr.ecr.eu-west-1.amazonaws.com
+
+
+create_image_registries_secret

@@ -2,6 +2,7 @@
 set -Eeou pipefail
 
 source scripts/funcs/printing
+source scripts/funcs/kubernetes
 
 # Configuration of the resources for Ops Manager
 title "Creating admin secret for the new Ops Manager instance"
@@ -22,10 +23,7 @@ else
 fi
 
 # We always create the image pull secret from the docker config.json which gives access to all necessary image repositories
-echo "Creating/updating pull secret from docker configured file"
-kubectl -n "${NAMESPACE}" delete secret image-registries-secret --ignore-not-found
-kubectl -n "${NAMESPACE}" create secret generic image-registries-secret \
-  --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+create_image_registries_secret
 
 # delete `my-project` if it exists
 kubectl --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
