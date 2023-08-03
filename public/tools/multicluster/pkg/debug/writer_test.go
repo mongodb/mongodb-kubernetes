@@ -71,3 +71,23 @@ func TestWriteToFile(t *testing.T) {
 	_, err = os.Stat(compressedFile)
 	assert.NoError(t, err)
 }
+
+func TestCleanContext(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "kind-cluster-1",
+			expected: "kind-cluster-1",
+		},
+		{
+			input:    "api-project-openshiftapps-com:6443/admin-random-v1",
+			expected: "api-project-openshiftapps-com:6443-admin-random-v1",
+		},
+	}
+
+	for _, tc := range tests {
+		assert.Equal(t, tc.expected, cleanContext(tc.input))
+	}
+}
