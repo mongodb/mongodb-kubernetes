@@ -152,6 +152,12 @@ dump_secrets() {
     done
 }
 
+dump_services() {
+    local namespace="${1}"
+    local prefix="${2}"
+    kubectl -n "${namespace}" get svc -o yaml > "logs/${prefix}z_services.txt"
+}
+
 dump_metrics() {
   local namespace="${1}"
   local operator_pod="${2}"
@@ -222,6 +228,7 @@ dump_namespace() {
     # 4. Print other Kubernetes resources
     dump_configmaps "${namespace}" "${prefix}"
     dump_secrets "${namespace}" "${prefix}"
+    dump_services "${namespace}" "${prefix}"
 
     dump_objects pvc "Persistent Volume Claims" "${namespace}"  > "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects deploy "Deployments" "${namespace}" > "logs/${prefix}z_deployments.txt"
