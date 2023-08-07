@@ -76,12 +76,8 @@ script_log "Automation Agent version: ${AGENT_VERSION}"
 # in multi-cluster mode we need to override the hostname with which, agents
 # registers itself, use service FQDN instead of POD FQDN, this mapping is mounted into
 # the pod using configmap
-hostpath=""
-if [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
-    hostpath="$(hostname -f)"
-else
-    hostpath="$(hostname)"
-fi
+hostpath="$(hostname)"
+
 
 # We apply the ephemeralPortOffset when using externalDomain in Single Cluster
 # or whenever Multi-Cluster is on.

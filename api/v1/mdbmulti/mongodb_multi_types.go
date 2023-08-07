@@ -95,6 +95,10 @@ func (m MongoDBMultiCluster) MultiStatefulsetName(clusterNum int) string {
 	return fmt.Sprintf("%s-%d", m.Name, clusterNum)
 }
 
+func (m MongoDBMultiCluster) MultiHeadlessServiceName(clusterNum int) string {
+	return fmt.Sprintf("%s-svc", m.MultiStatefulsetName(clusterNum))
+}
+
 func (m MongoDBMultiCluster) ExternalMemberClusterDomain(clusterName string) *string {
 	for _, csl := range m.Spec.ClusterSpecList {
 		if csl.ClusterName == clusterName {
