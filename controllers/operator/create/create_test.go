@@ -30,7 +30,7 @@ func init() {
 
 func TestBuildService(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	svc := buildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, pointer.String("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc := BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, pointer.String("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -49,7 +49,7 @@ func TestBuildService(t *testing.T) {
 	assert.True(t, svc.Spec.PublishNotReadyAddresses)
 
 	// test podName label not nil
-	svc = buildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, pointer.String("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc = BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, pointer.String("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",

@@ -32,6 +32,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -39,6 +40,7 @@ import (
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
@@ -428,6 +430,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			mconstruct.WithMemberCount(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithAnnotations(mrs.Name, certHash),
+			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.ConnectionSpec)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
@@ -791,27 +794,61 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 			continue
 		}
 
+		// ensure SRV service
 		srvService := getSRVService(mrs)
-		err = service.CreateOrUpdateService(client, srvService)
-		if err != nil && !apiErrors.IsAlreadyExists(err) {
-			return xerrors.Errorf("failed to create service: % in cluster: %s, err: %w", srvService.Name, e.ClusterName, err)
+		if err := ensureSRVService(client, srvService, e.ClusterName); err != nil {
+			return err
 		}
 		log.Infof("Successfully created srv service: %s in cluster: %s", srvService.Name, e.ClusterName)
 
-		for podNum := 0; podNum < e.Members; podNum++ {
-			var svc corev1.Service
-			if mrs.ExternalMemberClusterDomain(e.ClusterName) != nil {
-				svc = getExternalService(mrs, e.ClusterName, podNum)
-			} else {
-				svc = getService(mrs, e.ClusterName, podNum)
-
-			}
-			err := service.CreateOrUpdateService(client, svc)
-			if err != nil && !apiErrors.IsAlreadyExists(err) {
-				return xerrors.Errorf("failed to created service: %s in cluster: %s, err: %w", svc.Name, e.ClusterName, err)
-			}
-			log.Infof("Successfully created services in cluster: %s", e.ClusterName)
+		// ensure ClusterIP services
+		if err := ensureClusterIPServices(client, mrs, e); err != nil {
+			return err
 		}
+		log.Infof("Successfully created services in cluster: %s", e.ClusterName)
+
+		// ensure Headless service
+		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
+		nameSpacedName := kube.ObjectKey(mrs.Namespace, headlessServiceName)
+		headlessService := create.BuildService(nameSpacedName, nil, pointer.String(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		if err := ensureHeadlessService(client, headlessService, e.ClusterName); err != nil {
+			return err
+		}
+		log.Infof("Successfully created headless service in cluster: %s", e.ClusterName)
+
+	}
+	return nil
+}
+
+func ensureSRVService(client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
+	err := service.CreateOrUpdateService(client, svc)
+	if err != nil && !apiErrors.IsAlreadyExists(err) {
+		return xerrors.Errorf("failed to create SRVservice: % in cluster: %s, err: %w", svc.Name, clusterName, err)
+	}
+	return nil
+}
+
+func ensureClusterIPServices(client service.GetUpdateCreator, m *mdbmultiv1.MongoDBMultiCluster, clusterSpecItem mdbmultiv1.ClusterSpecItem) error {
+	for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
+		var svc corev1.Service
+		if m.ExternalMemberClusterDomain(clusterSpecItem.ClusterName) != nil {
+			svc = getExternalService(m, clusterSpecItem.ClusterName, podNum)
+		} else {
+			svc = getService(m, clusterSpecItem.ClusterName, podNum)
+
+		}
+		err := service.CreateOrUpdateService(client, svc)
+		if err != nil && !apiErrors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed to create clusterIP service: %s in cluster: %s, err: %w", svc.Name, clusterSpecItem.ClusterName, err)
+		}
+	}
+	return nil
+}
+
+func ensureHeadlessService(client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
+	err := service.CreateOrUpdateService(client, svc)
+	if err != nil && !apiErrors.IsAlreadyExists(err) {
+		return xerrors.Errorf("failed to create headless service: %s in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
 	return nil
 }

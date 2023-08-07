@@ -14,6 +14,7 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
+from tests.conftest import member_cluster_clients
 from tests.multicluster.conftest import cluster_spec_list
 
 MONGODB_PORT = 30000
@@ -114,6 +115,27 @@ def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clien
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
     assert_container_in_sts("sidecar1", cluster_one_sts)
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_headless_service_creation(
+    mongodb_multi: MongoDBMulti, namespace: str, member_cluster_clients: List[MultiClusterClient]
+):
+    headless_services = mongodb_multi.read_headless_services(member_cluster_clients)
+
+    cluster_one_client = member_cluster_clients[0]
+    cluster_one_svc = headless_services[cluster_one_client.cluster_name]
+    ep_one = client.CoreV1Api(api_client=cluster_one_client.api_client).read_namespaced_endpoints(
+        cluster_one_svc.metadata.name, namespace
+    )
+    assert len(ep_one.subsets[0].addresses) == mongodb_multi.get_item_spec(cluster_one_client.cluster_name)["members"]
+
+    cluster_two_client = member_cluster_clients[1]
+    cluster_two_svc = headless_services[cluster_two_client.cluster_name]
+    ep_two = client.CoreV1Api(api_client=cluster_two_client.api_client).read_namespaced_endpoints(
+        cluster_two_svc.metadata.name, namespace
+    )
+    assert len(ep_two.subsets[0].addresses) == mongodb_multi.get_item_spec(cluster_two_client.cluster_name)["members"]
 
 
 @pytest.mark.e2e_multi_cluster_replica_set

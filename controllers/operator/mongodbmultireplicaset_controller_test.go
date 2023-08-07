@@ -16,6 +16,7 @@ import (
 
 	"k8s.io/utils/pointer"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
@@ -195,6 +196,35 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 	}
 }
 
+func TestHeadlessServiceCreation(t *testing.T) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		Build()
+
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	clusterSpecs, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+
+	for _, item := range clusterSpecs {
+		c := memberClusterMap[item.ClusterName]
+		svcName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName))
+
+		svc := &corev1.Service{}
+		err := c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, svcName), svc)
+		assert.NoError(t, err)
+
+		expectedMap := map[string]string{
+			"app":                         mrs.MultiHeadlessServiceName(mrs.ClusterNum(item.ClusterName)),
+			construct.ControllerLabelName: util.OperatorName,
+		}
+		assert.Equal(t, expectedMap, svc.Spec.Selector)
+	}
+}
+
 func TestResourceDeletion(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, client, memberClients := defaultMultiReplicaSetReconciler(mrs, t)
@@ -217,7 +247,7 @@ func TestResourceDeletion(t *testing.T) {
 				svcList := corev1.ServiceList{}
 				err := c.GetClient().List(context.TODO(), &svcList)
 				assert.NoError(t, err)
-				assert.Len(t, svcList.Items, item.Members+1)
+				assert.Len(t, svcList.Items, item.Members+2)
 			})
 
 			t.Run("Configmaps in each member cluster have been created", func(t *testing.T) {
