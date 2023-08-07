@@ -58,6 +58,14 @@ class MongoDBMulti(MongoDB):
                 )
         return services
 
+    def read_headless_services(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1Service]:
+        services = {}
+        for mcc in clients:
+            services[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_service(
+                f"{self.name}-{mcc.cluster_index}-svc", self.namespace
+            )
+        return services
+
     def read_configmaps(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1ConfigMap]:
         configmaps = {}
         for mcc in clients:

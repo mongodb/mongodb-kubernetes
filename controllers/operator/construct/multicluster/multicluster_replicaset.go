@@ -38,6 +38,12 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 	}
 }
 
+func WithServiceName(serviceName string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ServiceName = serviceName
+	}
+}
+
 func WithClusterNum(clusterNum int) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.StatefulSetNameOverride = statefulSetName(options.Name, clusterNum)
