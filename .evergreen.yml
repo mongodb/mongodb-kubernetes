@@ -136,6 +136,7 @@ variables:
       KUBE_ENVIRONMENT_NAME: ${kube_environment_name}
       CLUSTER_TYPE: ${CLUSTER_TYPE}
       VERSION_ID: ${version_id}
+      OVERRIDE_VERSION_ID: ${override_version_id}
 
 
 parameters:
@@ -158,6 +159,11 @@ parameters:
 - key: evergreen_retry
   value: "true"
   description: set this to false to suppress retries on failure
+
+- key: override_version_id
+  value: ""
+  description: "Patch id to reuse images from other Evergreen build"
+
 
 functions:
 
