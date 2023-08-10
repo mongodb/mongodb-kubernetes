@@ -7,8 +7,24 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
+on_exit() {
+  # shellcheck disable=SC2181
+  error_code=$?
+  if [[ ${error_code} -ne 0 ]]; then
+    echo
+    echo "An error occurred during execution. Execute the script again."
+    echo
+    exit ${error_code}
+  fi
+}
+
+trap on_exit EXIT
 echo "Resetting"
 scripts/dev/reset.sh
+
+echo "Deleting ~/.docker/.config.json and re-creating it"
+rm ~/.docker/config.json || true
+scripts/dev/configure_docker_auth.sh
 
 echo "Ensuring namespace ${NAMESPACE}"
 ensure_namespace "${NAMESPACE}"
@@ -31,9 +47,6 @@ fi
 make install 2>&1 | prepend "make install: "
 test -f "docker/mongodb-enterprise-tests/.test_identifiers" && rm "docker/mongodb-enterprise-tests/.test_identifiers"
 scripts/dev/delete_om_projects.sh
-echo "Deleting ~/.docker/.config.json and re-creating it"
-rm ~/.docker/config.json
-scripts/dev/configure_docker_auth.sh
 
 echo "installing operator helm chart to create the necessary sa and roles"
 helm_values=$(get_operator_helm_values)
