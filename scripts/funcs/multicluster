@@ -57,7 +57,8 @@ configure_multi_cluster_environment() {
   # shellcheck disable=SC2154
   ensure_test_namespace "${central_cluster}"
   # shellcheck disable=SC2154
-  for member_cluster in ${member_clusters}; do
+  prepare_namespace() {
+    member_cluster=$1
     ensure_test_namespace "${member_cluster}"
     kubectl --context "${member_cluster}" label ns "${NAMESPACE}" istio-injection=enabled --overwrite
     # configure mtls at the namespace level.
@@ -72,7 +73,11 @@ spec:
     mode: STRICT
 EOF
     fi
+  }
+  for member_cluster in ${member_clusters}; do
+    prepare_namespace "${member_cluster}" &
   done
+  wait
 
   helm_template_file=$(mktemp)
 
@@ -113,8 +118,9 @@ EOF
   echo "Creating required roles and service accounts."
   kubectl --context "${central_cluster}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
   for member_cluster in ${member_clusters}; do
-    kubectl --context "${member_cluster}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
+    kubectl --context "${member_cluster}" -n "${NAMESPACE}" apply -f "${helm_template_file}" &
   done
+  wait
 
   rm "${helm_template_file}"
   # wait some time for service account token secrets to appear.
@@ -226,10 +232,12 @@ prepare_multi_cluster_e2e_run() {
   for member_cluster in "${member_cluster_list[@]}"; do
     # shellcheck disable=SC2001,SC2086
     member_cluster_escaped=$(echo ${member_cluster} | sed 's/\./\\./g')
-    kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.member_cluster_${INDEX} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_${INDEX}"
-    kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.${member_cluster_escaped} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/${member_cluster}"
+    kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.member_cluster_${INDEX} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/member_cluster_${INDEX}" &
+    kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.${member_cluster_escaped} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/${member_cluster}" &
     ((INDEX++))
   done
+
+  wait
 
 }
 
