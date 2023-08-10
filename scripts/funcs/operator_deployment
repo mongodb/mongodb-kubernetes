@@ -4,6 +4,9 @@ set -Eeou pipefail
 
 get_operator_helm_values() {
   local version_id=${version_id:=latest}
+  if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
+    version_id="${OVERRIDE_VERSION_ID}"
+  fi
 
   local operator_version="${version_id}"
   # shellcheck disable=SC2153

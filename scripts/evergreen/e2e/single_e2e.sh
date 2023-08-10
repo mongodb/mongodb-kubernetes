@@ -32,6 +32,10 @@ deploy_test_app() {
     local context=${1}
     local helm_template_file
     helm_template_file=$(mktemp)
+    tag="${version_id:-latest}"
+    if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
+      tag="${OVERRIDE_VERSION_ID}"
+    fi
     # apply the correct configuration of the running OM instance
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
@@ -40,7 +44,7 @@ deploy_test_app() {
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
         "--set" "pytest.addopts=${pytest_addopts:-}"
-        "--set" "tag=${version_id:-$latest}"
+        "--set" "tag=${tag}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
         "--set" "skipExecution=${SKIP_EXECUTION:-'false'}"
