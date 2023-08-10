@@ -29,6 +29,9 @@ export LOCAL_RUN=true
 # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
 # for local run
 export version_id="latest"
+if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
+  version_id="${OVERRIDE_VERSION_ID}"
+fi
 
 # Setting the default values for registries
 
