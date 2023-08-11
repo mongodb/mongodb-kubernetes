@@ -7,21 +7,7 @@ source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/funcs/multicluster
 
-DELETE_CRD=${DELETE_CRD:-"true"}
-
-red_color="\e[31m"
-reset_color="\e[0m"
-
-kubectl_cmd() {
-  msg=$(timeout 5s kubectl "$@" 2>&1)
-  error_code=$?
-  if [[ ${error_code} -ne 0 ]]; then
-      echo -e "${red_color}"
-      echo "kubectl $*"
-      echo -e "${msg}${reset_color}"
-      exit ${error_code}
-  fi
-}
+DELETE_CRD=${DELETE_CRD:-"false"}
 
 reset_context() {
   context=$1
@@ -31,74 +17,61 @@ reset_context() {
     exit 1
   fi
 
-  set +e
-
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
-
   # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
   # considerably less time
   title "Cleaning Kubernetes resources in context: ${context}"
 
   ensure_namespace "${namespace}"
 
-  kubectl_cmd delete --context "${context}" mdb --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" mdbu --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" mdbmc --all -n "${namespace}"
+  kubectl delete --context "${context}" mdb --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbu --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbmc --all -n "${namespace}" || true
 
   # Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
-  kubectl_cmd delete --context "${context}" "$(kubectl_cmd get sts -o name -n "${namespace}" | grep "backup-daemon")" 2>/dev/null
+  kubectl delete --context "${context}" "$(kubectl get sts -o name -n "${namespace}" | grep "backup-daemon")" 2>/dev/null || true
 
   # shellcheck disable=SC2016,SC2086
   timeout "30s" bash -c \
     'while [[ $(kubectl -n '${namespace}' get pods | grep "backup-daemon-0" | wc -l) -gt 0 ]]; do sleep 1; done' ||
     echo "Warning: failed to remove backup daemon statefulset"
 
-  kubectl_cmd delete --context "${context}" sts --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" deploymentsx --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" services --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" opsmanager --all -n "${namespace}"
+  kubectl delete --context "${context}" sts --all -n "${namespace}"
+  kubectl delete --context "${context}" deployments --all -n "${namespace}" || true
+  kubectl delete --context "${context}" services --all -n "${namespace}" || true
+  kubectl delete --context "${context}" opsmanager --all -n "${namespace}" || true
 
   # shellcheck disable=SC2046
-  for csr in $(kubectl_cmd get csr -o name | grep "${namespace}"); do
-    kubectl_cmd delete --context "${context}" "${csr}"
+  for csr in $(kubectl get csr -o name | grep "${namespace}"); do
+    kubectl delete --context "${context}" "${csr}"
   done
-
-  kubectl_cmd delete --context "${context}" secrets --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" svc --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" configmaps --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" validatingwebhookconfigurations/mdbpolicy.mongodb.com --ignore-not-found=true
+  # note, that "kubectl delete --context "${context}" .. -all" always enables "--ignore-not-found=true" option so there's no need to tolerate
+  # failures explicitly (" || true")
+  kubectl delete --context "${context}" secrets --all -n "${namespace}"
+  kubectl delete --context "${context}" svc --all -n "${namespace}"
+  kubectl delete --context "${context}" configmaps --all -n "${namespace}"
+  kubectl delete --context "${context}" validatingwebhookconfigurations/mdbpolicy.mongodb.com --ignore-not-found=true
 
   # certificates and issuers may not be installed
-  kubectl_cmd delete --context "${context}" certificates --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" issuers --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" pvc --all -n "${namespace}"
+  kubectl delete --context "${context}" certificates --all -n "${namespace}" || true
+  kubectl delete --context "${context}" issuers --all -n "${namespace}" || true
+  kubectl delete --context "${context}" pvc --all -n "${namespace}" || true
 
-  kubectl_cmd delete --context "${context}" catalogsources --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" subscriptions --all -n "${namespace}"
-  kubectl_cmd delete --context "${context}" clusterserviceversions --all -n "${namespace}"
+  kubectl delete --context "${context}" catalogsources --all -n "${namespace}" || true
+  kubectl delete --context "${context}" subscriptions --all -n "${namespace}" || true
+  kubectl delete --context "${context}" clusterserviceversions --all -n "${namespace}" || true
 
   if [[ "${DELETE_CRD}" == "true" ]]; then
-    kubectl_cmd delete --context "${context}" crd mongodb.mongodb.com
-    kubectl_cmd delete --context "${context}" crd mongodbmulti.mongodb.com
-    kubectl_cmd delete --context "${context}" crd mongodbmulticluster.mongodb.com
-    kubectl_cmd delete --context "${context}" crd mongodbusers.mongodb.com
-    kubectl_cmd delete --context "${context}" crd opsmanagers.mongodb.com
+    kubectl delete --context "${context}" crd mongodb.mongodb.com || true
+    kubectl delete --context "${context}" crd mongodbmulti.mongodb.com || true
+    kubectl delete --context "${context}" crd mongodbmulticluster.mongodb.com || true
+    kubectl delete --context "${context}" crd mongodbusers.mongodb.com || true
+    kubectl delete --context "${context}" crd opsmanagers.mongodb.com || true
   fi
 
-  kubectl_cmd delete --context "${context}"
-
-  # shellcheck disable=SC2046
-  kubectl_cmd delete --context "${context}" -n "${namespace}" $(kubectl_cmd get serviceaccounts --context "${context}" -n "${namespace}" -o name | grep -v default)
-  # shellcheck disable=SC2046
-  kubectl_cmd delete --context "${context}" -n "${namespace}" $(kubectl_cmd get rolebindings --context "${context}" -n "${namespace}" -o name | grep mongodb)
-  # shellcheck disable=SC2046
-  kubectl_cmd delete --context "${context}" -n "${namespace}" $(kubectl_cmd get roles --context "${context}" -n "${namespace}" -o name | grep mongodb) || true
-
   echo "Finished resetting context ${context}/${namespace}"
-
-  set -e
 }
+
+helm uninstall mongodb-enterprise-operator || true &
 
 # shellcheck disable=SC2154
 if [[ "${kube_environment_name}" == "multi" ]]; then
@@ -123,5 +96,5 @@ if [[ "${kube_environment_name}" == "multi" ]]; then
   echo "Waiting for background jobs to complete..."
   wait
 else
-  reset_context "$(kubectl_cmd config current-context)" "${NAMESPACE}"
+  reset_context "$(kubectl config current-context)" "${NAMESPACE}"
 fi
