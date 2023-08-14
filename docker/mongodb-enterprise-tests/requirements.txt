@@ -14,6 +14,6 @@ boto3==1.18.8
 python-dateutil==2.8.1
 semver==2.10.2
 python-ldap==3.4.0
-GitPython==3.1.30
+GitPython==3.1.32
 setuptools>=65.5.1 # not directly required, pinned by Snyk to avoid a vulnerability
 
