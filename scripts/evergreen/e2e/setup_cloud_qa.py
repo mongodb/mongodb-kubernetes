@@ -2,12 +2,11 @@
 import os
 import random
 import re
-from datetime import datetime
+import sys
+import time
 from typing import List, Tuple, Dict
 
 import requests
-import sys
-import time
 from requests.auth import HTTPDigestAuth
 
 ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
@@ -278,7 +277,8 @@ def configure():
 
 def clean_unused_keys(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    keys = get_keys_older_than(org_id, minutes_interval=180)
+    keys = get_keys_older_than(org_id, minutes_interval=120)
+    print(f"found {len(keys)} keys for potential removal")
 
     for key in keys:
         if not keep_the_key(key):
@@ -295,7 +295,8 @@ def keep_the_key(key: Dict) -> bool:
 
 def clean_unused_projects(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    projects = get_projects_older_than(org_id, minutes_interval=180)
+    projects = get_projects_older_than(org_id, minutes_interval=120)
+    print(f"found {len(projects)} projects for potential removal")
 
     for project in projects:
         print("Removing the project {} ({})".format(project["id"], project["name"]))
