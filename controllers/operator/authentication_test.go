@@ -102,7 +102,7 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 	conn := om.NewMockedOmConnection(deployment.CreateFromReplicaSet(rs))
 
 	// configure X509 authentication & tls
-	rs.Spec.Security.Authentication.Modes = []string{"X509"}
+	rs.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{"X509"}
 	rs.Spec.Security.Authentication.Enabled = true
 	rs.Spec.Security.TLSConfig.Enabled = true
 

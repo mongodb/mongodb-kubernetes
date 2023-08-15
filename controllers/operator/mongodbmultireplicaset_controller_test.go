@@ -336,7 +336,7 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 
 func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
-		Authentication: &mdbv1.Authentication{Enabled: true, Modes: []string{"SCRAM"}},
+		Authentication: &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{"SCRAM"}},
 	}).SetClusterSpecList(clusters).Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)

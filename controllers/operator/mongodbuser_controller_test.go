@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 
@@ -209,11 +211,11 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	assert.Equal(t, expected, actual, "the reconciliation should be successful as x509 does not require a password")
 }
 
-func AssertAuthModeTest(t *testing.T, mode string) {
+func AssertAuthModeTest(t *testing.T, mode mdbv1.AuthMode) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client := defaultUserReconciler(user)
-	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]string{mode}).SetName("my-rs0").Build())
+	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
 	assert.NoError(t, err)
 	createUserControllerConfigMap(client)
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
@@ -254,7 +256,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 
 func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	t.Run("When SCRAM and X509 auth modes are enabled, and agent mode is SCRAM, 3 users are created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []string{"SCRAM", "X509"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []mdbv1.AuthMode{"SCRAM", "X509"})
 
 		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain a created user")
@@ -266,7 +268,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When X509 and SCRAM auth modes are enabled, and agent mode is X509, 1 user is created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 1, "X509", []string{"X509", "SCRAM"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 1, "X509", []mdbv1.AuthMode{"X509", "SCRAM"})
 		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
 		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
@@ -274,7 +276,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When X509 and SCRAM auth modes are enabled, SCRAM is AgentAuthMode, 3 users are created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []string{"X509", "SCRAM"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []mdbv1.AuthMode{"X509", "SCRAM"})
 
 		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only one actual user")
@@ -282,7 +284,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When X509 auth mode is enabled, 1 user will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 3, "X509", []string{"X509"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 3, "X509", []mdbv1.AuthMode{"X509"})
 		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only an actual user")
 
@@ -295,7 +297,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When LDAP and X509 are enabled, 1 X509 user will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 3, "X509", []string{"LDAP", "X509"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 3, "X509", []mdbv1.AuthMode{"LDAP", "X509"})
 		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only an actual user")
 
@@ -308,7 +310,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When LDAP is enabled, 1 SCRAM agent will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 0, "LDAP", []string{"LDAP"})
+		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 0, "LDAP", []mdbv1.AuthMode{"LDAP"})
 		assert.Equal(t, "mms-automation-agent", ac.Auth.AutoUser)
 
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
@@ -321,7 +323,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
-func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []string) *om.AutomationConfig {
+func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client := defaultUserReconciler(user)
@@ -379,7 +381,7 @@ func createPasswordSecret(client *mock.MockedClient, secretRef userv1.SecretKeyR
 	})
 }
 
-func createMongoDBForUserWithAuth(client *mock.MockedClient, user userv1.MongoDBUser, authModes ...string) {
+func createMongoDBForUserWithAuth(client *mock.MockedClient, user userv1.MongoDBUser, authModes ...mdbv1.AuthMode) {
 	mdbBuilder := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name)
 
 	_ = client.Update(context.TODO(), mdbBuilder.SetAuthModes(authModes).Build())

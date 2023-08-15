@@ -650,7 +650,7 @@ func (s *Security) GetAgentMechanism(currentMechanism string) string {
 	// spec.authentication.modes
 	// The check is done in the validation webhook
 	if len(s.Authentication.Modes) == 1 {
-		return s.Authentication.Modes[0]
+		return string(s.Authentication.Modes[0])
 	}
 	return auth.Agents.Mode
 }
@@ -704,7 +704,7 @@ func (s Security) RequiresClientTLSAuthentication() bool {
 		return false
 	}
 
-	if len(s.Authentication.Modes) == 1 && stringutil.Contains(s.Authentication.Modes, util.X509) {
+	if len(s.Authentication.Modes) == 1 && IsAuthPresent(s.Authentication.Modes, util.X509) {
 		return true
 	}
 
@@ -728,9 +728,9 @@ func (s *Security) GetInternalClusterAuthenticationMode() string {
 // Authentication holds various authentication related settings that affect
 // this MongoDB resource.
 type Authentication struct {
-	Enabled         bool     `json:"enabled"`
-	Modes           []string `json:"modes,omitempty"`
-	InternalCluster string   `json:"internalCluster,omitempty"`
+	Enabled         bool       `json:"enabled"`
+	Modes           []AuthMode `json:"modes,omitempty"`
+	InternalCluster string     `json:"internalCluster,omitempty"`
 	// IgnoreUnknownUsers maps to the inverse of auth.authoritativeSet
 	IgnoreUnknownUsers bool `json:"ignoreUnknownUsers,omitempty"`
 
@@ -744,6 +744,26 @@ type Authentication struct {
 
 	// Clients should present valid TLS certificates
 	RequiresClientTLSAuthentication bool `json:"requireClientTLSAuthentication,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=X509;SCRAM;SCRAM-SHA-1;MONGODB-CR;SCRAM-SHA-256;LDAP
+type AuthMode string
+
+func ConvertAuthModesToStrings(authModes []AuthMode) []string {
+	stringAuth := make([]string, len(authModes))
+	for i, auth := range authModes {
+		stringAuth[i] = string(auth)
+	}
+	return stringAuth
+}
+
+func IsAuthPresent(authModes []AuthMode, auth string) bool {
+	for _, authMode := range authModes {
+		if string(authMode) == auth {
+			return true
+		}
+	}
+	return false
 }
 
 type AuthenticationRestriction struct {
@@ -809,7 +829,7 @@ func (a *Authentication) GetModes() []string {
 	if a == nil {
 		return []string{}
 	}
-	return a.Modes
+	return ConvertAuthModesToStrings(a.Modes)
 }
 
 type Ldap struct {
@@ -980,7 +1000,7 @@ func (m *MongoDB) IsLDAPEnabled() bool {
 	if m.Spec.Security == nil || m.Spec.Security.Authentication == nil {
 		return false
 	}
-	return stringutil.Contains(m.Spec.Security.Authentication.Modes, util.LDAP)
+	return IsAuthPresent(m.Spec.Security.Authentication.Modes, util.LDAP)
 }
 
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -1365,7 +1385,7 @@ func EnsureSecurity(sec *Security) *Security {
 }
 
 func newAuthentication() *Authentication {
-	return &Authentication{Modes: []string{}}
+	return &Authentication{Modes: []AuthMode{}}
 }
 
 func newSecurity() *Security {

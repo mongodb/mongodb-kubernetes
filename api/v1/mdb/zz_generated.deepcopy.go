@@ -73,7 +73,7 @@ func (in *Authentication) DeepCopyInto(out *Authentication) {
 	*out = *in
 	if in.Modes != nil {
 		in, out := &in.Modes, &out.Modes
-		*out = make([]string, len(*in))
+		*out = make([]AuthMode, len(*in))
 		copy(*out, *in)
 	}
 	if in.Ldap != nil {

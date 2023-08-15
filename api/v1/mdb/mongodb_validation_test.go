@@ -39,7 +39,7 @@ func TestMongoDB_ProcessValidations_HorizonsWithoutTLS(t *testing.T) {
 
 func TestMongoDB_ProcessValidationsOnReconcile_X509WithoutTls(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
-	rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []string{"X509"}}
+	rs.Spec.Security.Authentication = &Authentication{Enabled: true, Modes: []AuthMode{"X509"}}
 	err := rs.ProcessValidationsOnReconcile(nil)
 	assert.Equal(t, "Cannot have a non-tls deployment when x509 authentication is enabled", err.Error())
 }
@@ -64,7 +64,7 @@ func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
 		TLSConfig: &TLSConfig{Enabled: true},
 		Authentication: &Authentication{
 			Enabled: true,
-			Modes:   []string{"LDAP", "X509"},
+			Modes:   []AuthMode{"LDAP", "X509"},
 		},
 	}
 	err := rs.ValidateCreate()
@@ -120,11 +120,11 @@ func TestScramSha1AuthValidation(t *testing.T) {
 	}
 	tests := map[string]TestConfig{
 		"Valid MongoDB with Authentication": {
-			MongoDB:       NewReplicaSetBuilder().EnableAuth([]string{util.SCRAMSHA1}).Build(),
+			MongoDB:       NewReplicaSetBuilder().EnableAuth([]AuthMode{util.SCRAMSHA1}).Build(),
 			ErrorExpected: true,
 		},
 		"Valid MongoDB with SCRAM-SHA-1": {
-			MongoDB:       NewReplicaSetBuilder().EnableAuth([]string{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build(),
+			MongoDB:       NewReplicaSetBuilder().EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build(),
 			ErrorExpected: false,
 		},
 	}

@@ -40,7 +40,7 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 			Security: &mdbv1.Security{
 				TLSConfig: &mdbv1.TLSConfig{},
 				Authentication: &mdbv1.Authentication{
-					Modes: []string{},
+					Modes: []mdbv1.AuthMode{},
 				},
 				Roles: []mdbv1.MongoDbRole{},
 			},

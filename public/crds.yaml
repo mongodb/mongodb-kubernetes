@@ -647,6 +647,13 @@ spec:
                         type: object
                       modes:
                         items:
+                          enum:
+                          - X509
+                          - SCRAM
+                          - SCRAM-SHA-1
+                          - MONGODB-CR
+                          - SCRAM-SHA-256
+                          - LDAP
                           type: string
                         type: array
                       requireClientTLSAuthentication:
@@ -1481,6 +1488,13 @@ spec:
                         type: object
                       modes:
                         items:
+                          enum:
+                          - X509
+                          - SCRAM
+                          - SCRAM-SHA-1
+                          - MONGODB-CR
+                          - SCRAM-SHA-256
+                          - LDAP
                           type: string
                         type: array
                       requireClientTLSAuthentication:
@@ -2303,6 +2317,13 @@ spec:
                             type: object
                           modes:
                             items:
+                              enum:
+                              - X509
+                              - SCRAM
+                              - SCRAM-SHA-1
+                              - MONGODB-CR
+                              - SCRAM-SHA-256
+                              - LDAP
                               type: string
                             type: array
                           requireClientTLSAuthentication:
