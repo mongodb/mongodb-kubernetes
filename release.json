@@ -3,13 +3,13 @@
     "ubi": "mongodb-database-tools-rhel80-x86_64-100.7.4.tgz"
   },
   "mongodbOperator": "1.20.1",
-  "initDatabaseVersion": "1.0.17",
-  "initOpsManagerVersion": "1.0.11",
-  "initAppDbVersion": "1.0.17",
+  "initDatabaseVersion": "1.0.18",
+  "initOpsManagerVersion": "1.0.12",
+  "initAppDbVersion": "1.0.18",
   "databaseImageVersion": "2.0.2",
-  "readinessProbeVersion": "1.0.15",
-  "versionUpgradePostStartHookVersion": "1.0.7",
-  "agentVersion": "12.0.21.7698-1",
+  "readinessProbeVersion": "1.0.16",
+  "versionUpgradePostStartHookVersion": "1.0.8",
+  "agentVersion": "12.0.25.7724-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },

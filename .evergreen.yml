@@ -77,10 +77,10 @@ variables:
     managed_security_context: "false"
 
   - &go_bin
-    "/opt/golang/go1.20/bin"
+    "/opt/golang/go1.21/bin"
 
   - &go_options
-    GOROOT: "/opt/golang/go1.20"
+    GOROOT: "/opt/golang/go1.21"
 
   - &e2e_cloud_qa_ubi_cloudqa
     e2e_cloud_qa_orgid_owner: ${e2e_cloud_qa_orgid_owner_ubi_cloudqa}
