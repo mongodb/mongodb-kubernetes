@@ -147,9 +147,6 @@ class KubernetesTester(object):
 
     @classmethod
     def read_configmap(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> Dict[str, str]:
-        """
-        Deprecated: use kubetester.create_or_update_configmap instead.
-        """
         corev1 = cls.clients("corev1")
         if api_client is not None:
             corev1 = client.CoreV1Api(api_client=api_client)

@@ -45,7 +45,7 @@ type S3OplogStoreAdmin interface {
 	// CreateS3OplogStoreConfig creates the given Oplog S3Config
 	CreateS3OplogStoreConfig(s3Config backup.S3Config) error
 
-	// DeleteS3OplogStoreConfig removes an Oplog S3config by id
+	// DeleteS3OplogStoreConfig removes an Oplog S3Config by id
 	DeleteS3OplogStoreConfig(id string) error
 }
 

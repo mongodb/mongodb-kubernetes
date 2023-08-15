@@ -9,8 +9,32 @@
 * Fixes a bug where passing the labels via statefulset override mechanism would not lead to an override on the actual statefulset.
 
 # MongoDBOpsManager Resource
+## Breaking changes
+* The `appdb-ca` is no longer automatically added to the JVM Trust Store (in Ops Manager or Cloud Manager). Since a bug introduced in version `1.17.0`, automatically adding these certificates to the JVM Trust Store has no longer worked.
+  * This will only impact you if:
+    * You are using the same custom certificate for both appdb-ca and for your S3 compatible backup store
+    * AND: You are using an operator prior to `1.17.0` (where automated inclusion in the JVM Trust Store worked) OR had a workaround (such as mounting your own trust store to OM)
+  * If you do need to use the same custom certificate for both appdb-ca and for your S3 compatible backup store then you now need to utilise `spec.backup.[]s3Config.customCertificateSecretRefs` (introduced in this release and covered below in the release notes) to specify the certificate authority for use for backups.
+  * The `appdb-ca` is the certificate authority saved in the configmap specified under `om.spec.applicationDatabase.security.tls.ca`.
+
 ## Bug fixes
-* Allowed setting an arbitrary port number in `spec.externalConnectivity.port` when `LoadBalancer` service type is used for exposing externally Ops Manager instance.
+* Allowed setting an arbitrary port number in `spec.externalConnectivity.port` when `LoadBalancer` service type is used for exposing Ops Manager instance externally.
+* The operator is now able to import the `appdb-ca` which consists of a bundle of certificate authorities into the ops-manager JVM trust store. Previously, the keystore had 2 problems:
+  * It was immutable.
+  * Only the first certificate authority out of the bundle was imported into the trust store.
+  * Both could lead to certificates being rejected by Ops Manager during requests to it.
+
+## Deprecation
+* The setting `spec.backup.[]s3Stores.customCertificate` and `spec.backup.[]s3OpLogStores.customCertificate` are being deprecated in favor of `spec.backup.[]s3OpLogStores.[]customCertificateSecretRefs` and `spec.backup.[]s3Stores.[]customCertificateSecretRefs`
+  * Previously, when enabling `customCertificate`, the operator would use the `appdb-ca` as the custom certificate. Currently, this should be explicitly set via `customCertificateSecretRefs`.
+
+## New Feature
+* Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
+  * The list consists of single certificate strings, each references a secret containing a certificate authority. 
+  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
+  * Note: 
+    * If providing a list of `customCertificateSecretRefs`, then those certificates will be used instead of the default certificates setup in the JVM Trust Store (in Ops Manager or Cloud Manager).
+    * If none are provided, the default JVM Truststore certificates will be used instead.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.20.1

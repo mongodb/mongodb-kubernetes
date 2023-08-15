@@ -28,8 +28,6 @@ const (
 	healthEndpointPortEnv             = "HEALTH_ENDPOINT_PORT"
 	backupDaemonReadinessProbeCommand = "/opt/scripts/backup-daemon-readiness-probe"
 	backupDaemonLivenessProbeCommand  = "/opt/scripts/backup-daemon-liveness-probe.sh"
-	// MMSHome corresponds to MMS_HOME in the Ops Manager Dockerfile.
-	MMSHome = "/mongodb-ops-manager"
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
@@ -101,21 +99,8 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 	pvc := pvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig, opts.Labels)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 
-	postStart := func(lc *corev1.Lifecycle) {}
-
 	caVolumeFunc := podtemplatespec.NOOP()
 	caVolumeMountFunc := container.NOOP()
-	if opts.AppDBTlsCAConfigMapName != "" {
-		// It will add each X.509 public key certificate into JVM's trust store
-		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
-		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
-		postStart = func(lc *corev1.Lifecycle) {
-			if lc.PostStart == nil {
-				lc.PostStart = &corev1.LifecycleHandler{Exec: &corev1.ExecAction{}}
-			}
-			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScriptCmd()}
-		}
-	}
 
 	volumeMounts := []corev1.VolumeMount{headDbMount}
 	mmsMongoUriVolume := corev1.Volume{}
@@ -141,7 +126,6 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 						container.WithName(util.BackupDaemonContainerName),
 						container.WithEnvs(backupDaemonEnvVars()...),
 						container.WithLifecycle(buildBackupDaemonLifecycle()),
-						container.WithLifecycle(postStart),
 						container.WithVolumeMounts(volumeMounts),
 						container.WithLivenessProbe(buildBackupDaemonLivenessProbe()),
 						container.WithReadinessProbe(buildBackupDaemonReadinessProbe()),
