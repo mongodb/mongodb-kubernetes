@@ -227,15 +227,14 @@ const (
 	OpsManagerPvcMountPathEtc   = "/etc/mongodb-mms"
 
 	// Ops Manager configuration properties
-	MmsCentralUrlPropKey    = "mms.centralUrl"
-	MmsMongoUri             = "mongo.mongoUri"
-	MmsMongoSSL             = "mongo.ssl"
-	MmsMongoCA              = "mongodb.ssl.CAFile"
-	MmsFeatureControls      = "mms.featureControls.enable"
-	MmsHeaderContainVersion = "mms.serviceVersionApiHeader.enabled"
-	MmsVersionsDirectory    = "automation.versions.directory"
-	MmsPEMKeyFile           = "mms.https.PEMKeyFile"
-	BrsQueryablePem         = "brs.queryable.pem"
+	MmsCentralUrlPropKey = "mms.centralUrl"
+	MmsMongoUri          = "mongo.mongoUri"
+	MmsMongoSSL          = "mongo.ssl"
+	MmsMongoCA           = "mongodb.ssl.CAFile"
+	MmsFeatureControls   = "mms.featureControls.enable"
+	MmsVersionsDirectory = "automation.versions.directory"
+	MmsPEMKeyFile        = "mms.https.PEMKeyFile"
+	BrsQueryablePem      = "brs.queryable.pem"
 
 	// SecretVolumeMountPath defines where in the Pod will be the secrets
 	// object mounted.

@@ -9,7 +9,6 @@ from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
     run_periodically,
-    create_secret,
     create_or_update_secret,
 )
 from kubetester import get_default_storage_class, create_or_update, try_load

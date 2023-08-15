@@ -264,6 +264,18 @@ class OMTester(object):
         """verifies that the list of s3 store configs in OM is equal to the expected one"""
         self._assert_stores(expected_s3_stores, "/admin/backup/snapshot/s3Configs", "s3")
 
+    def get_s3_stores(self):
+        """verifies that the list of s3 store configs in OM is equal to the expected one"""
+        response = self.om_request("get", "/admin/backup/snapshot/s3Configs")
+        assert response.status_code == requests.status_codes.codes.OK
+        return response.json()
+
+    def get_oplog_s3_stores(self):
+        """verifies that the list of s3 store configs in OM is equal to the expected one"""
+        response = self.om_request("get", "/admin/backup/oplog/s3Configs")
+        assert response.status_code == requests.status_codes.codes.OK
+        return response.json()
+
     def assert_hosts_empty(self):
         self.get_automation_config_tester().assert_empty()
         hosts = self.api_get_hosts()

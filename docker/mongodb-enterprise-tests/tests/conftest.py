@@ -31,7 +31,6 @@ try:
 except Exception:
     kubernetes.config.load_incluster_config()
 
-
 KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
 MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # AppDB monitoring is disabled by default for e2e tests.
@@ -235,6 +234,16 @@ def multi_cluster_clusterissuer(
 @fixture(scope="module")
 def issuer_ca_filepath():
     return _fixture("ca-tls-full-chain.crt")
+
+
+@fixture(scope="module")
+def amazon_ca_1_filepath():
+    return _fixture("amazon-ca-1.pem")
+
+
+@fixture(scope="module")
+def amazon_ca_2_filepath():
+    return _fixture("amazon-ca-2.pem")
 
 
 @fixture(scope="module")

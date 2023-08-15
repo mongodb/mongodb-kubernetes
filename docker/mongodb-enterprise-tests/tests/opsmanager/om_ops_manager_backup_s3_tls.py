@@ -1,13 +1,13 @@
-from typing import Optional, Dict
+from typing import Optional
 
 from pytest import mark, fixture
 
-from kubetester import MongoDB
+import kubetester
+from kubetester import create_or_update
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     AWS_REGION,
     create_aws_secret,
@@ -21,31 +21,48 @@ This test checks the work with TLS-enabled backing databases (oplog & blockstore
 
 S3_OPLOG_NAME = "s3-oplog"
 S3_BLOCKSTORE_NAME = "s3-blockstore"
+S3_TEST_CA1 = "s3-test-ca-1"
+S3_TEST_CA2 = "s3-test-ca-2"
+S3_NOT_WORKING_CA = "not-working-ca"
 
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, "om-backup-tls-s3-db", "appdb-om-backup-tls-s3-db-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, "om-backup-tls-s3-db", "appdb-om-backup-tls-s3-db-cert")
     return "appdb"
 
 
 @fixture(scope="module")
 def s3_bucket_oplog(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_OPLOG_NAME + "-secret", namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-oplog-")
 
 
 @fixture(scope="module")
 def s3_bucket_blockstore(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_BLOCKSTORE_NAME + "-secret", namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-blockstorage-")
+
+
+@fixture(scope="module")
+def duplicate_configmap_ca(namespace, amazon_ca_1_filepath, amazon_ca_2_filepath, ca_path):
+    ca = open(amazon_ca_1_filepath).read()
+    data = {"ca-pem": ca}
+    kubetester.create_or_update_secret(namespace, S3_TEST_CA1, data)
+
+    ca = open(amazon_ca_2_filepath).read()
+    data = {"ca-pem": ca}
+    kubetester.create_or_update_secret(namespace, S3_TEST_CA2, data)
+
+    ca = open(ca_path).read()
+    data = {"ca-pem": ca}
+    kubetester.create_or_update_secret(namespace, S3_NOT_WORKING_CA, data)
 
 
 @fixture(scope="module")
 def ops_manager(
     namespace,
+    duplicate_configmap_ca,
     issuer_ca_configmap: str,
     appdb_certs_secret: str,
     custom_version: Optional[str],
@@ -60,30 +77,31 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
 
+    custom_certificate = {"name": S3_NOT_WORKING_CA, "key": "ca-pem"}
+
     resource["spec"]["backup"]["s3Stores"][0]["name"] = S3_BLOCKSTORE_NAME
-    resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = (
-        S3_BLOCKSTORE_NAME + "-secret"
-    )
-    resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(
-        AWS_REGION
-    )
+    resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = S3_BLOCKSTORE_NAME + "-secret"
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket_blockstore
     resource["spec"]["backup"]["s3Stores"][0]["s3RegionOverride"] = AWS_REGION
+    resource["spec"]["backup"]["s3Stores"][0]["customCertificateSecretRefs"] = [custom_certificate]
     resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = S3_OPLOG_NAME
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = (
-        S3_OPLOG_NAME + "-secret"
-    )
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(
-        AWS_REGION
-    )
+    resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = S3_OPLOG_NAME + "-secret"
+    resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3RegionOverride"] = AWS_REGION
-    return resource.create()
+    resource["spec"]["backup"]["s3OpLogStores"][0]["customCertificateSecretRefs"] = [custom_certificate]
+
+    kubetester.try_load(resource)
+
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_s3_tls
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        create_or_update(ops_manager)
+
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
@@ -92,13 +110,32 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
-    def test_om_is_running(
+    def test_om_backup_is_failed(
         self,
         ops_manager: MongoDBOpsManager,
     ):
         ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=600, ignore_errors=True
+            Phase.Failed, timeout=600, msg_regexp=".* valid certification path to requested target.*"
         )
+
+    def test_om_with_correct_custom_cert(self, ops_manager: MongoDBOpsManager):
+
+        custom_certificate = [
+            {"name": S3_TEST_CA1, "key": "ca-pem"},
+            {"name": S3_TEST_CA2, "key": "ca-pem"},
+        ]
+
+        ops_manager["spec"]["backup"]["s3OpLogStores"][0]["customCertificateSecretRefs"] = custom_certificate
+        ops_manager["spec"]["backup"]["s3Stores"][0]["customCertificateSecretRefs"] = custom_certificate
+
+        create_or_update(ops_manager)
+
+    def test_om_is_running(
+        self,
+        ops_manager: MongoDBOpsManager,
+    ):
+        # this takes more time, since the change of the custom certs requires a restart of om
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1200, ignore_errors=True)
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
 
@@ -107,9 +144,13 @@ class TestOpsManagerCreation:
         ops_manager: MongoDBOpsManager,
     ):
         om_tester = ops_manager.get_om_tester()
-        om_tester.assert_s3_stores(
-            [{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}]
-        )
-        om_tester.assert_oplog_s3_stores(
-            [{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}]
-        )
+        om_tester.assert_s3_stores([{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}])
+        om_tester.assert_oplog_s3_stores([{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}])
+
+        # verify that we were able to setup (and no error) certificates
+        a = om_tester.get_s3_stores()
+        assert a["results"][0]["customCertificates"][0]["filename"] == f"{S3_TEST_CA1}/ca-pem"
+        assert a["results"][0]["customCertificates"][1]["filename"] == f"{S3_TEST_CA2}/ca-pem"
+        b = om_tester.get_oplog_s3_stores()
+        assert b["results"][0]["customCertificates"][0]["filename"] == f"{S3_TEST_CA1}/ca-pem"
+        assert b["results"][0]["customCertificates"][1]["filename"] == f"{S3_TEST_CA2}/ca-pem"
