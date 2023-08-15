@@ -452,3 +452,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 
 	return builder.Build()
 }
+
+func GetAppDBCaPemPath() string {
+	return util.AppDBMmsCaFileDirInContainer + "ca-pem"
+}

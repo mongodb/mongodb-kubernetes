@@ -345,16 +345,23 @@ type S3Config struct {
 	S3BucketName           string                     `json:"s3BucketName"`
 	// +optional
 	S3RegionOverride string `json:"s3RegionOverride"`
-	// Set this to "true" when you have custom certificates for your S3 buckets
+	// Set this to "true" to use the appDBCa as a CA to access S3.
+	// Deprecated: This has been replaced by CustomCertificateSecretRefs,
+	// In the future all custom certificates, which includes the appDBCa
+	// for s3Config should be configured in CustomCertificateSecretRefs instead.
 	// +optional
 	CustomCertificate bool `json:"customCertificate"`
-	// This is only set to "true" when user is running in EKS and is using AWS IRSA to configure
+	// This is only set to "true" when a user is running in EKS and is using AWS IRSA to configure
 	// S3 snapshot store. For more details refer this: https://aws.amazon.com/blogs/opensource/introducing-fine-grained-iam-roles-service-accounts/
 	// +optional
 	IRSAEnabled bool `json:"irsaEnabled"`
 	// Assignment Labels set in the Ops Manager
 	// +optional
 	AssignmentLabels []string `json:"assignmentLabels"`
+	// CustomCertificateSecretRefs is a list of valid Certificate Authority certificate secrets
+	// that apply to the associated S3 bucket.
+	// +optional
+	CustomCertificateSecretRefs []corev1.SecretKeySelector `json:"customCertificateSecretRefs"`
 }
 
 func (s S3Config) Identifier() interface{} {

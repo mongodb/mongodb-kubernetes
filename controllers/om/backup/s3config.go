@@ -3,10 +3,11 @@ package backup
 import (
 	"fmt"
 
+	"go.uber.org/zap"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
-	"github.com/blang/semver"
 )
 
 type authmode string
@@ -33,8 +34,8 @@ type S3Config struct {
 	// Flag indicating whether you can assign backup jobs to this data store.
 	AssignmentEnabled bool `json:"assignmentEnabled"`
 
-	// Flag indicating whether or not you accepted the terms of service for using S3-compatible stores with Ops Manager.
-	// If this is false, the request results in an error and Ops Manager doesn’t create the S3-compatible store.
+	// Flag indicating whether you accepted the terms of service for using S3-compatible stores with Ops Manager.
+	// If this is false, the request results in an error and Ops Manager doesn't create the S3-compatible store.
 	AcceptedTos bool `json:"acceptedTos"`
 
 	// 	Unique name that labels this S3 Snapshot Store.
@@ -46,7 +47,7 @@ type S3Config struct {
 	// Comma-separated list of hosts in the <hostname:port> format that can access this S3 blockstore.
 	Uri string `json:"uri"`
 
-	// fields the operator will not configure. All of these can be changed via the UI and the operator
+	// Fields the operator will not configure. All of these can be changed via the UI and the operator
 	// will not reset their values on reconciliation
 	EncryptedCredentials bool     `json:"encryptedCredentials"`
 	Labels               []string `json:"labels"`
@@ -75,7 +76,7 @@ type S3Config struct {
 
 // S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
 type S3CustomCertificate struct {
-	// Filename  identifies the Certificate Authority PEM file.
+	// Filename identifies the Certificate Authority PEM file.
 	Filename string `json:"filename"`
 	// CertString contains the contents of the Certificate Authority PEM file that comprise your Certificate Authority chain.
 	CertString string `json:"certString"`
@@ -96,7 +97,7 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri string, s3CustomCertificate S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
+func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri string, s3CustomCertificates []S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
 	authMode := IAM
 	cred := S3Credentials{}
 
@@ -122,16 +123,26 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri 
 		S3RegionOverride:       &s3Config.S3RegionOverride,
 	}
 
-	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
-	if err == nil {
+	if _, err := versionutil.StringToSemverVersion(opsManager.Spec.Version); err == nil {
 		config.DisableProxyS3 = util.BooleanRef(false)
-		// Attributes that are only available in 5.0+ version of Ops Manager.
-		if s3Config.CustomCertificate && version.GTE(semver.MustParse("5.0.0")) {
-			// both filename and path need to be provided.
-			if s3CustomCertificate.CertString != "" && s3CustomCertificate.Filename != "" {
-				// CustomCertificates needs to be a pointer for it to not be
+
+		for _, certificate := range s3CustomCertificates {
+
+			if s3Config.CustomCertificate {
+				zap.S().Warn("CustomCertificate is deprecated. Please switch to customCertificates to add your appDB-CA")
+			}
+
+			// Historically, if s3Config.CustomCertificate was set to true, then we would use the appDBCa for s3Config.
+			if !s3Config.CustomCertificate && certificate.Filename == omv1.GetAppDBCaPemPath() {
+				continue
+			}
+
+			// Attributes that are only available in 5.0+ version of Ops Manager.
+			// Both filename and path need to be provided.
+			if certificate.CertString != "" && certificate.Filename != "" {
+				// CustomCertificateSecretRefs needs to be a pointer for it to not be
 				// passed as part of the API request.
-				config.CustomCertificates = append(config.CustomCertificates, s3CustomCertificate)
+				config.CustomCertificates = append(config.CustomCertificates, certificate)
 			}
 		}
 	}
@@ -153,6 +164,7 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.Uri = s.Uri
 	opsManagerS3Config.S3RegionOverride = s.S3RegionOverride
 	opsManagerS3Config.Labels = s.Labels
+	opsManagerS3Config.CustomCertificates = s.CustomCertificates
 	return opsManagerS3Config
 }
 

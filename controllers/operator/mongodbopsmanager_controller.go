@@ -668,7 +668,7 @@ func (r OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsMan
 		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
 	}
 	if opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
-		setConfigProperty(opsManager, util.MmsMongoCA, util.AppDBMmsCaFileDirInContainer+"ca-pem", log)
+		setConfigProperty(opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
 	}
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
@@ -1101,7 +1101,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 				return workflow.Failed(err)
 			}
 		} else if err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		} else {
 			// The Assignment Labels are the only thing that can change at the moment.
 			// If we add new features for controlling the Backup Daemons, we may want
@@ -1110,7 +1110,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager omv1.MongoDB
 				dc.Labels = opsManager.Spec.Backup.AssignmentLabels
 				err = omAdmin.UpdateDaemonConfig(dc)
 				if err != nil {
-					return workflow.Failed(err)
+					return workflow.Failed(xerrors.New(err.Error()))
 				}
 			}
 		}
@@ -1215,13 +1215,13 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 	s3OperatorOplogConfigs := opsManager.Spec.Backup.S3OplogStoreConfigs
 	configsToCreate := identifiable.SetDifferenceGeneric(s3OperatorOplogConfigs, opsManagerS3OpLogConfigs)
 	for _, v := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(opsManager, v.(omv1.S3Config), log)
+		omConfig, status := r.buildOMS3Config(opsManager, v.(omv1.S3Config), true, log)
 		if !status.IsOK() {
 			return status
 		}
 		log.Infow("Creating S3 Oplog Store in Ops Manager", "config", omConfig)
 		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1231,7 +1231,7 @@ func (r OpsManagerReconciler) ensureS3OplogStoresInOpsManager(opsManager omv1.Mo
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
 		operatorConfig := v[1].(omv1.S3Config)
-		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, log)
+		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, true, log)
 		if !status.IsOK() {
 			return status
 		}
@@ -1334,14 +1334,14 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
 	configsToCreate := identifiable.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
 	for _, config := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(opsManager, config.(omv1.S3Config), log)
+		omConfig, status := r.buildOMS3Config(opsManager, config.(omv1.S3Config), false, log)
 		if !status.IsOK() {
 			return status
 		}
 
 		log.Infow("Creating S3Config in Ops Manager", "config", omConfig)
 		if err := omAdmin.CreateS3Config(omConfig); err != nil {
-			return workflow.Failed(err)
+			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
 
@@ -1351,7 +1351,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(opsManager omv1
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
 		operatorConfig := v[1].(omv1.S3Config)
-		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, log)
+		operatorView, status := r.buildOMS3Config(opsManager, operatorConfig, false, log)
 		if !status.IsOK() {
 			return status
 		}
@@ -1439,8 +1439,7 @@ func shouldUseAppDb(config omv1.S3Config) bool {
 }
 
 // buildAppDbOMS3Config creates a backup.S3Config which is configured to use The AppDb.
-func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, config omv1.S3Config,
-	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
+func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
 
 	password, err := r.getAppDBPassword(om, log)
 	if err != nil {
@@ -1462,7 +1461,7 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 		Name:     config.S3BucketName,
 	}
 
-	customCAOpts, err := r.readCustomCAFilePathsAndContents(om)
+	customCAOpts, err := r.readCustomCAFilePathsAndContents(om, isOpLog)
 	if err != nil {
 		return backup.S3Config{}, workflow.Failed(err)
 	}
@@ -1472,7 +1471,7 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(om omv1.MongoDBOpsManager, c
 
 // buildMongoDbOMS3Config creates a backup.S3Config which is configured to use a referenced
 // MongoDB resource.
-func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config) (backup.S3Config, workflow.Status) {
+func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool) (backup.S3Config, workflow.Status) {
 	mongodb, status := r.getMongoDbForS3Config(opsManager, config)
 	if !status.IsOK() {
 		return backup.S3Config{}, status
@@ -1504,7 +1503,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 		Name:     config.S3BucketName,
 	}
 
-	customCAOpts, err := r.readCustomCAFilePathsAndContents(opsManager)
+	customCAOpts, err := r.readCustomCAFilePathsAndContents(opsManager, isOpLog)
 	if err != nil {
 		return backup.S3Config{}, workflow.Failed(err)
 	}
@@ -1514,30 +1513,61 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(opsManager omv1.MongoDBOps
 
 // readCustomCAFilePathsAndContents returns the filepath and contents of the custom CA which is used to configure
 // the S3Store.
-func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(opsManager omv1.MongoDBOpsManager) (backup.S3CustomCertificate, error) {
+func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(opsManager omv1.MongoDBOpsManager, isOpLog bool) ([]backup.S3CustomCertificate, error) {
+	var customCertificates []backup.S3CustomCertificate
+	var err error
+
+	if isOpLog {
+		customCertificates, err = getCAs(opsManager.Spec.Backup.S3OplogStoreConfigs, opsManager.Namespace, r.client)
+	} else {
+		customCertificates, err = getCAs(opsManager.Spec.Backup.S3Configs, opsManager.Namespace, r.client)
+	}
+
+	if err != nil {
+		return customCertificates, err
+	}
+
 	if opsManager.Spec.GetAppDbCA() != "" {
-		filePath := util.AppDBMmsCaFileDirInContainer + "ca-pem"
 		cmContents, err := configmap.ReadKey(r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetAppDbCA()))
 		if err != nil {
-			return backup.S3CustomCertificate{}, err
-
+			return []backup.S3CustomCertificate{}, err
 		}
-		return backup.S3CustomCertificate{
-			Filename:   filePath,
+		customCertificates = append(customCertificates, backup.S3CustomCertificate{
+			Filename:   omv1.GetAppDBCaPemPath(),
 			CertString: cmContents,
-		}, nil
+		})
 	}
-	return backup.S3CustomCertificate{}, nil
+
+	return customCertificates, nil
+}
+
+func getCAs(s3Config []omv1.S3Config, ns string, client secret.Getter) ([]backup.S3CustomCertificate, error) {
+	var certificates []backup.S3CustomCertificate
+	for _, config := range s3Config {
+		for _, backupCert := range config.CustomCertificateSecretRefs {
+			if backupCert.Name != "" {
+				aliasName := backupCert.Name + "/" + backupCert.Key
+				if cmContents, err := secret.ReadKey(client, backupCert.Key, kube.ObjectKey(ns, backupCert.Name)); err != nil {
+					return []backup.S3CustomCertificate{}, err
+				} else {
+					certificates = append(certificates, backup.S3CustomCertificate{
+						Filename:   aliasName,
+						CertString: cmContents,
+					})
+				}
+			}
+		}
+	}
+	return certificates, nil
 }
 
 // buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to
-// get the mongo URI which points to either the external resource or to the AppDB
-func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config,
-	log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
+// get the mongo URI, which points to either the external resource or to the AppDB
+func (r *OpsManagerReconciler) buildOMS3Config(opsManager omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, log *zap.SugaredLogger) (backup.S3Config, workflow.Status) {
 	if shouldUseAppDb(config) {
-		return r.buildAppDbOMS3Config(opsManager, config, log)
+		return r.buildAppDbOMS3Config(opsManager, config, isOpLog, log)
 	}
-	return r.buildMongoDbOMS3Config(opsManager, config)
+	return r.buildMongoDbOMS3Config(opsManager, config, isOpLog)
 }
 
 // getMongoDbForS3Config returns the referenced MongoDB resource which should be used when configuring the backup config.

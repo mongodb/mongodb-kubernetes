@@ -37,11 +37,7 @@ const (
 	podAntiAffinityLabelKey = "pod-anti-affinity"
 )
 
-func GetOpsManagerCAFileDir() string {
-	return fmt.Sprintf("%s/certs/%s", MMSHome, "ops-manager-ca")
-}
-
-// OpsManagerStatefulSetOptions contains all of the different values that are variable between
+// OpsManagerStatefulSetOptions contains all the different values that are variable between
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
 type OpsManagerStatefulSetOptions struct {
@@ -227,6 +223,7 @@ func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+
 	return OpsManagerStatefulSetOptions{
 		OwnerReference:          kube.BaseOwnerReference(&opsManager),
 		OwnerName:               opsManager.Name,
@@ -267,19 +264,6 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 
 // opsManagerStatefulSetFunc constructs the default Ops Manager StatefulSet modification function.
 func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
-	postStart := func(lc *corev1.Lifecycle) {}
-	if opts.AppDBTlsCAConfigMapName != "" {
-		// It will add each X.509 public key certificate into JVM's trust store
-		// with unique "mongodb_operator_added_trust_ca_$RANDOM" alias
-		// See: https://jira.mongodb.org/browse/HELP-25872 for more details.
-
-		postStart = func(lc *corev1.Lifecycle) {
-			if lc.PostStart == nil {
-				lc.PostStart = &corev1.LifecycleHandler{Exec: &corev1.ExecAction{}}
-			}
-			lc.PostStart.Exec.Command = []string{"/bin/sh", "-c", postStartScriptCmd()}
-		}
-	}
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -292,7 +276,6 @@ func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Mo
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						configureContainerSecurityContext,
-						container.WithLifecycle(postStart),
 						container.WithCommand([]string{"/opt/scripts/docker-entry-point.sh"}),
 						container.WithName(util.OpsManagerContainerName),
 						container.WithLivenessProbe(opsManagerLivenessProbe()),
@@ -619,15 +602,6 @@ func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar 
 		})
 	}
 	return envVars
-}
-
-// postStartScriptCmd returns a command to run as postStart.
-//
-// It adds each certificate into JVM trust store with a random alias.
-func postStartScriptCmd() string {
-	return fmt.Sprintf(
-		`awk -v cmd="%s/jdk/bin/keytool -noprompt -storepass changeit -import -trustcacerts -alias mongodb_operator_added_trust_ca_${RANDOM} -keystore %s/jdk/lib/security/cacerts" '/BEGIN/{close(cmd)};{print | cmd}' 2>&1 < %s/ca-pem`, MMSHome, MMSHome, util.AppDBMmsCaFileDirInContainer,
-	)
 }
 
 func hasReleasesVolumeMount(opts OpsManagerStatefulSetOptions) bool {

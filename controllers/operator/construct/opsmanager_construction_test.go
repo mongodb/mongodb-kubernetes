@@ -442,7 +442,7 @@ func defaultPodAntiAffinity() corev1.PodAntiAffinity {
 
 // buildSafeResourceList returns a ResourceList but should not be called
 // with dynamic values. This function ignores errors in the parsing of
-// resource.Quantities and as a result should only be used in tests with
+// resource.Quantities and as a result, should only be used in tests with
 // pre-set valid values.
 func buildSafeResourceList(cpu, memory string) corev1.ResourceList {
 	res := corev1.ResourceList{}

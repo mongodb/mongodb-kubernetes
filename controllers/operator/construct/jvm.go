@@ -98,6 +98,7 @@ func getPercentOfQuantityAsInt(q resource.Quantity, percent int) (int, error) {
 
 // buildJvmEnvVar returns the string representation of the JVM environment variable
 func buildJvmEnvVar(customParams []string, containerMemParams string) string {
+
 	jvmParams := strings.Join(customParams, " ")
 
 	// if both mem limits and mem requests are unset/have value 0, we don't want to override om's default JVM xmx/xms params

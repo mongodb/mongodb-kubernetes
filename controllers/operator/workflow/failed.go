@@ -1,8 +1,9 @@
 package workflow
 
 import (
-	"golang.org/x/xerrors"
 	"time"
+
+	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/apierrors"
 

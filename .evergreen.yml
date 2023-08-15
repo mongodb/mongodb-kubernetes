@@ -1865,6 +1865,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_ops_manager_backup_restore_minio
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: release_database
   git_tag_only: true
   commands:
@@ -2194,6 +2199,7 @@ task_groups:
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_tls
     - e2e_om_ops_manager_backup_s3_tls
+    - e2e_om_ops_manager_backup_restore_minio
     - e2e_om_ops_manager_backup_tls_custom_ca
     - e2e_om_ops_manager_backup_liveness_probe
     - e2e_om_ops_manager_backup_sharded_cluster
