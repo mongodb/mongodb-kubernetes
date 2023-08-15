@@ -81,7 +81,7 @@ func deploymentsMustHaveAgentModeInAuthModes(d DbCommonSpec) v1.ValidationResult
 		return v1.ValidationSuccess()
 	}
 
-	if authSpec.Agents.Mode != "" && !stringutil.Contains(authSpec.Modes, authSpec.Agents.Mode) {
+	if authSpec.Agents.Mode != "" && !IsAuthPresent(authSpec.Modes, authSpec.Agents.Mode) {
 		return v1.ValidationError("Cannot configure an Agent authentication mechanism that is not specified in authentication modes")
 	}
 	return v1.ValidationSuccess()
@@ -98,7 +98,7 @@ func scramSha1AuthValidation(d DbCommonSpec) v1.ValidationResult {
 		return v1.ValidationSuccess()
 	}
 
-	if stringutil.Contains(authSpec.Modes, util.SCRAMSHA1) {
+	if IsAuthPresent(authSpec.Modes, util.SCRAMSHA1) {
 		if authSpec.Agents.Mode != util.MONGODBCR {
 			return v1.ValidationError("Cannot configure SCRAM-SHA-1 without using MONGODB-CR in te Agent Mode")
 		}

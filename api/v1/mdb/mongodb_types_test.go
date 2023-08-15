@@ -143,7 +143,7 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		cnx)
 
 	// New version of Mongodb -> SCRAM-SHA-256
-	rs = NewReplicaSetBuilder().SetMembers(2).SetSecurityTLSEnabled().EnableAuth([]string{util.SCRAM}).Build()
+	rs = NewReplicaSetBuilder().SetMembers(2).SetSecurityTLSEnabled().EnableAuth([]AuthMode{util.SCRAM}).Build()
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
@@ -151,7 +151,7 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		cnx)
 
 	// Old version of Mongodb -> SCRAM-SHA-1. X509 is a second authentication method - user & password are still appended
-	rs = NewReplicaSetBuilder().SetMembers(2).SetVersion("3.6.1").EnableAuth([]string{util.SCRAM, util.X509}).Build()
+	rs = NewReplicaSetBuilder().SetMembers(2).SetVersion("3.6.1").EnableAuth([]AuthMode{util.SCRAM, util.X509}).Build()
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
@@ -159,7 +159,7 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		cnx)
 
 	// Special symbols in user/password must be encoded
-	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]string{util.SCRAM}).Build()
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
 	cnx = rs.BuildConnectionString("user/@", "pwd#!@", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://user%2F%40:pwd%23%21%40@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
@@ -167,7 +167,7 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		cnx)
 
 	// Caller can override any connection parameters, e.g."authMechanism"
-	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]string{util.SCRAM}).Build()
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-1"})
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
@@ -175,14 +175,14 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 		cnx)
 
 	// X509 -> no user/password in the url. It's possible to pass user/password in the params though
-	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]string{util.X509}).Build()
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.X509}).Build()
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?connectTimeoutMS=20000&replicaSet=test-mdb&"+
 		"serverSelectionTimeoutMS=20000", cnx)
 
 	// username + password must be provided if scram is enabled
-	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]string{util.SCRAM}).Build()
+	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
 	cnx = rs.BuildConnectionString("the_user", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
@@ -266,7 +266,7 @@ func TestMemberCertificateSecretName(t *testing.T) {
 }
 
 func TestAgentClientCertificateSecretName(t *testing.T) {
-	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().EnableAuth([]string{util.X509}).Build()
+	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().EnableAuth([]AuthMode{util.X509}).Build()
 
 	// Default is the hardcoded "agent-certs"
 	assert.Equal(t, util.AgentSecretName, rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)

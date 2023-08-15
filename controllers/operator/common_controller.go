@@ -524,7 +524,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 
 	authOpts := authentication.Options{
 		MinimumMajorVersion: ar.GetMinimumMajorVersion(),
-		Mechanisms:          ar.GetSecurity().Authentication.Modes,
+		Mechanisms:          mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
 		ProcessNames:        processNames,
 		AuthoritativeSet:    !ar.GetSecurity().Authentication.IgnoreUnknownUsers,
 		AgentMechanism:      ar.GetSecurity().GetAgentMechanism(ac.Auth.AutoAuthMechanism),

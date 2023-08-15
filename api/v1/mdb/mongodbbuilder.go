@@ -114,7 +114,7 @@ func (b *MongoDBBuilder) SetAnnotations(annotations map[string]string) *MongoDBB
 	return b
 }
 
-func (b *MongoDBBuilder) EnableAuth(modes []string) *MongoDBBuilder {
+func (b *MongoDBBuilder) EnableAuth(modes []AuthMode) *MongoDBBuilder {
 	if b.mdb.Spec.Security.Authentication == nil {
 		b.mdb.Spec.Security.Authentication = &Authentication{}
 	}

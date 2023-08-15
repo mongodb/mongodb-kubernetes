@@ -447,7 +447,7 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 		specSecurity = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{}}
 	}
 	// the only allowed authentication is SCRAM - it's implicit to the user and hidden from him
-	specSecurity.Authentication = &mdbv1.Authentication{Modes: []string{util.SCRAM}}
+	specSecurity.Authentication = &mdbv1.Authentication{Modes: []mdbv1.AuthMode{util.SCRAM}}
 	return specSecurity
 }
 

@@ -314,7 +314,7 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 }
 
 func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetTLSCA("custom-ca").SetAuthModes([]string{util.X509}).Build()
+	rs := DefaultReplicaSetBuilder().EnableAuth().EnableTLS().SetTLSCA("custom-ca").SetAuthModes([]mdbv1.AuthMode{util.X509}).Build()
 	reconciler, client := defaultReplicaSetReconciler(rs)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		conn := om.NewEmptyMockedOmConnection(context)
@@ -331,7 +331,7 @@ func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
-	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]string{"SCRAM"}).Build()
+	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
 
 	reconciler, client := defaultReplicaSetReconciler(rs)
 
@@ -687,7 +687,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 			Security: &mdbv1.Security{
 				TLSConfig: &mdbv1.TLSConfig{},
 				Authentication: &mdbv1.Authentication{
-					Modes: []string{},
+					Modes: []mdbv1.AuthMode{},
 				},
 				Roles: []mdbv1.MongoDbRole{},
 			},
@@ -770,7 +770,7 @@ func (b *ReplicaSetBuilder) LDAP(ldap mdbv1.Ldap) *ReplicaSetBuilder {
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetAuthModes(modes []string) *ReplicaSetBuilder {
+func (b *ReplicaSetBuilder) SetAuthModes(modes []mdbv1.AuthMode) *ReplicaSetBuilder {
 	b.Spec.Security.Authentication.Modes = modes
 	return b
 }

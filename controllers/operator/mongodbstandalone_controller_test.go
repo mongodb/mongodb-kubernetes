@@ -231,7 +231,7 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 			},
 			Security: &mdbv1.Security{
 				Authentication: &mdbv1.Authentication{
-					Modes: []string{},
+					Modes: []mdbv1.AuthMode{},
 				},
 				TLSConfig: &mdbv1.TLSConfig{},
 			},
