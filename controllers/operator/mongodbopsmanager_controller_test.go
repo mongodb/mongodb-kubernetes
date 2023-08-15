@@ -912,7 +912,7 @@ func configureBackupResources(m *mock.MockedClient, testOm omv1.MongoDBOpsManage
 			SetNamespace(testOm.Namespace).
 			SetVersion("3.6.9").
 			SetMembers(3).
-			EnableAuth([]string{util.SCRAM}).
+			EnableAuth([]mdbv1.AuthMode{util.SCRAM}).
 			Build()
 
 		_ = m.Update(context.TODO(), oplogStoreResource)

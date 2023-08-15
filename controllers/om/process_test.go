@@ -133,7 +133,7 @@ func TestConfigureX509_Process(t *testing.T) {
 				Version: "3.6.4",
 				Security: &mdbv1.Security{
 					Authentication: &mdbv1.Authentication{
-						Modes: []string{util.X509},
+						Modes: []mdbv1.AuthMode{util.X509},
 					},
 				},
 			},

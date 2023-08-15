@@ -24,9 +24,7 @@ class TestReplicaSetMembersMissing(KubernetesTester):
       exception: 'Unprocessable Entity'
     """
 
-    @pytest.mark.skip(
-        reason="TODO: validation for members must be done in webhook depending on the resource type"
-    )
+    @pytest.mark.skip(reason="TODO: validation for members must be done in webhook depending on the resource type")
     def test_validation_ok(self):
         assert True
 
@@ -169,3 +167,14 @@ def test_resource_type_immutable(namespace: str):
     ):
         mdb["spec"]["type"] = "ShardedCluster"
         mdb.update()
+
+
+@pytest.mark.e2e_replica_set_schema_validation
+def test_unrecognized_auth_mode(namespace: str):
+    mdb = MongoDB.from_yaml(yaml_fixture("invalid_replica_set_wrong_auth_mode.yaml"), namespace=namespace)
+
+    with pytest.raises(
+        ApiException,
+        match=r".*Unsupported value.*SHA.*supported values.*X509.*SCRAM.*SCRAM-SHA-1.*MONGODB-CR.*SCRAM-SHA-256.*LDAP.*",
+    ):
+        mdb.create()

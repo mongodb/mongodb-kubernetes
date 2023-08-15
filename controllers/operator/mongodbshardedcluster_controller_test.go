@@ -1039,7 +1039,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 			Security: &mdbv1.Security{
 				TLSConfig: &mdbv1.TLSConfig{},
 				Authentication: &mdbv1.Authentication{
-					Modes: []string{},
+					Modes: []mdbv1.AuthMode{},
 				},
 			},
 		},
@@ -1150,7 +1150,7 @@ func (b *ClusterBuilder) EnableAuth() *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) SetAuthModes(modes []string) *ClusterBuilder {
+func (b *ClusterBuilder) SetAuthModes(modes []mdbv1.AuthMode) *ClusterBuilder {
 	b.Spec.Security.Authentication.Modes = modes
 	return b
 }
