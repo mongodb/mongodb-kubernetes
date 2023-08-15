@@ -560,7 +560,7 @@ class TestQueryableBackup:
     """This part queryable backup is enabled and we can query the first snapshot."""
 
     def test_queryable_backup(self, ops_manager: MongoDBOpsManager):
-        CONNECTION_TIMEOUT = 300
+        CONNECTION_TIMEOUT = 600
         om_tester = ops_manager.get_om_tester(project_name=PROJECT_NAME)
         records = om_tester.query_backup(TEST_DB, TEST_COLLECTION, CONNECTION_TIMEOUT)
         assert len(records) > 0
