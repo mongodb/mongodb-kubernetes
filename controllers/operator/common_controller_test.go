@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
@@ -305,7 +304,7 @@ func assertSubjectFromFileSucceeds(t *testing.T, expectedSubject, filePath strin
 }
 
 func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passes bool) {
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	assert.NoError(t, err)
 	subject, err := getSubjectFromCertificate(string(data))
 	if passes {

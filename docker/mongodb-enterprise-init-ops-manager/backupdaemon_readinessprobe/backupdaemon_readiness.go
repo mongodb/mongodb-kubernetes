@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -65,7 +65,7 @@ func getHealthResponse(getter httpGetter) (HealthResponse, error) {
 		return HealthResponse{}, xerrors.Errorf("received status code [%d] but expected [200]", resp.StatusCode)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return HealthResponse{}, xerrors.Errorf("failed to read response body: %w", err)
 	}

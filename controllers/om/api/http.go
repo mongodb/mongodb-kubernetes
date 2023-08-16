@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"os"
@@ -217,7 +216,7 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 
 	// It is required for the body to be read completely for the connection to be reused.
 	// https://stackoverflow.com/a/17953506/75928
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
 		return nil, nil, apierror.New(xerrors.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
@@ -247,7 +246,7 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *r
 	}
 	defer resp.Body.Close()
 
-	_, err = ioutil.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
