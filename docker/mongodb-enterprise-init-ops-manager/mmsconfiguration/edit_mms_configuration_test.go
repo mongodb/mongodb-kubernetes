@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"strings"
 	"testing"
 
@@ -62,12 +62,12 @@ func _createTestPropertiesFile() string {
 }
 
 func _readLinesFromFile(name string) []string {
-	content, _ := ioutil.ReadFile(name)
+	content, _ := os.ReadFile(name)
 	return strings.Split(string(content), "\n")
 }
 
 func _writeTempFileWithContent(content string, prefix string) string {
-	tmpfile, _ := ioutil.TempFile("", prefix)
+	tmpfile, _ := os.CreateTemp("", prefix)
 
 	_, _ = tmpfile.WriteString(content)
 

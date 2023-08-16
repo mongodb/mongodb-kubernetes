@@ -2,7 +2,7 @@ package webhook
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
@@ -63,7 +63,7 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 // validating admission webhook based on the name and namespace of the webhook
 // service.
 func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.ValidatingWebhookConfiguration {
-	caBytes, err := ioutil.ReadFile("/tmp/k8s-webhook-server/serving-certs/tls.crt")
+	caBytes, err := os.ReadFile("/tmp/k8s-webhook-server/serving-certs/tls.crt")
 	if err != nil {
 		panic("could not read CA")
 	}

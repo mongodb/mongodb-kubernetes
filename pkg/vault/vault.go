@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -132,7 +131,7 @@ func setTLSConfig(config *api.Config, client *kubernetes.Clientset, tlsSecretRef
 
 	// Read the secret and write ca.crt to a temporary file
 	caData := secret.Data["ca.crt"]
-	f, err := ioutil.TempFile("/tmp", "VaultCAData")
+	f, err := os.CreateTemp("/tmp", "VaultCAData")
 	if err != nil {
 		return xerrors.Errorf("can't create temporary file for CA data: %w", err)
 	}

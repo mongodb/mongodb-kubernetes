@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -136,7 +135,7 @@ func getIPv4Addresses() ([]net.IP, error) {
 func getMmsProperties() (map[string]string, error) {
 	newProperties := getOmPropertiesFromEnvVars()
 
-	appDbConnectionString, err := ioutil.ReadFile(appDbConnectionStringFilePath)
+	appDbConnectionString, err := os.ReadFile(appDbConnectionStringFilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +159,7 @@ func updatePropertiesFile(propertiesFile string, newProperties map[string]string
 }
 
 func readLinesFromFile(name string) ([]string, error) {
-	input, err := ioutil.ReadFile(name)
+	input, err := os.ReadFile(name)
 	if err != nil {
 		return nil, xerrors.Errorf("error reading file %s: %w", name, err)
 	}
@@ -170,7 +169,7 @@ func readLinesFromFile(name string) ([]string, error) {
 func writeLinesToFile(name string, lines []string) error {
 	output := strings.Join(lines, lineBreak)
 
-	err := ioutil.WriteFile(name, []byte(output), 0775)
+	err := os.WriteFile(name, []byte(output), 0775)
 	if err != nil {
 		return xerrors.Errorf("error writing to file %s: %w", name, err)
 	}

@@ -3,7 +3,6 @@ package multicluster
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -41,7 +40,7 @@ func GetKubeConfigPath() string {
 
 // LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
 func (k KubeConfig) LoadKubeConfigFile() (KubeConfigFile, error) {
-	kubeConfigBytes, err := ioutil.ReadAll(k.Reader)
+	kubeConfigBytes, err := io.ReadAll(k.Reader)
 	if err != nil {
 		return KubeConfigFile{}, err
 	}

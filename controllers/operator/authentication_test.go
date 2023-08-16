@@ -10,8 +10,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"math/big"
+	"os"
 	"testing"
 	"time"
 
@@ -882,7 +882,7 @@ func createAgentCSRs(numAgents int, client kubernetesClient.Client, conditionTyp
 		return
 	}
 	// create the secret the agent certs will exist in
-	certAuto, _ := ioutil.ReadFile("testdata/certificates/cert_auto")
+	certAuto, _ := os.ReadFile("testdata/certificates/cert_auto")
 
 	builder := secret.Builder().
 		SetNamespace(mock.TestNamespace).

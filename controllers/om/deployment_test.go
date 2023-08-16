@@ -2,7 +2,7 @@ package om
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -485,7 +485,7 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 // TestConfiguringTlsProcessFromOpsManager ensures that if OM sends 'tls' fields for processes and deployments -
 // they are moved to 'ssl'
 func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
-	data, err := ioutil.ReadFile("testdata/deployment_tls.json")
+	data, err := os.ReadFile("testdata/deployment_tls.json")
 	assert.NoError(t, err)
 	deployment, err := BuildDeploymentFromBytes(data)
 	assert.NoError(t, err)

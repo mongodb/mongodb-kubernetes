@@ -3,7 +3,8 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -31,7 +32,7 @@ type FileProvider struct {
 }
 
 func (p FileProvider) GetVersion() (*Manifest, error) {
-	data, err := ioutil.ReadFile(p.FilePath)
+	data, err := os.ReadFile(p.FilePath)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (InternetProvider) GetVersion() (*Manifest, error) {
 		return nil, err
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
 		return nil, err
