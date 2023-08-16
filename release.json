@@ -97,6 +97,7 @@
     "mongodb-kubernetes-operator": {
       "Description": "Community Operator daily rebuilds",
       "versions": [
+        "0.8.2",
         "0.8.1",
         "0.8.0",
         "0.7.9",
