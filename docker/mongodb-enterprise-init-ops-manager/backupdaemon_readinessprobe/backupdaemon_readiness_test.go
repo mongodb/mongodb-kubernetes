@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"testing"
 
@@ -25,7 +25,7 @@ func newMockHttpGetter(code int, body []byte, err error) *mockHttpGetter {
 	return &mockHttpGetter{
 		resp: &http.Response{
 			StatusCode: code,
-			Body:       ioutil.NopCloser(bytes.NewReader(body)),
+			Body:       io.NopCloser(bytes.NewReader(body)),
 		},
 		err: err,
 	}

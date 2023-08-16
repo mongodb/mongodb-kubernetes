@@ -6,8 +6,8 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"reflect"
 	"time"
 
@@ -610,7 +610,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager omv1.Mongo
 }
 
 func AddOpsManagerController(mgr manager.Manager) error {
-	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin, ioutil.ReadFile)
+	reconciler := newOpsManagerReconciler(mgr, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin, os.ReadFile)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err

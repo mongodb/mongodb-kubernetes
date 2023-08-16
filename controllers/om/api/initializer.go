@@ -3,8 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-
+	"io"
 	"net/url"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -92,7 +91,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 	var body []byte
 	if resp.Body != nil {
 		defer resp.Body.Close()
-		body, err = ioutil.ReadAll(resp.Body)
+		body, err = io.ReadAll(resp.Body)
 		if err != nil {
 			return OpsManagerKeyPair{}, xerrors.Errorf("Error reading response body from %v status=%v", omUrl, resp.StatusCode)
 		}
