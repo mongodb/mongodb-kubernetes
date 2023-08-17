@@ -277,7 +277,7 @@ def configure():
 
 def clean_unused_keys(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    keys = get_keys_older_than(org_id, minutes_interval=120)
+    keys = get_keys_older_than(org_id, minutes_interval=70)
     print(f"found {len(keys)} keys for potential removal")
 
     for key in keys:
@@ -295,7 +295,7 @@ def keep_the_key(key: Dict) -> bool:
 
 def clean_unused_projects(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    projects = get_projects_older_than(org_id, minutes_interval=120)
+    projects = get_projects_older_than(org_id, minutes_interval=70)
     print(f"found {len(projects)} projects for potential removal")
 
     for project in projects:
