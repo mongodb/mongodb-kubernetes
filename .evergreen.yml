@@ -45,7 +45,7 @@ variables:
     # Agent version used in OM50
   - &agent_version50 11.0.11.7036-1
     # Agent version used in OM60
-  - &agent_version60 12.0.4.7554-1
+  - &agent_version60 12.0.25.7724-1
     # Fallback option as some targets rely on expending this
   - &agent_version 11.0.11.7036-1
 
