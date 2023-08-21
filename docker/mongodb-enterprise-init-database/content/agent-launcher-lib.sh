@@ -17,7 +17,7 @@ json_log() {
 
 # log a given message in json format
 script_log() {
-    echo "$1" | json_log 'agent-launcher-script'
+    echo "$1" | json_log 'agent-launcher-script' &>>"${MMS_LOG_DIR}/agent-launcher-script.log"
 }
 
 # the function reacting on SIGTERM command sent by the container on its shutdown. Makes sure all processes started (including
@@ -100,9 +100,16 @@ download_agent() {
       )
     fi
 
+    if [[ -z "${MDB_AGENT_VERSION-}" ]]; then
+      AGENT_VERSION="latest"
+    else
+      AGENT_VERSION="${MDB_AGENT_VERSION}"
+    fi
+
+    script_log "Downloading Agent version: ${AGENT_VERSION}"
     script_log "Downloading a Mongodb Agent from ${base_url:?}"
     curl_opts=(
-        "${base_url}/download/agent/automation/mongodb-mms-automation-agent-latest.linux_x86_64.tar.gz"
+        "${base_url}/download/agent/automation/mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
     );

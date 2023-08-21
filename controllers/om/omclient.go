@@ -121,7 +121,7 @@ type AutomationConfigConnection interface {
 	// to the different object
 	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
 
-	// Calls the API to update all the MongoDB Agents in the project to latest. Returns the new version
+	// Calls the API to update all the MongoDB Agents in the project to the latest. Returns the new version
 	UpgradeAgentsToLatest() (string, error)
 }
 

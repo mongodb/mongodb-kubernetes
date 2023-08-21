@@ -67,6 +67,7 @@ const (
 
 	// EnvVarDebug is used to decide whether we want to start the agent in debug mode
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
+	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
