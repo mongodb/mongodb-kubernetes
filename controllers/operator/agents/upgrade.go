@@ -5,7 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -28,6 +31,12 @@ func init() {
 	ScheduleUpgrade()
 }
 
+// ClientSecret is a wrapper that joins a client and a secretClient.
+type ClientSecret struct {
+	Client       kubernetesClient.Client
+	SecretClient secrets.SecretClient
+}
+
 // UpgradeAllIfNeeded performs the upgrade of agents for all the MongoDB resources registered in the system if necessary
 // It's designed to be run "in background" - so must not break any existing reconciliations it's triggered from and
 // so doesn't return errors
@@ -37,7 +46,7 @@ func init() {
 // for all existing MongoDB resources before proceeding. This could be a critical thing when the major version OM upgrade
 // happens and all existing MongoDBs are required to get agents upgraded (otherwise the "You need to upgrade the
 // automation agent before publishing other changes" error happens for automation config pushes from the Operator)
-func UpgradeAllIfNeeded(client kubernetesClient.Client, secretGetter secrets.SecretClient, omConnectionFactory om.ConnectionFactory, watchNamespace []string) {
+func UpgradeAllIfNeeded(cs ClientSecret, omConnectionFactory om.ConnectionFactory, watchNamespace []string, isMulti bool) {
 	mux.Lock()
 	defer mux.Unlock()
 
@@ -47,13 +56,13 @@ func UpgradeAllIfNeeded(client kubernetesClient.Client, secretGetter secrets.Sec
 	log := zap.S()
 	log.Info("Performing a regular upgrade of Agents for all the MongoDB resources in the cluster...")
 
-	allMDBs, err := readAllMongoDBs(client, watchNamespace)
+	allMDBs, err := readAllMongoDBs(cs.Client, watchNamespace, isMulti)
 	if err != nil {
 		log.Errorf("Failed to read MongoDB resources to ensure Agents have the latest version: %s", err)
 		return
 	}
 
-	err = doUpgrade(client, secretGetter, omConnectionFactory, allMDBs)
+	err = doUpgrade(cs.Client, cs.SecretClient, omConnectionFactory, allMDBs)
 	if err != nil {
 		log.Errorf("Failed to perform upgrade of Agents: %s", err)
 	}
@@ -76,9 +85,14 @@ func NextScheduledUpgradeTime() time.Time {
 	return nextScheduledTime
 }
 
-func doUpgrade(cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdbs []mdbv1.MongoDB) error {
+type dbCommonWithNamespace struct {
+	objectKey types.NamespacedName
+	mdbv1.DbCommonSpec
+}
+
+func doUpgrade(cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdbs []dbCommonWithNamespace) error {
 	for _, mdb := range mdbs {
-		log := zap.S().With(string(mdb.Spec.ResourceType), mdb.ObjectKey())
+		log := zap.S().With(string(mdb.ResourceType), mdb.objectKey)
 		conn, err := connectToMongoDB(cmGetter, secretGetter, factory, mdb, log)
 		if err != nil {
 			log.Warnf("Failed to establish connection to Ops Manager to perform Agent upgrade: %s", err)
@@ -106,14 +120,14 @@ func doUpgrade(cmGetter configmap.Getter, secretGetter secrets.SecretClient, fac
 //
 // If the `watchNamespace` contains only the "" string, the MongoDB resources
 // will be searched in every Namespace of the cluster.
-func readAllMongoDBs(cl client.Client, watchNamespace []string) ([]mdbv1.MongoDB, error) {
+func readAllMongoDBs(cl kubernetesClient.Client, watchNamespace []string, isMulti bool) ([]dbCommonWithNamespace, error) {
 	var namespaces []string
 
 	// 1. Find which Namespaces to look for MongoDB resources
 	if len(watchNamespace) == 1 && watchNamespace[0] == "" {
 		namespaceList := corev1.NamespaceList{}
 		if err := cl.List(context.TODO(), &namespaceList); err != nil {
-			return []mdbv1.MongoDB{}, err
+			return []dbCommonWithNamespace{}, err
 		}
 		for _, item := range namespaceList.Items {
 			namespaces = append(namespaces, item.Name)
@@ -122,24 +136,44 @@ func readAllMongoDBs(cl client.Client, watchNamespace []string) ([]mdbv1.MongoDB
 		namespaces = watchNamespace
 	}
 
-	mdbs := []mdbv1.MongoDB{}
+	var mdbs []dbCommonWithNamespace
 	// 2. Find all MongoDBs in the namespaces
 	for _, ns := range namespaces {
-		mongodbList := mdbv1.MongoDBList{}
-		if err := cl.List(context.TODO(), &mongodbList, client.InNamespace(ns)); err != nil {
-			return []mdbv1.MongoDB{}, err
+		if isMulti {
+			mongodbList := mdbmultiv1.MongoDBMultiClusterList{}
+			if err := cl.List(context.TODO(), &mongodbList, client.InNamespace(ns)); err != nil {
+				return []dbCommonWithNamespace{}, err
+			}
+			for _, item := range mongodbList.Items {
+				mdbs = append(mdbs, dbCommonWithNamespace{
+					objectKey:    item.ObjectKey(),
+					DbCommonSpec: item.Spec.DbCommonSpec,
+				})
+			}
+
+		} else {
+			mongodbList := mdbv1.MongoDBList{}
+			if err := cl.List(context.TODO(), &mongodbList, client.InNamespace(ns)); err != nil {
+				return []dbCommonWithNamespace{}, err
+			}
+			for _, item := range mongodbList.Items {
+				mdbs = append(mdbs, dbCommonWithNamespace{
+					objectKey:    item.ObjectKey(),
+					DbCommonSpec: item.Spec.DbCommonSpec,
+				})
+			}
 		}
-		mdbs = append(mdbs, mongodbList.Items...)
+
 	}
 	return mdbs, nil
 }
 
-func connectToMongoDB(cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdb mdbv1.MongoDB, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := project.ReadProjectConfig(cmGetter, kube.ObjectKey(mdb.Namespace, mdb.Spec.GetProject()), mdb.Name)
+func connectToMongoDB(cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdb dbCommonWithNamespace, log *zap.SugaredLogger) (om.Connection, error) {
+	projectConfig, err := project.ReadProjectConfig(cmGetter, kube.ObjectKey(mdb.objectKey.Namespace, mdb.GetProject()), mdb.objectKey.Name)
 	if err != nil {
 		return nil, xerrors.Errorf("error reading Project Config: %w", err)
 	}
-	credsConfig, err := project.ReadCredentials(secretGetter, kube.ObjectKey(mdb.Namespace, mdb.Spec.Credentials), log)
+	credsConfig, err := project.ReadCredentials(secretGetter, kube.ObjectKey(mdb.objectKey.Namespace, mdb.Credentials), log)
 	if err != nil {
 		return nil, xerrors.Errorf("error reading Credentials secret: %w", err)
 	}
