@@ -35,7 +35,7 @@ KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
 MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # AppDB monitoring is disabled by default for e2e tests.
 # If monitoring is needed use monitored_appdb_operator_installation_config / operator_with_monitored_appdb
-MONITOR_APPDB_E2E_DEFAULT = "false"
+MONITOR_APPDB_E2E_DEFAULT = "true"
 MULTI_CLUSTER_OPERATOR_NAME = "mongodb-enterprise-operator-multi-cluster"
 CLUSTER_HOST_MAPPING = {
     "us-central1-c_central": "https://35.232.85.244",
