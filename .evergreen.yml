@@ -1,7 +1,3 @@
-ignore:
-  - "public/support/*"
-  - "public/samples/*"
-
 stepback: true
 
 # 2h timeout for all the tasks
