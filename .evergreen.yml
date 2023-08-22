@@ -572,6 +572,15 @@ functions:
 
       command: "scripts/evergreen/e2e/setup_cloud_qa.py delete"
 
+  # This is a blocker for the release process. It will *always* fail and needs to be overriden
+  # if the release needs to proceed.
+  release_blocker:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/release_blocker
+
   # Tags and pushes an image into an external Docker registry. The source image
   # needs to exist before it can be pushed to a remote registry.
   # It is expected that IMAGE_SOURCE is accessible with no authentication (like a
@@ -791,6 +800,12 @@ tasks:
   tags: ["unit_tests"]
   commands:
     - func: lint_repo
+
+- name: release_blocker
+  git_tag_only: true
+  commands:
+  - func: clone
+  - func: release_blocker
 
 - name: release_operator
   git_tag_only: true
@@ -2608,6 +2623,8 @@ buildvariants:
 - name: release
   display_name: release
   depends_on:
+    - name: release_blocker
+      variant: release_blocker
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_init_om_images_ubi
@@ -2646,6 +2663,13 @@ buildvariants:
     preflight_submit: false
   tasks:
     - name: preflight_release_images
+
+- name: release_blocker
+  display_name: release_blocker
+  run_on:
+    - ubuntu1604-packer  # Note: cheapest machine I found
+  tasks:
+    - name: release_blocker
 
 - name: upload_dockerfiles
   display_name: upload_dockerfiles
