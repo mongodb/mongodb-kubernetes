@@ -1,7 +1,9 @@
+import kubernetes
 import pytest
 from kubeobject import CustomObject
 from pytest import fixture
 
+import kubetester
 from kubetester import create_or_update, MongoDB, try_load, get_default_storage_class, create_or_update_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
@@ -42,7 +44,7 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 
 @fixture
 def catalog_source(namespace: str, version_id: str):
-    current_operator_version = get_current_operator_version()
+    current_operator_version = get_current_operator_version(namespace)
     incremented_operator_version = increment_patch_version(current_operator_version)
 
     create_or_update(get_operator_group_resource(namespace, namespace))
@@ -73,8 +75,8 @@ def subscription(namespace: str, catalog_source: CustomObject):
 
 
 @fixture
-def current_operator_version():
-    return get_current_operator_version()
+def current_operator_version(namespace: str):
+    return get_current_operator_version(namespace)
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -305,12 +307,24 @@ def test_resources_in_running_state_before_upgrade(
 def test_operator_upgrade_to_fast(
     namespace: str, version_id: str, catalog_source: CustomObject, subscription: CustomObject
 ):
-    current_operator_version = get_current_operator_version()
+    current_operator_version = get_current_operator_version(namespace)
     incremented_operator_version = increment_patch_version(current_operator_version)
 
-    subscription.load()
-    subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
-    subscription.update()
+    # It is very likely that OLM will be doing a series of status updates during this time.
+    # It's better to employ a retry mechanism and spin here for a while before failing.
+    def update_subscription() -> bool:
+        try:
+            subscription.load()
+            subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
+            subscription.update()
+            return True
+        except kubernetes.client.ApiException as e:
+            if e.status == 409:
+                return False
+        else:
+            raise e
+
+    run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
     wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
 
