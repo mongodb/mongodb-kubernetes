@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/ghodss/yaml"
 	"golang.org/x/xerrors"
@@ -141,6 +144,15 @@ func (k KubeConfigFile) GetMemberClusterNamespace() string {
 	return k.Contexts[0].Context.Namespace
 }
 
+func (k KubeConfigFile) GetMemberClusterNames() []string {
+	clusterNames := make([]string, len(k.Contexts))
+
+	for n, e := range k.Contexts {
+		clusterNames[n] = e.Context.Cluster
+	}
+	return clusterNames
+}
+
 // MustGetClusterNumFromMultiStsName parses the statefulset object name and returns the cluster number where it is created
 func MustGetClusterNumFromMultiStsName(name string) int {
 	ss := strings.Split(name, "-")
@@ -152,11 +164,24 @@ func MustGetClusterNumFromMultiStsName(name string) int {
 	return n
 }
 
-// GetRsNamefromMultiStsName parese the statefulset object name and returns the name of MongoDBMultiCluster object name
+// GetRsNamefromMultiStsName parses the statefulset object name and returns the name of MongoDBMultiCluster object name
 func GetRsNamefromMultiStsName(name string) string {
 	ss := strings.Split(name, "-")
 	if len(ss) <= 1 || ss[0] == "" {
 		panic(fmt.Sprintf("invalid statefulset name: %s", name))
 	}
 	return strings.Join(ss[:len(ss)-1], "-")
+}
+
+// MemberCluster is a wrapper type containing basic information about member cluster in one place.
+// It is used to simplify reconciliation process and to ensure deterministic iteration over member clusters.
+type MemberCluster struct {
+	Name         string
+	Index        int
+	Replicas     int
+	Client       kubernetesClient.Client
+	SecretClient secrets.SecretClient
+	// Active marks a cluster as a member holding database nodes. The flag is useful for only relying on active clusters when reading
+	// information about the topology of the multi-cluster MongoDB or AppDB resource. This could mean automation config or cluster specific configuration.
+	Active bool
 }

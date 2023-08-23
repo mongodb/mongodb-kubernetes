@@ -1,21 +1,19 @@
 from typing import Optional, Dict
 
-import time
 import jsonpatch
-
-
-import pytest
+import kubernetes.client
 from kubernetes import client
-from kubetester import MongoDB, wait_until
+from pytest import mark, fixture
 
-from kubetester.opsmanager import MongoDBOpsManager
+from kubetester import MongoDB, wait_until, create_or_update
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
 )
 from kubetester.mongodb import Phase
-from pytest import mark, fixture
+from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster, get_member_cluster_api_client, get_central_cluster_client
 from tests.opsmanager.om_ops_manager_backup import (
     HEAD_PATH,
     OPLOG_RS_NAME,
@@ -24,7 +22,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_s3_bucket,
 )
-
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
@@ -54,7 +52,11 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
-    return resource.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -142,9 +144,7 @@ class TestOpsManagerCreation:
         #     ]
         # )
 
-    def test_enable_external_connectivity(
-        self, ops_manager: MongoDBOpsManager, namespace: str
-    ):
+    def test_enable_external_connectivity(self, ops_manager: MongoDBOpsManager, namespace: str):
         ops_manager.load()
         ops_manager["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
         ops_manager.update()
@@ -155,9 +155,7 @@ class TestOpsManagerCreation:
             sleep_time=5,
         )
 
-        service = client.CoreV1Api().read_namespaced_service(
-            "om-backup-svc-ext", namespace
-        )
+        service = client.CoreV1Api().read_namespaced_service("om-backup-svc-ext", namespace)
 
         # Tests that the service is created with both externalConnectivity and backup
         # and that it contains the correct ports
@@ -166,9 +164,7 @@ class TestOpsManagerCreation:
         assert service.spec.ports[0].port == 8080
         assert service.spec.ports[1].port == 25999
 
-    def test_disable_external_connectivity(
-        self, ops_manager: MongoDBOpsManager, namespace: str
-    ):
+    def test_disable_external_connectivity(self, ops_manager: MongoDBOpsManager, namespace: str):
 
         # We dont' have a nice way to delete fields from a resource specification
         # in our test env, so we need to achieve it with specific uses of patches
@@ -219,9 +215,7 @@ def check_sts_labels(sts, labels: Dict[str, str]):
 
 
 @mark.e2e_om_ops_manager_backup_light
-def test_labels_on_om_and_backup_daemon_and_appdb_sts(
-    ops_manager: MongoDBOpsManager, namespace: str
-):
+def test_labels_on_om_and_backup_daemon_and_appdb_sts(ops_manager: MongoDBOpsManager, namespace: str):
     labels = {"label1": "val1", "label2": "val2"}
 
     check_sts_labels(ops_manager.read_statefulset(), labels)
@@ -229,10 +223,8 @@ def test_labels_on_om_and_backup_daemon_and_appdb_sts(
     check_sts_labels(ops_manager.read_appdb_statefulset(), labels)
 
 
-def check_pvc_labels(pvc_name: str, labels: Dict[str, str], namespace: str):
-    pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(
-        pvc_name, namespace
-    )
+def check_pvc_labels(pvc_name: str, labels: Dict[str, str], namespace: str, api_client: kubernetes.client.ApiClient):
+    pvc = client.CoreV1Api(api_client=api_client).read_namespaced_persistent_volume_claim(pvc_name, namespace)
     pvc_labels = pvc.metadata.labels
 
     for k in labels:
@@ -240,16 +232,13 @@ def check_pvc_labels(pvc_name: str, labels: Dict[str, str], namespace: str):
 
 
 @mark.e2e_om_ops_manager_backup_light
-def test_labels_on_backup_daemon_and_appdb_pvc(
-    ops_manager: MongoDBOpsManager, namespace: str
-):
+def test_labels_on_backup_daemon_and_appdb_pvc(ops_manager: MongoDBOpsManager, namespace: str):
     labels = {"label1": "val1", "label2": "val2"}
 
-    appdb_pvc_name = "data-{}-0".format(
-        ops_manager.read_appdb_statefulset().metadata.name
-    )
-    check_pvc_labels(appdb_pvc_name, labels, namespace)
-    backupdaemon_pvc_name = "head-{}-0".format(
-        ops_manager.read_backup_statefulset().metadata.name
-    )
-    check_pvc_labels(backupdaemon_pvc_name, labels, namespace)
+    appdb_pvc_name = "data-{}-0".format(ops_manager.read_appdb_statefulset().metadata.name)
+
+    member_cluster_name = ops_manager.pick_one_member_cluster_name()
+    check_pvc_labels(appdb_pvc_name, labels, namespace, api_client=get_member_cluster_api_client(member_cluster_name))
+    backupdaemon_pvc_name = "head-{}-0".format(ops_manager.read_backup_statefulset().metadata.name)
+
+    check_pvc_labels(backupdaemon_pvc_name, labels, namespace, api_client=get_central_cluster_client())

@@ -7,7 +7,7 @@ source scripts/funcs/kubernetes
 # Configuration of the resources for Ops Manager
 title "Creating admin secret for the new Ops Manager instance"
 kubectl --namespace "${NAMESPACE}" delete secrets ops-manager-admin-secret --ignore-not-found
-kubectl create secret generic ops-manager-admin-secret  \
+kubectl --namespace "${NAMESPACE}" create secret generic ops-manager-admin-secret  \
         --from-literal=Username="jane.doe@example.com" \
         --from-literal=Password="Passw0rd." \
         --from-literal=FirstName="Jane" \

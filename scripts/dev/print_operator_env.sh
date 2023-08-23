@@ -43,10 +43,15 @@ INIT_OPS_MANAGER_VERSION=\"${INIT_OPS_MANAGER_VERSION}\"
 INIT_APPDB_IMAGE_REPOSITORY=\"${INIT_APPDB_REGISTRY}/mongodb-enterprise-init-appdb${UBI_IMAGE_SUFFIX}\"
 INIT_APPDB_VERSION=\"${INIT_APPDB_VERSION}\"
 OPS_MANAGER_IMAGE_PULL_POLICY=\"Always\"
-AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${agent_version:-}\"
 MONGODB_IMAGE=\"mongodb-enterprise-server\"
 MONGODB_REPO_URL=\"quay.io/mongodb\"
 IMAGE_PULL_SECRETS=\"image-registries-secret\""
+
+if [[ "${AGENT_IMAGE:-}" != "" ]]; then
+  echo "AGENT_IMAGE=${AGENT_IMAGE}"
+else
+  echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${agent_version:-}\""
+fi
 
 if [[ "${KUBECONFIG:-""}" != "" ]]; then
   echo "KUBECONFIG=${KUBECONFIG}"
@@ -58,6 +63,14 @@ fi
 
 if [[ "${PERFORM_FAILOVER:-""}" != "" ]]; then
   echo "PERFORM_FAILOVER=${PERFORM_FAILOVER}"
+fi
+
+if [[ "${OM_DEBUG_HTTP:-""}" != "" ]]; then
+  echo "OM_DEBUG_HTTP=${OM_DEBUG_HTTP}"
+fi
+
+if [[ "${OPS_MANAGER_MONITOR_APPDB:-""}" != "" ]]; then
+  echo "OPS_MANAGER_MONITOR_APPDB=${OPS_MANAGER_MONITOR_APPDB}"
 fi
 
 }

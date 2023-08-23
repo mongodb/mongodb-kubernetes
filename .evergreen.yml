@@ -37,9 +37,6 @@ variables:
   # https://kubernetes.io/releases/
   - &kubernetes_kind_version 1.22.0
 
-    # This is the automation agent version used for the AppDB
-    # Agent version used in OM50
-  - &agent_version50 11.0.11.7036-1
     # Agent version used in OM60
   - &agent_version60 12.0.25.7724-1
     # Fallback option as some targets rely on expending this
@@ -64,6 +61,15 @@ variables:
     kube_environment_name: multi
     CLUSTER_TYPE: kind
     member_clusters: "kind-e2e-cluster-1 kind-e2e-cluster-2"
+    central_cluster: kind-e2e-cluster-1
+    test_pod_cluster: kind-e2e-cluster-1
+
+  - &kubernetes_environment_multi_cluster_om_appdb
+    kube_environment_name: multi
+    CLUSTER_TYPE: kind
+    # "kind-e2e-cluster-1" is added here to ensure we label the namespace in the central cluster - since in this variant the OM installation
+    # in the central-cluster is expected to be part of the mesh.
+    member_clusters: "kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
     central_cluster: kind-e2e-cluster-1
     test_pod_cluster: kind-e2e-cluster-1
 
@@ -1774,6 +1780,17 @@ tasks:
   commands:
     - func: e2e_test
 
+
+- name: e2e_multi_cluster_appdb_validation
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_appdb
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_tls_with_x509
   tags: ["patch-run"]
   commands:
@@ -2172,7 +2189,62 @@ task_groups:
   tasks:
     - e2e_multi_cluster_2_clusters_replica_set
     - e2e_multi_cluster_2_clusters_clusterwide
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+
+- name: e2e_multi_cluster_om_appdb_task_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+    - func: build_multi_cluster_binary
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_multi_cluster_appdb_validation
+    - e2e_multi_cluster_appdb
     - e2e_multi_cluster_s3_based_backup_restore
+    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_configure_all_images
+    - e2e_om_appdb_upgrade
+    - e2e_om_appdb_monitoring_tls
+    - e2e_om_ops_manager_backup_light
+    - e2e_om_ops_manager_backup_liveness_probe
+    - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_secure_config
+    - e2e_om_appdb_validation
+    - e2e_om_appdb_scram
+    - e2e_om_external_connectivity
+    - e2e_om_jvm_params
+    - e2e_om_localmode
+    - e2e_om_ops_manager_enable_local_mode_running_om
+    - e2e_om_localmode_multiple_pv
+    - e2e_om_weak_password
+    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_tls
+    - e2e_om_ops_manager_backup_s3_tls
+    - e2e_om_ops_manager_backup_tls_custom_ca
+    - e2e_om_ops_manager_backup_sharded_cluster
+    - e2e_om_ops_manager_backup_kmip
+    - e2e_om_ops_manager_https_enabled
+    - e2e_om_ops_manager_https_enabled_hybrid
+    - e2e_om_ops_manager_https_enabled_internet_mode
+    - e2e_om_ops_manager_https_enabled_prefix
+    - e2e_om_ops_manager_scale
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_update_before_reconciliation
+    - e2e_om_feature_controls
+# disabled tests:
+#    - e2e_om_multiple # multi-cluster failures in EVG
+#    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2402,7 +2474,7 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_openshift_4 ]
     custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version50
+    agent_version: *agent_version60
     image_type: ubi
   tasks:
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
@@ -2433,13 +2505,11 @@ buildvariants:
     <<: [ *kubernetes_environment_kind ]
     image_type: ubi
     test_mode: opsmanager
-
     custom_om_version: *ops_manager_50_latest
     custom_om_prev_version: *ops_manager_50_prev
     custom_mdb_version: *mdb_50_latest
     custom_mdb_prev_version: *mdb_44_latest
     agent_version: *agent_version60
-
     custom_appdb_version: *ops_manager_50_appdb_version
 
     ops_manager_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
@@ -2510,7 +2580,7 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_kind ]
     image_type: ubi
-    agent_version: *agent_version50
+    agent_version: *agent_version60
   tasks:
     - name: e2e_multi_cluster_kind_task_group
 
@@ -2536,10 +2606,41 @@ buildvariants:
   expansions:
     <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_2_clusters ]
     image_type: ubi
-    agent_version: *agent_version50
+    agent_version: *agent_version60
   tasks:
     - name: e2e_multi_cluster_2_clusters_task_group
 
+- name: e2e_multi_cluster_om_appdb
+  display_name: e2e_multi_cluster_om_appdb
+  run_on:
+    - ubuntu1804-xlarge
+  depends_on:
+    - name: build_om_images
+      variant: build_om60_images
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_database_image_ubi
+      variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
+  expansions:
+    <<: [ *cloud_manager_qa, *kubernetes_environment_multi_cluster_om_appdb ]
+    image_type: ubi
+    test_mode: opsmanager
+    custom_om_version: *ops_manager_60_latest
+    custom_om_prev_version: *ops_manager_50_latest
+    custom_mdb_version: *mdb_60_latest
+    custom_mdb_prev_version: *mdb_50_latest
+    agent_version: *agent_version60
+    custom_appdb_version: *ops_manager_60_appdb_version
+  tasks:
+    - name: e2e_multi_cluster_om_appdb_task_group
 
 ## Operator tests build variants
 
@@ -2565,7 +2666,7 @@ buildvariants:
     image_type: ubi
     custom_om_version: *ops_manager_50_latest
     custom_mdb_version: *mdb_44_latest
-    agent_version: *agent_version50
+    agent_version: *agent_version60
     appdb_registry: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
   tasks:
     - name: e2e_operator_task_group

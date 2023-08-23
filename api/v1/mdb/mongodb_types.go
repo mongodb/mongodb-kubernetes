@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -115,7 +116,7 @@ func (m *MongoDB) GetMinimumMajorVersion() uint64 {
 	return m.Spec.MinimumMajorVersion()
 }
 
-func (m *MongoDB) AddValidationToManager(mgr manager.Manager) error {
+func (m *MongoDB) AddValidationToManager(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 
@@ -205,6 +206,34 @@ func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongo
 		return lastSpec.ShardSpec.GetAdditionalMongodConfig(), nil
 	}
 	return &AdditionalMongodConfig{}, nil
+}
+
+// ClusterSpecItem is the mongodb multi-cluster spec that is specific to a
+// particular Kubernetes cluster, this maps to the statefulset created in each cluster
+type ClusterSpecItem struct {
+	// ClusterName is name of the cluster where the MongoDB Statefulset will be scheduled, the
+	// name should have a one on one mapping with the service-account created in the central cluster
+	// to talk to the workload clusters.
+	ClusterName string `json:"clusterName,omitempty"`
+	// this is an optional service, it will get the name "<rsName>-service" in case not provided
+	Service string `json:"service,omitempty"`
+	// DEPRECATED: use ExternalAccessConfiguration instead
+	// +optional
+	ExposedExternally *bool `json:"exposedExternally,omitempty"`
+	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
+	// +optional
+	ExternalAccessConfiguration ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+	// Amount of members for this MongoDB Replica Set
+	Members int `json:"members"`
+	// MemberConfig
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +optional
+	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+	// +optional
+	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
+	// for a reconcilliation
+	Discard bool `json:"-"`
 }
 
 // +kubebuilder:object:generate=false

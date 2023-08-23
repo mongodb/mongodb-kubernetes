@@ -7,6 +7,9 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+
 
 @fixture(scope="module")
 def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
@@ -16,7 +19,11 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    return create_or_update(resource)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_external_connectivity

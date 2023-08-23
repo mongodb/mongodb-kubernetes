@@ -1,0 +1,29 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-backup
+spec:
+  replicas: 1
+  version: 6.0.13
+  adminCredentials: ops-manager-admin-secret
+  backup:
+    enabled: false
+  applicationDatabase:
+    topology: MultiCluster
+    members: 3
+    version: 6.0.5-ent
+
+  # Dev: adding this just to avoid wizard when opening OM UI
+  # (note, that to debug issues in OM you need to add 'spec.externalConnectivity.type=NodePort'
+  # and specify some port: 'port: 32400'. Don't forget to open it in AWS)
+  configuration:
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

@@ -5,8 +5,7 @@ from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
-
-from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
+from tests.conftest import create_appdb_certs
 
 APPDB_NAME = "om-appdb-upgrade-tls-db"
 
@@ -22,13 +21,7 @@ def appdb_name(namespace: str) -> str:
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    print(appdb_name)
-    return create_mongodb_tls_certs(
-        issuer,
-        namespace,
-        APPDB_NAME,
-        "{}-{}-cert".format(CERT_PREFIX, appdb_name(namespace)),
-    )
+    return create_appdb_certs(namespace, issuer, APPDB_NAME, cert_prefix=CERT_PREFIX)
 
 
 @fixture(scope="module")

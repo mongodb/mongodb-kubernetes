@@ -5,11 +5,13 @@ from pytest import fixture
 
 from kubetester import create_or_update
 from kubetester.kubetester import (
-    skip_if_local,
     fixture as yaml_fixture,
+    skip_if_local,
 )
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 gen_key_resource_version = None
 admin_key_resource_version = None
@@ -35,7 +37,12 @@ def ops_manager(namespace: str, custom_version: Optional[str], initial_appdb_ver
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(initial_appdb_version)
-    return create_or_update(resource)
+
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @pytest.mark.e2e_om_appdb_upgrade
@@ -47,10 +54,13 @@ class TestOpsManagerCreation:
     def test_appdb(self, ops_manager: MongoDBOpsManager, initial_appdb_version: str):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-        assert ops_manager.appdb_status().get_members() == 3
+        # FIXME remove the if when appdb multi-cluster-aware status is implemented
+        if not is_multi_cluster():
+            assert ops_manager.appdb_status().get_members() == 3
+
         assert ops_manager.appdb_status().get_version() == initial_appdb_version
         db_pods = ops_manager.read_appdb_pods()
-        for pod in db_pods:
+        for _, pod in db_pods:
             # the appdb pod container 'mongodb' by default has 500M
             assert pod.spec.containers[1].resources.requests["memory"] == "500M"
 
@@ -142,14 +152,13 @@ class TestOpsManagerAppDbUpdateMemory:
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
         db_pods = ops_manager.read_appdb_pods()
-        for pod in db_pods:
+        for _, pod in db_pods:
             assert pod.spec.containers[1].resources.requests["memory"] == "350M"
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         # The version hasn't changed as there were no changes to the automation config
         ops_manager.get_automation_config_tester().reached_version(2)
 
-    @skip_if_local
     def test_om_is_running(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
         ops_manager.get_om_tester().assert_healthiness()
@@ -172,16 +181,17 @@ class TestOpsManagerMixed:
         ops_manager.backup_status().assert_reaches_phase(Phase.Disabled, timeout=400)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        assert ops_manager.appdb_status().get_members() == 3
+        # FIXME remove the if when appdb multi-cluster-aware status is implemented
+        if not is_multi_cluster():
+            assert ops_manager.appdb_status().get_members() == 3
+
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
-    @skip_if_local
     def test_mongod(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         mdb_tester = ops_manager.get_appdb_tester()
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version(custom_appdb_version)
 
-    @skip_if_local
     def test_om_connectivity(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()

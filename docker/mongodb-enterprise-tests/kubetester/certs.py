@@ -20,7 +20,6 @@ from kubetester import (
     read_secret,
     delete_secret,
     create_or_update,
-    create_or_update_secret,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -357,7 +356,8 @@ def create_multi_cluster_tls_certs(
     secret_name: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_clients: List[MultiClusterClient],
-    mongodb_multi: MongoDBMulti,
+    mongodb_multi: Optional[MongoDBMulti] = None,
+    namespace: Optional[str] = None,
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
     service_fqdns: Optional[List[str]] = None,
@@ -383,8 +383,11 @@ def create_multi_cluster_tls_certs(
                 )
             )
 
+    if namespace is None:
+        namespace = mongodb_multi.namespace
+
     generate_cert(
-        namespace=mongodb_multi.namespace,
+        namespace=namespace,
         pod="tmp",
         dns="",
         issuer=multi_cluster_issuer,
@@ -461,7 +464,8 @@ def create_multi_cluster_mongodb_tls_certs(
     bundle_secret_name: str,
     member_cluster_clients: List[MultiClusterClient],
     central_cluster_client: kubernetes.client.ApiClient,
-    mongodb_multi: MongoDBMulti,
+    mongodb_multi: Optional[MongoDBMulti] = None,
+    namespace: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
     service_fqdns: Optional[List[str]] = None,
     clusterwide: bool = False,
@@ -473,6 +477,7 @@ def create_multi_cluster_mongodb_tls_certs(
         member_clients=member_cluster_clients,
         secret_name=bundle_secret_name,
         mongodb_multi=mongodb_multi,
+        namespace=namespace,
         additional_domains=additional_domains,
         service_fqdns=service_fqdns,
         clusterwide=clusterwide,

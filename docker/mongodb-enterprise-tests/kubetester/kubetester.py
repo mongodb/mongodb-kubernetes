@@ -233,7 +233,9 @@ class KubernetesTester(object):
             cls.clients("corev1").create_namespaced_persistent_volume_claim(body=body, namespace=namespace)
         except client.rest.ApiException as e:
             if e.status == 409:
-                cls.clients("corev1").patch_namespaced_persistent_volume_claim(body=body, namespace=namespace)
+                cls.clients("corev1").patch_namespaced_persistent_volume_claim(
+                    body=body, name=body["metadata"]["name"], namespace=namespace
+                )
 
     @classmethod
     def delete_pvc(cls, namespace: str, name: str):

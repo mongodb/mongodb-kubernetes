@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 )
 
 func init() {
@@ -60,11 +61,7 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om *MongoDBOpsManager) ForcedIndividualScaling() bool {
-	return false
-}
-
-func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager) error {
+func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
 }
 
@@ -192,8 +189,8 @@ func (m MongoDBOpsManager) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
-func (m MongoDBOpsManager) AppDBStatefulSetObjectKey() client.ObjectKey {
-	return kube.ObjectKey(m.Namespace, m.Spec.AppDB.Name())
+func (m MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) client.ObjectKey {
+	return kube.ObjectKey(m.Namespace, m.Spec.AppDB.NameForCluster(memberClusterNum))
 }
 
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
@@ -673,23 +670,9 @@ func (m MongoDBOpsManager) CentralURL() string {
 	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
 }
 
-func (m MongoDBOpsManager) DesiredReplicas() int {
-	return m.Spec.AppDB.Members
-}
-
-func (m MongoDBOpsManager) CurrentReplicas() int {
-	return m.Status.AppDbStatus.Members
-}
-
-// MemberNames returns the *current* names of Application Database members
-// Note, that it's wrong to rely on the status/spec here as the state in StatefulSet maybe different
-func (m MongoDBOpsManager) AppDBMemberNames(currentMembersCount int) []string {
-	names := make([]string, currentMembersCount)
-
-	for i := 0; i < currentMembersCount; i++ {
-		names[i] = fmt.Sprintf("%s-%d", m.Spec.AppDB.Name(), i)
-	}
-	return names
+func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
+	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
+	return podnames
 }
 
 func (m MongoDBOpsManager) BackupDaemonFQDNs() []string {
@@ -697,12 +680,34 @@ func (m MongoDBOpsManager) BackupDaemonFQDNs() []string {
 	return hostnames
 }
 
-func (m MongoDBOpsManager) NamespacedName() types.NamespacedName {
-	return types.NamespacedName{Name: m.Name, Namespace: m.Namespace}
+// VersionedImplForMemberCluster is a proxy type for implementing community's annotations.Versioned.
+// Originally it was implemented directly in MongoDBOpsManager, but we need to have different implementations
+// returning name of stateful set in different member clusters.
+// +k8s:deepcopy-gen=false
+type VersionedImplForMemberCluster struct {
+	client.Object
+	memberClusterNum int
+	opsManager       *MongoDBOpsManager
 }
 
-func (m MongoDBOpsManager) GetMongoDBVersionForAnnotation() string {
-	return m.Spec.AppDB.Version
+func (v VersionedImplForMemberCluster) NamespacedName() types.NamespacedName {
+	return types.NamespacedName{Name: v.opsManager.Spec.AppDB.NameForCluster(v.memberClusterNum), Namespace: v.opsManager.Namespace}
+}
+
+func (v VersionedImplForMemberCluster) GetMongoDBVersionForAnnotation() string {
+	return v.opsManager.Spec.AppDB.Version
+}
+
+func (v VersionedImplForMemberCluster) IsChangingVersion() bool {
+	return v.opsManager.IsChangingVersion()
+}
+
+func (m *MongoDBOpsManager) GetVersionedImplForMemberCluster(memberClusterNum int) *VersionedImplForMemberCluster {
+	return &VersionedImplForMemberCluster{
+		Object:           m,
+		memberClusterNum: memberClusterNum,
+		opsManager:       m,
+	}
 }
 
 func (m MongoDBOpsManager) IsChangingVersion() bool {

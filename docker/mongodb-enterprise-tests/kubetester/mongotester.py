@@ -374,13 +374,15 @@ class MultiReplicaSetTester(MongoTester):
         self,
         service_names: List[str],
         port: str,
+        ssl: Optional[bool] = False,
+        ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
         external: bool = False,
     ):
         super().__init__(
             build_mongodb_multi_connection_uri(namespace, service_names, port, external=external),
-            use_ssl=False,
-            ca_path=None,
+            use_ssl=ssl,
+            ca_path=ca_path,
         )
 
 

@@ -10,7 +10,6 @@ import (
 	"net/http/httputil"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -182,9 +181,14 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 		}
 	}
 
+	// we need to limit size of request/response dump, because automation config request can have over 1MB size
+	const maxDumpSize = 10000
 	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
 		if client.debug {
 			dumpRequest, _ := httputil.DumpRequest(request, true)
+			if len(dumpRequest) > maxDumpSize {
+				dumpRequest = dumpRequest[:maxDumpSize]
+			}
 			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
 		} else {
 			zap.S().Debugf("Ops Manager request: %s %s", method, url)
@@ -193,12 +197,11 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 
 	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
 		if client.debug {
-			if !strings.Contains(path, "automationConfig") {
-				dumpRequest, _ := httputil.DumpResponse(response, true)
-				zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpRequest)
-			} else {
-				zap.S().Debugf("Ops Manager response: %s %s\n", method, path)
+			dumpResponse, _ := httputil.DumpResponse(response, true)
+			if len(dumpResponse) > maxDumpSize {
+				dumpResponse = dumpResponse[:maxDumpSize]
 			}
+			zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpResponse)
 		}
 	}
 

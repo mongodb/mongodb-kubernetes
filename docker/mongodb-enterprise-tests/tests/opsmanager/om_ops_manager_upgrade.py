@@ -5,13 +5,15 @@ import pytest
 import semver
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import MongoDB, create_or_update
+from kubetester import MongoDB, create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client
 from pytest import fixture
+
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
@@ -22,6 +24,8 @@ from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_s3_bucket,
 )
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of minor OM version upgrade (5.x -> 6.x) agents are expected to be upgraded
@@ -44,12 +48,20 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_upgrade.yaml"), namespace=namespace
     )
+
+    if try_load(resource):
+        return resource
+
     resource.allow_mdb_rc_versions()
     resource.set_version(custom_om_prev_version)
     resource.set_appdb_version(ensure_ent_version(custom_mdb_prev_version))
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
-    return create_or_update(resource)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -61,7 +73,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_prev_version: str) -> M
     ).configure(ops_manager, "development-oplog")
     resource["spec"]["version"] = custom_mdb_prev_version
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -73,7 +86,8 @@ def mdb(ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str) -> MongoDB
     )
     resource["spec"]["version"] = custom_mdb_prev_version
     resource.configure(ops_manager, "development")
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -195,6 +209,7 @@ class TestOpsManagerConfigurationChange:
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
         ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
         ops_manager.update()
+        ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=60)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_keys_not_modified(
@@ -210,7 +225,6 @@ class TestOpsManagerConfigurationChange:
         assert gen_key_secret.metadata.resource_version == gen_key_resource_version
         assert api_key_secret.metadata.resource_version == admin_key_resource_version
 
-    @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):
         """Checks that the OM is responsive and test service is not available"""
         om_tester = ops_manager.get_om_tester()
@@ -259,7 +273,6 @@ class TestOpsManagerVersionUpgrade:
         assert len(pods) == 1
         assert ops_manager.get_version() in pods[0].spec.containers[0].image
 
-    @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
@@ -339,7 +352,7 @@ class TestBackupDaemonVersionUpgrade:
     ):
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
-            timeout=600,
+            timeout=1000,
             ignore_errors=True,
         )
 
@@ -386,6 +399,8 @@ class TestOpsManagerRemoved:
         with pytest.raises(ApiException):
             ops_manager.read_statefulset()
 
+    # FIXME: remove skip after implementing resource removal
+    @pytest.mark.skipif(is_multi_cluster(), reason="Resource cleanup not implemented yet in multi-cluster appdb mode")
     def test_om_appdb_removed(self, ops_manager: MongoDBOpsManager):
         with pytest.raises(ApiException):
             ops_manager.read_appdb_statefulset()

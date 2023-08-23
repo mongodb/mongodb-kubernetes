@@ -8,7 +8,7 @@ get_operator_helm_values() {
     version_id="${OVERRIDE_VERSION_ID}"
   fi
 
-  local operator_version="${version_id}"
+  local operator_version="${OPERATOR_VERSION:-${version_id}}"
   # shellcheck disable=SC2153
   local database_registry=${DATABASE_REGISTRY}
   local database_name=${DATABASE_NAME:=mongodb-enterprise-database-ubi}
@@ -48,6 +48,10 @@ get_operator_helm_values() {
 
   if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
     config+=("useRunningOperator=true")
+  fi
+
+  if [[ "${kube_environment_name:-}" == "multi" ]]; then
+    config+=("operator.createOperatorServiceAccount=false")
   fi
 
   echo "${config[@]}"

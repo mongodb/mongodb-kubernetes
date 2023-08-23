@@ -10,12 +10,15 @@ from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
+
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_aws_secret,
     create_s3_bucket,
 )
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 """
 The test checks the backup for MongoDB 4.0 and 4.2, checks that snapshots are built and PIT restore and 
@@ -54,7 +57,11 @@ def ops_manager(
     resource.allow_mdb_rc_versions()
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
-    return create_or_update(resource)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")

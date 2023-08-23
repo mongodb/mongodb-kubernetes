@@ -23,16 +23,10 @@ USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(
-    namespace: str, member_cluster_names, custom_mdb_version: str
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names, custom_mdb_version: str) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(custom_mdb_version)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     return resource
 
 

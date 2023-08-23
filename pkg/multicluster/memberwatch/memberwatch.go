@@ -9,6 +9,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
@@ -138,7 +139,7 @@ func readFailedClusterAnnotation(annotations map[string]string) []failedcluster.
 }
 
 // clusterWithMinimumMembers returns the index of the cluster with the minimum number of nodes.
-func clusterWithMinimumMembers(clusters []mdbmulti.ClusterSpecItem) int {
+func clusterWithMinimumMembers(clusters []mdb.ClusterSpecItem) int {
 	mini, index := math.MaxInt64, -1
 
 	for nn, c := range clusters {
@@ -151,7 +152,7 @@ func clusterWithMinimumMembers(clusters []mdbmulti.ClusterSpecItem) int {
 }
 
 // distributeFailedMembers evenly distributes the failed cluster's members amongst the remaining healthy clusters.
-func distributeFailedMembers(clusters []mdbmulti.ClusterSpecItem, clustername string) []mdbmulti.ClusterSpecItem {
+func distributeFailedMembers(clusters []mdb.ClusterSpecItem, clustername string) []mdb.ClusterSpecItem {
 	// add the cluster override annotations. Get the current clusterspec list from the CR and
 	// increase the members of the first cluster by the number of failed nodes
 	membersToFailOver := 0
@@ -219,7 +220,7 @@ func addFailedClustersAnnotation(mrs mdbmulti.MongoDBMultiCluster, clustername s
 	return annotations.SetAnnotations(&mrs, map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
 }
 
-func getClusterMembers(clusterSpecList []mdbmulti.ClusterSpecItem, clusterName string) int {
+func getClusterMembers(clusterSpecList []mdb.ClusterSpecItem, clusterName string) int {
 	for _, e := range clusterSpecList {
 		if e.ClusterName == clusterName {
 			return e.Members

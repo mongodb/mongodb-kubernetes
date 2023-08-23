@@ -86,7 +86,7 @@ func (m MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
 	}
 	return hostnames, nil
 }
@@ -188,41 +188,13 @@ type MongoDBMultiClusterList struct {
 	Items           []MongoDBMultiCluster `json:"items"`
 }
 
-func (m MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *ClusterSpecItem {
+func (m MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *mdbv1.ClusterSpecItem {
 	for _, csi := range m.Spec.ClusterSpecList {
 		if csi.ClusterName == clusterName {
 			return &csi
 		}
 	}
 	return nil
-}
-
-// ClusterSpecItem is the mongodb multi-cluster spec that is specific to a
-// particular Kubernetes cluster, this maps to the statefulset created in each cluster
-type ClusterSpecItem struct {
-	// ClusterName is name of the cluster where the MongoDB Statefulset will be scheduled, the
-	// name should have a one on one mapping with the service-account created in the central cluster
-	// to talk to the workload clusters.
-	ClusterName string `json:"clusterName,omitempty"`
-	// this is an optional service, it will get the name "<rsName>-service" in case not provided
-	Service string `json:"service,omitempty"`
-	// DEPRECATED: use ExternalAccessConfiguration instead
-	// +optional
-	ExposedExternally *bool `json:"exposedExternally,omitempty"`
-	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
-	// +optional
-	ExternalAccessConfiguration mdbv1.ExternalAccessConfiguration `json:"externalAccess,omitempty"`
-	// Amount of members for this MongoDB Replica Set
-	Members int `json:"members"`
-	// MemberConfig
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +optional
-	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
-	// +optional
-	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
-	// for a reconciliation
-	Discard bool `json:"-"`
 }
 
 // ClusterStatusList holds a list of clusterStatuses corresponding to each cluster
@@ -260,8 +232,8 @@ type MongoDBMultiSpec struct {
 	// however configure their ServiceMesh with DNS proxy(https://istio.io/latest/docs/ops/configuration/traffic-management/dns-proxy/)
 	// enabled in which case the operator doesn't need to create the service objects per cluster. This options tells the operator
 	// whether it should create the service objects in all the clusters or not. By default, if not specified the operator would create the duplicate svc objects.
-	DuplicateServiceObjects *bool             `json:"duplicateServiceObjects,omitempty"`
-	ClusterSpecList         []ClusterSpecItem `json:"clusterSpecList,omitempty"`
+	DuplicateServiceObjects *bool                   `json:"duplicateServiceObjects,omitempty"`
+	ClusterSpecList         []mdbv1.ClusterSpecItem `json:"clusterSpecList,omitempty"`
 
 	// Mapping stores the deterministic index for a given cluster-name.
 	Mapping map[string]int `json:"-"`
@@ -304,7 +276,7 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 // should be added to the automation config and which services need to be created and how many replicas
 // each StatefulSet should have.
 // This function should always be used instead of accessing the struct fields directly in the Reconcile function.
-func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
+func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]mdbv1.ClusterSpecItem, error) {
 	desiredSpecList := m.GetDesiredSpecList()
 	prevSpec, err := m.ReadLastAchievedSpec()
 	if err != nil {
@@ -320,7 +292,7 @@ func (m *MongoDBMultiCluster) GetClusterSpecItems() ([]ClusterSpecItem, error) {
 	desiredSpecMap := clusterSpecItemListToMap(desiredSpecList)
 	prevSpecsMap := clusterSpecItemListToMap(prevSpecs)
 
-	var specsForThisReconciliation []ClusterSpecItem
+	var specsForThisReconciliation []mdbv1.ClusterSpecItem
 
 	// We only care about the members of the previous reconcile, the rest should be reflecting the CRD definition.
 	for _, spec := range prevSpecs {
@@ -428,8 +400,8 @@ func (m *MongoDBMultiCluster) GetFailedClusterNames() ([]string, error) {
 }
 
 // clusterSpecItemListToMap converts a slice of cluster spec items into a map using the name as the key.
-func clusterSpecItemListToMap(clusterSpecItems []ClusterSpecItem) map[string]ClusterSpecItem {
-	m := map[string]ClusterSpecItem{}
+func clusterSpecItemListToMap(clusterSpecItems []mdbv1.ClusterSpecItem) map[string]mdbv1.ClusterSpecItem {
+	m := map[string]mdbv1.ClusterSpecItem{}
 	for _, c := range clusterSpecItems {
 		m[c.ClusterName] = c
 	}
@@ -579,17 +551,17 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 }
 
 // GetClusterSpecList returns the cluster spec items.
-func (m *MongoDBMultiSpec) GetClusterSpecList() []ClusterSpecItem {
+func (m *MongoDBMultiSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
 	return m.ClusterSpecList
 }
 
 // GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.
 // Returns the failerOver annotation if present else reads the cluster spec list from the CR.
-func (m *MongoDBMultiCluster) GetDesiredSpecList() []ClusterSpecItem {
+func (m *MongoDBMultiCluster) GetDesiredSpecList() []mdbv1.ClusterSpecItem {
 	clusterSpecList := m.Spec.ClusterSpecList
 
 	if val, ok := HasClustersToFailOver(m.GetAnnotations()); ok {
-		var clusterSpecOverride []ClusterSpecItem
+		var clusterSpecOverride []mdbv1.ClusterSpecItem
 
 		err := json.Unmarshal([]byte(val), &clusterSpecOverride)
 		if err != nil {
@@ -633,7 +605,7 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterAgentHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).

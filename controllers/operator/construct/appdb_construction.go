@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/envvar"
 
 	"go.uber.org/zap"
@@ -42,11 +44,15 @@ const (
 	podNamespaceEnv              = "POD_NAMESPACE"
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
 	headlessAgentEnv             = "HEADLESS_AGENT"
+	clusterDomainEnv             = "CLUSTER_DOMAIN"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 	// Since the Monitoring Agent is created based on Agent's Pod spec (we modfy it using addMonitoringContainer),
 	// We can not reuse "tmp" here - this name is already taken and could lead to a clash. It's better to
 	// come up with a unique name here.
 	tmpSubpathName = "mongodb-agent-monitoring-tmp"
+
+	monitoringAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/monitoring-agent-health-status.json"
+	monitoringAgentLogOptions                = " -logFile /var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs ${AGENT_MAX_LOG_FILE_DURATION_HOURS} -logLevel ${AGENT_LOG_LEVEL}"
 )
 
 type AppDBStatefulSetOptions struct {
@@ -84,11 +90,11 @@ func removeContainerByName(containers []corev1.Container, name string) []corev1.
 }
 
 // appDbLabels returns a statefulset modification which adds labels that are specific to the appDB.
-func appDbLabels(opsManager om.MongoDBOpsManager) statefulset.Modification {
+func appDbLabels(opsManager om.MongoDBOpsManager, memberClusterNum int) statefulset.Modification {
 	podLabels := map[string]string{
-		appLabelKey:             opsManager.Spec.AppDB.ServiceName(),
+		appLabelKey:             opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(memberClusterNum),
 		ControllerLabelName:     util.OperatorName,
-		PodAntiAffinityLabelKey: opsManager.Spec.AppDB.Name(),
+		PodAntiAffinityLabelKey: opsManager.Spec.AppDB.NameForCluster(memberClusterNum),
 	}
 	return statefulset.Apply(
 		statefulset.WithLabels(opsManager.Labels),
@@ -164,7 +170,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
-	if podVars != nil && podVars.SSLMMSCAConfigMap != "" {
+	if ShouldMountSSLMMSCAConfigMap(podVars) {
 		// This volume wil contain the OM CA
 		caCertVolume := statefulset.CreateVolumeFromConfigMap(CaCertName, podVars.SSLMMSCAConfigMap)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -175,7 +181,6 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 		volumesToAdd = append(volumesToAdd, caCertVolume)
 	}
 
-	tlsConfig := appDb.GetTLSConfig()
 	secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
 
 	secretName += certs.OperatorGeneratedCertSuffix
@@ -192,13 +197,7 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 		})
 		volumesToAdd = append(volumesToAdd, secretVolume)
 	}
-	caName := fmt.Sprintf("%s-ca", appDb.Name())
-
-	if tlsConfig.CA != "" {
-		caName = tlsConfig.CA
-	} else {
-		log.Debugf("No CA name has been supplied, defaulting to: %s", caName)
-	}
+	caName := CAConfigMapName(appDb, log)
 
 	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
 	volumeMounts = append(volumeMounts, corev1.VolumeMount{
@@ -213,6 +212,19 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	return volumesToAdd, volumeMounts
+}
+
+func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
+	caName := fmt.Sprintf("%s-ca", appDb.Name())
+
+	tlsConfig := appDb.GetTLSConfig()
+	if tlsConfig.CA != "" {
+		caName = tlsConfig.CA
+	} else {
+		log.Debugf("No CA config map name has been supplied, defaulting to: %s", caName)
+	}
+
+	return caName
 }
 
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
@@ -267,7 +279,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		)
 
 	} else {
-		if podVars != nil && podVars.ProjectID != "" {
+		if ShouldEnableMonitoring(podVars) {
 			// AGENT-API-KEY volume
 			modification = podtemplatespec.Apply(
 				modification,
@@ -338,14 +350,29 @@ func customPersistenceConfig(om om.MongoDBOpsManager) statefulset.Modification {
 	}
 }
 
+// ShouldEnableMonitoring returns true if we need to add monitoring container (along with volume mounts) in the current reconcile loop.
+func ShouldEnableMonitoring(podVars *env.PodEnvVars) bool {
+	return GlobalMonitoringSettingEnabled() && podVars != nil && podVars.ProjectID != ""
+}
+
+// GlobalMonitoringSettingEnabled returns global setting whether to enable or disable monitoring in appdb (OPS_MANAGER_MONITOR_APPDB env var)
+func GlobalMonitoringSettingEnabled() bool {
+	return env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
+}
+
+// ShouldMountSSLMMSCAConfigMap returns true if we need to mount MMSCA to monitoring container in the current reconcile loop.
+func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
+	return ShouldEnableMonitoring(podVars) && podVars.SSLMMSCAConfigMap != ""
+}
+
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler scalers.AppDBScaler, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
 	monitoringModification := podtemplatespec.NOOP()
-	monitorAppDB := env.ReadBoolOrDefault(util.OpsManagerMonitorAppDB, util.OpsManagerMonitorAppDBDefault)
-	if monitorAppDB && podVars != nil && podVars.ProjectID != "" {
+
+	if ShouldEnableMonitoring(podVars) {
 		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
@@ -359,6 +386,9 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	automationAgentCommand := construct.AutomationAgentCommand()
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
+	if opsManager.Spec.AppDB.IsMultiCluster() {
+		automationAgentCommand[idx] += fmt.Sprintf(" -overrideLocalHost $(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDb.GetClusterDomain())
+	}
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
 	acVersionMount := corev1.VolumeMount{
@@ -369,7 +399,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	sts := statefulset.New(
 		// create appdb statefulset from the community code
-		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, &opsManager),
+		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler),
+		statefulset.WithName(opsManager.Spec.AppDB.NameForCluster(scaler.MemberClusterNum())),
+		statefulset.WithServiceName(opsManager.Spec.AppDB.HeadlessServiceNameForCluster(scaler.MemberClusterNum())),
+
 		// If run in certified openshift bundle in disconnected environment with digest pinning we need to update
 		// mongod image as it is constructed from 2 env variables and version from spec, and it will not be replaced to sha256 digest properly.
 		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
@@ -380,7 +413,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		customPersistenceConfig(opsManager),
 		statefulset.WithUpdateStrategyType(opsManager.GetAppDBUpdateStrategyType()),
 		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
-		statefulset.WithReplicas(scale.ReplicasThisReconciliation(&opsManager)),
+		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podtemplatespec.WithServiceAccount(appDBServiceAccount),
@@ -398,7 +431,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				tlsVolumes(*appDb, podVars, log),
 			),
 		),
-		appDbLabels(opsManager),
+		appDbLabels(opsManager, scaler.MemberClusterNum()),
 	)
 	// We merge the podspec specified in the CR
 	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
@@ -502,7 +535,11 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 	// Construct the command by concatenating:
 	// 1. The base command - from community
-	command := construct.MongodbUserCommand + construct.BaseAgentCommand()
+	command := construct.MongodbUserCommand
+	command += "agent/mongodb-agent"
+	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
+	command += " -serveStatusPort=5001"
+	command += monitoringAgentLogOptions
 
 	// 2. Add the cluster config file path
 	// If we are using k8s secrets, this is the same as community (and the same as the other agent container)
@@ -542,6 +579,11 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 
 	command += startupParams.ToCommandLineArgs()
+
+	if appDB.IsMultiCluster() {
+		command += fmt.Sprintf(" -overrideLocalHost $(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDB.GetClusterDomain())
+	}
+
 	monitoringCommand := []string{"/bin/bash", "-c", command}
 
 	// Add additional TLS volumes if needed
@@ -621,6 +663,10 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1
 		{
 			Name:  headlessAgentEnv,
 			Value: "true",
+		},
+		{
+			Name:  clusterDomainEnv,
+			Value: appDbSpec.ClusterDomain,
 		},
 	}
 	return envVars

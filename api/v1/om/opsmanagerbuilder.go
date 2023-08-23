@@ -17,7 +17,7 @@ func NewOpsManagerBuilder() *OpsManagerBuilder {
 }
 
 func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
-	return NewOpsManagerBuilder().SetVersion("4.4.1").SetAppDbMembers(3).SetAppDbPodSpec(*DefaultAppDbBuilder().Build().PodSpec).SetAppDbVersion("4.2.20")
+	return NewOpsManagerBuilder().SetName("default-om").SetVersion("4.4.1").SetAppDbMembers(3).SetAppDbPodSpec(*DefaultAppDbBuilder().Build().PodSpec).SetAppDbVersion("4.2.20")
 }
 
 func NewOpsManagerBuilderFromResource(resource MongoDBOpsManager) *OpsManagerBuilder {
@@ -138,6 +138,11 @@ func (b *OpsManagerBuilder) SetName(name string) *OpsManagerBuilder {
 	return b
 }
 
+func (b *OpsManagerBuilder) SetNamespace(namespace string) *OpsManagerBuilder {
+	b.om.Namespace = namespace
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDbMembers(members int) *OpsManagerBuilder {
 	b.om.Spec.AppDB.Members = members
 	return b
@@ -211,6 +216,22 @@ func (b *OpsManagerBuilder) SetExternalConnectivity(externalConnectivity MongoDB
 	b.om.Spec.MongoDBOpsManagerExternalConnectivity = &externalConnectivity
 	return b
 }
+
+func (b *OpsManagerBuilder) SetAppDBTopology(topology string) *OpsManagerBuilder {
+	b.om.Spec.AppDB.Topology = topology
+	return b
+}
+
+func (b *OpsManagerBuilder) SetAppDBClusterSpecList(clusterSpecItems []mdbv1.ClusterSpecItem) *OpsManagerBuilder {
+	for _, e := range clusterSpecItems {
+		b.om.Spec.AppDB.ClusterSpecList = append(b.om.Spec.AppDB.ClusterSpecList, mdbv1.ClusterSpecItem{
+			ClusterName: e.ClusterName,
+			Members:     e.Members,
+		})
+	}
+	return b
+}
+
 func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
 	b.om.InitDefaultFields()
 	return *b.om.DeepCopy()

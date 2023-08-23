@@ -11,8 +11,16 @@ func GetMultiPodName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
 }
 
+func GetMultiAppDBPodName(mdbmName string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
+}
+
 func GetMultiServiceName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-svc", GetMultiPodName(mdbmName, clusterNum, podNum))
+}
+
+func GetMultiHeadlessServiceName(mdbmName string, clusterNum int) string {
+	return fmt.Sprintf("%s-%d-svc", mdbmName, clusterNum)
 }
 
 func GetServiceName(mdbmName string) string {
@@ -35,8 +43,8 @@ func GetMultiServiceExternalDomain(mdbmName, externalDomain string, clusterNum, 
 	return fmt.Sprintf("%s.%s", GetMultiPodName(mdbmName, clusterNum, podNum), externalDomain)
 }
 
-// GetMultiClusterAgentHostnames returns the agent hostnames, which they should be registered in OM in multi-cluster mode.
-func GetMultiClusterAgentHostnames(mdbmName, namespace string, clusterNum, members int, externalDomain *string) []string {
+// GetMultiClusterProcessHostnames returns the agent hostnames, which they should be registered in OM in multi-cluster mode.
+func GetMultiClusterProcessHostnames(mdbmName, namespace string, clusterNum, members int, externalDomain *string) []string {
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
@@ -46,6 +54,19 @@ func GetMultiClusterAgentHostnames(mdbmName, namespace string, clusterNum, membe
 		} else {
 			hostname = GetMultiServiceFQDN(mdbmName, namespace, clusterNum, podNum)
 		}
+		hostnames = append(hostnames, hostname)
+	}
+
+	return hostnames
+}
+
+// GetMultiClusterHostnamesForMonitoring returns list of "headless fqdn" (equivalent to hostname -f on a pod) hostnames that are required for registering AppDB hosts for monitoring in OM.
+func GetMultiClusterHostnamesForMonitoring(mdbmName, namespace string, clusterNum, members int) []string {
+	hostnames := make([]string, 0)
+
+	for podNum := 0; podNum < members; podNum++ {
+		var hostname string
+		hostname = fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiAppDBPodName(mdbmName, clusterNum, podNum), GetMultiHeadlessServiceName(mdbmName, clusterNum), namespace)
 		hostnames = append(hostnames, hostname)
 	}
 
