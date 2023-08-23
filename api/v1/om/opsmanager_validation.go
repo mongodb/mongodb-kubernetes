@@ -8,6 +8,7 @@ import (
 	"github.com/blang/semver"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -122,7 +123,7 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.Val
 }
 
 func kmipValidation(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.Backup == nil || os.Backup.Enabled == false || os.Backup.Encryption == nil || os.Backup.Encryption.Kmip == nil {
+	if os.Backup == nil || !os.Backup.Enabled || os.Backup.Encryption == nil || os.Backup.Encryption.Kmip == nil {
 		return v1.ValidationSuccess()
 	}
 
@@ -137,6 +138,15 @@ func kmipValidation(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func validateEmptyClusterSpecListSingleCluster(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if !os.AppDB.IsMultiCluster() {
+		if len(os.AppDB.ClusterSpecList) > 0 {
+			return v1.OpsManagerResourceValidationError("Single cluster AppDB deployment should have empty clusterSpecList", status.OpsManager)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
@@ -147,13 +157,31 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		credentialsIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
 		kmipValidation,
+		validateEmptyClusterSpecListSingleCluster,
 	}
+
+	multiClusterAppDBSharedClusterValidators := []func(ms []mdb.ClusterSpecItem) v1.ValidationResult{
+		mdb.ValidateUniqueClusterNames,
+		mdb.ValidateNonEmptyClusterSpecList,
+		mdb.ValidateMemberClusterIsSubsetOfKubeConfig,
+	}
+
 	var validationResults []v1.ValidationResult
 
 	for _, validator := range validators {
 		res := validator(om.Spec)
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
+		}
+	}
+
+	// Explicit tests for AppDB multi-cluster
+	if om.Spec.AppDB.IsMultiCluster() {
+		for _, validator := range multiClusterAppDBSharedClusterValidators {
+			res := validator(om.Spec.AppDB.ClusterSpecList)
+			if res.Level > 0 {
+				validationResults = append(validationResults, res)
+			}
 		}
 	}
 

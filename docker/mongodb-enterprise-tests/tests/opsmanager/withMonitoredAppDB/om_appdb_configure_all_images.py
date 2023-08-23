@@ -1,13 +1,14 @@
+from typing import Optional, List
+
 from kubernetes.client import V1Container
 from pytest import mark, fixture
 
-from kubetester import find_fixture
+from kubetester import find_fixture, create_or_update
 from kubetester.kubetester import ensure_nested_objects
-
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.mongodb import Phase
-
-from typing import Optional, List
+from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 AGENT_NAME = "mongodb-agent"
 MONGOD_NAME = "mongod"
@@ -44,7 +45,11 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
         },
     ]
 
-    return resource.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_appdb_configure_all_images
@@ -63,7 +68,7 @@ def test_om_get_started(ops_manager: MongoDBOpsManager):
 def test_statefulset_spec_is_updated(ops_manager: MongoDBOpsManager):
     appdb_sts = ops_manager.read_appdb_statefulset()
     containers = appdb_sts.spec.template.spec.containers
-    assert len(containers) == 3
+    assert len(containers) == 3 if not is_multi_cluster() else 4
 
     agent_container = _get_container_by_name(AGENT_NAME, containers)
 

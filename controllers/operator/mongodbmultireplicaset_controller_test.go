@@ -29,7 +29,7 @@ import (
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
@@ -102,7 +102,7 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
 		SetClusterSpecList(clusters).
 		SetExternalAccess(
-			mdbv1.ExternalAccessConfiguration{
+			mdb.ExternalAccessConfiguration{
 				ExternalDomain: pointer.String("cluster-%d.testing"),
 			}, "cluster-%d.testing").
 		Build()
@@ -335,8 +335,8 @@ func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 }
 
 func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetSecurity(&mdbv1.Security{
-		Authentication: &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{"SCRAM"}},
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetSecurity(&mdb.Security{
+		Authentication: &mdb.Authentication{Enabled: true, Modes: []mdb.AuthMode{"SCRAM"}},
 	}).SetClusterSpecList(clusters).Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(mrs, t)
@@ -361,8 +361,8 @@ func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 }
 
 func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetSecurity(&mdbv1.Security{
-		TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "some-ca"},
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetSecurity(&mdb.Security{
+		TLSConfig:                 &mdb.TLSConfig{Enabled: true, CA: "some-ca"},
 		CertificatesSecretsPrefix: "some-prefix",
 	}).Build()
 
@@ -585,7 +585,7 @@ func TestScaling(t *testing.T) {
 
 		// scale one member and add a new cluster
 		mrs.Spec.ClusterSpecList[0].Members = 3
-		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdb.ClusterSpecItem{
 			ClusterName: clusters[2],
 			Members:     3,
 		})
@@ -660,7 +660,7 @@ func TestScaling(t *testing.T) {
 		assertStatefulSetReplicas(t, mrs, memberClusters, 2, 1, 2)
 
 		// remove first and last
-		mrs.Spec.ClusterSpecList = []mdbmulti.ClusterSpecItem{mrs.Spec.ClusterSpecList[1]}
+		mrs.Spec.ClusterSpecList = []mdb.ClusterSpecItem{mrs.Spec.ClusterSpecList[1]}
 
 		err := client.Update(context.TODO(), mrs)
 		assert.NoError(t, err)
@@ -701,7 +701,7 @@ func TestClusterNumbering(t *testing.T) {
 		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1})
 
 		// add cluster
-		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdb.ClusterSpecItem{
 			ClusterName: clusters[2],
 			Members:     1,
 		})
@@ -730,7 +730,7 @@ func TestClusterNumbering(t *testing.T) {
 		clusterOneIndex := clusterNumMap[clusters[1]]
 
 		// Remove cluster index 1 from the specs
-		mrs.Spec.ClusterSpecList = []mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = []mdb.ClusterSpecItem{
 			{
 				ClusterName: clusters[0],
 				Members:     1,
@@ -746,7 +746,7 @@ func TestClusterNumbering(t *testing.T) {
 		checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
 
 		// Add cluster index 1 back to the specs
-		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdbmulti.ClusterSpecItem{
+		mrs.Spec.ClusterSpecList = append(mrs.Spec.ClusterSpecList, mdb.ClusterSpecItem{
 			ClusterName: clusters[1],
 			Members:     1,
 		})
@@ -785,7 +785,7 @@ func assertMemberNameAndId(t *testing.T, members []om.ReplicaSetMember, name str
 func TestBackupConfigurationReplicaSet(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).
 		SetConnectionSpec(testConnectionSpec()).
-		SetBackup(mdbv1.Backup{
+		SetBackup(mdb.Backup{
 			Mode: "enabled",
 		}).Build()
 
@@ -899,7 +899,7 @@ func TestMultiClusterFailover(t *testing.T) {
 	assert.Equal(t, expectedNodeCount, currentNodeCount)
 }
 
-func assertClusterpresent(t *testing.T, m map[string]int, specs []mdbmulti.ClusterSpecItem, arr []int) {
+func assertClusterpresent(t *testing.T, m map[string]int, specs []mdb.ClusterSpecItem, arr []int) {
 	tmp := make([]int, 0)
 	for _, s := range specs {
 		tmp = append(tmp, m[s.ClusterName])
@@ -988,6 +988,10 @@ func multiReplicaSetReconcilerWithConnection(m *mdbmulti.MongoDBMultiCluster,
 }
 
 func getFakeMultiClusterMap() map[string]cluster.Cluster {
+	return getFakeMultiClusterMapWithClusters(clusters)
+}
+
+func getFakeMultiClusterMapWithClusters(clusters []string) map[string]cluster.Cluster {
 	clusterMap := make(map[string]cluster.Cluster)
 
 	for _, e := range clusters {

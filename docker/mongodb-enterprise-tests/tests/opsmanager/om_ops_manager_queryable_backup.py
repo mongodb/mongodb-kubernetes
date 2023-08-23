@@ -7,7 +7,7 @@ from typing import Optional, Dict
 from pytest import mark, fixture
 
 from kubernetes import client
-from kubetester import create_secret
+from kubetester import create_or_update_secret, create_or_update
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     skip_if_local,
@@ -24,7 +24,9 @@ from kubetester import (
     assert_pod_security_context,
     get_default_storage_class,
 )
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 CREATE_RESOURCES = True
 skip_if_not_create = mark.skipif(not CREATE_RESOURCES, reason="Only run when CREATE_RESOURCES")
@@ -54,7 +56,7 @@ databases. Tests backup enabled for both MDB 4.0 and 4.2, snapshots created
 
 @fixture(scope="module")
 def queryable_pem_secret(namespace: str) -> str:
-    return create_secret(
+    return create_or_update_secret(
         namespace,
         "queryable-bkp-pem",
         {"queryable.pem": generate_queryable_pem(namespace)},
@@ -106,7 +108,7 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
-    KubernetesTester.create_secret(
+    create_or_update_secret(
         namespace,
         secret_name,
         {
@@ -125,8 +127,6 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
         print("Created S3 bucket", bucket_prefix)
 
     yield bucket_prefix
-    print("\nRemoving S3 bucket", bucket_prefix)
-    aws_s3_client.delete_s3_bucket(bucket_prefix)
 
 
 @fixture(scope="module")
@@ -152,10 +152,11 @@ def ops_manager(
 
     resource["spec"]["configuration"]["mongodb.release.autoDownload.enterprise"] = "true"
 
-    if CREATE_RESOURCES:
-        yield resource.create()
-    else:
-        yield resource.load()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -216,7 +217,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
 
     if CREATE_RESOURCES:
         print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-        KubernetesTester.create_secret(
+        create_or_update_secret(
             KubernetesTester.get_namespace(),
             resource.get_secret_name(),
             {
@@ -244,7 +245,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
 
     if CREATE_RESOURCES:
         print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-        KubernetesTester.create_secret(
+        create_or_update_secret(
             KubernetesTester.get_namespace(),
             resource.get_secret_name(),
             {
@@ -367,7 +368,7 @@ class TestOpsManagerCreation:
         operator_installation_config: Dict[str, str],
     ):
         managed = operator_installation_config["managedSecurityContext"] == "true"
-        for pod in ops_manager.read_appdb_pods():
+        for _, pod in ops_manager.read_appdb_pods():
             assert_pod_security_context(pod, managed)
             assert_pod_container_security_context(pod.spec.containers[0], managed)
 

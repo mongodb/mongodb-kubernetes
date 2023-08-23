@@ -16,7 +16,13 @@ from kubetester import (
     update_configmap,
 )
 from kubetester.awss3client import AwsS3Client
-from kubetester.certs import Issuer, Certificate, ClusterIssuer
+from kubetester.certs import (
+    Issuer,
+    Certificate,
+    ClusterIssuer,
+    create_multi_cluster_mongodb_tls_certs,
+    create_mongodb_tls_certs,
+)
 from kubetester.git import clone_and_checkout
 from kubetester.helm import helm_install_from_chart
 from kubetester.http import get_retriable_https_session
@@ -52,29 +58,34 @@ def namespace() -> str:
 
 @fixture(scope="module")
 def version_id() -> str:
+    return get_version_id()
+
+
+def get_version_id():
     """
     Returns VERSION_ID if it has been defined, or "latest" otherwise.
     """
     if "OVERRIDE_VERSION_ID" in os.environ:
         return os.environ["OVERRIDE_VERSION_ID"]
-
     return os.environ.get("VERSION_ID", "latest")
 
 
 @fixture(scope="module")
 def operator_installation_config(namespace: str, version_id: str) -> Dict[str, str]:
+    return get_operator_installation_config(namespace, version_id)
+
+
+def get_operator_installation_config(namespace, version_id):
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
-
     # if running on evergreen don't use the default image tag
     if version_id != "latest":
         config["database.version"] = version_id
         config["initAppDb.version"] = version_id
         config["initDatabase.version"] = version_id
         config["initOpsManager.version"] = version_id
-
     return config
 
 
@@ -88,17 +99,31 @@ def monitored_appdb_operator_installation_config(operator_installation_config: D
     return config
 
 
+def get_multi_cluster_operator_installation_config(namespace: str) -> Dict[str, str]:
+    """Returns the ConfigMap containing configuration data for the Operator to be created.
+    Created in the single_e2e.sh"""
+    config = KubernetesTester.read_configmap(
+        namespace, "operator-installation-config", api_client=get_central_cluster_client()
+    )
+    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    return config
+
+
 @fixture(scope="module")
 def multi_cluster_operator_installation_config(
     central_cluster_client: kubernetes.client.ApiClient, namespace: str
 ) -> Dict[str, str]:
-    """Returns the ConfigMap containing configuration data for the Operator to be created.
-    Created in the single_e2e.sh"""
-    config = KubernetesTester.read_configmap(
-        namespace, "operator-installation-config", api_client=central_cluster_client
-    )
-    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
-    return config
+    return get_multi_cluster_operator_installation_config(namespace)
+
+
+@fixture(scope="module")
+def multi_cluster_monitored_appdb_operator_installation_config(
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    multi_cluster_operator_installation_config: dict[str, str],
+) -> Dict[str, str]:
+    multi_cluster_operator_installation_config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB=true"
+    return multi_cluster_operator_installation_config
 
 
 @fixture(scope="module")
@@ -106,6 +131,10 @@ def operator_clusterwide(
     namespace: str,
     operator_installation_config: Dict[str, str],
 ) -> Operator:
+    return get_operator_clusterwide(namespace, operator_installation_config)
+
+
+def get_operator_clusterwide(namespace, operator_installation_config):
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchNamespace"] = "*"
     return Operator(namespace=namespace, helm_args=helm_args).install()
@@ -134,6 +163,10 @@ def operator_vault_secret_backend_tls(
 
 @fixture(scope="module")
 def evergreen_task_id() -> str:
+    return get_evergreen_task_id()
+
+
+def get_evergreen_task_id():
     return os.environ.get("TASK_ID", "")
 
 
@@ -157,10 +190,33 @@ def crd_api():
     return ApiextensionsV1Api()
 
 
+def install_multi_cluster_cert_manager(namespace: str):
+    install_cert_manager(
+        namespace,
+        cluster_client=get_central_cluster_client(),
+        cluster_name=get_central_cluster_name(),
+    )
+
+    for client in get_member_cluster_clients():
+        install_cert_manager(
+            namespace,
+            cluster_client=client.api_client,
+            cluster_name=client.cluster_name,
+        )
+
+    return "cert-manager"
+
+
 @fixture(scope="module")
 def cert_manager(namespace: str) -> str:
-    """Installs cert-manager v1.5.4 using Helm."""
-    return install_cert_manager(namespace)
+    if is_multi_cluster():
+        return install_multi_cluster_cert_manager(namespace)
+    else:
+        return install_cert_manager(
+            namespace,
+            cluster_client=get_central_cluster_client(),
+            cluster_name=get_central_cluster_name(),
+        )
 
 
 @fixture(scope="module")
@@ -170,23 +226,12 @@ def multi_cluster_cert_manager(
     central_cluster_name: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    install_cert_manager(
-        namespace,
-        cluster_client=central_cluster_client,
-        cluster_name=central_cluster_name,
-    )
-
-    for client in member_cluster_clients:
-        install_cert_manager(
-            namespace,
-            cluster_client=client.api_client,
-            cluster_name=client.cluster_name,
-        )
+    return install_multi_cluster_cert_manager(namespace)
 
 
 @fixture(scope="module")
 def issuer(cert_manager: str, namespace: str) -> str:
-    return create_issuer(namespace=namespace)
+    return create_issuer(namespace=namespace, api_client=get_central_cluster_client())
 
 
 @fixture(scope="module")
@@ -402,38 +447,74 @@ def operator_with_monitored_appdb(
     ).upgrade()
 
 
-@fixture(scope="module")
-def central_cluster_name() -> str:
-    central_cluster = os.environ.get("CENTRAL_CLUSTER")
-    if not central_cluster:
-        raise ValueError("No central cluster specified in environment variable CENTRAL_CLUSTER!")
+def get_central_cluster_name():
+    central_cluster = ""
+    if is_multi_cluster():
+        central_cluster = os.environ.get("CENTRAL_CLUSTER")
+        if not central_cluster:
+            raise ValueError("No central cluster specified in environment variable CENTRAL_CLUSTER!")
     return central_cluster
 
 
+def is_multi_cluster():
+    return len(os.getenv("MEMBER_CLUSTERS", "")) > 0
+
+
 @fixture(scope="module")
-def central_cluster_client(
-    central_cluster_name: str, cluster_clients: Dict[str, kubernetes.client.ApiClient]
-) -> kubernetes.client.ApiClient:
-    return cluster_clients[central_cluster_name]
+def central_cluster_name() -> str:
+    return get_central_cluster_name()
+
+
+def get_central_cluster_client() -> kubernetes.client.ApiClient:
+    if is_multi_cluster():
+        return get_cluster_clients()[get_central_cluster_name()]
+    else:
+        return kubernetes.client.ApiClient()
+
+
+@fixture(scope="module")
+def central_cluster_client() -> kubernetes.client.ApiClient:
+    return get_central_cluster_client()
+
+
+def get_member_cluster_names() -> List[str]:
+    if is_multi_cluster():
+        member_clusters = os.environ.get("MEMBER_CLUSTERS")
+        if not member_clusters:
+            raise ValueError("No member clusters specified in environment variable MEMBER_CLUSTERS!")
+        return sorted(member_clusters.split())
+    else:
+        return []
 
 
 @fixture(scope="module")
 def member_cluster_names() -> List[str]:
-    member_clusters = os.environ.get("MEMBER_CLUSTERS")
-    if not member_clusters:
-        raise ValueError("No member clusters specified in environment variable MEMBER_CLUSTERS!")
-    return sorted(member_clusters.split())
+    return get_member_cluster_names()
+
+
+def get_member_cluster_clients() -> List[MultiClusterClient]:
+    member_cluster_clients = []
+    for i, member_cluster in enumerate(sorted(get_member_cluster_names())):
+        member_cluster_clients.append(MultiClusterClient(get_cluster_clients()[member_cluster], member_cluster, i))
+    return member_cluster_clients
+
+
+def get_member_cluster_client_map() -> dict[str, MultiClusterClient]:
+    return {
+        multi_cluster_client.cluster_name: multi_cluster_client for multi_cluster_client in get_member_cluster_clients()
+    }
+
+
+def get_member_cluster_api_client(member_cluster_name: Optional[str]) -> kubernetes.client.ApiClient:
+    if member_cluster_name is not None:
+        return get_member_cluster_client_map()[member_cluster_name].api_client
+    else:
+        return kubernetes.client.ApiClient()
 
 
 @fixture(scope="module")
-def member_cluster_clients(
-    cluster_clients: Dict[str, kubernetes.client.ApiClient],
-    member_cluster_names: List[str],
-) -> List[MultiClusterClient]:
-    member_cluster_clients = []
-    for i, member_cluster in enumerate(sorted(member_cluster_names)):
-        member_cluster_clients.append(MultiClusterClient(cluster_clients[member_cluster], member_cluster, i))
-    return member_cluster_clients
+def member_cluster_clients() -> List[MultiClusterClient]:
+    return get_member_cluster_clients()
 
 
 @fixture(scope="module")
@@ -453,6 +534,35 @@ def multi_cluster_operator(
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            # override the serviceAccountName for the operator deployment
+            "operator.createOperatorServiceAccount": "false",
+        },
+        central_cluster_name,
+    )
+
+
+@fixture(scope="module")
+def multi_cluster_operator_with_monitored_appdb(
+    namespace: str,
+    central_cluster_name: str,
+    multi_cluster_monitored_appdb_operator_installation_config: Dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+) -> Operator:
+    print(f"\nSetting HELM_KUBECONTEXT to {central_cluster_name}")
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+
+    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
+    if not local_operator():
+        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+    return _install_multi_cluster_operator(
+        namespace,
+        multi_cluster_monitored_appdb_operator_installation_config,
         central_cluster_client,
         member_cluster_clients,
         {
@@ -491,6 +601,24 @@ def multi_cluster_operator_manual_remediation(
     )
 
 
+def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
+    os.environ["HELM_KUBECONTEXT"] = get_central_cluster_name()
+    run_kube_config_creation_tool(get_member_cluster_names(), namespace, namespace, get_member_cluster_names(), True)
+    return _install_multi_cluster_operator(
+        namespace,
+        get_multi_cluster_operator_installation_config(namespace),
+        get_central_cluster_client(),
+        get_member_cluster_clients(),
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            # override the serviceAccountName for the operator deployment
+            "operator.createOperatorServiceAccount": "false",
+            "operator.watchNamespace": "*",
+        },
+        get_central_cluster_name(),
+    )
+
+
 @fixture(scope="module")
 def multi_cluster_operator_clustermode(
     namespace: str,
@@ -501,21 +629,7 @@ def multi_cluster_operator_clustermode(
     member_cluster_names: List[str],
     cluster_clients: Dict[str, kubernetes.client.ApiClient],
 ) -> Operator:
-    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names, True)
-    return _install_multi_cluster_operator(
-        namespace,
-        multi_cluster_operator_installation_config,
-        central_cluster_client,
-        member_cluster_clients,
-        {
-            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
-            "operator.watchNamespace": "*",
-        },
-        central_cluster_name,
-    )
+    return get_multi_cluster_operator_clustermode(namespace)
 
 
 @fixture(scope="module")
@@ -560,6 +674,7 @@ def _install_multi_cluster_operator(
         multi_cluster_operator_installation_config,
         member_cluster_clients,
         central_cluster_name,
+        skip_central_cluster=True,
     )
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -750,23 +865,31 @@ def install_cert_manager(
     return name
 
 
-@fixture(scope="module")
-def cluster_clients(
-    namespace: str, member_cluster_names: List[str]
-) -> Dict[str, kubernetes.client.api_client.ApiClient]:
+def get_cluster_clients() -> dict[str, kubernetes.client.api_client.ApiClient]:
+    if not is_multi_cluster():
+        return dict()
+
     member_clusters = [
         _read_multi_cluster_config_value("member_cluster_1"),
         _read_multi_cluster_config_value("member_cluster_2"),
     ]
 
-    if len(member_cluster_names) == 3:
+    if len(get_member_cluster_names()) == 3:
         member_clusters.append(_read_multi_cluster_config_value("member_cluster_3"))
     return get_clients_for_clusters(member_clusters)
 
 
+@fixture(scope="module")
+def cluster_clients() -> dict[str, kubernetes.client.api_client.ApiClient]:
+    return get_cluster_clients()
+
+
 def get_clients_for_clusters(
     member_cluster_names: List[str],
-) -> Dict[str, kubernetes.client.ApiClient]:
+) -> dict[str, kubernetes.client.ApiClient]:
+    if not is_multi_cluster():
+        return dict()
+
     central_cluster = _read_multi_cluster_config_value("central_cluster")
 
     return {c: _get_client_for_cluster(c) for c in ([central_cluster] + member_cluster_names)}
@@ -972,6 +1095,20 @@ def pod_names(replica_set_name: str, replica_set_members: int) -> list[str]:
     return [f"{replica_set_name}-{i}" for i in range(0, replica_set_members)]
 
 
+def multi_cluster_pod_names(replica_set_name: str, cluster_index_with_members: list[tuple[int, int]]) -> list[str]:
+    """List of multi-cluster pod names for given replica set name and a list of member counts in member clusters."""
+    result_list = []
+    for (cluster_index, members) in cluster_index_with_members:
+        result_list.extend([f"{replica_set_name}-{cluster_index}-{pod_idx}" for pod_idx in range(0, members)])
+
+    return result_list
+
+
+def multi_cluster_service_names(replica_set_name: str, cluster_index_with_members: list[tuple[int, int]]) -> list[str]:
+    """List of multi-cluster service names for given replica set name and a list of member counts in member clusters."""
+    return [f"{pod_name}-svc" for pod_name in multi_cluster_pod_names(replica_set_name, cluster_index_with_members)]
+
+
 def default_external_domain() -> str:
     """Default external domain used for testing LoadBalancers on Kind."""
     return "mongodb.interconnected"
@@ -1033,3 +1170,34 @@ def coredns_config(tld: str, mappings: str):
     }}
 }}
 """
+
+
+def create_appdb_certs(
+    namespace: str,
+    issuer: str,
+    appdb_name: str,
+    cluster_index_with_members: list[tuple[int, int]] = None,
+    cert_prefix="appdb",
+) -> str:
+    if cluster_index_with_members is None:
+        cluster_index_with_members = [(0, 1), (1, 2)]
+
+    appdb_cert_name = f"{cert_prefix}-{appdb_name}-cert"
+
+    if is_multi_cluster():
+        service_fqdns = [
+            f"{svc}.{namespace}.svc.cluster.local"
+            for svc in multi_cluster_service_names(appdb_name, cluster_index_with_members)
+        ]
+        create_multi_cluster_mongodb_tls_certs(
+            issuer,
+            appdb_cert_name,
+            get_member_cluster_clients(),
+            get_central_cluster_client(),
+            service_fqdns=service_fqdns,
+            namespace=namespace,
+        )
+    else:
+        create_mongodb_tls_certs(issuer, namespace, appdb_name, appdb_cert_name)
+
+    return cert_prefix

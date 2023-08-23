@@ -1,10 +1,14 @@
 from typing import Optional
 
+from kubetester import create_or_update
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 import re
+
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 OM_CONF_PATH_DIR = "mongodb-ops-manager/conf/mms.conf"
 JAVA_MMS_UI_OPTS = "JAVA_MMS_UI_OPTS"
@@ -18,7 +22,11 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
-    return om.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
+
+    create_or_update(om)
+    return om
 
 
 @mark.e2e_om_jvm_params
@@ -35,7 +43,9 @@ class TestOpsManagerCreationWithJvmParams:
         pod_name = ops_manager.read_om_pods()[0].metadata.name
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = KubernetesTester.run_command_in_pod_container(pod_name, ops_manager.namespace, cmd)
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name, ops_manager.namespace, cmd, container="mongodb-ops-manager"
+        )
         java_params = self.parse_java_params(result, JAVA_MMS_UI_OPTS)
         assert "-Xmx4291m" in java_params
         assert "-Xms343m" in java_params
@@ -43,7 +53,9 @@ class TestOpsManagerCreationWithJvmParams:
     def test_om_process_mem_scales(self, ops_manager: MongoDBOpsManager):
         pod_name = ops_manager.read_om_pods()[0].metadata.name
         cmd = ["/bin/sh", "-c", "ps aux"]
-        result = KubernetesTester.run_command_in_pod_container(pod_name, ops_manager.namespace, cmd)
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name, ops_manager.namespace, cmd, container="mongodb-ops-manager"
+        )
         rss = self.parse_rss(result)
 
         # rss is in kb, we want to ensure that it is > 400mb
@@ -56,7 +68,9 @@ class TestOpsManagerCreationWithJvmParams:
         pod_name = pod_names[0]
         cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = KubernetesTester.run_command_in_pod_container(pod_name, ops_manager.namespace, cmd)
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name, ops_manager.namespace, cmd, container="mongodb-backup-daemon"
+        )
 
         java_params = self.parse_java_params(result, JAVA_DAEMON_OPTS)
         assert "-Xmx4352m" in java_params

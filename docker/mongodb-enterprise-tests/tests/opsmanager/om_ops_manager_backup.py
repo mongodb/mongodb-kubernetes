@@ -24,8 +24,10 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.test_identifiers import set_test_identifier
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.conftest import ensure_ent_version
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -182,7 +184,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
     print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-    KubernetesTester.create_secret(
+    create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {
@@ -206,7 +208,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["username"] = "mms-user-2"
 
     print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-    KubernetesTester.create_secret(
+    create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {
@@ -246,6 +248,9 @@ class TestOpsManagerCreation:
         ops_manager.set_version(custom_version)
         ops_manager.set_appdb_version(custom_appdb_version)
         ops_manager.allow_mdb_rc_versions()
+
+        if is_multi_cluster():
+            enable_appdb_multi_cluster_deployment(ops_manager)
 
         create_or_update(ops_manager)
 
@@ -321,7 +326,7 @@ class TestOpsManagerCreation:
         operator_installation_config: Dict[str, str],
     ):
         managed = operator_installation_config["managedSecurityContext"] == "true"
-        for pod in ops_manager.read_appdb_pods():
+        for _, pod in ops_manager.read_appdb_pods():
             assert_pod_security_context(pod, managed)
             assert_pod_container_security_context(pod.spec.containers[0], managed)
 

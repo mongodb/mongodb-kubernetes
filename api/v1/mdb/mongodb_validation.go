@@ -2,8 +2,12 @@ package mdb
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
+	"k8s.io/utils/strings/slices"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -248,4 +252,53 @@ func (m *MongoDB) ProcessValidationsOnReconcile(old *MongoDB) error {
 	}
 
 	return nil
+}
+
+func ValidateUniqueClusterNames(ms []ClusterSpecItem) v1.ValidationResult {
+	present := make(map[string]struct{})
+
+	for _, e := range ms {
+		if _, ok := present[e.ClusterName]; ok {
+			msg := fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", e.ClusterName)
+			return v1.ValidationError(msg)
+		}
+		present[e.ClusterName] = struct{}{}
+	}
+	return v1.ValidationSuccess()
+}
+
+func ValidateNonEmptyClusterSpecList(ms []ClusterSpecItem) v1.ValidationResult {
+	if len(ms) == 0 {
+		return v1.ValidationError("ClusterSpecList empty is not allowed, please define atleast one cluster")
+	}
+	return v1.ValidationSuccess()
+}
+
+func ValidateMemberClusterIsSubsetOfKubeConfig(ms []ClusterSpecItem) v1.ValidationResult {
+	// read the mounted kubeconfig file and
+	kubeConfigFile, err := multicluster.NewKubeConfigFile()
+	if err != nil {
+		// log the error here?
+		return v1.ValidationSuccess()
+	}
+
+	kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()
+	if err != nil {
+		// log the error here?
+		return v1.ValidationSuccess()
+	}
+
+	clusterNames := kubeConfig.GetMemberClusterNames()
+	notPresentClusters := make([]string, 0)
+
+	for _, e := range ms {
+		if !slices.Contains(clusterNames, e.ClusterName) {
+			notPresentClusters = append(notPresentClusters, e.ClusterName)
+		}
+	}
+	if len(notPresentClusters) > 0 {
+		msg := fmt.Sprintf("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s", notPresentClusters)
+		return v1.ValidationError(msg)
+	}
+	return v1.ValidationSuccess()
 }

@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -181,7 +181,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 		return r.updateStatus(&mrs, workflow.Failed(err), log)
 	}
 
-	effectiveSpecList := filterClusterSpecItem(actualSpecList, func(item mdbmultiv1.ClusterSpecItem) bool {
+	effectiveSpecList := filterClusterSpecItem(actualSpecList, func(item mdb.ClusterSpecItem) bool {
 		return item.Members > 0
 	})
 
@@ -257,7 +257,7 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMultiCluster) (bool, error) {
 
 		if specItem.Members < reconciliationItem.Members {
 			// when failover is happening, the clusterspec list will alaways have fewer members
-			// than the specs for the reoconcile.
+			// than the specs for the reconcile.
 			if _, ok := mdbmultiv1.HasClustersToFailOver(mrs.Annotations); ok {
 				return false, nil
 			}
@@ -304,7 +304,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) firstStatefulSet(mrs *mdbmultiv1.Mongo
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
 	err := r.reconcileServices(log, &mrs)
 	if err != nil {
 		return workflow.Failed(err)
@@ -331,7 +331,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv
 	return r.reconcileStatefulSets(mrs, log, conn, projectConfig)
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdbv1.ProjectConfig) workflow.Status {
+func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
@@ -397,7 +397,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 		}
 
 		// copy the agent api key to the member cluster.
-		apiKeySecretName := fmt.Sprintf("%s-group-secret", conn.GroupID())
+		apiKeySecretName := agents.ApiKeySecretName(conn.GroupID())
 		secretByte, err := secret.ReadByteData(r.client, types.NamespacedName{Name: apiKeySecretName, Namespace: mrs.Namespace})
 		if err != nil {
 			return workflow.Failed(err)
@@ -470,7 +470,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 
 // shouldDeleteStatefulSet returns a boolean value indicating whether or not the StatefulSet associated with
 // the given cluster spec item should be deleted or not.
-func shouldDeleteStatefulSet(mrs mdbmultiv1.MongoDBMultiCluster, item mdbmultiv1.ClusterSpecItem) (bool, error) {
+func shouldDeleteStatefulSet(mrs mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem) (bool, error) {
 	for _, specItem := range mrs.Spec.ClusterSpecList {
 		if item.ClusterName == specItem.ClusterName {
 			// this spec value has been explicitly defined, don't delete it.
@@ -497,7 +497,7 @@ func shouldDeleteStatefulSet(mrs mdbmultiv1.MongoDBMultiCluster, item mdbmultiv1
 // getMembersForClusterSpecItemThisReconciliation returns the value members should have for a given cluster spec item
 // for a given reconciliation. This value should increment or decrement in one cluster by one member each reconciliation
 // when a scaling operation is taking place.
-func getMembersForClusterSpecItemThisReconciliation(mrs *mdbmultiv1.MongoDBMultiCluster, item mdbmultiv1.ClusterSpecItem) (int, error) {
+func getMembersForClusterSpecItemThisReconciliation(mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem) (int, error) {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return -1, err
@@ -555,7 +555,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnamesToAdd := dns.GetMultiClusterAgentHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, spec.ExternalAccessConfiguration.ExternalDomain)
+		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, spec.ExternalAccessConfiguration.ExternalDomain)
 		hostnames = append(hostnames, hostnamesToAdd...)
 	}
 
@@ -830,7 +830,7 @@ func ensureSRVService(client service.GetUpdateCreator, svc corev1.Service, clust
 	return nil
 }
 
-func ensureClusterIPServices(client service.GetUpdateCreator, m *mdbmultiv1.MongoDBMultiCluster, clusterSpecItem mdbmultiv1.ClusterSpecItem) error {
+func ensureClusterIPServices(client service.GetUpdateCreator, m *mdbmultiv1.MongoDBMultiCluster, clusterSpecItem mdb.ClusterSpecItem) error {
 	for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
 		var svc corev1.Service
 		if m.ExternalMemberClusterDomain(clusterSpecItem.ClusterName) != nil {
@@ -1137,8 +1137,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(c kubernetesCli
 }
 
 // filterClusterSpecItem filters items out of a list based on provided predicate.
-func filterClusterSpecItem(items []mdbmultiv1.ClusterSpecItem, fn func(item mdbmultiv1.ClusterSpecItem) bool) []mdbmultiv1.ClusterSpecItem {
-	var result []mdbmultiv1.ClusterSpecItem
+func filterClusterSpecItem(items []mdb.ClusterSpecItem, fn func(item mdb.ClusterSpecItem) bool) []mdb.ClusterSpecItem {
+	var result []mdb.ClusterSpecItem
 	for _, item := range items {
 		if fn(item) {
 			result = append(result, item)
@@ -1147,13 +1147,13 @@ func filterClusterSpecItem(items []mdbmultiv1.ClusterSpecItem, fn func(item mdbm
 	return result
 }
 
-func sortClusterSpecList(clusterSpecList []mdbmultiv1.ClusterSpecItem) {
+func sortClusterSpecList(clusterSpecList []mdb.ClusterSpecItem) {
 	sort.SliceStable(clusterSpecList, func(i, j int) bool {
 		return clusterSpecList[i].ClusterName < clusterSpecList[j].ClusterName
 	})
 }
 
-func clusterSpecListsEqual(effective, desired []mdbmultiv1.ClusterSpecItem) bool {
+func clusterSpecListsEqual(effective, desired []mdb.ClusterSpecItem) bool {
 	comparer := cmp.Comparer(func(x, y automationconfig.MemberOptions) bool {
 		return true
 	})

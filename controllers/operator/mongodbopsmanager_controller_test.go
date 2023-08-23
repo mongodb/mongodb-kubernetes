@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
@@ -310,9 +312,11 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 
 func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
-	reconciler, _, _ := defaultTestOmReconciler(t, testOm)
+	kubeManager := mock.NewManager(&testOm)
+	appDBReconciler, err := newAppDbReconciler(kubeManager, testOm)
+	require.NoError(t, err)
 
-	password, err := reconciler.getAppDBPassword(testOm, zap.S())
+	password, err := appDBReconciler.ensureAppDbPassword(testOm, zap.S())
 	assert.NoError(t, err)
 	assert.Len(t, password, 12, "auto generated password should have a size of 12")
 }
@@ -327,7 +331,9 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 		},
 	}
 
-	password, err := reconciler.getAppDBPassword(testOm, zap.S())
+	appDBReconciler, err := reconciler.createNewAppDBReconciler(&testOm)
+	require.NoError(t, err)
+	password, err := appDBReconciler.ensureAppDbPassword(testOm, zap.S())
 
 	assert.NoError(t, err)
 	assert.Equal(t, password, "my-password", "the password specified by the SecretRef should have been returned when specified")
@@ -388,13 +394,13 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	podTemplate := sts.Spec.Template
 
 	assert.Contains(t, podTemplate.Annotations, "connectionStringHash")
-	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")))
+	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password", nil)))
 	testOm.Spec.AppDB.Members = 5
-	assert.NotEqual(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")),
+	assert.NotEqual(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password", nil)),
 		"Changing the number of members should result in a different Connection String and different hash")
 	testOm.Spec.AppDB.Members = 3
 	testOm.Spec.AppDB.Version = "4.2.0"
-	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password")),
+	assert.Equal(t, podTemplate.Annotations["connectionStringHash"], hashConnectionString(buildMongoConnectionUrl(testOm, "password", nil)),
 		"Changing version should not change connection string and so the hash should stay the same")
 }
 
@@ -530,7 +536,7 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
 
 	// when
-	reconciler.prepareBackupInOpsManager(testOm, mockedAdmin, zap.S())
+	reconciler.prepareBackupInOpsManager(testOm, mockedAdmin, "", zap.S())
 	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
 	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
@@ -724,7 +730,7 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 
 	t.Run("When no automation config is present, there is no error", func(t *testing.T) {
 		client := mock.NewClient()
-		err := ensureResourcesForArchitectureChange(client, om)
+		err := ensureResourcesForArchitectureChange(client, client, om)
 		assert.NoError(t, err)
 	})
 
@@ -746,7 +752,7 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
 		assert.NoError(t, err)
 
-		err = ensureResourcesForArchitectureChange(client, om)
+		err = ensureResourcesForArchitectureChange(client, client, om)
 		assert.Error(t, err)
 	})
 
@@ -784,7 +790,7 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 		err = client.CreateSecret(secret.Builder().SetNamespace(om.Namespace).SetName(om.Spec.AppDB.Name()+"-password").SetField("my-password", "jrJP7eUeyn").Build())
 		assert.NoError(t, err)
 
-		err = ensureResourcesForArchitectureChange(client, om)
+		err = ensureResourcesForArchitectureChange(client, client, om)
 		assert.NoError(t, err)
 
 		t.Run("Scram credentials have been created", func(t *testing.T) {
@@ -884,6 +890,29 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 
 }
 
+func TestUniqueClusterNames(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.AppDB.Topology = "MultiCluster"
+	testOm.Spec.AppDB.ClusterSpecList = []mdbv1.ClusterSpecItem{
+		{
+			ClusterName: "abc",
+			Members:     2,
+		},
+		{
+			ClusterName: "def",
+			Members:     1,
+		},
+		{
+			ClusterName: "abc",
+			Members:     1,
+		},
+	}
+
+	err := testOm.ValidateCreate()
+	require.Error(t, err)
+	assert.Equal(t, "Multiple clusters with the same name (abc) are not allowed", err.Error())
+}
+
 func containsName(name string, nsNames []types.NamespacedName) bool {
 	for _, nsName := range nsNames {
 		if nsName.Name == name {
@@ -954,7 +983,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager omv1.MongoDBOpsManager) (*
 		Build()
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
-	reconciler := newOpsManagerReconciler(manager, om.NewEmptyMockedOmConnection, initializer, func(baseUrl, user, publicApiKey string) api.OpsManagerAdmin {
+	reconciler := newOpsManagerReconciler(manager, nil, om.NewEmptyMockedOmConnection, initializer, func(baseUrl, user, publicApiKey string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey).(*api.MockedOmAdmin)
 		}

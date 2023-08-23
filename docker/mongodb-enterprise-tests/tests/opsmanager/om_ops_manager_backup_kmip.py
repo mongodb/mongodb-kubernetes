@@ -2,7 +2,7 @@ from typing import Optional
 
 from pytest import fixture, mark
 
-from kubetester import MongoDB, read_secret, create_secret
+from kubetester import MongoDB, read_secret, create_or_update_secret, create_or_update
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
@@ -10,12 +10,14 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_aws_secret,
     create_s3_bucket,
 )
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
 
@@ -71,7 +73,12 @@ def ops_manager(
             "s3BucketName": oplog_s3_bucket,
         }
     ]
-    return resource.create()
+
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -98,7 +105,7 @@ def mdb_latest_kmip_secrets(aws_s3_client: AwsS3Client, namespace, issuer, issue
     )
     mdb_latest_generated_kmip_certs_secret = read_secret(namespace, mdb_latest_generated_kmip_certs_secret_name)
     mdb_secret_name = MONGODB_CR_KMIP_TEST_PREFIX + "-" + MONGODB_CR_NAME + "-kmip-client"
-    create_secret(
+    create_or_update_secret(
         namespace,
         mdb_secret_name,
         {

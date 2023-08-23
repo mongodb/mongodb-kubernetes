@@ -37,6 +37,16 @@ if [[ -z "${NAMESPACE-}" ]]; then
     echo "$NAMESPACE" > "${NAMESPACE_FILE}"
 fi
 
+current_context=$(kubectl config current-context)
+# shellcheck disable=SC2154
+if [[ "${kube_environment_name}" == "multi" ]]; then
+  current_context="${central_cluster}"
+  kubectl config set-context "${current_context}" "--namespace=${NAMESPACE}" &>/dev/null || true
+  kubectl config use-context "${current_context}"
+  echo "Current context: ${current_context}, namespace=${NAMESPACE}"
+  kubectl get nodes | grep "control-plane"
+fi
+
 ensure_namespace "${NAMESPACE}"
 
 # 2. Fetch OM connection information - it will be saved to environment variables

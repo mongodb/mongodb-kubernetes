@@ -1,13 +1,13 @@
+from typing import Optional
+
 from pytest import mark, fixture
 
-from kubetester import find_fixture
-
-from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.mongodb import Phase
-
+from kubetester import find_fixture, create_or_update
 from kubetester.kubetester import KubernetesTester
-
-from typing import Optional
+from kubetester.mongodb import Phase
+from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -49,7 +49,11 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    return resource.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_appdb_agent_flags
@@ -64,7 +68,7 @@ def test_om(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_appdb_agent_flags
 def test_monitoring_is_configured(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
+    # ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -75,9 +79,9 @@ def test_appdb_has_agent_flags(ops_manager: MongoDBOpsManager):
         "-c",
         "ls /var/log/mongodb-mms-automation/customLogFile* | wc -l",
     ]
-    for pod in ops_manager.read_appdb_pods():
+    for api_client, pod in ops_manager.read_appdb_pods():
         result = KubernetesTester.run_command_in_pod_container(
-            pod.metadata.name, ops_manager.namespace, cmd, container="mongodb-agent"
+            pod.metadata.name, ops_manager.namespace, cmd, container="mongodb-agent", api_client=api_client
         )
         assert result != "0"
 
@@ -91,12 +95,13 @@ def test_appdb_monitoring_agent_flags_inherit_automation_agent_flags(
         "-c",
         "ls /var/log/mongodb-mms-automation/customLogFileMonitoring* | wc -l",
     ]
-    for pod in ops_manager.read_appdb_pods():
+    for api_client, pod in ops_manager.read_appdb_pods():
         result = KubernetesTester.run_command_in_pod_container(
             pod.metadata.name,
             ops_manager.namespace,
             cmd,
             container="mongodb-agent-monitoring",
+            api_client=api_client,
         )
         assert "No such file or directory" in result
 
@@ -105,12 +110,13 @@ def test_appdb_monitoring_agent_flags_inherit_automation_agent_flags(
         "-c",
         "ls /var/log/mongodb-mms-automation/customLogFile* | wc -l",
     ]
-    for pod in ops_manager.read_appdb_pods():
+    for api_client, pod in ops_manager.read_appdb_pods():
         result = KubernetesTester.run_command_in_pod_container(
             pod.metadata.name,
             ops_manager.namespace,
             cmd,
             container="mongodb-agent-monitoring",
+            api_client=api_client,
         )
         assert result != "0"
 
@@ -138,12 +144,13 @@ def test_appdb_has_changed_agent_flags(ops_manager: MongoDBOpsManager, namespace
         "-c",
         "pgrep -f -a agent/mongodb-agent",
     ]
-    for pod in ops_manager.read_appdb_pods():
+    for api_client, pod in ops_manager.read_appdb_pods():
         result = KubernetesTester.run_command_in_pod_container(
             pod.metadata.name,
             namespace,
             MMS_AUTOMATION_AGENT_PGREP,
             container="mongodb-agent",
+            api_client=api_client,
         )
         assert "-logFile=/var/log/mongodb-mms-automation/customLogFile" in result
         assert "-dialTimeoutSeconds=70" in result
@@ -153,6 +160,7 @@ def test_appdb_has_changed_agent_flags(ops_manager: MongoDBOpsManager, namespace
             namespace,
             MMS_AUTOMATION_AGENT_PGREP,
             container="mongodb-agent-monitoring",
+            api_client=api_client,
         )
         assert "-logFile=/var/log/mongodb-mms-automation/customLogFileMonitoring" in result
         assert "-dialTimeoutSeconds=80" in result

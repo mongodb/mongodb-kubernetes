@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from base64 import b64decode
-from typing import List, Optional, Dict, Callable
+from typing import List, Optional, Dict, Callable, overload
 
 import kubernetes.client
 import requests
@@ -12,7 +12,13 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from requests.auth import HTTPDigestAuth
 
-from kubetester import read_secret, create_configmap, create_or_update_secret, create_or_update_configmap
+from kubetester import (
+    read_secret,
+    create_configmap,
+    create_or_update_secret,
+    create_or_update_configmap,
+    read_configmap,
+)
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import (
     KubernetesTester,
@@ -20,8 +26,16 @@ from kubetester.kubetester import (
     build_om_org_endpoint,
 )
 from kubetester.mongodb import MongoDBCommon, Phase, in_desired_state, MongoDB, get_pods
-from kubetester.mongotester import ReplicaSetTester
+from kubetester.mongotester import ReplicaSetTester, MultiReplicaSetTester, MongoTester
 from kubetester.omtester import OMTester, OMContext
+from tests.conftest import (
+    get_central_cluster_client,
+    multi_cluster_pod_names,
+    get_member_cluster_client_map,
+    is_multi_cluster,
+    get_member_cluster_api_client,
+    multi_cluster_service_names,
+)
 
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
@@ -63,8 +77,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         namespace = appdb_resource["metadata"]["namespace"]
 
         appdb_hostnames = []
-        for index in range(appdb_resource["spec"]["members"]):
-            appdb_hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
+        if self.is_appdb_multi_cluster():
+            for _, hostname in self.get_appdb_hostnames_for_monitoring_in_member_clusters():
+                appdb_hostnames.append(hostname)
+        else:
+            for index in range(appdb_resource["spec"]["members"]):
+                appdb_hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
 
         def agents_have_registered() -> bool:
             monitoring_agents = tester.api_read_monitoring_agents()
@@ -120,8 +138,17 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def read_statefulset(self) -> client.V1StatefulSet:
         return client.AppsV1Api().read_namespaced_stateful_set(self.name, self.namespace)
 
+    def pick_one_member_cluster_name(self) -> Optional[str]:
+        if self.is_appdb_multi_cluster():
+            return self.get_indexed_cluster_spec_items()[0][1]["clusterName"]
+        else:
+            return None
+
     def read_appdb_statefulset(self) -> client.V1StatefulSet:
-        return client.AppsV1Api().read_namespaced_stateful_set(self.app_db_name(), self.namespace)
+        member_cluster_name = self.pick_one_member_cluster_name()
+        return client.AppsV1Api(
+            api_client=get_member_cluster_api_client(member_cluster_name)
+        ).read_namespaced_stateful_set(self.app_db_sts_name(member_cluster_name), self.namespace)
 
     def read_backup_statefulset(
         self,
@@ -137,11 +164,94 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             for podname in get_pods(self.name + "-{}", self.get_replicas())
         ]
 
-    def read_appdb_pods(self) -> List[client.V1Pod]:
-        return [
-            client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
-            for podname in get_pods(self.app_db_name() + "-{}", self.get_appdb_members_count())
-        ]
+    def get_appdb_pod_names_in_member_clusters(self) -> list[tuple[str, str]]:
+        """Returns list of tuples (cluster_name, pod_name) ordered by cluster index.
+        Pod names are generated according to member count in spec.applicationDatabase.clusterSpecList.
+        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+        """
+        pod_names_per_cluster = []
+        for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            pod_names = multi_cluster_pod_names(
+                self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
+            )
+            pod_names_per_cluster.extend([(cluster_name, pod_name) for pod_name in pod_names])
+
+        return pod_names_per_cluster
+
+    def get_appdb_process_hostnames_in_member_clusters(self) -> list[tuple[str, str]]:
+        """Returns list of tuples (cluster_name, service name) ordered by cluster index.
+        Service names are generated according to member count in spec.applicationDatabase.clusterSpecList.
+        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+        """
+        service_names_per_cluster = []
+        for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            service_names = multi_cluster_service_names(
+                self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
+            )
+            service_names_per_cluster.extend([(cluster_name, service_name) for service_name in service_names])
+
+        return service_names_per_cluster
+
+    def get_appdb_hostnames_for_monitoring_in_member_clusters(self) -> list[tuple[str, str]]:
+        """Returns list of tuples (cluster_name, headless fqdn) ordered by cluster index.
+        Headless fqdn returned is equivalent to executing hostname -f on a pod.
+        Hostnames are generated according to member count in spec.applicationDatabase.clusterSpecList.
+        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+        """
+        hostnames_per_cluster = []
+        for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            pod_names = multi_cluster_pod_names(
+                self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
+            )
+            hostnames_per_cluster.extend(
+                [
+                    (
+                        cluster_name,
+                        f"{pod_name}.{self.app_db_sts_name(cluster_name)}-svc.{self.namespace}.svc.cluster.local",
+                    )
+                    for pod_name in pod_names
+                ]
+            )
+
+        return hostnames_per_cluster
+
+    def get_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
+        """Returns ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.applicationDatabase.clusterSpecList.
+        Cluster indexes are read from -cluster-mapping config map.
+        """
+        cluster_index_mapping = read_configmap(
+            self.namespace, f"{self.app_db_name()}-cluster-mapping", get_central_cluster_client()
+        )
+
+        result = []
+        for cluster_spec_item in self["spec"]["applicationDatabase"].get("clusterSpecList", []):
+            result.append((int(cluster_index_mapping[cluster_spec_item["clusterName"]]), cluster_spec_item))
+
+        return sorted(result, key=lambda x: x[0])
+
+    def read_appdb_pods(self) -> list[tuple[kubernetes.client.ApiClient, client.V1Pod]]:
+        """Returns list of tuples[api_client used, pod]."""
+        if self.is_appdb_multi_cluster():
+            appdb_pod_names = self.get_appdb_pod_names_in_member_clusters()
+            member_cluster_client_map = get_member_cluster_client_map()
+            list_of_pods = []
+            for cluster_name, appdb_pod_name in appdb_pod_names:
+                member_cluster_client = member_cluster_client_map[cluster_name].api_client
+                api_client = client.CoreV1Api(api_client=member_cluster_client)
+                list_of_pods.append(
+                    (member_cluster_client, api_client.read_namespaced_pod(appdb_pod_name, self.namespace))
+                )
+
+            return list_of_pods
+        else:
+            api_client = kubernetes.client.ApiClient()
+            return [
+                (api_client, client.CoreV1Api(api_client=api_client).read_namespaced_pod(podname, self.namespace))
+                for podname in get_pods(self.app_db_name() + "-{}", self.get_appdb_members_count())
+            ]
 
     def read_backup_pods(self) -> List[client.V1Pod]:
         return [
@@ -149,12 +259,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             for podname in get_pods(self.backup_daemon_name() + "-{}", self.get_backup_members_count())
         ]
 
+    @staticmethod
+    def get_backup_daemon_container_status(backup_daemon_pod: client.V1Pod) -> client.V1ContainerStatus:
+        return next(filter(lambda c: c.name == "mongodb-backup-daemon", backup_daemon_pod.status.container_statuses))
+
     def wait_until_backup_pods_become_ready(self, timeout=300):
         def backup_daemons_are_ready():
             try:
                 backup_pods = self.read_backup_pods()
                 for backup_pod in backup_pods:
-                    if not backup_pod.status.container_statuses[0].ready:
+                    if not MongoDBOpsManager.get_backup_daemon_container_status(backup_pod).ready:
                         return False
                 return True
             except Exception as e:
@@ -210,11 +324,19 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         }
         create_or_update_secret(self.namespace, self.get_admin_secret_name(), data, api_client=api_client)
 
-    def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
-        secret = client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-config", self.namespace).data
+    def get_automation_config_tester(self) -> AutomationConfigTester:
+        api_client = None
+        if self.is_appdb_multi_cluster():
+            cluster_name = self.pick_one_member_cluster_name()
+            api_client = get_member_cluster_client_map()[cluster_name].api_client
+
+        secret = (
+            client.CoreV1Api(api_client=api_client)
+            .read_namespaced_secret(self.app_db_name() + "-config", self.namespace)
+            .data
+        )
         automation_config_str = b64decode(secret["cluster-config.json"]).decode("utf-8")
-        config_json = json.loads(automation_config_str)
-        return AutomationConfigTester(config_json, **kwargs)
+        return AutomationConfigTester(json.loads(automation_config_str))
 
     def get_or_create_mongodb_connection_config_map(
         self,
@@ -277,12 +399,31 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
         return OMTester(om_context)
 
-    def get_appdb_tester(self, **kwargs) -> ReplicaSetTester:
-        return ReplicaSetTester(
-            self.app_db_name(),
-            replicas_count=self.appdb_status().get_members(),
-            **kwargs,
-        )
+    def get_appdb_service_names_in_multi_cluster(self) -> list[str]:
+        cluster_indexes_with_members = self.get_member_cluster_indexes_with_member_count()
+        for _, cluster_spec_item in self.get_indexed_cluster_spec_items():
+            return multi_cluster_service_names(self.app_db_name(), cluster_indexes_with_members)
+
+    def get_member_cluster_indexes_with_member_count(self) -> list[tuple[int, int]]:
+        return [
+            (cluster_index, int(cluster_spec_item["members"]))
+            for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items()
+        ]
+
+    def get_appdb_tester(self, **kwargs) -> MongoTester:
+        if self.is_appdb_multi_cluster():
+            return MultiReplicaSetTester(
+                service_names=self.get_appdb_service_names_in_multi_cluster(),
+                port="27017",
+                namespace=self.namespace,
+                **kwargs,
+            )
+        else:
+            return ReplicaSetTester(
+                self.app_db_name(),
+                replicas_count=self.appdb_status().get_members(),
+                **kwargs,
+            )
 
     def pod_urls(self):
         """Returns http urls to each pod in the Ops Manager"""
@@ -402,6 +543,20 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def app_db_name(self) -> str:
         return self.name + "-db"
 
+    def app_db_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
+        if member_cluster_name is not None:
+            cluster_idx = self.get_member_cluster_index(member_cluster_name)
+            return f"{self.name}-db-{cluster_idx}"
+        else:
+            return self.name + "-db"
+
+    def get_member_cluster_index(self, member_cluster_name: str) -> int:
+        for cluster_idx, cluster_spec_item in self.get_indexed_cluster_spec_items():
+            if cluster_spec_item["clusterName"] == member_cluster_name:
+                return cluster_idx
+
+        raise Exception(f"member cluster {member_cluster_name} not found in cluster spec items")
+
     def app_db_password_secret_name(self) -> str:
         return self.app_db_name() + "-om-user-password"
 
@@ -444,7 +599,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     f"/mongodb-ops-manager/mongodb-releases/{distro}",
                 ]
 
-                KubernetesTester.run_command_in_pod_container(pod.metadata.name, self.namespace, cmd)
+                KubernetesTester.run_command_in_pod_container(
+                    pod.metadata.name, self.namespace, cmd, container="mongodb-ops-manager"
+                )
+
+    def is_appdb_multi_cluster(self):
+        return self["spec"].get("applicationDatabase", {}).get("topology", "") == "MultiCluster"
 
     class StatusCommon:
         def assert_reaches_phase(

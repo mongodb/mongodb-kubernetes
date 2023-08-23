@@ -13,8 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-var crdFuncMap map[string][]func(manager.Manager) error
-var crdMultiFuncMap map[string][]func(manager.Manager, map[string]cluster.Cluster) error
+var crdFuncMap map[string][]func(manager.Manager, map[string]cluster.Cluster) error
 
 var (
 	mdb      = &mdbv1.MongoDB{}
@@ -25,14 +24,13 @@ var (
 
 func init() {
 	crdFuncMap = buildCrdFunctionMap()
-	crdMultiFuncMap = buildCrdMultiFunctionMap()
 }
 
 // buildCrdFunctionMap creates a map which maps the name of the Custom
 // Resource Definition to a function which adds the corresponding function
 // to a manager.Manager for single cluster reconcilers
-func buildCrdFunctionMap() map[string][]func(manager.Manager) error {
-	return map[string][]func(manager.Manager) error{
+func buildCrdFunctionMap() map[string][]func(manager.Manager, map[string]cluster.Cluster) error {
+	return map[string][]func(manager.Manager, map[string]cluster.Cluster) error{
 		strings.ToLower(mdb.GetPlural()): {
 			operator.AddStandaloneController,
 			operator.AddReplicaSetController,
@@ -43,14 +41,6 @@ func buildCrdFunctionMap() map[string][]func(manager.Manager) error {
 			operator.AddOpsManagerController,
 			om.AddValidationToManager,
 		},
-	}
-}
-
-// buildCrdMultiFunctionMap create a map which maps the name of the Custom
-// Resource Definition to a function which adds the corresponding function
-// to a manager.Manager and slice of cluster objects for single multi cluster reconcilers
-func buildCrdMultiFunctionMap() map[string][]func(manager.Manager, map[string]cluster.Cluster) error {
-	return map[string][]func(manager.Manager, map[string]cluster.Cluster) error{
 		strings.ToLower(mdbmulti.GetPlural()): {
 			operator.AddMultiReplicaSetController,
 			mdbmulti.AddValidationToManager,
@@ -78,24 +68,18 @@ func getCRDsToWatch(watchCRDStr string) []string {
 // AddToManager adds all Controllers to the Manager
 func AddToManager(m manager.Manager, crdsToWatchStr string, c map[string]cluster.Cluster) ([]string, error) {
 	crdsToWatch := getCRDsToWatch(crdsToWatchStr)
-	var addSingleToManagerFuncs []func(manager.Manager) error
-	var addMultiToManagerFuncs []func(manager.Manager, map[string]cluster.Cluster) error
+
+	var addCRDFuncs []func(manager.Manager, map[string]cluster.Cluster) error
 
 	for _, ctr := range crdsToWatch {
-		addSingleToManagerFuncs = append(addSingleToManagerFuncs, crdFuncMap[strings.Trim(strings.ToLower(ctr), " ")]...)
-		addMultiToManagerFuncs = append(addMultiToManagerFuncs, crdMultiFuncMap[strings.Trim(strings.ToLower(ctr), " ")]...)
+		addCRDFuncs = append(addCRDFuncs, crdFuncMap[strings.Trim(strings.ToLower(ctr), " ")]...)
 	}
 
-	for _, f := range addSingleToManagerFuncs {
-		if err := f(m); err != nil {
-			return []string{}, err
-		}
-	}
-
-	for _, f := range addMultiToManagerFuncs {
+	for _, f := range addCRDFuncs {
 		if err := f(m, c); err != nil {
 			return []string{}, err
 		}
 	}
+
 	return crdsToWatch, nil
 }

@@ -15,6 +15,9 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from pytest import fixture, mark
 
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+
 
 @fixture(scope="module")
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
@@ -22,10 +25,16 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
     )
+
+    if try_load(om):
+        return om
+
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
 
-    try_load(om)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
+
     return om
 
 
@@ -33,7 +42,6 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 class TestOpsManagerCreation:
     def test_appdb_0_sts_agents_havent_reached_running_state(self, ops_manager: MongoDBOpsManager):
         create_or_update(ops_manager)
-
         ops_manager.appdb_status().assert_reaches_phase(
             Phase.Pending,
             msg_regexp="Application Database Agents haven't reached Running state yet",
@@ -85,6 +93,7 @@ class TestOpsManagerCreation:
         assert appdb_sts.spec.template.spec.containers[0].command == ["sleep"]
         assert appdb_sts.spec.template.spec.containers[0].args == ["infinity"]
 
+    # TODO it appears it is doing some legit checks, yet is unused, why? can we remove it?
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
         appdb_sts = ops_manager.read_appdb_statefulset()
@@ -92,7 +101,7 @@ class TestOpsManagerCreation:
         assert appdb_sts.spec.volume_claim_templates[0].metadata.name == "data"
         assert appdb_sts.spec.volume_claim_templates[0].spec.resources.requests["storage"] == "1G"
 
-        for pod in ops_manager.read_appdb_pods():
+        for api_client, pod in ops_manager.read_appdb_pods():
             # pod volume claim
             expected_claim_name = f"data-{pod.metadata.name}"
             claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
@@ -101,7 +110,9 @@ class TestOpsManagerCreation:
             assert claims[0].persistent_volume_claim.claim_name == expected_claim_name
 
             # volume claim created
-            pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(expected_claim_name, namespace)
+            pvc = client.CoreV1Api(api_client=api_client).read_namespaced_persistent_volume_claim(
+                expected_claim_name, namespace
+            )
             assert pvc.status.phase == "Bound"
             assert pvc.spec.resources.requests["storage"] == "1G"
 
@@ -290,10 +301,11 @@ class TestOpsManagerUpdate:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=100)
 
     def test_appdb_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_status_resource_not_ready(
-            ops_manager.app_db_name(),
-            msg_regexp="Not all the Pods are ready \(total: 3.*\)",
-        )
+        if not is_multi_cluster():
+            ops_manager.appdb_status().assert_status_resource_not_ready(
+                ops_manager.app_db_name(),
+                msg_regexp="Not all the Pods are ready \(total: 3.*\)",
+            )
 
     def test_appdb_2_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)

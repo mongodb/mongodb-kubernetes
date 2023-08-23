@@ -8,11 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 
@@ -26,8 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -52,19 +54,19 @@ func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
 	appdb := &opsManager.Spec.AppDB
 
 	var cnx string
-	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, nil)
+	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, nil, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
 		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000", cnx)
 
 	// Special symbols in the url
-	cnx = appdb.BuildConnectionURL("special/user#", "@passw!", connectionstring.SchemeMongoDB, nil)
+	cnx = appdb.BuildConnectionURL("special/user#", "@passw!", connectionstring.SchemeMongoDB, nil, nil)
 	assert.Equal(t, "mongodb://special%2Fuser%23:%40passw%21@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
 		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000", cnx)
 
 	// Connection parameters. The default one is overridden
-	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"})
+	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
 		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000",
@@ -76,13 +78,13 @@ func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
 	appdb := &opsManager.Spec.AppDB
 
 	var cnx string
-	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, nil)
+	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, nil, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.my-cluster:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.my-cluster:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.my-cluster:27017/"+
 		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000", cnx)
 
 	// Connection parameters. The default one is overridden
-	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"})
+	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.my-cluster:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.my-cluster:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.my-cluster:27017/"+
 		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000",
@@ -95,11 +97,12 @@ func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeManager := mock.NewManager(&opsManager)
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 
-	err := createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	err = createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	assert.NoError(t, err)
-	_, err = reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager)
 	assert.NoError(t, err)
 
 	s, err := kubeManager.Client.GetSecret(kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -113,21 +116,24 @@ func TestPublishAutomationConfig_Create(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeManager := mock.NewEmptyManager()
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 	automationConfig, err := buildAutomationConfigForAppDb(builder, kubeManager, automation)
 	assert.NoError(t, err)
-	version, err := reconciler.publishAutomationConfig(opsManager, automationConfig, appdb.AutomationConfigSecretName())
+	// FIXME central cluster name
+	version, err := reconciler.publishAutomationConfig(opsManager, automationConfig, appdb.AutomationConfigSecretName(), omv1.DummmyCentralClusterName)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
 	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(builder, kubeManager, monitoring)
 	assert.NoError(t, err)
-	version, err = reconciler.publishAutomationConfig(opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName())
+	// FIXME central cluster name
+	version, err = reconciler.publishAutomationConfig(opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName(), omv1.DummmyCentralClusterName)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
 	// verify the automation config secret for the automation agent
-	acSecret := readAutomationConfigSecret(t, kubeManager, opsManager)
+	acSecret := readAutomationConfigSecret(t, kubeManager.GetClient(), opsManager)
 	checkDeploymentEqualToPublished(t, automationConfig, acSecret)
 
 	// verify the automation config secret for the monitoring agent
@@ -174,11 +180,12 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
 	kubeManager := mock.NewManager(&opsManager)
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 
 	// create
 	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
-	_, err := reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager)
 	assert.NoError(t, err)
 
 	ac, err := automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -186,7 +193,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	assert.Equal(t, 1, ac.Version)
 
 	// publishing the config without updates should not result in API call
-	_, err = reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager)
 	assert.NoError(t, err)
 
 	ac, err = automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -199,7 +206,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	opsManager.Spec.AppDB.FeatureCompatibilityVersion = &fcv
 	kubeManager.Client.Update(context.TODO(), &opsManager)
 
-	_, err = reconciler.ReconcileAppDB(&opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_, err = reconciler.ReconcileAppDB(&opsManager)
 	assert.NoError(t, err)
 
 	ac, err = automationconfig.ReadFromSecret(reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
@@ -254,18 +261,15 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
-	client := kubeManager.Client
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
-	appDbSts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, construct.AppDBStatefulSetOptions{}, nil)
-	assert.NoError(t, err)
-
 	t.Run("Ensure all hosts are added", func(t *testing.T) {
+		_, err = reconciler.ReconcileAppDB(&opsManager)
 
-		_ = client.Update(context.TODO(), &appDbSts)
-
-		err := reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
+		hostnames := reconciler.getCurrentStatefulsetHostnames(&opsManager)
+		err = reconciler.registerAppDBHostsWithProject(hostnames, conn, "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := conn.GetHosts()
@@ -273,10 +277,11 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 	})
 
 	t.Run("Ensure hosts are added when scaled up", func(t *testing.T) {
-		appDbSts.Spec.Replicas = util.Int32Ref(5)
-		_ = client.Update(context.TODO(), &appDbSts)
+		opsManager.Spec.AppDB.Members = 5
+		_, err = reconciler.ReconcileAppDB(&opsManager)
 
-		err := reconciler.registerAppDBHostsWithProject(&opsManager, conn, "password", zap.S())
+		hostnames := reconciler.getCurrentStatefulsetHostnames(&opsManager)
+		err = reconciler.registerAppDBHostsWithProject(hostnames, conn, "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := conn.GetHosts()
@@ -288,11 +293,12 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	conn.AgentAPIKey = "my-api-key"
-	err := reconciler.ensureAppDbAgentApiKey(&opsManager, conn, zap.S())
+	err = reconciler.ensureAppDbAgentApiKey(&opsManager, conn, zap.S())
 	assert.NoError(t, err)
 
 	secretName := agents.ApiKeySecretName(conn.GroupID())
@@ -306,7 +312,9 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
-	reconciler := newAppDbReconciler(kubeManager)
+	appdbScaler := scalers.GetAppDBScaler(&opsManager, omv1.DummmyCentralClusterName, 0, nil)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		return om.NewEmptyMockedOmConnection(context)
@@ -320,8 +328,10 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, construct.AppDBStatefulSetOptions{}, nil)
+	appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
 	assert.NoError(t, err)
+
+	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
 
 	_ = client.Update(context.TODO(), &appDbSts)
 
@@ -350,6 +360,21 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	hosts, _ := om.CurrMockedConnection.GetHosts()
 	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
+
+	appDbSts, err = construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+	assert.NoError(t, err)
+
+	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
+}
+
+func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {
+	for i := 0; i < len(volumes); i++ {
+		if volumes[i].Name == name {
+			return &volumes[i]
+		}
+	}
+
+	return nil
 }
 
 func TestAppDBScaleUp_HappensIncrementally(t *testing.T) {
@@ -452,16 +477,18 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		kubeManager := mock.NewEmptyManager()
 		err := createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
 		assert.NoError(t, err)
-		reconciler := newAppDbReconciler(kubeManager)
+		reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+		require.NoError(t, err)
 		reconciler.client = kubeManager.Client
 
 		// create a pre-existing automation config based on the resource provided.
 		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
 		// based on whether or not there are disabled processes.
 		if createAutomationConfig {
-			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, appsv1.StatefulSet{}, automation, UnusedPrometheusConfiguration, zap.S())
+			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, automation, UnusedPrometheusConfiguration, omv1.DummmyCentralClusterName, zap.S())
 			assert.NoError(t, err)
-			_, err = reconciler.publishAutomationConfig(opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName())
+			// FIXME central cluster name
+			_, err = reconciler.publishAutomationConfig(opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), omv1.DummmyCentralClusterName)
 			assert.NoError(t, err)
 		}
 		return reconciler
@@ -553,7 +580,6 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, shouldReconcile)
 	})
-
 }
 
 // appDBStatefulSetLabelsAndServiceName returns extra fields that we have to manually set to the AppDB statefulset
@@ -585,7 +611,8 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
 	createOpsManagerUserPasswordSecret(client, opsManager, "pass")
-	reconciler := newAppDbReconciler(kubeManager)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
+	require.NoError(t, err)
 
 	// create the apiKey and OM user
 	data := map[string]string{
@@ -627,7 +654,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	err = client.CreateStatefulSet(appDbSts)
 	assert.NoError(t, err)
 
-	res, err := reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
+	res, err := reconciler.ReconcileAppDB(&opsManager)
 
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
@@ -641,7 +668,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 			err = client.Update(context.TODO(), &opsManager)
 			assert.NoError(t, err)
 
-			res, err = reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
+			res, err = reconciler.ReconcileAppDB(&opsManager)
 
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
@@ -651,14 +678,14 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 			err = client.Update(context.TODO(), &opsManager)
 			assert.NoError(t, err)
 
-			res, err = reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
+			res, err = reconciler.ReconcileAppDB(&opsManager)
 
 			assert.NoError(t, err)
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
 		}
 	}
 
-	res, err = reconciler.ReconcileAppDB(&opsManager, "i6ocEoHYJTteoNTX")
+	res, err = reconciler.ReconcileAppDB(&opsManager)
 	assert.NoError(t, err)
 	assert.Equal(t, time.Duration(0), res.RequeueAfter)
 
@@ -673,12 +700,14 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager 
 
 	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
 	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
-	reconciler := newAppDbReconciler(kubeManager)
-	sts, err := construct.AppDbStatefulSet(opsManager, &env.PodEnvVars{ProjectID: "abcd"}, construct.AppDBStatefulSetOptions{}, nil)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
-	return reconciler.buildAppDbAutomationConfig(opsManager, sts, acType, UnusedPrometheusConfiguration, zap.S())
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
+	return reconciler.buildAppDbAutomationConfig(opsManager, acType, UnusedPrometheusConfiguration, omv1.DummmyCentralClusterName, zap.S())
 
 }
 
@@ -693,14 +722,21 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 	assert.Equal(t, expectedAc, actual)
 }
 
-func newAppDbReconciler(mgr manager.Manager) *ReconcileAppDbReplicaSet {
-	return &ReconcileAppDbReplicaSet{
-		ReconcileCommonController: newReconcileCommonController(mgr),
-		omConnectionFactory:       om.NewEmptyMockedOmConnection,
-		versionMappingProvider: func(s string) ([]byte, error) {
-			return nil, nil
-		},
+func newAppDbReconciler(mgr manager.Manager, opsManager omv1.MongoDBOpsManager) (*ReconcileAppDbReplicaSet, error) {
+	commonController := newReconcileCommonController(mgr)
+	versionMappingProvider := func(s string) ([]byte, error) {
+		return nil, nil
 	}
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, versionMappingProvider, nil)
+}
+
+func newAppDbMultiReconciler(mgr manager.Manager, opsManager omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster) (*ReconcileAppDbReplicaSet, error) {
+	commonController := newReconcileCommonController(mgr)
+	versionMappingProvider := func(s string) ([]byte, error) {
+		return nil, nil
+	}
+
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, versionMappingProvider, memberClusterMap)
 }
 
 // createOpsManagerUserPasswordSecret creates the secret which holds the password that will be used for the Ops Manager user.
@@ -714,10 +750,10 @@ func createOpsManagerUserPasswordSecret(client *mock.MockedClient, om omv1.Mongo
 	)
 }
 
-func readAutomationConfigSecret(t *testing.T, kubeManager *mock.MockedManager, opsManager omv1.MongoDBOpsManager) *corev1.Secret {
+func readAutomationConfigSecret(t *testing.T, kubeManager client.Client, opsManager omv1.MongoDBOpsManager) *corev1.Secret {
 	s := &corev1.Secret{}
 	key := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
-	assert.NoError(t, kubeManager.Client.Get(context.TODO(), key, s))
+	assert.NoError(t, kubeManager.Get(context.TODO(), key, s))
 	return s
 }
 

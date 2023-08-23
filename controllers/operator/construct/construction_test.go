@@ -9,6 +9,7 @@ import (
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -126,7 +127,9 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 }
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
-	appDbSts, err := AppDbStatefulSet(omv1.NewOpsManagerBuilderDefault().Build(), &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, nil)
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(&om, omv1.DummmyCentralClusterName, 0, nil)
+	appDbSts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scaler, nil)
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)

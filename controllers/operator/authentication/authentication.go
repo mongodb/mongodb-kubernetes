@@ -326,6 +326,7 @@ type Mechanism interface {
 var _ Mechanism = ConnectionScramSha{}
 var _ Mechanism = AutomationConfigScramSha{}
 var _ Mechanism = ConnectionX509{}
+var _ Mechanism = &ldapAuthMechanism{}
 
 // removeUnusedAuthenticationMechanisms removes authentication mechanism that were previously enabled, or were required
 // as part of the transition process.

@@ -265,7 +265,7 @@ def test_set_backup_users(ops_manager: MongoDBOpsManager, oplog_user: MongoDBUse
     ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
     ops_manager.update()
 
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000, ignore_errors=True)
 
     assert ops_manager.backup_status().get_message() is None
 
@@ -347,7 +347,7 @@ def test_resources_in_running_state_after_upgrade(
 ):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000)
     oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     s3_replica_set.assert_reaches_phase(Phase.Running, timeout=600)

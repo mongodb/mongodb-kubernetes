@@ -1,19 +1,22 @@
 import os
-from time import sleep
 from typing import Optional
 
 import pymongo
-from kubetester import create_secret, read_secret, update_secret
-from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
+from pytest import fixture, mark
+
+from kubetester import create_or_update, create_or_update_secret
+from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, mark
+from tests.conftest import is_multi_cluster, create_appdb_certs
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 MDB_VERSION = "4.2.1"
 CA_FILE_PATH_IN_TEST_POD = "/tests/ca.crt"
 OM_NAME = "om-tls-monitored-appdb"
+APPDB_NAME = f"{OM_NAME}-db"
 
 
 @fixture(scope="module")
@@ -23,8 +26,7 @@ def ops_manager_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str):
-    create_mongodb_tls_certs(issuer, namespace, f"{OM_NAME}-db", "appdb-om-tls-monitored-appdb-db-cert")
-    return "appdb"
+    return create_appdb_certs(namespace, issuer, APPDB_NAME)
 
 
 @fixture(scope="module")
@@ -37,8 +39,7 @@ def ops_manager(
     custom_version: Optional[str],
     issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
-
-    create_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
+    create_or_update_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
 
     print("Creating OM object")
     om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace)
@@ -46,7 +47,12 @@ def ops_manager(
 
     # ensure the requests library will use this CA when communicating with Ops Manager
     os.environ["REQUESTS_CA_BUNDLE"] = issuer_ca_filepath
-    return om.create()
+
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
+
+    create_or_update(om)
+    return om
 
 
 @mark.e2e_om_appdb_monitoring_tls
@@ -71,7 +77,7 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
 
     # Change the Secret containing the password
     data = {"password": "Hello-World!-new"}
-    update_secret(
+    create_or_update_secret(
         ops_manager.namespace,
         ops_manager["spec"]["applicationDatabase"]["passwordSecretKeyRef"]["name"],
         data,

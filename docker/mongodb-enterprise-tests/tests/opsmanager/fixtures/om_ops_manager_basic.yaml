@@ -10,6 +10,8 @@ spec:
   applicationDatabase:
     members: 3
     version: 4.4.20-ent
+    agent:
+      logLevel: DEBUG
 
   backup:
     enabled: false

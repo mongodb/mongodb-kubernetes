@@ -6,6 +6,8 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 
+# This test still uses KubernetesTester therefore it wasn't used for Multi-Cluster AppDB tests.
+# It was also moved to separate directory to clearly indicate this test is unmanageable until converting to normal imperative test.
 
 def om_resource(namespace: str) -> MongoDBOpsManager:
     return MongoDBOpsManager.from_yaml(yaml_fixture("om_validation.yaml"), namespace=namespace)

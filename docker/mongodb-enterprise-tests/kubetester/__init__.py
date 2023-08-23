@@ -121,6 +121,10 @@ def create_object_from_dict(data, namespace: str) -> List:
     return utils.create_from_dict(k8s_client=k8s_client, data=data, namespace=namespace)
 
 
+def read_configmap(namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> Dict[str, str]:
+    return client.CoreV1Api(api_client=api_client).read_namespaced_config_map(name, namespace).data
+
+
 def create_configmap(
     namespace: str,
     name: str,
@@ -217,14 +221,6 @@ def read_secret(
     api_client: Optional[client.ApiClient] = None,
 ) -> Dict[str, str]:
     return decode_secret(client.CoreV1Api(api_client=api_client).read_namespaced_secret(name, namespace).data)
-
-
-def read_configmap(
-    namespace: str,
-    name: str,
-    api_client: Optional[client.ApiClient] = None,
-) -> Dict[str, str]:
-    return client.CoreV1Api(api_client=api_client).read_namespaced_config_map(name, namespace).data
 
 
 def delete_pod(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
@@ -452,6 +448,6 @@ def try_load(resource: CustomObject) -> bool:
         if e.status != 404:
             raise e
         else:
-            return True
+            return False
 
     return True

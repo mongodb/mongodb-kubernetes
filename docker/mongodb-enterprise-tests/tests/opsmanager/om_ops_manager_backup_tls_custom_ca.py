@@ -2,16 +2,19 @@ import os
 import time
 from typing import Optional
 
+from pytest import mark, fixture
+
 from kubetester import MongoDB, create_or_update
-from kubetester.certs import create_ops_manager_tls_certs
+from kubetester.certs import create_ops_manager_tls_certs, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import mark, fixture
 from tests.conftest import (
     default_external_domain,
     external_domain_fqdns,
     update_coredns_hosts,
+    is_multi_cluster,
+    create_appdb_certs,
 )
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
@@ -19,7 +22,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     BLOCKSTORE_RS_NAME,
 )
-from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 FIRST_PROJECT_RS_NAME = "mdb-four-two"
@@ -45,9 +48,7 @@ def ops_manager_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    prefix = "appdb"
-    create_mongodb_tls_certs(issuer, namespace, "om-backup-tls-db", f"{prefix}-om-backup-tls-db-cert")
-    return prefix
+    return create_appdb_certs(namespace, issuer, "om-backup-tls-db")
 
 
 @fixture(scope="module")
@@ -122,6 +123,9 @@ def ops_manager(
     # configure OM to be using hybrid mode
     resource["spec"]["configuration"]["automation.versions.source"] = "hybrid"
 
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
     create_or_update(resource)
     return resource
 
@@ -154,12 +158,20 @@ def blockstore_replica_set(ops_manager, issuer_ca_configmap: str, blockstore_cer
 
 @mark.e2e_om_ops_manager_backup_tls_custom_ca
 def test_update_coredns():
-    hosts = [
-        ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
-        ("172.18.255.201", "my-replica-set-1.mongodb.interconnected"),
-        ("172.18.255.202", "my-replica-set-2.mongodb.interconnected"),
-        ("172.18.255.203", "my-replica-set-3.mongodb.interconnected"),
-    ]
+    if is_multi_cluster():
+        hosts = [
+            ("172.18.255.211", "my-replica-set-0.mongodb.interconnected"),
+            ("172.18.255.212", "my-replica-set-1.mongodb.interconnected"),
+            ("172.18.255.213", "my-replica-set-2.mongodb.interconnected"),
+            ("172.18.255.214", "my-replica-set-3.mongodb.interconnected"),
+        ]
+    else:
+        hosts = [
+            ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
+            ("172.18.255.201", "my-replica-set-1.mongodb.interconnected"),
+            ("172.18.255.202", "my-replica-set-2.mongodb.interconnected"),
+            ("172.18.255.203", "my-replica-set-3.mongodb.interconnected"),
+        ]
 
     update_coredns_hosts(hosts)
 

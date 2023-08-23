@@ -1,6 +1,7 @@
 import pytest
 from kubernetes import client
 
+from kubetester import create_or_update
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
@@ -9,6 +10,9 @@ from kubetester.mongodb import Phase
 from kubetester.omtester import OMBackgroundTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 gen_key_resource_version = None
 admin_key_resource_version = None
@@ -27,7 +31,12 @@ def ops_manager(namespace, custom_version: str, custom_appdb_version: str) -> Mo
     if custom_version.startswith("6"):
         resource.set_version(OM5_CURRENT_VERSION)
     resource.set_appdb_version(custom_appdb_version)
-    return resource.create()
+
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")

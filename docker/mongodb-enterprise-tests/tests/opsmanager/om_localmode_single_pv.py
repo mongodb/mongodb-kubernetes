@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import yaml
@@ -6,10 +7,13 @@ from kubetester.kubetester import (
     skip_if_local,
     KubernetesTester,
 )
-from kubetester import get_default_storage_class
+from kubetester import get_default_storage_class, create_or_update
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
+
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 # we can use the custom_mdb_version fixture when we release mongodb-enterprise-init-mongod-rhel and
 # mongodb-enterprise-init-mongod-ubuntu1604 for 4.4+ versions, so far let's use the constant
@@ -18,15 +22,11 @@ VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
         pvc_body = yaml.safe_load(f.read())
 
-    KubernetesTester.create_or_update_pvc(
-        namespace, body=pvc_body, storage_class_name=get_default_storage_class()
-    )
+    KubernetesTester.create_or_update_pvc(namespace, body=pvc_body, storage_class_name=get_default_storage_class())
 
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
@@ -34,9 +34,11 @@ def ops_manager(
     )
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
-    yield om.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
 
-    KubernetesTester.delete_pvc(namespace, "mongodb-versions-claim")
+    create_or_update(om)
+    return om
 
 
 @fixture(scope="module")

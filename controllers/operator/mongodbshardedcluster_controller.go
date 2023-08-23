@@ -50,6 +50,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -536,7 +537,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 	return nil
 }
 
-func AddShardedClusterController(mgr manager.Manager) error {
+func AddShardedClusterController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newShardedClusterReconciler(mgr, om.NewOpsManagerConnection)
 	options := controller.Options{Reconciler: reconciler}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)

@@ -3,16 +3,18 @@ from typing import Optional
 from pytest import mark, fixture
 
 from kubetester import MongoDB, create_or_update
+from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster, create_appdb_certs
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
     BLOCKSTORE_RS_NAME,
     new_om_data_store,
 )
-from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
@@ -21,25 +23,18 @@ This test checks the work with TLS-enabled backing databases (oplog & blockstore
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, "om-backup-tls-db", "appdb-om-backup-tls-db-cert"
-    )
-    return "appdb"
+    return create_appdb_certs(namespace, issuer, "om-backup-tls-db")
 
 
 @fixture(scope="module")
 def oplog_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, OPLOG_RS_NAME, f"oplog-{OPLOG_RS_NAME}-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, OPLOG_RS_NAME, f"oplog-{OPLOG_RS_NAME}-cert")
     return "oplog"
 
 
 @fixture(scope="module")
 def blockstore_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, BLOCKSTORE_RS_NAME, f"blockstore-{BLOCKSTORE_RS_NAME}-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, BLOCKSTORE_RS_NAME, f"blockstore-{BLOCKSTORE_RS_NAME}-cert")
     return "blockstore"
 
 
@@ -59,18 +54,17 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
     resource["spec"]["security"]["tls"]["ca"] = ops_manager_issuer_ca_configmap
-    resource["spec"]["applicationDatabase"]["security"]["tls"][
-        "ca"
-    ] = app_db_issuer_ca_configmap
+    resource["spec"]["applicationDatabase"]["security"]["tls"]["ca"] = app_db_issuer_ca_configmap
+
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
 
 
 @fixture(scope="module")
-def oplog_replica_set(
-    ops_manager, app_db_issuer_ca_configmap: str, oplog_certs_secret: str
-) -> MongoDB:
+def oplog_replica_set(ops_manager, app_db_issuer_ca_configmap: str, oplog_certs_secret: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
@@ -83,9 +77,7 @@ def oplog_replica_set(
 
 
 @fixture(scope="module")
-def blockstore_replica_set(
-    ops_manager, app_db_issuer_ca_configmap: str, blockstore_certs_secret: str
-) -> MongoDB:
+def blockstore_replica_set(ops_manager, app_db_issuer_ca_configmap: str, blockstore_certs_secret: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
@@ -114,9 +106,7 @@ class TestOpsManagerCreation:
             timeout=900,
         )
 
-    def test_backing_dbs_created(
-        self, oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB
-    ):
+    def test_backing_dbs_created(self, oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -136,9 +126,7 @@ class TestOpsManagerCreation:
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
-        om_tester.assert_block_stores(
-            [new_om_data_store(blockstore_replica_set, "blockStore1")]
-        )
+        om_tester.assert_block_stores([new_om_data_store(blockstore_replica_set, "blockStore1")])
 
 
 @mark.e2e_om_ops_manager_backup_tls
@@ -146,9 +134,7 @@ class TestBackupForMongodb:
     """This part ensures that backup for the client works correctly and the snapshot is created."""
 
     @fixture(scope="class")
-    def mdb_latest(
-        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
-    ):
+    def mdb_latest(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
@@ -161,9 +147,7 @@ class TestBackupForMongodb:
         return resource
 
     @fixture(scope="class")
-    def mdb_prev(
-        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str
-    ):
+    def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
