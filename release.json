@@ -7,7 +7,7 @@
   "initOpsManagerVersion": "1.0.12",
   "initAppDbVersion": "1.0.18",
   "databaseImageVersion": "2.0.2",
-  "readinessProbeVersion": "1.0.16",
+  "readinessProbeVersion": "1.0.17",
   "versionUpgradePostStartHookVersion": "1.0.8",
   "agentVersion": "12.0.25.7724-1",
   "openshift": {
