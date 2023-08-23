@@ -11,8 +11,8 @@ import (
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scramcredentials"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
@@ -24,27 +24,30 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
+	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
 	operatorConstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func init() {
@@ -806,13 +809,13 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 		t.Run("Agent password has been created", func(t *testing.T) {
 			agentPasswordSecret, err := client.GetSecret(om.Spec.AppDB.GetAgentPasswordSecretNamespacedName())
 			assert.NoError(t, err)
-			assert.Equal(t, ac.Auth.AutoPwd, string(agentPasswordSecret.Data[scram.AgentPasswordKey]))
+			assert.Equal(t, ac.Auth.AutoPwd, string(agentPasswordSecret.Data[constants.AgentPasswordKey]))
 		})
 
 		t.Run("Keyfile has been created", func(t *testing.T) {
 			keyFileSecret, err := client.GetSecret(om.Spec.AppDB.GetAgentKeyfileSecretNamespacedName())
 			assert.NoError(t, err)
-			assert.Equal(t, ac.Auth.Key, string(keyFileSecret.Data[scram.AgentKeyfileKey]))
+			assert.Equal(t, ac.Auth.Key, string(keyFileSecret.Data[constants.AgentKeyfileKey]))
 		})
 	})
 

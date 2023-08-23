@@ -8,14 +8,14 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/evanphx/json-patch v5.6.0+incompatible
 	github.com/ghodss/yaml v1.0.0
-	github.com/go-logr/logr v1.2.3
+	github.com/go-logr/logr v1.2.4
 	github.com/google/go-cmp v0.5.9
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-retryablehttp v0.7.2
 	github.com/hashicorp/vault/api v1.8.3
 	github.com/imdario/mergo v0.3.15
-	github.com/mongodb/mongodb-kubernetes-operator v0.8.1-0.20230524141203-f3647e30aa46
+	github.com/mongodb/mongodb-kubernetes-operator v0.8.3-0.20230822083942-d5e37a190625
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/common v0.42.0
@@ -23,7 +23,7 @@ require (
 	github.com/spf13/cast v1.5.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/objx v0.5.0
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.4
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.12.0

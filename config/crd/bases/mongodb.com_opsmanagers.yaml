@@ -862,6 +862,19 @@ spec:
                       StatefulSet that should be merged into the operator created
                       one.
                     properties:
+                      metadata:
+                        description: StatefulSetMetadataWrapper is a wrapper around
+                          Labels and Annotations
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
                       spec:
                         type: object
                         x-kubernetes-preserve-unknown-fields: true
@@ -949,6 +962,19 @@ spec:
               statefulSet:
                 description: Configure custom StatefulSet configuration
                 properties:
+                  metadata:
+                    description: StatefulSetMetadataWrapper is a wrapper around Labels
+                      and Annotations
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                   spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
