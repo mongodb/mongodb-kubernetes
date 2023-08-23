@@ -259,7 +259,7 @@ func getHostnameOverrideConfigMapForReplicaset(mdb mdbv1.MongoDB) corev1.ConfigM
 	data := make(map[string]string)
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
-		hostnames, names := dns.GetDNSNames(mdb.Name, "", mdb.GetObjectMeta().GetNamespace(), mdb.GetZZZ_DeprecatedClusterName(), mdb.Spec.Members, mdb.Spec.DbCommonSpec.GetExternalDomain())
+		hostnames, names := dns.GetDNSNames(mdb.Name, "", mdb.GetObjectMeta().GetNamespace(), mdb.Spec.GetClusterDomain(), mdb.Spec.Members, mdb.Spec.DbCommonSpec.GetExternalDomain())
 		for i := range hostnames {
 			data[names[i]] = hostnames[i]
 		}
