@@ -8,6 +8,10 @@
 ## Bug fixes
 * Fixes a bug where passing the labels via statefulset override mechanism would not lead to an override on the actual statefulset.
 
+## New Feature
+* Support for Label and Annotations Wrapper for the following CRDs: mongodb, mongodbmulti and opsmanager
+  * Additionally, to the `specWrapper` for `statefulsets` we now support overriding `metadata.Labels` and `metadata.Annotations` via the `MetadataWrapper`.
+
 # MongoDBOpsManager Resource
 ## Breaking changes
 * The `appdb-ca` is no longer automatically added to the JVM Trust Store (in Ops Manager or Cloud Manager). Since a bug introduced in version `1.17.0`, automatically adding these certificates to the JVM Trust Store has no longer worked.
