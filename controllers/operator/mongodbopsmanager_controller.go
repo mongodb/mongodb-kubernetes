@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
+
 	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
@@ -47,8 +48,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault/vaultwatcher"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -56,14 +55,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
-	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-	"github.com/blang/semver"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/10gen/ops-manager-kubernetes/controllers/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/api"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/blang/semver"
 )
 
 const (
@@ -334,7 +337,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
 		SetName(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Name).
 		SetNamespace(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Namespace).
-		SetField(scram.AgentPasswordKey, ac.Auth.AutoPwd).
+		SetField(constants.AgentPasswordKey, ac.Auth.AutoPwd).
 		Build(),
 	)
 	if err != nil {
@@ -345,7 +348,7 @@ func ensureResourcesForArchitectureChange(secretGetUpdaterCreator secret.GetUpda
 	err = createOrUpdateSecretIfNotFound(secretGetUpdaterCreator, secret.Builder().
 		SetName(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name).
 		SetNamespace(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Namespace).
-		SetField(scram.AgentKeyfileKey, ac.Auth.Key).
+		SetField(constants.AgentKeyfileKey, ac.Auth.Key).
 		Build(),
 	)
 

@@ -11,8 +11,10 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
+
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -148,35 +150,35 @@ func (m *AppDBSpec) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
 	}
 }
 
-// GetScramOptions returns a set of Options which is used to configure Scram Sha authentication
+// GetAuthOptions returns a set of Options which is used to configure Scram Sha authentication
 // in the AppDB.
-func (m *AppDBSpec) GetScramOptions() scram.Options {
-	return scram.Options{
+func (m *AppDBSpec) GetAuthOptions() authtypes.Options {
+	return authtypes.Options{
 		AuthoritativeSet: false,
 		KeyFile:          appDBKeyfilePath,
-		AutoAuthMechanisms: []string{
-			scram.Sha256,
-			scram.Sha1,
+		AuthMechanisms: []string{
+			constants.Sha256,
+			constants.Sha1,
 		},
 		AgentName:         util.AutomationAgentName,
-		AutoAuthMechanism: scram.Sha1,
+		AutoAuthMechanism: constants.Sha1,
 	}
 }
 
-// GetScramUsers returns a list of all scram users for this deployment.
+// GetAuthUsers returns a list of all scram users for this deployment.
 // in this case it is just the Ops Manager user for the AppDB.
-func (m *AppDBSpec) GetScramUsers() []scram.User {
+func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	passwordSecretName := m.GetOpsManagerUserPasswordSecretName()
 	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
 		passwordSecretName = m.PasswordSecretKeyRef.Name
 	}
-	return []scram.User{
+	return []authtypes.User{
 		{
 			Username: util.OpsManagerMongoDBUserName,
 			Database: util.DefaultUserDatabase,
 			// required roles for the AppDB user are outlined in the documentation
 			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
-			Roles: []scram.Role{
+			Roles: []authtypes.Role{
 				{
 					Name:     "readWriteAnyDatabase",
 					Database: "admin",
