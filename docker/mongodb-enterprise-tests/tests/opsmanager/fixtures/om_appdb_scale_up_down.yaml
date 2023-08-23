@@ -12,6 +12,8 @@ spec:
     members: 3
     podSpec:
       cpu: '0.25'
+    agent:
+      logLevel: DEBUG
 
   backup:
     enabled: false

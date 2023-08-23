@@ -7,7 +7,7 @@ import (
 
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 
-	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
@@ -25,27 +25,27 @@ func init() {
 
 func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 	spec := mdbmulti.MongoDBMultiSpec{
-		DbCommonSpec: mdbv1.DbCommonSpec{
+		DbCommonSpec: mdb.DbCommonSpec{
 			Version: "5.0.0",
-			ConnectionSpec: mdbv1.ConnectionSpec{
-				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
-					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
-						ConfigMapRef: mdbv1.ConfigMapRef{
+			ConnectionSpec: mdb.ConnectionSpec{
+				SharedConnectionSpec: mdb.SharedConnectionSpec{
+					OpsManagerConfig: &mdb.PrivateCloudConfig{
+						ConfigMapRef: mdb.ConfigMapRef{
 							Name: mock.TestProjectConfigMapName,
 						},
 					},
 				}, Credentials: mock.TestCredentialsSecretName,
 			},
-			ResourceType: mdbv1.ReplicaSet,
-			Security: &mdbv1.Security{
-				TLSConfig: &mdbv1.TLSConfig{},
-				Authentication: &mdbv1.Authentication{
-					Modes: []mdbv1.AuthMode{},
+			ResourceType: mdb.ReplicaSet,
+			Security: &mdb.Security{
+				TLSConfig: &mdb.TLSConfig{},
+				Authentication: &mdb.Authentication{
+					Modes: []mdb.AuthMode{},
 				},
-				Roles: []mdbv1.MongoDbRole{},
+				Roles: []mdb.MongoDbRole{},
 			},
 		},
-		ClusterSpecList: []mdbmulti.ClusterSpecItem{
+		ClusterSpecList: []mdb.ClusterSpecItem{
 			{
 				ClusterName: "foo",
 				Members:     3,

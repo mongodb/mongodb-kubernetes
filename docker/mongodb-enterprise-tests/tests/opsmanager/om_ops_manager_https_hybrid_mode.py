@@ -1,15 +1,18 @@
 import time
 from typing import Optional
 
+from pytest import fixture, mark
+
+from kubetester import create_or_update
 from kubetester.certs import (
     create_mongodb_tls_certs,
     create_ops_manager_tls_certs,
-    Certificate,
 )
 from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, mark
+from tests.conftest import is_multi_cluster, create_appdb_certs
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -20,17 +23,12 @@ def certs_secret_prefix(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str) -> str:
-    create_mongodb_tls_certs(
-        issuer, namespace, "om-with-https-db", "appdb-om-with-https-db-cert"
-    )
-    return "appdb"
+    return create_appdb_certs(namespace, issuer, "om-with-https-db")
 
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
-    return create_ops_manager_tls_certs(
-        issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert"
-    )
+    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert")
 
 
 @fixture(scope="module")
@@ -42,9 +40,7 @@ def ops_manager(
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
-    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        _fixture("om_https_enabled.yaml"), namespace=namespace
-    )
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om.allow_mdb_rc_versions()
@@ -62,7 +58,12 @@ def ops_manager(
         },
         "certsSecretPrefix": appdb_certs,
     }
-    return om.create()
+
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
+
+    create_or_update(om)
+    return om
 
 
 @fixture(scope="module")
@@ -74,9 +75,9 @@ def replicaset0(
     certs_secret_prefix: str,
 ):
     """First replicaset to be created before Ops Manager is configured with HTTPS."""
-    resource = MongoDB.from_yaml(
-        _fixture("replica-set.yaml"), name="replicaset0", namespace=namespace
-    ).configure(ops_manager, "replicaset0")
+    resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
+        ops_manager, "replicaset0"
+    )
     resource["spec"]["version"] = custom_mdb_version
     resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)
     return resource.create()
@@ -94,12 +95,8 @@ def test_om_reaches_running_state(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_ops_manager_https_enabled_hybrid
-def test_config_map_has_ca_set_correctly(
-    ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
-):
-    project1 = ops_manager.get_or_create_mongodb_connection_config_map(
-        "replicaset0", "replicaset0"
-    )
+def test_config_map_has_ca_set_correctly(ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str):
+    project1 = ops_manager.get_or_create_mongodb_connection_config_map("replicaset0", "replicaset0")
     data = {
         "sslMMSCAConfigMap": issuer_ca_plus,
     }

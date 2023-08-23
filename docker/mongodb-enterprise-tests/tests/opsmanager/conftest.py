@@ -10,6 +10,7 @@ from pytest import fixture, skip
 from kubetester import get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import is_multi_cluster
 
 MINIO_OPERATOR = "minio-operator"
 MINIO_TENANT = "minio-tenant"
@@ -17,7 +18,16 @@ MINIO_TENANT = "minio-tenant"
 
 def pytest_runtest_setup(item):
     """This allows to automatically install the default Operator before running any test"""
-    if "default_operator" not in item.fixturenames and "operator_with_monitored_appdb" not in item.fixturenames:
+    if is_multi_cluster():
+        if item.fixturenames not in ("multi_cluster_operator_with_monitored_appdb", "multi_cluster_operator"):
+            print("\nAdding operator installation fixture: multi_cluster_operator")
+            item.fixturenames.insert(0, "multi_cluster_operator_with_monitored_appdb")
+    elif item.fixturenames not in [
+        "default_operator",
+        "operator_with_monitored_appdb",
+        "multi_cluster_operator_with_monitored_appdb",
+        "multi_cluster_operator",
+    ]:
         item.fixturenames.insert(0, "default_operator")
 
 
@@ -134,3 +144,7 @@ def mino_tenant_install(
         print(f"Minio tenant already installed, skipping helm installation!")
 
     get_pod_when_ready(namespace, f"app=minio", api_client=cluster_client)
+
+
+def get_appdb_member_cluster_names():
+    return ["kind-e2e-cluster-2", "kind-e2e-cluster-3"]

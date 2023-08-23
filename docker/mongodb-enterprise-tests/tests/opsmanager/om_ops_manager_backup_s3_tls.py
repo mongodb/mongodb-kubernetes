@@ -2,18 +2,19 @@ from typing import Optional
 
 from pytest import mark, fixture
 
-import kubetester
-from kubetester import create_or_update
+from kubetester import create_or_update, create_or_update_secret, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from tests.conftest import create_appdb_certs
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (
     AWS_REGION,
     create_aws_secret,
     create_s3_bucket,
 )
-from tests.opsmanager.om_ops_manager_https import create_mongodb_tls_certs
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
@@ -28,8 +29,7 @@ S3_NOT_WORKING_CA = "not-working-ca"
 
 @fixture(scope="module")
 def appdb_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(issuer, namespace, "om-backup-tls-s3-db", "appdb-om-backup-tls-s3-db-cert")
-    return "appdb"
+    return create_appdb_certs(namespace, issuer, "om-backup-tls-s3-db")
 
 
 @fixture(scope="module")
@@ -48,15 +48,15 @@ def s3_bucket_blockstore(aws_s3_client: AwsS3Client, namespace: str) -> str:
 def duplicate_configmap_ca(namespace, amazon_ca_1_filepath, amazon_ca_2_filepath, ca_path):
     ca = open(amazon_ca_1_filepath).read()
     data = {"ca-pem": ca}
-    kubetester.create_or_update_secret(namespace, S3_TEST_CA1, data)
+    create_or_update_secret(namespace, S3_TEST_CA1, data)
 
     ca = open(amazon_ca_2_filepath).read()
     data = {"ca-pem": ca}
-    kubetester.create_or_update_secret(namespace, S3_TEST_CA2, data)
+    create_or_update_secret(namespace, S3_TEST_CA2, data)
 
     ca = open(ca_path).read()
     data = {"ca-pem": ca}
-    kubetester.create_or_update_secret(namespace, S3_NOT_WORKING_CA, data)
+    create_or_update_secret(namespace, S3_NOT_WORKING_CA, data)
 
 
 @fixture(scope="module")
@@ -73,6 +73,10 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_tls_s3.yaml"), namespace=namespace
     )
+
+    if try_load(resource):
+        return resource
+
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
@@ -90,9 +94,9 @@ def ops_manager(
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3RegionOverride"] = AWS_REGION
-    resource["spec"]["backup"]["s3OpLogStores"][0]["customCertificateSecretRefs"] = [custom_certificate]
 
-    kubetester.try_load(resource)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
 
     return resource
 
@@ -119,7 +123,7 @@ class TestOpsManagerCreation:
         )
 
     def test_om_with_correct_custom_cert(self, ops_manager: MongoDBOpsManager):
-
+        ops_manager.load()
         custom_certificate = [
             {"name": S3_TEST_CA1, "key": "ca-pem"},
             {"name": S3_TEST_CA2, "key": "ca-pem"},

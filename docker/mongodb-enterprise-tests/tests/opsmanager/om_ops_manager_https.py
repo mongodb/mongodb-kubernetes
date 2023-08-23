@@ -1,22 +1,23 @@
 import time
 from typing import Optional
 
-from kubetester import create_or_update
+from pytest import fixture, mark
+
+from kubetester import create_or_update, try_load
 from kubetester.certs import (
-    create_mongodb_tls_certs,
     create_ops_manager_tls_certs,
     Certificate,
 )
-from kubetester.kubetester import KubernetesTester, fixture as _fixture, skip_if_local
+from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, mark
+from tests.conftest import is_multi_cluster, create_appdb_certs
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str) -> str:
-    create_mongodb_tls_certs(issuer, namespace, "om-with-https-db", "appdb-om-with-https-db-cert")
-    return "appdb"
+    return create_appdb_certs(namespace, issuer, "om-with-https-db")
 
 
 @fixture(scope="module")
@@ -34,11 +35,19 @@ def ops_manager(
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
+
+    if try_load(om):
+        return om
+
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om.allow_mdb_rc_versions()
 
-    return create_or_update(om)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
+
+    create_or_update(om)
+    return om
 
 
 @fixture(scope="module")
@@ -61,6 +70,11 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource["spec"]["version"] = custom_mdb_version
 
     return create_or_update(resource)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_create_om(ops_manager: MongoDBOpsManager):
+    create_or_update(ops_manager)
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -90,7 +104,7 @@ def test_appdb_enable_tls(ops_manager: MongoDBOpsManager, issuer_ca_configmap: s
     }
     ops_manager.update()
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 

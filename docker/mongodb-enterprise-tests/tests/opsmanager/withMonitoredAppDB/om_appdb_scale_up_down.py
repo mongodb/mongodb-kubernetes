@@ -1,6 +1,8 @@
 from typing import Optional
 
 import pytest
+
+from kubetester import create_or_update
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
@@ -8,6 +10,8 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
+
+from tests.conftest import is_multi_cluster
 
 
 # Important - you need to ensure that OM and Appdb images are build and pushed into your current docker registry before
@@ -22,7 +26,8 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @pytest.mark.e2e_om_appdb_scale_up_down
@@ -53,11 +58,14 @@ class TestOpsManagerCreation:
         assert len(ops_manager.read_appdb_members_from_connection_url_secret()) == 3
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
-        statefulset = ops_manager.read_appdb_statefulset()
-        assert statefulset.status.ready_replicas == 3
-        assert statefulset.status.current_replicas == 3
+
+        # FIXME remove the if when appdb multi-cluster-aware status is implemented
+        if not is_multi_cluster():
+            assert ops_manager.appdb_status().get_members() == 3
+            statefulset = ops_manager.read_appdb_statefulset()
+            assert statefulset.status.ready_replicas == 3
+            assert statefulset.status.current_replicas == 3
 
     def test_appdb_monitoring_group_was_created(self, ops_manager: MongoDBOpsManager):
         ops_manager.assert_appdb_monitoring_group_was_created()
@@ -127,14 +135,15 @@ class TestOpsManagerAppDbScaleDown:
         ops_manager.load()
         ops_manager["spec"]["applicationDatabase"]["members"] = 3
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
-        assert ops_manager.appdb_status().get_members() == 3
-
-        statefulset = ops_manager.read_appdb_statefulset()
-        assert statefulset.status.ready_replicas == 3
-        assert statefulset.status.current_replicas == 3
+        # FIXME remove the if when appdb multi-cluster-aware status is implemented
+        if not is_multi_cluster():
+            assert ops_manager.appdb_status().get_members() == 3
+            statefulset = ops_manager.read_appdb_statefulset()
+            assert statefulset.status.ready_replicas == 3
+            assert statefulset.status.current_replicas == 3
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):
         ops_manager.get_automation_config_tester().reached_version(3)

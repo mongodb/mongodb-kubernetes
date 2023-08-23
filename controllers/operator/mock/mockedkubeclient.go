@@ -427,6 +427,14 @@ func (k *MockedClient) List(ctx context.Context, list client.ObjectList, opts ..
 		}
 		l.Items = mdbs
 		return nil
+	case *corev1.NamespaceList:
+		namespaceList := k.GetMapForObject(&corev1.NamespaceList{})
+		var nslist []corev1.Namespace
+		for _, v := range namespaceList {
+			nslist = append(nslist, *v.(*corev1.Namespace))
+		}
+		l.Items = nslist
+		return nil
 	}
 	return xerrors.Errorf("the List method is not implemented for type %s", reflect.TypeOf(list))
 }
@@ -575,7 +583,7 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 		hostnames := om.CurrMockedConnection.Hostnames
 		if hostnames == nil {
 			if val, ok := set.Annotations[handler.MongoDBMultiResourceAnnotation]; ok {
-				hostnames = dns.GetMultiClusterAgentHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas), nil)
+				hostnames = dns.GetMultiClusterProcessHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas), nil)
 			} else {
 				// We also "register" automation agents.
 				// So far we don't support custom cluster name

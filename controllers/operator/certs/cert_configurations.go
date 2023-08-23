@@ -6,17 +6,11 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
-type clustermode string
-
-const (
-	single = "single"
-	multi  = "multi"
 )
 
 // X509CertConfigurator provides the methods required for ensuring the existence of X.509 certificates
@@ -159,7 +153,7 @@ type Options struct {
 	// additional cert domains required.
 	horizons []mdbv1.MongoDBHorizonConfig
 
-	ClusterMode clustermode
+	Topology string
 
 	OwnerReference []metav1.OwnerReference
 }
@@ -203,10 +197,30 @@ func AppDBReplicaSetConfig(om omv1.MongoDBOpsManager) Options {
 		CertSecretName:            mdb.GetSecurity().MemberCertificateSecretName(mdb.Name()),
 		InternalClusterSecretName: mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name()),
 		Namespace:                 mdb.Namespace,
-		Replicas:                  scale.ReplicasThisReconciliation(&om),
+		Replicas:                  scale.ReplicasThisReconciliation(scalers.NewAppDBSingleClusterScaler(&om)),
 		ServiceName:               mdb.ServiceName(),
 		ClusterDomain:             mdb.ClusterDomain,
 		OwnerReference:            om.GetOwnerReferences(),
+	}
+
+	if mdb.GetSecurity().TLSConfig != nil {
+		opts.additionalCertificateDomains = append(opts.additionalCertificateDomains, mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
+	}
+
+	return opts
+}
+
+func AppDBMultiClusterReplicaSetConfig(om omv1.MongoDBOpsManager, scaler scalers.AppDBScaler) Options {
+	mdb := om.Spec.AppDB
+	opts := Options{
+		ResourceName:              mdb.NameForCluster(scaler.MemberClusterNum()),
+		CertSecretName:            mdb.GetSecurity().MemberCertificateSecretName(mdb.Name()),
+		InternalClusterSecretName: mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name()),
+		Namespace:                 mdb.Namespace,
+		Replicas:                  scale.ReplicasThisReconciliation(scaler),
+		ClusterDomain:             mdb.ClusterDomain,
+		OwnerReference:            om.GetOwnerReferences(),
+		Topology:                  omv1.ClusterTopologyMultiCluster,
 	}
 
 	if mdb.GetSecurity().TLSConfig != nil {
@@ -241,7 +255,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 		Namespace:                 mdbm.Namespace,
 		Replicas:                  replicas,
 		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
-		ClusterMode:               multi,
+		Topology:                  omv1.ClusterTopologyMultiCluster,
 		OwnerReference:            mdbm.GetOwnerReferences(),
 		ExternalDomain:            mdbm.ExternalMemberClusterDomain(clusterName),
 	}

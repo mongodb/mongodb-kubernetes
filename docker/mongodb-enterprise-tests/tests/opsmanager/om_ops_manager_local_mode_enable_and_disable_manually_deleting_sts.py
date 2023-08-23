@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import MongoDB
+from kubetester import MongoDB, create_or_update
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 
@@ -11,6 +11,9 @@ from kubetester import (
 )
 from kubetester.mongodb import Phase
 from pytest import mark, fixture
+
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -28,33 +31,34 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
 
-    return resource.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
+    return create_or_update(resource)
 
 
 @fixture(scope="module")
-def replica_set(
-    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
-) -> MongoDB:
+def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = custom_mdb_version
-    yield resource.create()
+
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_create_om(ops_manager: MongoDBOpsManager):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
 
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace
-    )
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace)
 
     # We manually delete the ops manager sts, it won't delete the pods as
     # the function by default does cascade=false
@@ -72,9 +76,7 @@ def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
         # So we manually delete one, wait for it to be ready
         # and do the same for the second one
         delete_pod(namespace, f"om-basic-{i}")
-        get_pod_when_ready(
-            namespace, f"statefulset.kubernetes.io/pod-name=om-basic-{i}"
-        )
+        get_pod_when_ready(namespace, f"statefulset.kubernetes.io/pod-name=om-basic-{i}")
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -93,9 +95,7 @@ def test_new_binaries_are_present(ops_manager: MongoDBOpsManager, namespace: str
     ]
     for i in range(2):
         result = KubernetesTester.run_command_in_pod_container(
-            f"om-basic-{i}",
-            namespace,
-            cmd,
+            f"om-basic-{i}", namespace, cmd, container="mongodb-ops-manager"
         )
         assert result != "0"
 

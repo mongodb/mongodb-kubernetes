@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 
+	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/hashicorp/go-multierror"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -143,7 +145,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 	}
 	var errs error
 
-	if opts.ClusterMode == multi {
+	if opts.Topology == omv1.ClusterTopologyMultiCluster {
 		// get the pod names and get the service FQDN for each of the service hostnames
 		mdbmName := multicluster.GetRsNamefromMultiStsName(opts.ResourceName)
 		clusterNum := multicluster.MustGetClusterNumFromMultiStsName(opts.ResourceName)

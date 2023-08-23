@@ -34,18 +34,17 @@ func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiClu
 
 func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.ValidationResult {
 	multiClusterValidators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
-		validateUniqueClusterNames,
 		validateUniqueExternalDomains,
 	}
 
-	var validationResults []v1.ValidationResult
-
-	for _, validator := range multiClusterValidators {
-		res := validator(m.Spec)
-		if res.Level > 0 {
-			validationResults = append(validationResults, res)
-		}
+	// shared validators between MongoDBMulti and AppDB
+	multiClusterAppDBSharedClusterValidators := []func(ms []mdbv1.ClusterSpecItem) v1.ValidationResult{
+		mdbv1.ValidateUniqueClusterNames,
+		mdbv1.ValidateNonEmptyClusterSpecList,
+		mdbv1.ValidateMemberClusterIsSubsetOfKubeConfig,
 	}
+
+	var validationResults []v1.ValidationResult
 
 	for _, validator := range mdbv1.CommonValidators() {
 		res := validator(m.Spec.DbCommonSpec)
@@ -54,20 +53,21 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 		}
 	}
 
-	return validationResults
-}
-
-func validateUniqueClusterNames(ms MongoDBMultiSpec) v1.ValidationResult {
-	present := make(map[string]struct{})
-
-	for _, e := range ms.ClusterSpecList {
-		if _, ok := present[e.ClusterName]; ok {
-			msg := fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", e.ClusterName)
-			return v1.ValidationError(msg)
+	for _, validator := range multiClusterValidators {
+		res := validator(m.Spec)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
 		}
-		present[e.ClusterName] = struct{}{}
 	}
-	return v1.ValidationSuccess()
+
+	for _, validator := range multiClusterAppDBSharedClusterValidators {
+		res := validator(m.Spec.ClusterSpecList)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
+
+	return validationResults
 }
 
 func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {

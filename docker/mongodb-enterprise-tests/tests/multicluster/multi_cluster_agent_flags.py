@@ -21,6 +21,7 @@ def mongodb_multi(
 
     # override agent startup flags
     resource["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
+    resource["spec"]["agent"]["logLevel"] = "DEBUG"
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     return create_or_update(resource)

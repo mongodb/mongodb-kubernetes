@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
+	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestClusterWithMinimumNumber(t *testing.T) {
 	tests := []struct {
-		inp []mdbmulti.ClusterSpecItem
+		inp []mdb.ClusterSpecItem
 		out int
 	}{
 		{
-			inp: []mdbmulti.ClusterSpecItem{
+			inp: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 1},
 				{ClusterName: "cluster3", Members: 4},
@@ -24,7 +24,7 @@ func TestClusterWithMinimumNumber(t *testing.T) {
 			out: 1,
 		},
 		{
-			inp: []mdbmulti.ClusterSpecItem{
+			inp: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 1},
 				{ClusterName: "cluster2", Members: 2},
 				{ClusterName: "cluster3", Members: 3},
@@ -41,61 +41,61 @@ func TestClusterWithMinimumNumber(t *testing.T) {
 
 func TestDistributeFailedMembers(t *testing.T) {
 	tests := []struct {
-		inp         []mdbmulti.ClusterSpecItem
+		inp         []mdb.ClusterSpecItem
 		clusterName string
-		out         []mdbmulti.ClusterSpecItem
+		out         []mdb.ClusterSpecItem
 	}{
 		{
-			inp: []mdbmulti.ClusterSpecItem{
+			inp: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 1},
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
 			clusterName: "cluster1",
-			out: []mdbmulti.ClusterSpecItem{
+			out: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster2", Members: 2},
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 2},
 			},
 		},
 		{
-			inp: []mdbmulti.ClusterSpecItem{
+			inp: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 1},
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
 			clusterName: "cluster2",
-			out: []mdbmulti.ClusterSpecItem{
+			out: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 2},
 			},
 		},
 		{
-			inp: []mdbmulti.ClusterSpecItem{
+			inp: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 1},
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
 			clusterName: "cluster3",
-			out: []mdbmulti.ClusterSpecItem{
+			out: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 3},
 				{ClusterName: "cluster2", Members: 3},
 				{ClusterName: "cluster4", Members: 2},
 			},
 		},
 		{
-			inp: []mdbmulti.ClusterSpecItem{
+			inp: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 1},
 				{ClusterName: "cluster3", Members: 4},
 				{ClusterName: "cluster4", Members: 1},
 			},
 			clusterName: "cluster4",
-			out: []mdbmulti.ClusterSpecItem{
+			out: []mdb.ClusterSpecItem{
 				{ClusterName: "cluster1", Members: 2},
 				{ClusterName: "cluster2", Members: 2},
 				{ClusterName: "cluster3", Members: 4},

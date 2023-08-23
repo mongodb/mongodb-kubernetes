@@ -7,6 +7,7 @@ import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
@@ -21,7 +22,10 @@ import (
 )
 
 const (
-	appDBKeyfilePath = "/var/lib/mongodb-mms-automation/authentication/keyfile"
+	appDBKeyfilePath            = "/var/lib/mongodb-mms-automation/authentication/keyfile"
+	ClusterTopologyMultiCluster = "MultiCluster"
+	// cluster name for simulating multi-cluster mode when running in legacy single-cluster mode
+	DummmyCentralClusterName = "central"
 )
 
 type AppDBSpec struct {
@@ -70,7 +74,7 @@ type AppDBSpec struct {
 
 	OpsManagerName string `json:"-"`
 	Namespace      string `json:"-"`
-	// this is an optional service, it will get the name "<rsName>-service" in case not provided
+	// this is an optional service, it will get the name "<rsName>-svc" in case not provided
 	Service string `json:"service,omitempty"`
 
 	// AutomationConfigOverride holds any fields that will be merged on top of the Automation Config
@@ -82,6 +86,12 @@ type AppDBSpec struct {
 	// MemberConfig
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
+	// +optional
+	Topology string `json:"topology,omitempty"`
+	// +optional
+	ClusterSpecList []mdbv1.ClusterSpecItem `json:"clusterSpecList,omitempty"`
 }
 
 func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {
@@ -215,6 +225,7 @@ func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	}
 }
 
+// used in AppDBConfigurable to implement scram.Configurable
 func (m *AppDBSpec) NamespacedName() types.NamespacedName {
 	return types.NamespacedName{Name: m.Name(), Namespace: m.Namespace}
 }
@@ -352,6 +363,14 @@ func (m *AppDBSpec) ProjectIDConfigMapName() string {
 	return m.Name() + "-project-id"
 }
 
+func (m *AppDBSpec) ClusterMappingConfigMapName() string {
+	return m.Name() + "-cluster-mapping"
+}
+
+func (m *AppDBSpec) LastAppliedMemberSpecConfigMapName() string {
+	return m.Name() + "-member-spec"
+}
+
 func (m *AppDBSpec) ServiceName() string {
 	if m.Service == "" {
 		return m.Name() + "-svc"
@@ -436,7 +455,22 @@ func (m *AppDBSpec) GetSecretsMountedIntoPod() []string {
 	return secrets
 }
 
-func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.ClusterSpecItem {
+	for _, clusterSpec := range m.GetClusterSpecList() {
+		if clusterSpec.ClusterName == memberClusterName {
+			return clusterSpec
+		}
+	}
+
+	// In case the member cluster is not found in the cluster spec list, we return an empty ClusterSpecItem
+	// with 0 members to handle the case of removing a cluster from the spec list without a panic.
+	return mdbv1.ClusterSpecItem{
+		ClusterName: memberClusterName,
+		Members:     0,
+	}
+}
+
+func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, multiClusterHostnames []string) string {
 	builder := connectionstring.Builder().
 		SetName(m.Name()).
 		SetNamespace(m.Namespace).
@@ -452,7 +486,53 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetConnectionParams(connectionParams).
 		SetScheme(scheme)
 
+	if m.IsMultiCluster() {
+		builder.SetReplicas(len(multiClusterHostnames))
+		builder.SetMultiClusterHosts(multiClusterHostnames)
+	}
+
 	return builder.Build()
+}
+
+func (m *AppDBSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
+	if m.IsMultiCluster() {
+		return m.ClusterSpecList
+	} else {
+		return []mdbv1.ClusterSpecItem{
+			{
+				ClusterName: DummmyCentralClusterName,
+				Members:     m.Members,
+			},
+		}
+	}
+}
+
+func (m *AppDBSpec) IsMultiCluster() bool {
+	return m.Topology == ClusterTopologyMultiCluster
+}
+
+func (m *AppDBSpec) NameForCluster(memberClusterNum int) string {
+	if !m.IsMultiCluster() {
+		return m.GetName()
+	}
+
+	return fmt.Sprintf("%s-%d", m.GetName(), memberClusterNum)
+}
+
+func (m *AppDBSpec) HeadlessServiceSelectorAppLabel(memberClusterNum int) string {
+	return m.HeadlessServiceNameForCluster(memberClusterNum)
+}
+
+func (m *AppDBSpec) HeadlessServiceNameForCluster(memberClusterNum int) string {
+	if !m.IsMultiCluster() {
+		return m.ServiceName()
+	}
+
+	if m.Service == "" {
+		return dns.GetMultiHeadlessServiceName(m.GetName(), memberClusterNum)
+	}
+
+	return fmt.Sprintf("%s-%d", m.Service, memberClusterNum)
 }
 
 func GetAppDBCaPemPath() string {

@@ -1,7 +1,7 @@
 from typing import Optional
 
 import tests.opsmanager.om_ops_manager_backup_sharded_cluster
-from kubetester import get_default_storage_class, try_load, create_or_update
+from kubetester import get_default_storage_class, try_load, create_or_update, create_or_update_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     fixture as yaml_fixture,
@@ -12,12 +12,14 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import mark, fixture
 
+from tests.conftest import is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
     create_aws_secret,
     create_s3_bucket,
 )
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -99,7 +101,7 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
     print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-    KubernetesTester.create_secret(
+    create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {
@@ -124,7 +126,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["username"] = "mms-user-2"
 
     print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-    KubernetesTester.create_secret(
+    create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
         {
@@ -164,6 +166,9 @@ class TestOpsManagerCreation:
         ops_manager.set_version(custom_version)
         ops_manager.set_appdb_version(custom_appdb_version)
         ops_manager.allow_mdb_rc_versions()
+
+        if is_multi_cluster():
+            enable_appdb_multi_cluster_deployment(ops_manager)
 
         create_or_update(ops_manager)
 
@@ -264,8 +269,8 @@ class TestBackupForMongodb:
         return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
-        mdb_latest.assert_reaches_phase(Phase.Running)
-        mdb_prev.assert_reaches_phase(Phase.Running)
+        mdb_latest.assert_reaches_phase(Phase.Running, timeout=1000)
+        mdb_prev.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.load()

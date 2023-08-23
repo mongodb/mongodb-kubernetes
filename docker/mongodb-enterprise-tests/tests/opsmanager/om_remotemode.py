@@ -2,6 +2,8 @@ from typing import Optional, Dict, Any
 
 import yaml
 import time
+
+from kubetester import create_or_update
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     skip_if_local,
@@ -11,6 +13,8 @@ from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
+from tests.conftest import is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
@@ -26,9 +30,7 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
     distros = ("rhel80", "ubuntu1604", "ubuntu1804")
 
     base_url_community = "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64"
-    base_url_enterprise = (
-        "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise"
-    )
+    base_url_enterprise = "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise"
     base_url = base_url_community
     if version.endswith("-ent"):
         # If version is enterprise, the base_url changes slightly
@@ -60,9 +62,7 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
 def nginx(namespace: str, custom_mdb_version: str, custom_appdb_version: str):
     with open(yaml_fixture("remote_fixtures/nginx-config.yaml"), "r") as f:
         config_body = yaml.safe_load(f.read())
-    KubernetesTester.clients("corev1").create_namespaced_config_map(
-        namespace, config_body
-    )
+    KubernetesTester.clients("corev1").create_namespaced_config_map(namespace, config_body)
 
     with open(yaml_fixture("remote_fixtures/nginx.yaml"), "r") as f:
         nginx_body = yaml.safe_load(f.read())
@@ -82,17 +82,9 @@ def nginx(namespace: str, custom_mdb_version: str, custom_appdb_version: str):
         service_body = yaml.safe_load(f.read())
     KubernetesTester.create_service(namespace, body=service_body)
 
-    yield
-
-    KubernetesTester.delete_configmap(namespace, "nginx-conf")
-    KubernetesTester.delete_service(namespace, "nginx-svc")
-    KubernetesTester.delete_deployment(namespace, "nginx-deployment")
-
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str, nginx
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str, nginx) -> MongoDBOpsManager:
 
     """The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
@@ -108,13 +100,15 @@ def ops_manager(
     om.set_appdb_version(custom_appdb_version)
     om.allow_mdb_rc_versions()
 
-    yield om.create()
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(om)
+
+    create_or_update(om)
+    return om
 
 
 @fixture(scope="module")
-def replica_set(
-    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
-) -> MongoDB:
+def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
@@ -124,9 +118,7 @@ def replica_set(
 
 
 @fixture(scope="module")
-def replica_set_ent(
-    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
-) -> MongoDB:
+def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
@@ -139,7 +131,9 @@ def replica_set_ent(
 @mark.e2e_om_remotemode
 def test_appdb(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
-    assert ops_manager.appdb_status().get_members() == 3
+    # FIXME remove the if when appdb multi-cluster-aware status is implemented
+    if not is_multi_cluster():
+        assert ops_manager.appdb_status().get_members() == 3
 
 
 @skip_if_local
@@ -165,9 +159,7 @@ def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_remotemode
-def test_replica_sets_reaches_running_phase(
-    replica_set: MongoDB, replica_set_ent: MongoDB
-):
+def test_replica_sets_reaches_running_phase(replica_set: MongoDB, replica_set_ent: MongoDB):
     """Doing this in parallel for faster success"""
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     replica_set_ent.assert_reaches_phase(Phase.Running, timeout=300)

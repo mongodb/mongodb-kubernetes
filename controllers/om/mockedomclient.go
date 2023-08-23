@@ -134,6 +134,7 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection.AgentsDelayCount = 0
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
 	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID, GroupID: TestGroupID}
+	connection.AgentAPIKey = TestAgentKey
 	return &connection
 }
 

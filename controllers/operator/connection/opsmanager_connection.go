@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
+
 	"golang.org/x/xerrors"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/agents"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/controlledfeature"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/project"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -46,7 +47,7 @@ func PrepareOpsManagerConnection(client secrets.SecretClient, projectConfig mdbv
 	}
 	// TODO: we may want to remove this from this function in the future, this is not strictly related
 	// to establishing an Ops Manager connection
-	if err = agents.EnsureAgentKeySecretExists(client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), databaseSecretPath, log); err != nil {
+	if _, err = agents.EnsureAgentKeySecretExists(client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), databaseSecretPath, log); err != nil {
 		return nil, err
 	}
 	return conn, nil

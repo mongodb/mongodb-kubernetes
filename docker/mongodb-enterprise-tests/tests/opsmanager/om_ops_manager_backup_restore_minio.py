@@ -20,6 +20,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 
+from tests.conftest import is_multi_cluster, create_appdb_certs
 from tests.opsmanager.conftest import ensure_ent_version, mino_operator_install, mino_tenant_install
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
@@ -28,6 +29,7 @@ from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
     FIRST_PROJECT_RS_NAME,
     SECOND_PROJECT_RS_NAME,
 )
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
@@ -35,8 +37,7 @@ OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 
 @fixture(scope="module")
 def appdb_certs(namespace: str, issuer: str) -> str:
-    create_mongodb_tls_certs(issuer, namespace, "om-backup-db", "appdb-om-backup-db-cert")
-    return "appdb"
+    return create_appdb_certs(namespace, issuer, "om-backup-db")
 
 
 @fixture(scope="module")
@@ -144,6 +145,9 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
+    if try_load(resource):
+        return resource
+
     # these values come from the tenant creation in minio.
     create_or_update_secret(
         namespace,
@@ -179,7 +183,9 @@ def ops_manager(
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
     }
 
-    try_load(resource)
+    if is_multi_cluster():
+        enable_appdb_multi_cluster_deployment(resource)
+
     return resource
 
 

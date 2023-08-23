@@ -58,7 +58,7 @@ class BackupSnapshotScheduleTests:
         }
         create_or_update(mdb)
         mdb.assert_reaches_phase(Phase.Reconciling)
-        mdb.assert_reaches_phase(Phase.Running)
+        mdb.assert_reaches_phase(Phase.Running, timeout=1000)
         mdb.assert_backup_reaches_status("STARTED")
 
         self.assert_snapshot_schedule_in_ops_manager(

@@ -42,6 +42,7 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -52,7 +53,7 @@ import (
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(mgr manager.Manager) error {
+func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
 	reconciler := newStandaloneReconciler(mgr, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler})

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m | tr '[:upper:]' '[:lower:]')
+OS=${OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}
+ARCH=${ARCH:-$(uname -m | tr '[:upper:]' '[:lower:]')}
 if [[ "${ARCH}" == "x86_64" ]]; then
   ARCH="amd64"
 fi
