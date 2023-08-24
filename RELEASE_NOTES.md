@@ -14,9 +14,17 @@
 
 # MongoDBOpsManager Resource
 
-* Added support for configuring AppDB to be deployed across multiple clusters by introducing the following fields:
+## New Features
+* Support configuring `OpsManager` with a highly available `applicationDatabase` across multiple Kubernetes clusters by introducing the following fields:
   - `om.spec.applicationDatabase.topology` which can be one of `MultiCluster` and `SingleCluster`.
-  - `om.spec.applicationDatabase.clusterSpecList` for configuring the list of Kubernetes clusters which will have AppDB nodes deployed into.
+  - `om.spec.applicationDatabase.clusterSpecList` for configuring the list of Kubernetes clusters which will have For extended considerations for the multi-cluster AppDB configuration, check [the official guide](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-om-resource.html#using-onprem-with-multi-kubernetes-cluster-deployments) and the `OpsManager` [resource specification](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-om-specification/#k8s-om-specification).
+The implementation is backwards compatible with single cluster deployments of AppDB, by defaulting `om.spec.applicationDatabase.topology` to `SingleCluster`. Existing `OpsManager` resources do not need to be modified to upgrade to this version of the operator.
+* Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
+  * The list consists of single certificate strings, each references a secret containing a certificate authority. 
+  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
+  * Note: 
+    * If providing a list of `customCertificateSecretRefs`, then those certificates will be used instead of the default certificates setup in the JVM Trust Store (in Ops Manager or Cloud Manager).
+    * If none are provided, the default JVM Truststore certificates will be used instead.
 
 ## Breaking changes
 * The `appdb-ca` is no longer automatically added to the JVM Trust Store (in Ops Manager or Cloud Manager). Since a bug introduced in version `1.17.0`, automatically adding these certificates to the JVM Trust Store has no longer worked.
@@ -36,15 +44,6 @@
 ## Deprecation
 * The setting `spec.backup.[]s3Stores.customCertificate` and `spec.backup.[]s3OpLogStores.customCertificate` are being deprecated in favor of `spec.backup.[]s3OpLogStores.[]customCertificateSecretRefs` and `spec.backup.[]s3Stores.[]customCertificateSecretRefs`
   * Previously, when enabling `customCertificate`, the operator would use the `appdb-ca` as the custom certificate. Currently, this should be explicitly set via `customCertificateSecretRefs`.
-
-## New Feature
-* Support configuring `OpsManager` with a highly available `applicationDatabase` across multiple Kubernetes clusters via the combination of setting `om.spec.applicationDatabase.topology=MultiCluster` and configuring member distribution under `om.spec.applicationDatabase.clusterSpecList`. For extended considerations for the multi-cluster AppDB configuration, check [the official guide](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-om-resource.html#using-onprem-with-multi-kubernetes-cluster-deployments) and the `OpsManager` [resource specification](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-om-specification/#k8s-om-specification).
-* Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
-  * The list consists of single certificate strings, each references a secret containing a certificate authority. 
-  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
-  * Note: 
-    * If providing a list of `customCertificateSecretRefs`, then those certificates will be used instead of the default certificates setup in the JVM Trust Store (in Ops Manager or Cloud Manager).
-    * If none are provided, the default JVM Truststore certificates will be used instead.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.20.1
