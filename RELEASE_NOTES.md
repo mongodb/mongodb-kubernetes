@@ -13,6 +13,11 @@
   * Additionally, to the `specWrapper` for `statefulsets` we now support overriding `metadata.Labels` and `metadata.Annotations` via the `MetadataWrapper`.
 
 # MongoDBOpsManager Resource
+
+* Added support for configuring AppDB to be deployed across multiple clusters by introducing the following fields:
+  - `om.spec.applicationDatabase.topology` which can be one of `MultiCluster` and `SingleCluster`.
+  - `om.spec.applicationDatabase.clusterSpecList` for configuring the list of Kubernetes clusters which will have AppDB nodes deployed into.
+
 ## Breaking changes
 * The `appdb-ca` is no longer automatically added to the JVM Trust Store (in Ops Manager or Cloud Manager). Since a bug introduced in version `1.17.0`, automatically adding these certificates to the JVM Trust Store has no longer worked.
   * This will only impact you if:
@@ -33,6 +38,7 @@
   * Previously, when enabling `customCertificate`, the operator would use the `appdb-ca` as the custom certificate. Currently, this should be explicitly set via `customCertificateSecretRefs`.
 
 ## New Feature
+* Support configuring `OpsManager` with a highly available `applicationDatabase` across multiple Kubernetes clusters via the combination of setting `om.spec.applicationDatabase.topology=MultiCluster` and configuring member distribution under `om.spec.applicationDatabase.clusterSpecList`. For extended considerations for the multi-cluster AppDB configuration, check [the official guide](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-om-resource.html#using-onprem-with-multi-kubernetes-cluster-deployments) and the `OpsManager` [resource specification](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-om-specification/#k8s-om-specification).
 * Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
   * The list consists of single certificate strings, each references a secret containing a certificate authority. 
   * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
