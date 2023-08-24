@@ -1,7 +1,11 @@
 package mdbmulti
 
 import (
+	"fmt"
+	"os"
 	"testing"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
 	"k8s.io/utils/pointer"
 
@@ -77,6 +81,9 @@ func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
 }
 
 func TestSpecProjectOnlyOneValue(t *testing.T) {
+	file := createTestKubeConfigAndSetEnv(t)
+	defer os.Remove(file.Name())
+
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{
 		ConfigMapRef: mdbv1.ConfigMapRef{Name: "cloud-manager"},
@@ -87,4 +94,32 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 
 	err := mrs.ValidateCreate()
 	assert.NoError(t, err)
+}
+
+func createTestKubeConfigAndSetEnv(t *testing.T) *os.File {
+	testKubeConfig := fmt.Sprintf(
+		`
+apiVersion: v1
+contexts:
+- context:
+    cluster: foo
+    namespace: a-1661872869-pq35wlt3zzz
+    user: foo
+  name: foo
+kind: Config
+users:
+- name: foo
+  user:
+    token: eyJhbGciOi
+`)
+
+	file, err := os.CreateTemp("", "kubeconfig")
+	assert.NoError(t, err)
+
+	_, err = file.WriteString(testKubeConfig)
+	assert.NoError(t, err)
+
+	t.Setenv(multicluster.KubeConfigPathEnv, file.Name())
+
+	return file
 }
