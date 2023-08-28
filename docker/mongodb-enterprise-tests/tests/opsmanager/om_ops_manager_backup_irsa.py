@@ -12,10 +12,7 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
-from kubetester import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-)
+from kubetester import assert_pod_container_security_context, assert_pod_security_context, create_or_update_secret
 from pytest import mark, fixture, skip
 
 from tests.conftest import is_multi_cluster
