@@ -108,12 +108,12 @@ if [[ -n "${HTTP_PROXY-}" ]]; then
 fi
 
 if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
-    agentOpts+=("-sslTrustedMMSServerCertificate" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
+    agentOpts+=("-httpsCAFile" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
 fi
 
 if [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" != "false" ]]; then
     # Only set this option when valid certs are required. The default is false
-    agentOpts+=("-sslRequireValidMMSServerCertificates")
+    agentOpts+=("-tlsRequireValidMMSServerCertificates")
 fi
 
 # we can't directly use readarray as this bash version doesn't support
