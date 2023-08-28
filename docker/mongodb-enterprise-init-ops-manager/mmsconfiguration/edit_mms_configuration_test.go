@@ -21,6 +21,7 @@ func TestEditMmsConfiguration_UpdateConfFile_Mms(t *testing.T) {
 
 func TestEditMmsConfiguration_UpdateConfFile_BackupDaemon(t *testing.T) {
 	confFile := _createTestConfFile()
+
 	t.Setenv("BACKUP_DAEMON", "something")
 	t.Setenv("CUSTOM_JAVA_DAEMON_OPTS", "-Xmx4000m -Xms4000m")
 	err := updateConfFile(confFile)
