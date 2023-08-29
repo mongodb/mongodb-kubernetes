@@ -144,6 +144,10 @@ ac:
 aws_login:
 	@ . scripts/dev/set_env_context.sh; scripts/dev/configure_docker_auth.sh
 
+# cleans up aws resources, including s3 buckets which are older than 5 hours
+aws_cleanup:
+	@ scripts/evergreen/prepare_aws.sh
+
 build-and-push-operator-image: aws_login
 	@ ./pipeline.py --include operator-quick
 

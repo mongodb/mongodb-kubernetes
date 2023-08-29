@@ -21,9 +21,15 @@ prepare_aws() {
 
     echo "##### Removing old s3 buckets"
     # note, to run this on mac you need to install coreutils ('brew install coreutils') and use 'gdate' instead
-    yesterday=$(date +%Y-%m-%d -d "yesterday")
+    if [[ $(uname) == "Darwin" ]]; then
+        # Use gdate on macOS
+        yesterday=$(gdate +%Y-%m-%dT:%H -d "5 hour ago") # "2021-04-09T04:23:33+00:00"
+    else
+        # Use date on Linux
+        yesterday=$(date +%Y-%m-%dT:%H -d "5 hour ago")
+    fi
     for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&contains(Name,'test-bucket-')]" | jq --raw-output '.[].Name'); do
-        aws s3 rb s3://"${bucket}" --force
+        aws s3 rb s3://"${bucket}" --force || true
     done
 }
 prepare_aws
