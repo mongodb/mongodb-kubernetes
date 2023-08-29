@@ -48,8 +48,11 @@ fi
 if [[ "$kube_environment_name" == "kind" ]]; then
   helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator --set "$(echo "$helm_values" | tr ' ' ',')"
 
-  echo "patching default sa mongodb-enterprise-database-pods with imagePullSecrets to ensure we can deploy without setting it for each pod"
-  kubectl patch serviceaccount mongodb-enterprise-database-pods  \
-    -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}" \
-    -n "${NAMESPACE}"
+  echo "patching all default sa with imagePullSecrets to ensure we can deploy without setting it for each pod"
+
+  service_accounts=$(kubectl get serviceaccounts -n "${NAMESPACE}" -o jsonpath='{.items[*].metadata.name}')
+
+  for service_account in $service_accounts; do
+    kubectl patch serviceaccount "$service_account" -n "${NAMESPACE}" -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}"
+  done
 fi
