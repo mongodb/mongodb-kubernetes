@@ -110,8 +110,8 @@ func TestAutomationConfig_IsCreatedInSecret(t *testing.T) {
 	assert.Contains(t, s.Data, automationconfig.ConfigKey)
 }
 
-// TestPublishAutomationConfig_Create verifies that the automation config map is created if it doesn't exist
-func TestPublishAutomationConfig_Create(t *testing.T) {
+// TestPublishAutomationConfigCreate verifies that the automation config map is created if it doesn't exist
+func TestPublishAutomationConfigCreate(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
@@ -184,7 +184,7 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	require.NoError(t, err)
 
 	// create
-	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
+	_ = createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "MBPYfkAj5ZM0l9uw6C7ggw")
 	_, err = reconciler.ReconcileAppDB(&opsManager)
 	assert.NoError(t, err)
 
@@ -217,10 +217,18 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 
 // TestBuildAppDbAutomationConfig checks that the automation config is built correctly
 func TestBuildAppDbAutomationConfig(t *testing.T) {
+	logRotateConfig := &automationconfig.CrdLogRotate{
+		SizeThresholdMB: "1",
+	}
 	builder := DefaultOpsManagerBuilder().
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.2.11-ent").
-		SetAppDbFeatureCompatibility("4.0")
+		SetAppDbFeatureCompatibility("4.0").
+		SetLogRotate(logRotateConfig).
+		SetSystemLog(&automationconfig.SystemLog{
+			Destination: automationconfig.File,
+			Path:        "/tmp/test",
+		})
 
 	om := builder.Build()
 
@@ -241,6 +249,9 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	assert.Equal(t, "4.0", automationConfig.Processes[1].FeatureCompatibilityVersion)
 	assert.Len(t, monitoringAutomationConfig.Processes, 0)
 	assert.Len(t, monitoringAutomationConfig.ReplicaSets, 0)
+	assert.Equal(t, automationconfig.ConvertCrdLogRotateToAC(logRotateConfig), automationConfig.Processes[0].LogRotate)
+	assert.Equal(t, "/tmp/test", automationConfig.Processes[0].Args26.Get("systemLog.path").String())
+	assert.Equal(t, "file", automationConfig.Processes[0].Args26.Get("systemLog.destination").String())
 
 	// replicasets
 	assert.Len(t, automationConfig.ReplicaSets, 1)
@@ -583,7 +594,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 }
 
 // appDBStatefulSetLabelsAndServiceName returns extra fields that we have to manually set to the AppDB statefulset
-// since we manually create it. Otherwise the tests will fail as we try to update parts of the sts that we are not
+// since we manually create it. Otherwise, the tests will fail as we try to update parts of the sts that we are not
 // allowed to change
 func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]string, string) {
 	appDbName := fmt.Sprintf("%s-db", omResourceName)
@@ -592,7 +603,7 @@ func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]str
 	return labels, serviceName
 }
 
-func appDBStatefulSetVolumeClaimtemplates() []corev1.PersistentVolumeClaim {
+func appDBStatefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
 
 	resData, _ := resource.ParseQuantity("16G")
 	return []corev1.PersistentVolumeClaim{{
@@ -646,7 +657,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 		SetNamespace(opsManager.Namespace).
 		SetMatchLabels(matchLabels).
 		SetServiceName(serviceName).
-		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimtemplates()).
+		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimTemplates()).
 		SetReplicas(startingMembers).
 		Build()
 
@@ -698,8 +709,9 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager *mock.MockedManager, acType agentType) (automationconfig.AutomationConfig, error) {
 	opsManager := builder.Build()
 
-	// ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this
-	createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
+	// Ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this.
+	// We are ignoring this err on purpose since the secret might already exist.
+	_ = createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
 	reconciler, err := newAppDbReconciler(kubeManager, opsManager)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err

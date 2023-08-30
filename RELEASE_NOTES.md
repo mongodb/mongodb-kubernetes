@@ -1,5 +1,13 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.22.0
+## Breaking Changes
+## Deprecations
+## Bug Fixes
+## New Feature
+###  MongoDBOpsManager Resource
+- Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
+- Additionally, [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.  
 
 # MongoDB Enterprise Kubernetes Operator 1.21.0
 ## Breaking changes
