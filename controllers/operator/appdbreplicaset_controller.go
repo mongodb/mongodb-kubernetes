@@ -17,7 +17,6 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
 
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes-operator/controllers"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"golang.org/x/xerrors"
@@ -944,10 +943,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mo
 			p.Args26 = objx.New(rs.AdditionalMongodConfig.ToMap())
 			p.SetPort(int(rs.AdditionalMongodConfig.GetPortOrDefault()))
 			p.SetReplicaSetName(rs.Name())
-			p.SetSystemLog(automationconfig.SystemLog{
-				Destination: "file",
-				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
-			})
 			p.SetStoragePath(automationconfig.DefaultMongoDBDataDir)
 			if rs.Security.IsTLSEnabled() {
 
@@ -962,6 +957,18 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mo
 				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 
 			}
+			systemLog := &automationconfig.SystemLog{
+				Destination: automationconfig.File,
+				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
+			}
+			if opsManager.Spec.AppDB.AutomationAgent.SystemLog != nil {
+				systemLog = opsManager.Spec.AppDB.AutomationAgent.SystemLog
+			}
+
+			if acType == automation {
+				automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.LogRotate, p)
+			}
+
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
@@ -995,7 +1002,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager omv1.Mo
 	}
 
 	if acType == automation && opsManager.Spec.AppDB.AutomationConfigOverride != nil {
-		acToMerge := overrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
+		acToMerge := mdbcv1_controllers.OverrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
 		ac = merge.AutomationConfigs(ac, acToMerge)
 	}
 
@@ -1113,16 +1120,6 @@ func buildPrometheusModification(sClient secrets.SecretClient, om omv1.MongoDBOp
 
 		config.Prometheus = &promConfig
 	}, nil
-}
-
-// overrideToAutomationConfig converts the override struct to one that can be merged.
-// for now only the disabled field is merged.
-func overrideToAutomationConfig(override mdbcv1.AutomationConfigOverride) automationconfig.AutomationConfig {
-	var processes []automationconfig.Process
-	for _, p := range override.Processes {
-		processes = append(processes, automationconfig.Process{Name: p.Name, Disabled: p.Disabled})
-	}
-	return automationconfig.AutomationConfig{Processes: processes}
 }
 
 // setBaseUrlForAgents will update the baseUrl for all backup and monitoring versions to the provided url.

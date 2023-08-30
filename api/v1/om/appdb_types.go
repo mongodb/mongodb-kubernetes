@@ -45,7 +45,7 @@ type AppDBSpec struct {
 	ResourceType mdbv1.ResourceType `json:"type,omitempty"`
 
 	Connectivity *mdbv1.MongoDBConnectivity `json:"connectivity,omitempty"`
-	// AdditionalMongodConfig is additional configuration that can be passed to
+	// AdditionalMongodConfig are additional configurations that can be passed to
 	// each data-bearing mongod at runtime. Uses the same structure as the mongod
 	// configuration file:
 	// https://docs.mongodb.com/manual/reference/configuration-options/
@@ -53,10 +53,11 @@ type AppDBSpec struct {
 	// +optional
 	AdditionalMongodConfig *mdbv1.AdditionalMongodConfig `json:"additionalMongodConfig,omitempty"`
 
-	// specify startup flags for the AutomationAgent and MonitoringAgent
-	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
+	// specify configuration like startup flags and automation config settings for the AutomationAgent and MonitoringAgent
+	AutomationAgent mdbv1.AgentConfigAppDBAutomation `json:"agent,omitempty"`
 
-	// specify startup flags for just the MonitoringAgent. These take precedence over
+	// Specify configuration like startup flags just for the MonitoringAgent.
+	// These take precedence over
 	// the flags set in AutomationAgent
 	MonitoringAgent mdbv1.AgentConfig `json:"monitoringAgent,omitempty"`
 	ConnectionSpec  `json:",inline"`
@@ -68,7 +69,8 @@ type AppDBSpec struct {
 	// Enables Prometheus integration on the AppDB.
 	Prometheus *mdbcv1.Prometheus `json:"prometheus,omitempty"`
 
-	// transient fields. These fields are cleaned before serialization, see 'MarshalJSON()'
+	// Transient fields.
+	// These fields are cleaned before serialization, see 'MarshalJSON()'
 	// note, that we cannot include the 'OpsManager' instance here as this creates circular dependency and problems with
 	// 'DeepCopy'
 
@@ -78,7 +80,7 @@ type AppDBSpec struct {
 	Service string `json:"service,omitempty"`
 
 	// AutomationConfigOverride holds any fields that will be merged on top of the Automation Config
-	// that the operator creates for the AppDB. Currently only the process.disabled field is recognized.
+	// that the operator creates for the AppDB. Currently only the process.disabled and logRotate field is recognized.
 	AutomationConfigOverride *mdbcv1.AutomationConfigOverride `json:"automationConfig,omitempty"`
 
 	UpdateStrategyType appsv1.StatefulSetUpdateStrategyType `json:"-"`
