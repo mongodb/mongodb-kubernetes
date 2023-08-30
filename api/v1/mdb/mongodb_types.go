@@ -492,6 +492,17 @@ type AgentConfig struct {
 	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`
 }
 
+// AgentConfigAppDBAutomation contains agent configuration settings which are specific to appdb.
+type AgentConfigAppDBAutomation struct {
+	AgentConfig `json:",inline"`
+	// +optional
+	// LogRotate if enabled, will enable LogRotate for all processes.
+	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
+	// +optional
+	// SystemLog configures system log of mongod
+	SystemLog *automationconfig.SystemLog `json:"systemLog,omitempty"`
+}
+
 type StartupParameters map[string]string
 
 func (s StartupParameters) ToCommandLineArgs() string {
