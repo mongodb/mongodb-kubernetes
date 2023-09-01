@@ -496,11 +496,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return result.OK()
 	}
 
-	reconcileResult, err := r.updateStatus(opsManager, workflow.Reconciling(), log, appDbStatusOption)
-	if err != nil {
-		return reconcileResult, err
-	}
-
 	podVars, err := r.tryConfigureMonitoringInOpsManager(opsManager, opsManagerUserPassword, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
 	// in Ops Manager. This is not a blocker to continue with the reset of the reconciliation.
@@ -597,7 +592,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
 		// FIXME: use correct MembersOption for scaler
-		return r.updateStatus(opsManager, workflow.OK().Requeue(), log, appDbStatusOption, status.MembersOption(appDBScalers[0]))
+		return r.updateStatus(opsManager, workflow.Pending("Enabling monitoring").Requeue(), log, appDbStatusOption, status.MembersOption(appDBScalers[0]))
 	}
 
 	// We need to check for status compared to the spec because the scaler will report desired replicas to be different than what's present in the spec when the
@@ -1358,7 +1353,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		AutoUser:           util.AutomationAgentUserName,
 		CAFilePath:         util.CAFilePathInContainer,
 	}
-	err = authentication.Configure(conn, opts, log)
+	err = authentication.Configure(conn, opts, false, log)
 	if err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+

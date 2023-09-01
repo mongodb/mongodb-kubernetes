@@ -30,8 +30,7 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
 def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
     opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
     # some time for monitoring to be finished
-    opsmanager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+    opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=50)
 
     internal, external = opsmanager.services()

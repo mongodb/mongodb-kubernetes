@@ -44,7 +44,6 @@ def test_service_node_port_stays_the_same(namespace: str, replica_set: MongoDB):
     replica_set["spec"]["members"] = 3
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running, timeout=60)
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
     service = client.CoreV1Api().read_namespaced_service("my-replica-set-externally-exposed-0-svc-external", namespace)

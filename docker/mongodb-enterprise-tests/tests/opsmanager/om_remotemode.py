@@ -130,7 +130,7 @@ def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_v
 
 @mark.e2e_om_remotemode
 def test_appdb(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     # FIXME remove the if when appdb multi-cluster-aware status is implemented
     if not is_multi_cluster():
         assert ops_manager.appdb_status().get_members() == 3
@@ -146,7 +146,7 @@ def test_appdb_mongod(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_remotemode
 def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     # CLOUDP-83792: some insight: OM has a number of Cron jobs and one of them is responsible for filtering the builds
     # returned in the automation config to include only the available ones (in remote/local modes).

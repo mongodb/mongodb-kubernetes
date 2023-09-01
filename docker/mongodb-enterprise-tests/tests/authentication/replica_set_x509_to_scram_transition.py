@@ -65,7 +65,6 @@ def test_enable_scram_and_x509(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["security"]["authentication"]["modes"] = ["X509", "SCRAM"]
     replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Running, timeout=100)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
@@ -86,7 +85,6 @@ class TestReplicaSetDisableAuthentication(KubernetesTester):
         replica_set.load()
         replica_set["spec"]["security"]["authentication"]["enabled"] = False
         replica_set.update()
-        replica_set.assert_abandons_phase(Phase.Running, timeout=100)
         replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_assert_connectivity(self, replica_set: MongoDB, ca_path: str):
@@ -107,7 +105,6 @@ class TestCanEnableScramSha256:
         replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
         replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
         replica_set.update()
-        replica_set.assert_abandons_phase(Phase.Running, timeout=100)
         replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_assert_connectivity(self, replica_set: MongoDB, ca_path: str):

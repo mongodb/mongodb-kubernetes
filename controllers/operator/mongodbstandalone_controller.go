@@ -210,7 +210,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	status := workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
-			return r.updateOmDeployment(conn, s, sts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeployment(conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			if err = create.DatabaseInKubernetes(r.client, *s, sts, standaloneOpts, log); err != nil {
@@ -220,7 +220,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 			if status := getStatefulSetStatus(sts.Namespace, sts.Name, r.client); !status.IsOK() {
 				return status
 			}
-			_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
+			_, _ = r.updateStatus(s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 			log.Info("Updated StatefulSet for standalone")
 			return workflow.OK()
@@ -257,13 +257,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
-	set appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+	set appsv1.StatefulSet, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
 	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
 		return workflow.Failed(err)
 	}
 
 	// TODO standalone PR
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, "", "", "", log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, "", "", "", isRecovering, log)
 	if !status.IsOK() {
 		return status
 	}
@@ -294,7 +294,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, []string{set.Name}, log); err != nil {
+	if err := om.WaitForReadyState(conn, []string{set.Name}, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -339,7 +339,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 		return xerrors.Errorf("failed to update Ops Manager automation config: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
 		return err
 	}
 

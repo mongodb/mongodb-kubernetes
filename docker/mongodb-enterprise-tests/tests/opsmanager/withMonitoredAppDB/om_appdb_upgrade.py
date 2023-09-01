@@ -52,7 +52,7 @@ class TestOpsManagerCreation:
     """
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, initial_appdb_version: str):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
         # FIXME remove the if when appdb multi-cluster-aware status is implemented
         if not is_multi_cluster():
@@ -106,11 +106,10 @@ class TestOpsManagerCreation:
             assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
 
     def test_om_reaches_running(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     def test_appdb_reaches_running(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     def test_appdb_monitoring_is_configured(self, ops_manager: MongoDBOpsManager):
         ops_manager.assert_appdb_monitoring_group_was_created()
@@ -146,9 +145,8 @@ class TestOpsManagerAppDbUpdateMemory:
             }
         }
         ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
-        # Note, that we don't wait for "OM == reconciling" as this phase passes too quickly
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=100)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
         db_pods = ops_manager.read_appdb_pods()
@@ -160,7 +158,7 @@ class TestOpsManagerAppDbUpdateMemory:
         ops_manager.get_automation_config_tester().reached_version(2)
 
     def test_om_is_running(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.get_om_tester().assert_healthiness()
 
 
@@ -175,10 +173,10 @@ class TestOpsManagerMixed:
         ops_manager.set_appdb_version(custom_appdb_version)
         ops_manager["spec"]["configuration"] = {"mms.helpAndSupportPage.enabled": "true"}
         ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
-        ops_manager.backup_status().assert_reaches_phase(Phase.Disabled, timeout=400)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Disabled)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         # FIXME remove the if when appdb multi-cluster-aware status is implemented

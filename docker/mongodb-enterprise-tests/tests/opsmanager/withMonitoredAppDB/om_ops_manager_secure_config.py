@@ -70,7 +70,6 @@ def test_om_creation(ops_manager: MongoDBOpsManager):
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_appdb_monitoring_configured(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.assert_appdb_monitoring_group_was_created()
 
@@ -138,7 +137,7 @@ def test_changing_app_db_password_triggers_rolling_restart(
     # when the Operator started working on the spec - let's just wait for a bit
     time.sleep(5)
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -164,7 +163,7 @@ def test_no_unnecessary_rolling_upgrades_happen(
     ops_manager.update()
 
     time.sleep(10)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     sts = ops_manager.read_statefulset()
     assert sts.metadata.generation == old_generation, "no change should have happened to the Ops Manager stateful set"

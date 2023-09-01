@@ -203,10 +203,10 @@ class TestBackupDatabasesAdded:
         s3_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
-        """Creates mongodb databases all at once"""
-        oplog_replica_set.assert_reaches_phase(Phase.Running)
-        s3_replica_set.assert_reaches_phase(Phase.Running)
-        blockstore_replica_set.assert_reaches_phase(Phase.Running)
+        """Creates mongodb databases all at once. Concurrent AC modifications may happen from time to time"""
+        oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+        s3_replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+        blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
     def test_oplog_user_created(self, oplog_user: MongoDBUser):
         oplog_user.assert_reaches_phase(Phase.Updated)

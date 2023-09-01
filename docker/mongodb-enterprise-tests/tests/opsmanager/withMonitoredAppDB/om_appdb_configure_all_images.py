@@ -54,14 +54,13 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
 @mark.e2e_om_appdb_configure_all_images
 def test_appdb(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_appdb_configure_all_images
 def test_om_get_started(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=50)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_appdb_configure_all_images

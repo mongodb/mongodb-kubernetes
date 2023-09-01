@@ -21,18 +21,14 @@ USER_PASSWORD = "my-password"
 
 @pytest.fixture(scope="module")
 def replica_set(namespace: str, issuer_ca_configmap: str, server_certs: str) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("replica-set-tls-scram-sha-256.yaml"), namespace=namespace
-    )
+    res = MongoDB.from_yaml(load_fixture("replica-set-tls-scram-sha-256.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
 
 
 @pytest.mark.e2e_replica_set_scram_sha_and_x509
@@ -64,9 +60,7 @@ class TestCreateMongoDBUser(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(
-            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
-        )
+        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,
@@ -107,15 +101,12 @@ class TestScramUserCanAuthenticate(KubernetesTester):
         replica_set["spec"]["security"]["authentication"]["modes"].append("X509")
         replica_set["spec"]["security"]["authentication"]["agents"] = {"mode": "SCRAM"}
         replica_set.update()
-        replica_set.assert_abandons_phase(Phase.Running, timeout=50)
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_automation_config_was_updated(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
         # when both agents.mode is set to SCRAM, X509 should not be used as agent auth
-        tester.assert_authentication_mechanism_enabled(
-            "MONGODB-X509", active_auth_mechanism=False
-        )
+        tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
         tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
 
@@ -146,14 +137,10 @@ class TestX509CertCreationAndApproval(KubernetesTester):
     def setup(self):
         self.cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
 
-    def test_create_user_and_authenticate(
-        self, issuer: str, namespace: str, ca_path: str
-    ):
+    def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
         create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_x509_authentication(
-            cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path
-        )
+        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path)
 
     def teardown(self):
         self.cert_file.close()

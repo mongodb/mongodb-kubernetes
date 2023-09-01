@@ -97,10 +97,8 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
-        # Monitoring
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=50)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
         secret = ops_manager.read_gen_key_secret()
@@ -141,6 +139,10 @@ class TestOpsManagerCreation:
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
         ops_manager.reload()
+        # The below two should be a no-op but in order to make this test rock solid, we need to ensure that everything
+        # is running without any interruptions.
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
         assert ops_manager.appdb_status().get_observed_generation() == 1
         assert ops_manager.om_status().get_observed_generation() == 1
@@ -165,12 +167,17 @@ class TestBackupCreation:
     def test_backup_is_enabled(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
-            timeout=500,
             ignore_errors=True,
         )
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
         ops_manager.reload()
+
+        # The below two should be a no-op but in order to make this test rock solid, we need to ensure that everything
+        # is running without any interruptions.
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running)
 
         assert ops_manager.appdb_status().get_observed_generation() == 2
         assert ops_manager.om_status().get_observed_generation() == 2
@@ -209,8 +216,8 @@ class TestOpsManagerConfigurationChange:
         ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = ""
         ops_manager["spec"]["configuration"]["mms.helpAndSupportPage.enabled"] = "true"
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=60)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     def test_keys_not_modified(
         self,
@@ -239,6 +246,12 @@ class TestOpsManagerConfigurationChange:
     def test_generations(self, ops_manager: MongoDBOpsManager):
         ops_manager.reload()
 
+        # The below two should be a no-op but in order to make this test rock solid, we need to ensure that everything
+        # is running without any interruptions.
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running)
+
         assert ops_manager.appdb_status().get_observed_generation() == 3
         assert ops_manager.om_status().get_observed_generation() == 3
         assert ops_manager.backup_status().get_observed_generation() == 3
@@ -266,7 +279,7 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_appdb_version(custom_appdb_version)
 
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         pods = ops_manager.read_om_pods()
@@ -319,9 +332,8 @@ class TestMongoDbsVersionUpgrade:
         mdb.tester().assert_version(custom_mdb_version)
 
     def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str):
-        """The agents were requested to get upgraded immediately after Ops Manager upgrade.
-        Note, that this happens only for OM major/minor upgrade, so we need to check only this case
-        TODO CLOUDP-64622: we need to check the periodic agents upgrade as well - this can be done through Operator custom configuration"""
+        # The agents were requested to get upgraded immediately after Ops Manager upgrade.
+        # Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
         if prev_version.major != new_version.major or prev_version.minor != new_version.minor:
@@ -335,7 +347,7 @@ class TestAppDBScramShaUpdated:
         ops_manager["spec"]["applicationDatabase"]["logLevel"] = "DEBUG"
         ops_manager.update()
 
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     @pytest.mark.skip(reason="re-enable when only SCRAM-SHA-256 is supported for the AppDB")
     def test_appdb_scram_sha_(self, ops_manager: MongoDBOpsManager):
@@ -352,7 +364,6 @@ class TestBackupDaemonVersionUpgrade:
     ):
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
-            timeout=1000,
             ignore_errors=True,
         )
 

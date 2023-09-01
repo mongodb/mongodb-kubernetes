@@ -137,7 +137,6 @@ def test_add_new_cluster_to_mongodb_multi_resource(
         {"members": 2, "clusterName": member_cluster_clients[-1].cluster_name}
     )
     mongodb_multi.update()
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=60)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 

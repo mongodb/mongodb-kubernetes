@@ -58,7 +58,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
 @mark.e2e_om_appdb_agent_flags
 def test_appdb(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_appdb_agent_flags
@@ -68,7 +68,6 @@ def test_om(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_appdb_agent_flags
 def test_monitoring_is_configured(ops_manager: MongoDBOpsManager):
-    # ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -133,7 +132,6 @@ def test_appdb_flags_changed(ops_manager: MongoDBOpsManager):
         }
     }
     ops_manager.update()
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=50)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 

@@ -44,15 +44,6 @@ def test_mongos_reaches_pending_phase(sharded_cluster: MongoDB):
 
 @mark.e2e_sharded_cluster_statefulset_status
 def test_sharded_cluster_reaches_running_phase(sharded_cluster: MongoDB):
-    # The 'status.resourcesNotReady' must get cleaned soon after the mongos StatefulSet is ready - then
-    # the resource will stay in 'Reconciling' phase for some time waiting for the agents to reach goal state
-    sharded_cluster.wait_for(
-        lambda s: s.get_status_resources_not_ready() is None,
-        timeout=150,
-        should_raise=True,
-    )
-    assert sharded_cluster.get_status_phase() == Phase.Reconciling
-
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=100)
     assert sharded_cluster.get_status_resources_not_ready() is None
 

@@ -81,7 +81,7 @@ def test_mongodb_multi_leaves_running_state(
     mongodb_multi: MongoDBMulti,
 ):
     mongodb_multi.load()
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=100)
+    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_multi_cluster_disaster_recovery

@@ -14,6 +14,7 @@ import (
 type pendingStatus struct {
 	commonStatus
 	retryInSeconds time.Duration
+	requeue        bool
 }
 
 func Pending(msg string, params ...interface{}) *pendingStatus {
@@ -36,7 +37,7 @@ func (p *pendingStatus) WithResourcesNotReady(resourcesNotReady []status.Resourc
 }
 
 func (p pendingStatus) ReconcileResult() (reconcile.Result, error) {
-	return reconcile.Result{RequeueAfter: time.Second * p.retryInSeconds}, nil
+	return reconcile.Result{RequeueAfter: time.Second * p.retryInSeconds, Requeue: p.requeue}, nil
 }
 
 func (p pendingStatus) IsOK() bool {
@@ -76,4 +77,10 @@ func mergedPending(p1, p2 pendingStatus) pendingStatus {
 	p := Pending(p1.msg + ", " + p2.msg)
 	p.warnings = append(p1.warnings, p2.warnings...)
 	return *p
+}
+
+func (p *pendingStatus) Requeue() Status {
+	p.requeue = true
+	p.retryInSeconds = 0
+	return p
 }

@@ -17,7 +17,7 @@ func TestPredicatesForUser(t *testing.T) {
 			Status: user.MongoDBUserStatus{},
 		}
 		newUser := oldUser.DeepCopy()
-		newUser.Status.Phase = status.PhaseReconciling
+		newUser.Status.Phase = status.PhasePending
 		assert.False(t, PredicatesForUser().Update(event.UpdateEvent{ObjectOld: oldUser, ObjectNew: newUser}))
 	})
 	t.Run("Reconciliation happens for MongoDBUser if statuses are equal", func(t *testing.T) {

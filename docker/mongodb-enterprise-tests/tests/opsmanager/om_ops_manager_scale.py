@@ -189,7 +189,6 @@ class TestOpsManagerScaleDown:
         ops_manager.load()
         ops_manager["spec"]["replicas"] = 1
         ops_manager.update()
-        ops_manager.om_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):

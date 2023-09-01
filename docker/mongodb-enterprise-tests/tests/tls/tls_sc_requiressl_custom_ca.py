@@ -30,12 +30,8 @@ def server_certs(issuer: str, namespace: str):
 
 
 @pytest.fixture(scope="module")
-def sharded_cluster(
-    namespace: str, server_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-tls-base-sc-require-ssl-custom-ca.yaml"), namespace=namespace
-    )
+def sharded_cluster(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("test-tls-base-sc-require-ssl-custom-ca.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
 
@@ -47,9 +43,7 @@ class TestClusterWithTLSCreation(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self, ca_path: str):
-        tester = ShardedClusterTester(
-            MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2
-        )
+        tester = ShardedClusterTester(MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2)
         tester.assert_connectivity()
 
     @skip_if_local
@@ -68,9 +62,7 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self, ca_path: str):
-        tester = ShardedClusterTester(
-            MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2
-        )
+        tester = ShardedClusterTester(MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2)
         tester.assert_connectivity()
 
     @skip_if_local
@@ -82,19 +74,14 @@ class TestClusterWithTLSCreationRunning(KubernetesTester):
 @pytest.mark.e2e_sharded_cluster_tls_require_custom_ca
 class TestCertificateIsRenewed(KubernetesTester):
     def test_mdb_reconciles_succesfully(self, sharded_cluster: MongoDB, namespace: str):
-        cert = Certificate(
-            name=f"{MDB_RESOURCE_NAME}-0-cert", namespace=namespace
-        ).load()
+        cert = Certificate(name=f"{MDB_RESOURCE_NAME}-0-cert", namespace=namespace).load()
         cert["spec"]["dnsNames"].append("foo")
         cert.update()
-        sharded_cluster.assert_abandons_phase(Phase.Running, timeout=60)
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
     @skip_if_local
     def test_mongos_are_reachable_with_ssl(self, ca_path: str):
-        tester = ShardedClusterTester(
-            MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2
-        )
+        tester = ShardedClusterTester(MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2)
         tester.assert_connectivity()
 
     @skip_if_local

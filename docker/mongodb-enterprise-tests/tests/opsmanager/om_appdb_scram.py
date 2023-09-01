@@ -53,7 +53,7 @@ class TestOpsManagerCreation:
     """
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
         # FIXME remove the if when appdb multi-cluster-aware status is implemented
         if not is_multi_cluster():
@@ -101,10 +101,9 @@ class TestOpsManagerCreation:
         )
 
     def test_om_is_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(phase=Phase.Running, timeout=700)
+        ops_manager.om_status().assert_reaches_phase(phase=Phase.Running)
         # Let the monitoring get registered
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
 @pytest.mark.e2e_om_appdb_scram
@@ -128,8 +127,8 @@ class TestChangeOpsManagerUserPassword:
             "key": "new-key",
         }
         ops_manager.update()
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     @pytest.mark.xfail(reason="the auto generated password should have been deleted once the user creates their own")
     def test_auto_generated_password_exists(self, ops_manager: MongoDBOpsManager):
@@ -177,17 +176,17 @@ class TestChangeOpsManagerExistingUserPassword:
         )
 
     def test_om_reconciled(self, ops_manager: MongoDBOpsManager):
-        # OM got reconciled on secret change
+        ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     @pytest.mark.xfail(reason="the auto generated password should have been deleted once the user creates their own")
     def test_auto_generated_password_exists(self, ops_manager: MongoDBOpsManager):
         ops_manager.read_appdb_generated_password_secret()
 
     def test_config_map_reached_v3(self, ops_manager: MongoDBOpsManager):
-        # should reach version 3 as a password has changed, resulting in new ScramShaCreds
-        assert ops_manager.get_automation_config_tester().reached_version(3)
+        KubernetesTester.wait_until(lambda: ops_manager.get_automation_config_tester().reached_version(3), timeout=180)
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         tester = ops_manager.get_automation_config_tester()
@@ -221,7 +220,7 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
             "key": "",
         }
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     def test_new_password_was_created(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.read_appdb_generated_password() != ""

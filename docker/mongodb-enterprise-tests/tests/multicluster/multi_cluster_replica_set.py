@@ -157,7 +157,6 @@ def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_
 
     mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 

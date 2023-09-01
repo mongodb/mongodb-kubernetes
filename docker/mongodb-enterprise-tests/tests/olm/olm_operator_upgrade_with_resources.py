@@ -146,10 +146,9 @@ def wait_for_om_healthy_response(ops_manager: MongoDBOpsManager):
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
 def test_om_connectivity(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.backup_status().assert_reaches_phase(Phase.Pending)
-    # backup not yet configured
 
     wait_for_om_healthy_response(ops_manager)
 
@@ -265,7 +264,7 @@ def test_set_backup_users(ops_manager: MongoDBOpsManager, oplog_user: MongoDBUse
     ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
     ops_manager.update()
 
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000, ignore_errors=True)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     assert ops_manager.backup_status().get_message() is None
 
@@ -278,9 +277,9 @@ def test_om_connectivity_with_backup(
 ):
     wait_for_om_healthy_response(ops_manager)
 
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -291,9 +290,9 @@ def test_resources_in_running_state_before_upgrade(
     s3_replica_set: MongoDB,
     mdb_sharded: MongoDB,
 ):
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running)
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.assert_reaches_phase(Phase.Running)
@@ -345,9 +344,9 @@ def test_resources_in_running_state_after_upgrade(
     s3_replica_set: MongoDB,
     mdb_sharded: MongoDB,
 ):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running)
     oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     s3_replica_set.assert_reaches_phase(Phase.Running, timeout=600)

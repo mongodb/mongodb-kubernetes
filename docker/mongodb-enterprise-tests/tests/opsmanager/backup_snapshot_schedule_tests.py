@@ -57,7 +57,6 @@ class BackupSnapshotScheduleTests:
             "fullIncrementalDayOfWeek": "MONDAY",
         }
         create_or_update(mdb)
-        mdb.assert_reaches_phase(Phase.Reconciling)
         mdb.assert_reaches_phase(Phase.Running, timeout=1000)
         mdb.assert_backup_reaches_status("STARTED")
 
@@ -74,14 +73,12 @@ class BackupSnapshotScheduleTests:
     def test_when_backup_terminated_snapshot_schedule_is_ignored(self, mdb: MongoDB):
         mdb.configure_backup(mode="disabled")
         mdb.update()
-        mdb.assert_reaches_phase(Phase.Reconciling)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_backup_reaches_status("STOPPED")
 
         mdb.load()
         mdb.configure_backup(mode="terminated")
         mdb.update()
-        mdb.assert_reaches_phase(Phase.Reconciling)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_backup_reaches_status("TERMINATING")
 
@@ -93,7 +90,6 @@ class BackupSnapshotScheduleTests:
 
         mdb.configure_backup(mode="enabled")
         mdb.update()
-        mdb.assert_reaches_phase(Phase.Reconciling)
         mdb.assert_reaches_phase(Phase.Running)
         mdb.assert_backup_reaches_status("STARTED")
 

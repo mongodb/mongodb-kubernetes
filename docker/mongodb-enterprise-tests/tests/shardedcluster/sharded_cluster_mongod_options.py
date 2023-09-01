@@ -35,9 +35,7 @@ def test_sharded_cluster_mongodb_options_mongos(sharded_cluster: MongoDB):
 @mark.e2e_sharded_cluster_mongod_options
 def test_sharded_cluster_mongodb_options_config_srv(sharded_cluster: MongoDB):
     automation_config_tester = sharded_cluster.get_automation_config_tester()
-    for process in automation_config_tester.get_replica_set_processes(
-        sharded_cluster.config_srv_statefulset_name()
-    ):
+    for process in automation_config_tester.get_replica_set_processes(sharded_cluster.config_srv_statefulset_name()):
         assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
         assert "verbosity" not in process["args2_6"]["systemLog"]
         assert "logAppend" not in process["args2_6"]["systemLog"]
@@ -84,15 +82,9 @@ def test_remove_fields(sharded_cluster: MongoDB):
     sharded_cluster.load()
 
     # delete a field from each component
-    del sharded_cluster["spec"]["mongos"]["additionalMongodConfig"]["systemLog"][
-        "verbosity"
-    ]
-    del sharded_cluster["spec"]["shard"]["additionalMongodConfig"]["storage"][
-        "journal"
-    ]["commitIntervalMs"]
-    del sharded_cluster["spec"]["configSrv"]["additionalMongodConfig"][
-        "operationProfiling"
-    ]["mode"]
+    del sharded_cluster["spec"]["mongos"]["additionalMongodConfig"]["systemLog"]["verbosity"]
+    del sharded_cluster["spec"]["shard"]["additionalMongodConfig"]["storage"]["journal"]["commitIntervalMs"]
+    del sharded_cluster["spec"]["configSrv"]["additionalMongodConfig"]["operationProfiling"]["mode"]
 
     client.CustomObjectsApi().replace_namespaced_custom_object(
         sharded_cluster.group,
@@ -103,7 +95,6 @@ def test_remove_fields(sharded_cluster: MongoDB):
         sharded_cluster.backing_obj,
     )
 
-    sharded_cluster.assert_abandons_phase(Phase.Running)
     sharded_cluster.assert_reaches_phase(Phase.Running)
 
 
@@ -123,9 +114,7 @@ def test_fields_are_successfully_removed_from_mongos(sharded_cluster: MongoDB):
 @mark.e2e_sharded_cluster_mongod_options
 def test_fields_are_successfully_removed_from_config_srv(sharded_cluster: MongoDB):
     automation_config_tester = sharded_cluster.get_automation_config_tester()
-    for process in automation_config_tester.get_replica_set_processes(
-        sharded_cluster.config_srv_statefulset_name()
-    ):
+    for process in automation_config_tester.get_replica_set_processes(sharded_cluster.config_srv_statefulset_name()):
         assert "mode" not in process["args2_6"]["operationProfiling"]
 
         # other fields are still there

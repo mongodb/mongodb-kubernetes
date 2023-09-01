@@ -31,15 +31,6 @@ def test_replica_set_reaches_pending_phase(replica_set: MongoDB):
 
 @mark.e2e_replica_set_statefulset_status
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
-    # The 'status.resourcesNotReady' must get cleaned soon after the replica set StatefulSet is ready - then
-    # the resource will stay in 'Reconciling' phase for some time waiting for the agents to reach goal state
-    replica_set.wait_for(
-        lambda s: s.get_status_resources_not_ready() is None,
-        timeout=150,
-        should_raise=True,
-    )
-    assert replica_set.get_status_phase() == Phase.Reconciling
-    assert replica_set.get_status_message() is None
-
     replica_set.assert_reaches_phase(Phase.Running, timeout=100)
     assert replica_set.get_status_resources_not_ready() is None
+    assert replica_set.get_status_message() is None
