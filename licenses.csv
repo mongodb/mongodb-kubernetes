@@ -31,7 +31,7 @@ github.com/hashicorp/go-hclog,v0.16.2,https://github.com/hashicorp/go-hclog/blob
 github.com/hashicorp/go-immutable-radix,v1.3.1,https://github.com/hashicorp/go-immutable-radix/blob/v1.3.1/LICENSE,MPL-2.0
 github.com/hashicorp/go-multierror,v1.1.1,https://github.com/hashicorp/go-multierror/blob/v1.1.1/LICENSE,MPL-2.0
 github.com/hashicorp/go-plugin,v1.4.5,https://github.com/hashicorp/go-plugin/blob/v1.4.5/LICENSE,MPL-2.0
-github.com/hashicorp/go-retryablehttp,v0.7.2,https://github.com/hashicorp/go-retryablehttp/blob/v0.7.2/LICENSE,MPL-2.0
+github.com/hashicorp/go-retryablehttp,v0.7.4,https://github.com/hashicorp/go-retryablehttp/blob/v0.7.4/LICENSE,MPL-2.0
 github.com/hashicorp/go-rootcerts,v1.0.2,https://github.com/hashicorp/go-rootcerts/blob/v1.0.2/LICENSE,MPL-2.0
 github.com/hashicorp/go-secure-stdlib/mlock,v0.1.1,https://github.com/hashicorp/go-secure-stdlib/blob/mlock/v0.1.1/mlock/LICENSE,MPL-2.0
 github.com/hashicorp/go-secure-stdlib/parseutil,v0.1.6,https://github.com/hashicorp/go-secure-stdlib/blob/parseutil/v0.1.6/parseutil/LICENSE,MPL-2.0
@@ -63,9 +63,9 @@ github.com/pierrec/lz4,v2.5.2,https://github.com/pierrec/lz4/blob/v2.5.2/LICENSE
 github.com/pkg/errors,v0.9.1,https://github.com/pkg/errors/blob/v0.9.1/LICENSE,BSD-2-Clause
 github.com/pmezard/go-difflib/difflib,v1.0.0,https://github.com/pmezard/go-difflib/blob/v1.0.0/LICENSE,BSD-3-Clause
 github.com/prometheus/client_golang/prometheus,v1.16.0,https://github.com/prometheus/client_golang/blob/v1.16.0/LICENSE,Apache-2.0
-github.com/prometheus/client_model/go,v0.3.0,https://github.com/prometheus/client_model/blob/v0.3.0/LICENSE,Apache-2.0
-github.com/prometheus/common,v0.42.0,https://github.com/prometheus/common/blob/v0.42.0/LICENSE,Apache-2.0
-github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg,v0.42.0,https://github.com/prometheus/common/blob/v0.42.0/internal/bitbucket.org/ww/goautoneg/README.txt,BSD-3-Clause
+github.com/prometheus/client_model/go,v0.4.0,https://github.com/prometheus/client_model/blob/v0.4.0/LICENSE,Apache-2.0
+github.com/prometheus/common,v0.44.0,https://github.com/prometheus/common/blob/v0.44.0/LICENSE,Apache-2.0
+github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg,v0.44.0,https://github.com/prometheus/common/blob/v0.44.0/internal/bitbucket.org/ww/goautoneg/README.txt,BSD-3-Clause
 github.com/prometheus/procfs,v0.10.1,https://github.com/prometheus/procfs/blob/v0.10.1/LICENSE,Apache-2.0
 github.com/r3labs/diff/v3,v3.0.1,https://github.com/r3labs/diff/blob/v3.0.1/LICENSE,MPL-2.0
 github.com/ryanuber/go-glob,v1.0.0,https://github.com/ryanuber/go-glob/blob/v1.0.0/LICENSE,MIT
