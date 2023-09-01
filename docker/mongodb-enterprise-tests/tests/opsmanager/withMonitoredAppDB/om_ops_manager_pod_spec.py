@@ -48,24 +48,21 @@ class TestOpsManagerCreation:
             timeout=100,
         )
 
-    def test_appdb_1_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
-        ops_manager.appdb_status().assert_empty_status_resources_not_ready()
-
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=100)
+        ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600)
 
-    def test_om_status_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
+    def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_status_resource_not_ready(
             ops_manager.name, msg_regexp="Not all the Pods are ready \(total: 1.*\)"
         )
 
-    def test_om_status_2_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
+    def test_om_status_1_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.om_status().assert_empty_status_resources_not_ready()
 
-    def test_appdb_3_reaches_running_phase_2(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    def test_appdb_1_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_empty_status_resources_not_ready()
 
     def test_backup_0_reaches_pending_phase(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(
@@ -93,7 +90,6 @@ class TestOpsManagerCreation:
         assert appdb_sts.spec.template.spec.containers[0].command == ["sleep"]
         assert appdb_sts.spec.template.spec.containers[0].args == ["infinity"]
 
-    # TODO it appears it is doing some legit checks, yet is unused, why? can we remove it?
     def test_appdb_persistence(self, ops_manager: MongoDBOpsManager, namespace: str):
         # appdb pod volume claim template
         appdb_sts = ops_manager.read_appdb_statefulset()
@@ -298,30 +294,30 @@ class TestOpsManagerUpdate:
         ops_manager.update()
 
     def test_appdb_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=100)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=1200)
 
-    def test_appdb_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
+    def test_appdb_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         if not is_multi_cluster():
             ops_manager.appdb_status().assert_status_resource_not_ready(
                 ops_manager.app_db_name(),
                 msg_regexp="Not all the Pods are ready \(total: 3.*\)",
             )
 
-    def test_appdb_2_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=500)
-        ops_manager.appdb_status().assert_empty_status_resources_not_ready()
-
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=100)
+        ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600)
 
-    def test_om_status_1_pods_not_ready(self, ops_manager: MongoDBOpsManager):
+    def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_status_resource_not_ready(
             ops_manager.name, msg_regexp="Not all the Pods are ready \(total: 1.*\)"
         )
 
-    def test_om_status_2_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
+    def test_om_status_1_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.om_status().assert_empty_status_resources_not_ready()
+
+    def test_appdb_1_reaches_running_phase_1(self, ops_manager: MongoDBOpsManager):
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_empty_status_resources_not_ready()
 
     def test_backup_0_reaches_pending_phase(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(

@@ -67,7 +67,7 @@ func PrepareScaleDownFromMap(omClient om.Connection, rsMembers map[string][]stri
 			return xerrors.Errorf("unable to set votes, priority to 0 in Ops Manager, hosts: %v, err: %w", processes, err)
 		}
 
-		if err := om.WaitForReadyState(omClient, processes, log); err != nil {
+		if err := om.WaitForReadyState(omClient, processes, false, log); err != nil {
 			return err
 		}
 

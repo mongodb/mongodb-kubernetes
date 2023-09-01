@@ -27,10 +27,9 @@ class Phase(Enum):
     Running = 1
     Pending = 2
     Failed = 3
-    Reconciling = 4
-    Updated = 5
-    Disabled = 6
-    Unsupported = 7
+    Updated = 4
+    Disabled = 5
+    Unsupported = 6
 
 
 class MongoDBCommon:
@@ -406,6 +405,8 @@ def in_desired_state(
 
     is_in_desired_state = current_state == desired_state
     if msg_regexp is not None:
+        print("msg_regexp: " + str(msg_regexp))
+        print("type: " + str(type(msg_regexp)))
         regexp = re.compile(msg_regexp)
         is_in_desired_state = is_in_desired_state and current_message is not None and regexp.match(current_message)
 

@@ -179,12 +179,7 @@ def test_update_coredns():
 @mark.e2e_om_ops_manager_backup_tls_custom_ca
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-
-        # appdb rolling restart for configuring monitoring
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         ops_manager.backup_status().assert_reaches_phase(

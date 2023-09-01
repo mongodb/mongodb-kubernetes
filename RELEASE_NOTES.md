@@ -2,13 +2,20 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.22.0
 ## Breaking Changes
+* The "Reconciling" state is no longer used by the Operator. In most of the cases it has been replaced with "Pending" and a proper message
+
 ## Deprecations
 ## Bug Fixes
-## New Feature
+## New Features
+* An Automatic Recovery mechanism has been introduced for `MongoDB` resources and is turned on by default. If a Custom Resource remains in `Pending` or `Failed` state for a longer period of time (controlled by `MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S` environment variable at the Operator Pod spec level, the default is 20 minutes)
+  the Automation Config is pushed to the Ops Manager. This helps to prevent a deadlock when an Automation Config can not be pushed because of the StatefulSet not being ready and the StatefulSet being not ready because of a broken Automation Config.
+  The behaviour can be turned off by setting `MDB_AUTOMATIC_RECOVERY_ENABLE` environment variable to `false`.
+
 ###  MongoDBOpsManager Resource
 - Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
-- Additionally, [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.  
+- Additionally, [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
 
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.21.0
 ## Breaking changes
 * The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
@@ -53,7 +60,14 @@ The implementation is backwards compatible with single cluster deployments of Ap
 * The setting `spec.backup.[]s3Stores.customCertificate` and `spec.backup.[]s3OpLogStores.customCertificate` are being deprecated in favor of `spec.backup.[]s3OpLogStores.[]customCertificateSecretRefs` and `spec.backup.[]s3Stores.[]customCertificateSecretRefs`
   * Previously, when enabling `customCertificate`, the operator would use the `appdb-ca` as the custom certificate. Currently, this should be explicitly set via `customCertificateSecretRefs`.
 
-<!-- Past Releases -->
+## New Features
+* Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
+  * The list consists of single certificate strings, each references a secret containing a certificate authority. 
+  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
+  * Note: 
+    * If providing a list of `customCertificateSecretRefs`, then those certificates will be used instead of the default certificates setup in the JVM Trust Store (in Ops Manager or Cloud Manager).
+    * If none are provided, the default JVM Truststore certificates will be used instead.
+
 # MongoDB Enterprise Kubernetes Operator 1.20.1
 
 This release fixes an issue that prevented upgrading the Kubernetes Operator to 1.20.0 in OpenShift. Upgrade to this release instead.

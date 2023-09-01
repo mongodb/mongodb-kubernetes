@@ -37,7 +37,7 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 }
 
 // Waits until the agents for relevant processes reach their state
-func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLogger) error {
+func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
 
 	reachStateFunc := func() (string, bool) {
@@ -53,6 +53,10 @@ func WaitForReadyState(oc Connection, processNames []string, log *zap.SugaredLog
 		return "MongoDB agents haven't reached READY state", false
 	}
 	if !util.DoAndRetry(reachStateFunc, log, 30, 3) {
+		if supressErrors {
+			log.Warnf("automation agents haven't reached READY state but the error is supressed")
+			return nil
+		}
 		return apierror.New(xerrors.Errorf("automation agents haven't reached READY state during defined interval"))
 	}
 	log.Info("MongoDB agents have reached READY state")

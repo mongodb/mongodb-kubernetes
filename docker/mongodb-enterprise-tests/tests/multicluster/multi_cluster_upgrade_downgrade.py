@@ -50,7 +50,6 @@ def test_mongodb_multi_upgrade(mongodb_multi: MongoDBMulti):
     mongodb_multi["spec"]["featureCompatibilityVersion"] = "4.4"
     mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
     mongodb_multi.tester().assert_version("5.0.5-ent")
@@ -71,7 +70,6 @@ def test_mongodb_multi_downgrade(mongodb_multi: MongoDBMulti):
     mongodb_multi["spec"]["featureCompatibilityVersion"] = None
     mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
     mongodb_multi.tester().assert_version("4.4.11-ent")
 

@@ -106,13 +106,8 @@ class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         create_or_update(ops_manager)
 
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
-
-        # appdb rolling restart for configuring monitoring
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_om_backup_is_failed(
         self,

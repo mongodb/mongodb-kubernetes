@@ -26,7 +26,7 @@ func TestConfigureScramSha1FallbackToCr(t *testing.T) {
 		AgentMechanism:      "SCRAM",
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,7 +54,7 @@ func TestConfigureScramSha256(t *testing.T) {
 		AgentMechanism:      "SCRAM",
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,7 +85,7 @@ func TestConfigureX509(t *testing.T) {
 		},
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestConfigureScramSha1(t *testing.T) {
 		AgentMechanism:      "SCRAM-SHA-1",
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,7 +138,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		},
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,7 +171,7 @@ func TestScramSha1MongoDBUpgrade(t *testing.T) {
 		AgentMechanism:      "SCRAM",
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,7 +192,7 @@ func TestScramSha1MongoDBUpgrade(t *testing.T) {
 		AgentMechanism:      "SCRAM",
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -221,7 +221,7 @@ func TestConfigureAndDisable(t *testing.T) {
 		},
 	}
 
-	if err := Configure(conn, opts, zap.S()); err != nil {
+	if err := Configure(conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 

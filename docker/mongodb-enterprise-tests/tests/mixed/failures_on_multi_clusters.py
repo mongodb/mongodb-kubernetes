@@ -14,9 +14,7 @@ def replica_set(namespace, custom_mdb_version: str):
 
 @fixture(scope="class")
 def replica_set_single(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-single.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     yield resource.create()
 
@@ -25,9 +23,7 @@ def replica_set_single(namespace, custom_mdb_version: str):
 
 @fixture(scope="class")
 def sharded_cluster(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(
-        yaml_fixture("sharded-cluster.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     yield resource.create()
 
@@ -36,9 +32,7 @@ def sharded_cluster(namespace, custom_mdb_version: str):
 
 @fixture(scope="class")
 def sharded_cluster_single(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(
-        yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     yield resource.create()
 
@@ -56,7 +50,6 @@ class TestNoTwoReplicaSetsCanBeCreatedOnTheSameProject:
         replica_set["spec"]["members"] = 5
         replica_set.update()
 
-        replica_set.assert_abandons_phase(Phase.Running)
         replica_set.assert_reaches_phase(Phase.Running, timeout=500)
         assert "warnings" not in replica_set["status"]
 
@@ -96,9 +89,7 @@ class TestNoTwoClustersCanBeCreatedOnTheSameProject:
         assert "warnings" not in sharded_cluster_single["status"]
 
     # pylint: disable=unused-argument
-    def test_sharded_cluster_automation_config_is_correct(
-        self, sharded_cluster, sharded_cluster_single
-    ):
+    def test_sharded_cluster_automation_config_is_correct(self, sharded_cluster, sharded_cluster_single):
         config = KubernetesTester.get_automation_config()
 
         for process in config["processes"]:
@@ -128,9 +119,7 @@ class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
         assert "warnings" not in status
 
     # pylint: disable=unused-argument
-    def test_automation_config_contains_one_cluster(
-        self, replica_set_single, sharded_cluster_single
-    ):
+    def test_automation_config_contains_one_cluster(self, replica_set_single, sharded_cluster_single):
         config = KubernetesTester.get_automation_config()
 
         assert len(config["processes"]) == 1

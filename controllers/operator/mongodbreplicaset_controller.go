@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -201,9 +203,21 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
 	agentCertSecretName += certs.OperatorGeneratedCertSuffix
 
+	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
+		automationConfigStatus := r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		deploymentError := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log)
+		if deploymentError != nil {
+			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
+		}
+		if !automationConfigStatus.IsOK() {
+			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
+		}
+	}
+
 	status = workflow.RunInGivenOrder(needToPublishStateFirst(r.client, *rs, rsConfig, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, false).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			if err := create.DatabaseInKubernetes(r.client, *rs, sts, construct.ReplicaSetOptions(), log); err != nil {
@@ -213,7 +227,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			if status := getStatefulSetStatus(rs.Namespace, rs.Name, r.client); !status.IsOK() {
 				return status
 			}
-			_, _ = r.updateStatus(rs, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
+			_, _ = r.updateStatus(rs, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 			log.Info("Updated StatefulSet for replica set")
 			return workflow.OK()
@@ -351,21 +365,21 @@ func AddReplicaSetController(mgr manager.Manager, memberClustersMap map[string]c
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, membersNumberBefore int, rs *mdbv1.MongoDB,
-	set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string, prometheusCertHash string) workflow.Status {
+	set appsv1.StatefulSet, log *zap.SugaredLogger, caFilePath string, agentCertSecretName string, prometheusCertHash string, isRecovering bool) workflow.Status {
 
 	log.Debug("Entering UpdateOMDeployments")
 	// Only "concrete" RS members should be observed
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
 	err := agents.WaitForRsAgentsToRegister(set, util_int.Min(membersNumberBefore, int(*set.Spec.Replicas)), rs.Spec.GetClusterDomain(), conn, log, rs)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
 	// If current operation is to Disable TLS, then we should the current members of the Replica Set,
 	// this is, do not scale them up or down util TLS disabling has completed.
 	shouldLockMembers, err := updateOmDeploymentDisableTLSConfiguration(conn, membersNumberBefore, rs, set, log, caFilePath)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
@@ -386,13 +400,13 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		internalClusterPath = fmt.Sprintf("%s%s", util.InternalClusterAuthMountPath, hash)
 	}
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, agentCertSecretName, caFilePath, internalClusterPath, log)
-	if !status.IsOK() {
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, processNames, rs, agentCertSecretName, caFilePath, internalClusterPath, isRecovering, log)
+	if !status.IsOK() && !isRecovering {
 		return status
 	}
 
 	lastRsConfig, err := rs.GetLastAdditionalMongodConfigByType(mdbv1.ReplicaSetConfig)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
@@ -411,11 +425,11 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 		log,
 	)
 
-	if err != nil {
+	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -427,11 +441,11 @@ func (r *ReconcileMongoDbReplicaSet) updateOmDeploymentRs(conn om.Connection, me
 	hostsBefore := getAllHostsRs(set, rs.Spec.GetClusterDomain(), membersNumberBefore, externalDomain)
 	hostsAfter := getAllHostsRs(set, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), externalDomain)
 
-	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
+	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
-	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, rs, r.SecretClient, log); !status.IsOK() {
+	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, rs, r.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
 
@@ -504,7 +518,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 		return err
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
 		return err
 	}
 

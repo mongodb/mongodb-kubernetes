@@ -40,4 +40,4 @@ def test_create_om(ops_manager: MongoDBOpsManager, custom_appdb_version: str):
     ops_manager.update()
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)

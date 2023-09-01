@@ -156,7 +156,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 
 	status := workflow.RunInGivenOrder(needToPublishStateFirst,
 		func() workflow.Status {
-			if err := r.updateOmDeploymentRs(conn, mrs, log); err != nil {
+			if err := r.updateOmDeploymentRs(conn, mrs, false, log); err != nil {
 				return workflow.Failed(err)
 			}
 			return workflow.OK()
@@ -546,7 +546,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, isRecovering bool, log *zap.SugaredLogger) error {
 	hostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -605,7 +605,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 
 	// We do not provide an agentCertSecretName on purpose because then we will default to the non pem secret on the central cluster.
 	// Below method has special code handling reading certificates from the central cluster in that case.
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, internalClusterPath, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, internalClusterPath, isRecovering, log)
 	if !status.IsOK() {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
@@ -623,7 +623,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	if additionalReconciliationRequired {
-		// TODO: fix this decide when to use Pending vs Reconciling
 		return xerrors.Errorf("failed to complete reconciliation")
 	}
 
@@ -632,7 +631,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
 	}
 
-	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), log); err != nil {
+	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), isRecovering, log); err != nil {
 		return err
 	}
 	return nil

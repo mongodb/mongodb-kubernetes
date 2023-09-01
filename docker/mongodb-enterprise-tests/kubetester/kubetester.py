@@ -360,12 +360,6 @@ class KubernetesTester(object):
             for rule in rules:
                 KubernetesTester.execute(action, rule, namespace)
 
-                # We wait for some time until checking the condition. This is important for updates: the resource was
-                # in "running" state, it got updated and it gets to "reconciling" and to "running" again.
-                # TODO ideally we need to check for the sequence of phases, e.g. "reconciling" -> "running" and remove the
-                # timeout
-                time.sleep(5)
-
                 if "wait_for_condition" in rule:
                     cls.wait_for_condition_string(rule["wait_for_condition"])
                 elif "wait_for_message" in rule:
@@ -621,49 +615,6 @@ class KubernetesTester(object):
 
     @staticmethod
     def in_running_state():
-        """Returns true if the resource in Running state, fails fast if got into Failed error.
-        This allows to fail fast in case of cascade failures"""
-        resource = KubernetesTester.get_resource()
-        if "status" not in resource:
-            return False
-        phase = resource["status"]["phase"]
-
-        # TODO we need to implement a more reliable mechanism to diagnose problems in the cluster. So
-        # far we just ignore the "Pending" errors below, but they could be caused by real problems - not
-        # just by long starting containers. Some ideas: we could check the conditions for pods to see if there
-        # are errors
-        intermediate_events = (
-            # In this case the operator will be waiting for the StatefulSet to be in full running state
-            # which under some circumstances, might not be the case if, for instance, there are too many
-            # pods to start, which will be concluded after a few reconciliation passes.
-            "Statefulset or its pods failed to reach READY state",
-            # After agents have been installed, they might have not finished or reached goal state yet.
-            "haven't reached READY",
-            "Some agents failed to register",
-            # Sometimes Cloud-QA timeouts so we anticipate to this
-            "Error sending GET request to",
-            # "Get https://cloud-qa.mongodb.com/api/public/v1.0/groups/5f186b406c835e37e6160aef/automationConfig:
-            # read tcp 10.244.0.6:33672->75.2.105.99:443: read: connection reset by peer"
-            "read: connection reset by peer",
-        )
-
-        if phase == "Failed":
-            msg = resource["status"]["message"]
-            # Sometimes (for sharded cluster for example) the Automation agents don't get on time - we
-            # should survive this
-
-            found = False
-            for event in intermediate_events:
-                if event in msg:
-                    found = True
-
-            if not found:
-                raise AssertionError('Got into Failed phase while waiting for Running! ("{}")'.format(msg))
-
-        return phase == "Running"
-
-    @staticmethod
-    def in_running_state_failures_possible():
         return KubernetesTester.check_phase(
             KubernetesTester.namespace,
             KubernetesTester.kind,
@@ -708,6 +659,10 @@ class KubernetesTester(object):
     def check_phase(namespace, kind, name, phase):
         resource = KubernetesTester.get_namespaced_custom_object(namespace, name, kind)
         if "status" not in resource:
+            return False
+        if resource["metadata"]["generation"] != resource["status"]["observedGeneration"]:
+            # If generations don't match - we're observing a previous state and the Operator
+            # hasn't managed to take action yet.
             return False
         return resource["status"]["phase"] == phase
 

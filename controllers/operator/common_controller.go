@@ -151,8 +151,6 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func (r *ReconcileCommonController) updateStatus(reconciledResource v1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
-	status.Log(log)
-
 	mergedOptions := append(statusOptions, status.StatusOptions()...)
 	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
 	if err := r.patchUpdateStatus(reconciledResource, statusOptions...); err != nil {
@@ -300,11 +298,6 @@ func (r *ReconcileCommonController) getResource(request reconcile.Request, resou
 func (r *ReconcileCommonController) prepareResourceForReconciliation(
 	request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
 	if result, err := r.getResource(request, resource, log); err != nil {
-		return result, err
-	}
-
-	result, err := r.updateStatus(resource, workflow.Reconciling(), log)
-	if err != nil {
 		return result, err
 	}
 
@@ -488,7 +481,7 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 // Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
-func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, clusterFilePath string, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertSecretName string, caFilepath string, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
@@ -501,13 +494,13 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 
 	// if we have changed the internal cluster auth, we need to update the ac first
 	authenticationMode := ar.GetSecurity().GetInternalClusterAuthenticationMode()
-	err = r.setupInternalClusterAuthIfItHasChanged(conn, processNames, authenticationMode, clusterFilePath)
+	err = r.setupInternalClusterAuthIfItHasChanged(conn, processNames, authenticationMode, clusterFilePath, isRecovering)
 	if err != nil {
 		return workflow.Failed(err), false
 	}
 
 	// we need to wait for all agents to be ready before configuring any authentication settings
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
 		return workflow.Failed(err), false
 	}
 
@@ -603,7 +596,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 			authOpts.UserOptions = userOpts
 		}
 
-		if err := authentication.Configure(conn, authOpts, log); err != nil {
+		if err := authentication.Configure(conn, authOpts, isRecovering, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
@@ -751,12 +744,12 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(configurator
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
-func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn om.Connection, names []string, clusterAuth string, filePath string) error {
+func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn om.Connection, names []string, clusterAuth string, filePath string, isRecovering bool) error {
 	if filePath == "" {
 		return nil
 	}
 	err := conn.ReadUpdateDeployment(func(deployment om.Deployment) error {
-		deployment.SetInternalClusterFilePathOnlyIfItThePathHasChanged(names, filePath, clusterAuth)
+		deployment.SetInternalClusterFilePathOnlyIfItThePathHasChanged(names, filePath, clusterAuth, isRecovering)
 		return nil
 	}, zap.S())
 	return err

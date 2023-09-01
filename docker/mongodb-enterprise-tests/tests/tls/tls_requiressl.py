@@ -21,9 +21,7 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace
-    )
+    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace)
 
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
@@ -91,7 +89,6 @@ def test_change_certificate_and_wait_for_running(mdb: MongoDB, namespace: str):
     cert = Certificate(name=f"{MDB_RESOURCE}-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
-    mdb.assert_abandons_phase(Phase.Running, timeout=60)
     mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 

@@ -1,10 +1,23 @@
+from typing import Dict
+
 from pytest import mark, fixture
 
-from kubetester import create_secret, find_fixture, create_or_update_secret, create_or_update
-
+from kubetester import find_fixture, create_or_update_secret, create_or_update
+from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user, Role
-from kubetester.ldap import OpenLDAP, LDAPUser, LDAP_AUTHENTICATION_MECHANISM
+
+
+@fixture(scope="module")
+def operator_installation_config(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+    """
+    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in reasonable time,
+    we override the Recovery back off to 10 seconds only. This way it immediately kicks in.
+    """
+    operator_installation_config["customEnvVars"] = (
+        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+    )
+    return operator_installation_config
 
 
 @fixture(scope="module")
@@ -13,6 +26,10 @@ def replica_set(
     issuer_ca_configmap: str,
     namespace: str,
 ) -> MongoDB:
+    """
+    This function sets up ReplicaSet resource for testing. The testing procedure includes CLOUDP-189433, that requires
+    putting the resource into "Pending" state and the automatically recovering it.
+    """
     resource = MongoDB.from_yaml(find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
@@ -21,7 +38,7 @@ def replica_set(
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": [openldap_tls.servers],
         "bindQueryPasswordSecretRef": {"name": secret_name},
-        "transportSecurity": "tls",
+        "transportSecurity": "none",  # For testing CLOUDP-189433
         "validateLDAPServerConfig": True,
         "caConfigMapRef": {"name": issuer_ca_configmap, "key": "ca-pem"},
     }
@@ -52,7 +69,30 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user_tl
 
 
 @mark.e2e_replica_set_ldap_tls
-def test_replica_set(replica_set: MongoDB):
+def test_replica_set_pending_CLOUDP_189433(replica_set: MongoDB):
+    """
+    This function tests CLOUDP-189433. The resource needs to enter the "Pending" state and without the automatic
+    recovery, it would stay like this forever (since we wouldn't push the new AC with a fix).
+    """
+    replica_set.assert_reaches_phase(Phase.Pending, timeout=100)
+
+
+@mark.e2e_replica_set_ldap_tls
+def test_turn_tls_on_CLOUDP_189433(replica_set: MongoDB):
+    """
+    This function tests CLOUDP-189433. The user attempts to fix the AutomationConfig.
+    """
+    resource = replica_set.load()
+    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    create_or_update(resource)
+
+
+@mark.e2e_replica_set_ldap_tls
+def test_replica_set_CLOUDP_189433(replica_set: MongoDB):
+    """
+    This function tests CLOUDP-189433. The recovery mechanism kicks in and pushes Automation Config. The ReplicaSet
+    goes into running state.
+    """
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
@@ -81,5 +121,4 @@ def test_remove_ldap_settings(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["modes"] = ["SCRAM"]
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running, timeout=400)
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)

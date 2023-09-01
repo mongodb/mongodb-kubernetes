@@ -83,7 +83,6 @@ def test_mongodb_multi_enters_failed_state(
     central_cluster_client: client.ApiClient,
 ):
     mongodb_multi.load()
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
     mongodb_multi.assert_reaches_phase(Phase.Failed, timeout=100)
 
 
@@ -111,6 +110,5 @@ def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, me
     mongodb_multi["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi["spec"]["clusterSpecList"].pop()
     mongodb_multi.update()
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)

@@ -283,7 +283,7 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 
 	status = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishState(*sc, r.client, allConfigs, log),
 		func() workflow.Status {
-			return r.updateOmDeploymentShardedCluster(conn, sc, opts, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeploymentShardedCluster(conn, sc, opts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
 			return r.createKubernetesResources(sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
@@ -427,7 +427,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if status := getStatefulSetStatus(s.Namespace, s.ConfigRsName(), r.client); !status.IsOK() {
 		return status
 	}
-	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
+	_, _ = r.updateStatus(s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 	log.Infow("Created/updated StatefulSet for config servers", "name", s.ConfigRsName(), "servers count", configSrvSts.Spec.Replicas)
 
@@ -444,7 +444,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 		if status := getStatefulSetStatus(s.Namespace, shardsNames[i], r.client); !status.IsOK() {
 			return status
 		}
-		_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
+		_, _ = r.updateStatus(s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 	}
 
 	log.Infow("Created/updated Stateful Sets for shards in Kubernetes", "shards", shardsNames)
@@ -459,7 +459,7 @@ func (r *ReconcileMongoDbShardedCluster) createKubernetesResources(s *mdbv1.Mong
 	if status := getStatefulSetStatus(s.Namespace, s.MongosRsName(), r.client); !status.IsOK() {
 		return status
 	}
-	_, _ = r.updateStatus(s, workflow.Reconciling().WithResourcesNotReady([]mdbstatus.ResourceNotReady{}).WithNoMessage(), log)
+	_, _ = r.updateStatus(s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 	log.Infow("Created/updated StatefulSet for mongos servers", "name", s.MongosRsName(), "servers count", mongosSts.Spec.Replicas)
 	return workflow.OK()
@@ -494,7 +494,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 		return err
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
 		return err
 	}
 
@@ -637,7 +637,7 @@ type deploymentOptions struct {
 // phase 2: remove the "junk" replica sets and their processes, wait for agents to reach the goal.
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
-func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
 	err := r.waitForAgentsToRegister(sc, conn, opts, log, sc)
 	if err != nil {
 		return workflow.Failed(err)
@@ -651,13 +651,13 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	opts.finalizing = false
 	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
 
-	processNames, shardsRemoving, status := r.publishDeployment(conn, sc, &opts, log)
+	processNames, shardsRemoving, status := r.publishDeployment(conn, sc, &opts, isRecovering, log)
 
 	if !status.IsOK() {
 		return status
 	}
 
-	if err = om.WaitForReadyState(conn, processNames, log); err != nil {
+	if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
 		if shardsRemoving {
 			return workflow.Pending("automation agents haven't reached READY state: shards removal in progress")
 		}
@@ -668,12 +668,12 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 		opts.finalizing = true
 
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		processNames, _, status = r.publishDeployment(conn, sc, &opts, log)
+		processNames, _, status = r.publishDeployment(conn, sc, &opts, isRecovering, log)
 		if !status.IsOK() {
 			return status
 		}
 
-		if err = om.WaitForReadyState(conn, processNames, log); err != nil {
+		if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
 		}
 	}
@@ -707,7 +707,7 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	return workflow.OK()
 }
 
-func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
+func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 
 	// mongos
 	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, *opts, log), nil)
@@ -734,13 +734,13 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
 	// We can look into unifying this into updateOmAuthentication at a later stage.
 	if err := conn.ReadUpdateDeployment(func(d om.Deployment) error {
-		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.Name, configInternalClusterPath, mongosInternalClusterPath, shardsInternalClusterPath)
+		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.Name, configInternalClusterPath, mongosInternalClusterPath, shardsInternalClusterPath, isRecovering)
 		return nil
 	}, log); err != nil {
 		return nil, false, workflow.Failed(err)
 	}
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, "", log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, "", isRecovering, log)
 	if !status.IsOK() {
 		return nil, false, status
 	}
@@ -811,7 +811,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.processNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.processNames, isRecovering, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
@@ -822,11 +822,11 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	return finalProcesses, shardsRemoving, workflow.OK()
 }
 
-func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, internalAuthMode string, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardsInternalClusterPath []string) {
-	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath, internalAuthMode)
-	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath, internalAuthMode)
+func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, internalAuthMode string, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardsInternalClusterPath []string, isRecovering bool) {
+	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath, internalAuthMode, isRecovering)
+	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath, internalAuthMode, isRecovering)
 	for i, path := range shardsInternalClusterPath {
-		d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterShardProcessNames(name, i), path, internalAuthMode)
+		d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterShardProcessNames(name, i), path, internalAuthMode, isRecovering)
 	}
 }
 

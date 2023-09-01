@@ -495,8 +495,8 @@ func (d Deployment) GetInternalClusterFilePath(processNames []string) string {
 }
 
 // SetInternalClusterFilePathOnlyIfItThePathHasChanged sets the internal cluster path for the given process names only if it has changed and has been set before.
-func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []string, filePath string, clusterAuth string) {
-	if currPath := d.GetInternalClusterFilePath(names); currPath != filePath && currPath != "" {
+func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []string, filePath string, clusterAuth string, isRecovering bool) {
+	if currPath := d.GetInternalClusterFilePath(names); isRecovering || currPath != filePath && currPath != "" {
 		d.ConfigureInternalClusterAuthentication(names, clusterAuth, filePath)
 	}
 }

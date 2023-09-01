@@ -92,13 +92,8 @@ def blockstore_replica_set(ops_manager, app_db_issuer_ca_configmap: str, blockst
 @mark.e2e_om_ops_manager_backup_tls
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
-
-        # appdb rolling restart for configuring monitoring
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -122,7 +117,7 @@ class TestOpsManagerCreation:
         oplog_replica_set: MongoDB,
         blockstore_replica_set: MongoDB,
     ):
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running)
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])

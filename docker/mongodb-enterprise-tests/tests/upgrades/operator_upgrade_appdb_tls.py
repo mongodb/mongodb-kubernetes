@@ -49,10 +49,6 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-    # appdb rolling restart for configuring monitoring
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
 
 @skip_if_local
 @mark.e2e_operator_upgrade_appdb_tls
@@ -69,7 +65,6 @@ def test_upgrade_operator(default_operator: Operator):
 def test_om_ok(ops_manager: MongoDBOpsManager):
     # status phases are updated gradually - we need to check for each of them (otherwise "check(Running) for OM"
     # will return True right away
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=800)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 

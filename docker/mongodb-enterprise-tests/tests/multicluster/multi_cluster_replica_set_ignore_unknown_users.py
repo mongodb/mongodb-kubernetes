@@ -53,7 +53,6 @@ def test_set_ignore_unknown_users_false(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     mongodb_multi["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = False
     mongodb_multi.update()
-    mongodb_multi.assert_abandons_phase(Phase.Running)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
