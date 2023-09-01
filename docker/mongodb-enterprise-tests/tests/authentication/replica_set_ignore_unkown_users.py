@@ -9,9 +9,7 @@ from kubetester.mongodb import MongoDB, Phase
 def replica_set(
     namespace: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace)
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
 
@@ -34,7 +32,6 @@ def test_set_ignore_unknown_users_false(replica_set: MongoDB):
     replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = False
     replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
@@ -49,7 +46,6 @@ def test_set_ignore_unknown_users_true(replica_set: MongoDB):
     replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
     replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 

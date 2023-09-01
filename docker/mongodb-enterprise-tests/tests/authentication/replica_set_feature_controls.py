@@ -48,7 +48,6 @@ def test_authentication_disabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset["spec"]["security"] = {"authentication": {"enabled": False}}
     replicaset.update()
 
-    replicaset.assert_abandons_phase(Phase.Running)
     replicaset.assert_reaches_phase(Phase.Running)
 
     fc = replicaset.get_om_tester().get_feature_controls()
@@ -72,12 +71,9 @@ def test_authentication_enabled_is_owned_by_operator(replicaset: MongoDB):
     Authentication has been enabled on the Operator. Authentication is still
     owned by the operator so feature controls should be kept the same.
     """
-    replicaset["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    replicaset["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replicaset.update()
 
-    replicaset.assert_abandons_phase(Phase.Running)
     replicaset.assert_reaches_phase(Phase.Running, timeout=500)
 
     fc = replicaset.get_om_tester().get_feature_controls()

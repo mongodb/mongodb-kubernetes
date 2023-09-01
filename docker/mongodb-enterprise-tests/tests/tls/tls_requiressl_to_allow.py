@@ -11,9 +11,7 @@ MDB_RESOURCE = "test-tls-base-rs-require-ssl"
 
 @fixture("module")
 def rs_certs_secret(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, MDB_RESOURCE, "certs-test-tls-base-rs-require-ssl-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, MDB_RESOURCE, "certs-test-tls-base-rs-require-ssl-cert")
     return "certs"
 
 
@@ -45,15 +43,12 @@ def test_replica_set_creation(tls_replica_set: MongoDB):
 
 
 @pytest.mark.e2e_replica_set_tls_require_to_allow
-def test_enable_tls(
-    tls_replica_set: MongoDB, issuer_ca_configmap: str, rs_certs_secret: str
-):
+def test_enable_tls(tls_replica_set: MongoDB, issuer_ca_configmap: str, rs_certs_secret: str):
     tls_replica_set.configure_custom_tls(
         issuer_ca_configmap_name=issuer_ca_configmap,
         tls_cert_secret_name=rs_certs_secret,
     )
     tls_replica_set.update()
-    tls_replica_set.assert_abandons_phase(Phase.Running, timeout=60)
     tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 
@@ -76,12 +71,9 @@ def test_configure_allow_ssl(tls_replica_set: MongoDB):
     """
     Change ssl configuration to allowSSL
     """
-    tls_replica_set["spec"]["additionalMongodConfig"] = {
-        "net": {"ssl": {"mode": "allowSSL"}}
-    }
+    tls_replica_set["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "allowSSL"}}}
 
     tls_replica_set.update()
-    tls_replica_set.assert_abandons_phase(Phase.Running)
     tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 
@@ -94,8 +86,6 @@ def test_replica_set_is_reachable_without_tls_allow_ssl(tls_replica_set: MongoDB
 
 @pytest.mark.e2e_replica_set_tls_require_to_allow
 @skip_if_local()
-def test_replica_set_is_reachable_with_tls_allow_ssl(
-    tls_replica_set: MongoDB, ca_path: str
-):
+def test_replica_set_is_reachable_with_tls_allow_ssl(tls_replica_set: MongoDB, ca_path: str):
     tester = tls_replica_set.tester(use_ssl=True, ca_path=ca_path)
     tester.assert_connectivity()

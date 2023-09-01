@@ -70,5 +70,4 @@ def assert_certificate_rotation(sharded_cluster, namespace, certificate_name):
     cert.load()
     cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
     cert.update()
-    sharded_cluster.assert_abandons_phase(Phase.Running, timeout=120)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)

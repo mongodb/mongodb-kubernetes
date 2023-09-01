@@ -22,11 +22,8 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) 
 
 
 @mark.e2e_om_appdb_multi_change
-def test_create_om(ops_manager: MongoDBOpsManager):
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+def test_appdb(ops_manager: MongoDBOpsManager):
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_appdb_multi_change

@@ -154,7 +154,6 @@ def test_mongodb_multi_tls_enable_x509(
     }
     mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
@@ -196,7 +195,6 @@ def test_mongodb_multi_tls_enable_internal_cluster_x509(
     mongodb_multi["spec"]["security"]["authentication"]["internalCluster"] = "X509"
     mongodb_multi.update()
 
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=50)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
@@ -223,5 +221,4 @@ def assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace
     cert.load()
     cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
     cert.update()
-    mongodb_multi.assert_abandons_phase(Phase.Running, timeout=120)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)

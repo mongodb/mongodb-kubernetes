@@ -59,7 +59,6 @@ def test_replica_set_updated(replica_set: MongoDB):
     replica_set["spec"]["additionalMongodConfig"]["operationProfiling"] = None
 
     replica_set.update()
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running)
 
 

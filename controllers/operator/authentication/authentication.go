@@ -86,7 +86,7 @@ type UserOptions struct {
 
 // Configure will configure all the specified authentication Mechanisms. We need to ensure we wait for
 // the agents to reach ready state after each operation as prematurely updating the automation config can cause the agents to get stuck.
-func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.SugaredLogger) error {
 	log.Infow("ensuring correct deployment mechanisms", "MinimumMajorVersion", opts.MinimumMajorVersion, "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
 
 	if stringutil.Contains(opts.Mechanisms, util.X509) && !canEnableX509(conn) {
@@ -99,7 +99,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -108,7 +108,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return xerrors.Errorf("error ensuring that authoritative set is configured: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -118,7 +118,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return xerrors.Errorf("error enabling agent authentication: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -128,7 +128,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return xerrors.Errorf("error removing unused authentication mechanisms %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -138,7 +138,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return xerrors.Errorf("error removing unrequired deployment mechanisms: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -147,7 +147,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 		return xerrors.Errorf("error adding client certificates for the agents: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -156,7 +156,7 @@ func Configure(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	if err := rotateAgentUserPassword(conn, opts, log); err != nil {
 		return xerrors.Errorf("error rotating password for agent user: %w", err)
 	}
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -215,7 +215,7 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 			return xerrors.Errorf("error read/updating automation config: %w", err)
 		}
 
-		if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+		if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
 			return xerrors.Errorf("error waiting for ready state: %w", err)
 		}
 
@@ -269,13 +269,10 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		return xerrors.Errorf("error read/updating backup agent config: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
+	if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
-	}
 	return nil
 }
 

@@ -404,11 +404,6 @@ func createOrUpdateSecretIfNotFound(secretGetUpdaterCreator secret.GetUpdateCrea
 func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
 
-	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, statusOptions...)
-	if err != nil {
-		return workflow.Failed(err), nil
-	}
-
 	// Prepare Ops Manager StatefulSet (create and wait)
 	status := r.createOpsManagerStatefulset(*opsManager, appDBConnectionString, log)
 	if !status.IsOK() {
@@ -422,16 +417,16 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 	}
 
 	// 4. Trigger agents upgrade if necessary
-	if err = triggerOmChangedEventIfNeeded(*opsManager, log); err != nil {
+	if err := triggerOmChangedEventIfNeeded(*opsManager, log); err != nil {
 		log.Warn("Not triggering an Ops Manager version changed event: %s", err)
 	}
 
 	// 5. Stop backup daemon if necessary
-	if err = r.stopBackupDaemonIfNeeded(*opsManager); err != nil {
+	if err := r.stopBackupDaemonIfNeeded(*opsManager); err != nil {
 		return workflow.Failed(err), nil
 	}
 
-	if _, err = r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
+	if _, err := r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
 		return workflow.Failed(err), nil
 	}
 
@@ -507,10 +502,6 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 			return workflow.Failed(err)
 		}
 		return backupStatus
-	}
-	_, err := r.updateStatus(opsManager, workflow.Reconciling(), log, backupStatusPartOption)
-	if err != nil {
-		return workflow.Failed(err)
 	}
 
 	// Prepare Backup Daemon StatefulSet (create and wait)

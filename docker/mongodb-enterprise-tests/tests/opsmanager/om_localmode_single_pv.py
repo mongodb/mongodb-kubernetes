@@ -53,9 +53,8 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
 
 @mark.e2e_om_localmode
 def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_om_localmode

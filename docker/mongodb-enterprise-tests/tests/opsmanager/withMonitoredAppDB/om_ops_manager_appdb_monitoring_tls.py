@@ -58,7 +58,6 @@ def ops_manager(
 @mark.e2e_om_appdb_monitoring_tls
 def test_om_created(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -84,8 +83,8 @@ def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
     )
 
     # We know that Ops Manager will detect the changes and be restarted
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_appdb_monitoring_tls
@@ -114,7 +113,6 @@ def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager)
 #     }
 #     ops_manager.update()
 #
-#     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
 #     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 

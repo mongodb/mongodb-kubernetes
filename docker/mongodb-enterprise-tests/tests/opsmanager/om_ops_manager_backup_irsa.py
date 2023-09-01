@@ -407,7 +407,6 @@ class TestBackupConfigurationAdditionDeletion:
         )
 
         ops_manager.update()
-        ops_manager.backup_status().assert_abandons_phase(Phase.Running, timeout=60)
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         om_tester = ops_manager.get_om_tester()
@@ -437,7 +436,6 @@ class TestBackupConfigurationAdditionDeletion:
         ops_manager["spec"]["backup"]["opLogStores"].pop()
         ops_manager.update()
 
-        ops_manager.backup_status().assert_abandons_phase(Phase.Running, timeout=60)
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
         om_tester = ops_manager.get_om_tester()

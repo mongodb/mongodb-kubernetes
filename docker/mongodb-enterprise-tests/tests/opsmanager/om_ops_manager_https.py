@@ -85,8 +85,7 @@ def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
     assert ops_manager.om_status().get_url().startswith("http://")
     assert ops_manager.om_status().get_url().endswith(":8080")
 
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=400)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -103,9 +102,8 @@ def test_appdb_enable_tls(ops_manager: MongoDBOpsManager, issuer_ca_configmap: s
         "tls": {"ca": issuer_ca_configmap},
     }
     ops_manager.update()
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -180,7 +178,6 @@ def test_change_om_certificate_and_wait_for_running(ops_manager: MongoDBOpsManag
     cert = Certificate(name="prefix-om-with-https-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
-    ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=60)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
     assert ops_manager.om_status().get_url().startswith("https://")
     assert ops_manager.om_status().get_url().endswith(":8443")
@@ -191,5 +188,4 @@ def test_change_appdb_certificate_and_wait_for_running(ops_manager: MongoDBOpsMa
     cert = Certificate(name="appdb-om-with-https-db-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=60)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)

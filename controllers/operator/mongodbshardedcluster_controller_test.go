@@ -277,7 +277,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, zap.S()))
+	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(mockOm, sc, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 

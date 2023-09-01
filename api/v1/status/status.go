@@ -1,6 +1,8 @@
 package status
 
 import (
+	"reflect"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
 )
@@ -37,13 +39,17 @@ type Common struct {
 
 // UpdateCommonFields is the update function to update common fields used in statuses of all managed CRs
 func (s *Common) UpdateCommonFields(phase Phase, generation int64, statusOptions ...Option) {
+	previousStatus := s.DeepCopy()
 	s.Phase = phase
-	s.LastTransition = timeutil.Now()
 	s.ObservedGeneration = generation
 	if option, exists := GetOption(statusOptions, MessageOption{}); exists {
 		s.Message = stringutil.UpperCaseFirstChar(option.(MessageOption).Message)
 	}
 	if option, exists := GetOption(statusOptions, ResourcesNotReadyOption{}); exists {
 		s.ResourcesNotReady = option.(ResourcesNotReadyOption).ResourcesNotReady
+	}
+	// We update the time only if the status really changed. Otherwise, we'd like to preserve the old one.
+	if !reflect.DeepEqual(previousStatus, s) {
+		s.LastTransition = timeutil.Now()
 	}
 }

@@ -157,10 +157,6 @@ def test_start_mongod_background_tester(
 
 @mark.e2e_operator_upgrade_ops_manager
 def test_om_ok(ops_manager: MongoDBOpsManager):
-    # status phases are updated gradually - we need to check for each of them (otherwise "check(Running) for OM"
-    # will return True right away
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Reconciling, timeout=100)
-    # TODO: reduce this timeout, increased from 400 when upgrading from 1 -> 3 container arch.
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=400)

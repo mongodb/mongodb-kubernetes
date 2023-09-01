@@ -3,9 +3,6 @@ package status
 type Phase string
 
 const (
-	// PhaseReconciling means the controller is in the middle of reconciliation process
-	PhaseReconciling Phase = "Reconciling"
-
 	// PhasePending means the reconciliation has finished but the resource is neither in Error nor Running state -
 	// most of all waiting for some event to happen (CSRs approved, shard rebalanced etc)
 	PhasePending Phase = "Pending"

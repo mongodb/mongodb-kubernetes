@@ -62,7 +62,7 @@ def blockstore_replica_set(
 
 @mark.e2e_om_ops_manager_backup_delete_sts
 def test_create_om(ops_manager: MongoDBOpsManager):
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_om_ops_manager_backup_delete_sts
@@ -76,13 +76,11 @@ def test_backup_statefulset_gets_recreated(
     ops_manager: MongoDBOpsManager,
 ):
     # Wait for the the backup to be fully running
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running)
     ops_manager.load()
     ops_manager["spec"]["backup"]["statefulSet"] = {"spec": {"revisionHistoryLimit": 15}}
     ops_manager.update()
 
-    ops_manager.backup_status().assert_abandons_phase(Phase.Running, timeout=300)
-
-    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=700)
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running)
     # the backup statefulset should have been recreated
     ops_manager.read_backup_statefulset()

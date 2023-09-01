@@ -72,7 +72,6 @@ def test_authentication_disabled_is_owned_by_operator(replica_set: MongoDB):
     replica_set["spec"]["security"] = {"authentication": {"enabled": False}}
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replica_set.get_om_tester().get_feature_controls()
@@ -99,7 +98,6 @@ def test_authentication_enabled_is_owned_by_operator(replica_set: MongoDB):
     replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replica_set.update()
 
-    replica_set.assert_abandons_phase(Phase.Running)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     fc = replica_set.get_om_tester().get_feature_controls()

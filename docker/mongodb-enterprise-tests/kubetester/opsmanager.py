@@ -95,18 +95,22 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             )
             return expected_number_of_agents_in_standby and expected_number_of_agents_are_active
 
-        KubernetesTester.wait_until(agents_have_registered, timeout=20, sleep_time=5)
+        KubernetesTester.wait_until(agents_have_registered, timeout=-1, sleep_time=5)
 
-        registered_automation_agents = tester.api_read_automation_agents()
-        assert len(registered_automation_agents) == 0
+        def agent_have_registered_hostnames() -> bool:
+            registered_automation_agents = tester.api_read_automation_agents()
+            assert len(registered_automation_agents) == 0
+            registered_agents = tester.api_read_monitoring_agents()
+            hostnames = [host["hostname"] for host in hosts]
+            for hn in appdb_hostnames:
+                if hn not in hostnames:
+                    return False
+            for ra in registered_agents:
+                if ra["hostname"] not in appdb_hostnames:
+                    return False
+            return True
 
-        registered_agents = tester.api_read_monitoring_agents()
-        hostnames = [host["hostname"] for host in hosts]
-        for hn in appdb_hostnames:
-            assert hn in hostnames
-
-        for ra in registered_agents:
-            assert ra["hostname"] in appdb_hostnames
+        KubernetesTester.wait_until(agent_have_registered_hostnames, timeout=600, sleep_time=5)
 
     def get_appdb_resource(self) -> MongoDB:
         mdb = MongoDB(name=self.app_db_name(), namespace=self.namespace)
@@ -644,6 +648,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def __init__(self, ops_manager: MongoDBOpsManager):
             self.ops_manager = ops_manager
 
+        def assert_abandons_phase(self, phase: Phase, timeout=400):
+            super().assert_abandons_phase(phase, timeout)
+
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=800, ignore_errors=True):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
+
         def get_phase(self) -> Optional[Phase]:
             try:
                 return Phase[self.ops_manager.get_status()["backup"]["phase"]]
@@ -668,29 +678,15 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             except (KeyError, TypeError):
                 return None
 
-        def assert_reaches_phase(
-            self,
-            phase: Phase,
-            msg_regexp=None,
-            timeout=None,
-            ignore_errors=False,
-        ):
-            super().assert_reaches_phase(
-                phase,
-                msg_regexp=msg_regexp,
-                timeout=timeout,
-                ignore_errors=ignore_errors,
-            )
-            # If backup is Running other statuses must be Running as well
-            # So far let's comment this as sometimes there are some extra reconciliations happening
-            # (doing no work at all) without known reasons for
-            # if phase == Phase.Running:
-            #     assert self.ops_manager.om_status().get_phase() == Phase.Running
-            #     assert self.ops_manager.appdb_status().get_phase() == Phase.Running
-
     class AppDbStatus(StatusCommon):
         def __init__(self, ops_manager: MongoDBOpsManager):
             self.ops_manager = ops_manager
+
+        def assert_abandons_phase(self, phase: Phase, timeout=400):
+            super().assert_abandons_phase(phase, timeout)
+
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=800, ignore_errors=False):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
 
         def get_phase(self) -> Optional[Phase]:
             try:
@@ -731,6 +727,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     class OmStatus(StatusCommon):
         def __init__(self, ops_manager: MongoDBOpsManager):
             self.ops_manager = ops_manager
+
+        def assert_abandons_phase(self, phase: Phase, timeout=400):
+            super().assert_abandons_phase(phase, timeout)
+
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1200, ignore_errors=False):
+            super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
 
         def get_phase(self) -> Optional[Phase]:
             try:

@@ -37,11 +37,8 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
-        # some more time for monitoring rolling upgrade
-        ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
         secret = ops_manager.read_gen_key_secret()
@@ -90,8 +87,8 @@ class TestOpsManagerAppDbScaleUp:
         ops_manager["spec"]["applicationDatabase"]["members"] = 5
         ops_manager.update()
 
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_keys_not_touched(
         self,

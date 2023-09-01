@@ -82,12 +82,11 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
 @mark.e2e_om_ops_manager_https_enabled_internet_mode
 def test_enable_https_on_opsmanager(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    # some more time for monitoring rolling upgrade
-    ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=200)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     assert ops_manager.om_status().get_url().startswith("https://")
     assert ops_manager.om_status().get_url().endswith(":8443")
+
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_ops_manager_https_enabled_internet_mode
