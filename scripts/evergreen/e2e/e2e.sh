@@ -93,39 +93,6 @@ else
     dump_all || true
 fi
 
-kubectl_mongodb_bin="kubectl-mongodb"
-if ! which "${kubectl_mongodb_bin}"; then
-  kubectl_mongodb_bin="bin/${kubectl_mongodb_bin}"
-fi
-
-if ! which "${kubectl_mongodb_bin}"; then
-  echo "kubectl-mongodb binary not found!"
-  exit 1
-fi
-
-set -e
-if [[ "${kube_environment_name:-}" = "multi" ]]; then
-    # shellcheck disable=SC2154
-    member_clusters_comma_separated=$(echo "${member_clusters}" | tr -s " " ",")
-    # shellcheck disable=SC2154
-    "${kubectl_mongodb_bin}" debug --central-cluster="${central_cluster}" \
-      --member-clusters="${member_clusters_comma_separated}" \
-      --member-cluster-namespace="${NAMESPACE}" \
-      --central-cluster-namespace="${NAMESPACE}" || true
-else
-    # Dump all the information we can from this namespace
-    "${kubectl_mongodb_bin}" debug --central-cluster="$(kubectl config current-context)" --central-cluster-namespace="${NAMESPACE}" || true
-fi
-
-# shellcheck disable=SC2010
-diagnostic_dir="$HOME/.mongodb/debug/$(ls -1t "$HOME/.mongodb/debug" | grep -v .zip | head -n 1)"
-echo $"diagnostic_dir = ${diagnostic_dir}"
-rm -rf logs-debug
-mkdir -p logs-debug
-cp "${diagnostic_dir}"/* logs-debug
-set +e
-
-
 if [[ "${TEST_RESULTS}" -ne 0 ]]; then
     # Mark namespace as failed to be cleaned later
     kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
