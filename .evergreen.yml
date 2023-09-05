@@ -310,18 +310,6 @@ functions:
         bucket: operator-e2e-artifacts
         permissions: public-read
         content_type: text/plain
-        display_name: old-
-    - command: s3.put
-      params:
-        aws_key: ${enterprise_aws_access_key_id}
-        aws_secret: ${enterprise_aws_secret_access_key}
-        local_files_include_filter:
-          - src/github.com/10gen/ops-manager-kubernetes/logs-debug/*
-        remote_file: logs/${task_id}/${execution}/
-        bucket: operator-e2e-artifacts
-        permissions: public-read
-        content_type: text/plain
-        display_name: new-
     - command: attach.xunit_results
       params:
         file: "src/github.com/10gen/ops-manager-kubernetes/logs/myreport.xml"
@@ -336,8 +324,7 @@ functions:
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       script: |
-        rm -rf logs/
-        rm -rf $HOME/.mongodb/debug/
+        rm -rf logs
 
   quay_login:
   - command: subprocess.exec
@@ -1958,7 +1945,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa_ubi_cloudqa
-    - func: build_multi_cluster_binary
   tasks:
     # e2e_kube_only_task_group
     - e2e_crd_validation
@@ -2086,7 +2072,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_crd_validation
     - e2e_replica_set_scram_sha_256_user_connectivity
@@ -2110,7 +2095,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_operator_upgrade_replica_set
     - e2e_operator_upgrade_ops_manager
@@ -2136,7 +2120,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_multi_cluster_replica_set
     - e2e_multi_cluster_replica_set_member_options
@@ -2185,7 +2168,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_multi_cluster_2_clusters_replica_set
     - e2e_multi_cluster_2_clusters_clusterwide
@@ -2265,7 +2247,6 @@ task_groups:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
@@ -2321,7 +2302,6 @@ task_groups:
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_om_remotemode
     - e2e_om_ops_manager_backup_restore
@@ -2344,7 +2324,6 @@ task_groups:
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_om_ops_manager_prometheus
   teardown_task:
@@ -2365,7 +2344,6 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_prepare_openshift_bundles
     - func: install_olm
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_olm_operator_upgrade
     - e2e_olm_operator_upgrade_with_resources
@@ -2389,7 +2367,6 @@ task_groups:
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
-    - func: build_multi_cluster_binary
   tasks:
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
