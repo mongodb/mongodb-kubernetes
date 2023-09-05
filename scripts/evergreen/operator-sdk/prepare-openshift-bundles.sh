@@ -38,8 +38,16 @@ fi
 PATH="${PATH}:bin"
 
 echo "Running digest pinning for certified bundle"
+# This can fail during the release because the latest image is not available yet and will be available the next day/next daily rebuild.
+# We decided to skip digest pinning during the as it is a post-processing step and it should be fine to skip it when testing OLM during the release.
 if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
-  operator-manifest-tools pinning pin -v --resolver skopeo "bundle/${VERSION}/manifests"
+  operator_image=$(yq ".spec.install.spec.deployments[0].spec.template.spec.containers[0].image" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
+   if docker manifest inspect "${operator_image}" > /dev/null 2>&1; then
+      echo "Running digest pinning, since the operator image exists"
+      operator-manifest-tools pinning pin -v --resolver skopeo "bundle/${VERSION}/manifests"
+    else
+      echo "Skipping pinning tools, since the operator image is missing and we are most likely in a release"
+    fi
 fi
 
 certified_bundle_file="./bundle/operator-certified-${VERSION}.tgz"
