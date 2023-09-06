@@ -128,7 +128,7 @@ script_log "Launching automation agent with following arguments: ${agentOpts[*]}
 
 agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
 
-rm /tmp/mongodb-mms-automation-cluster-backup.json || true
+rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
 debug="${MDB_AGENT_DEBUG-}"
 if [ "${debug}" = "true" ]; then
@@ -146,10 +146,12 @@ trap cleanup SIGTERM
 # tail's -F flag is equivalent to --follow=name --retry. Should we track log rotation events?
 AGENT_VERBOSE_LOG="${MMS_LOG_DIR}/automation-agent-verbose.log" && touch "${AGENT_VERBOSE_LOG}"
 AGENT_STDERR_LOG="${MMS_LOG_DIR}/automation-agent-stderr.log" && touch "${AGENT_STDERR_LOG}"
+AUDIT_LOG="${MMS_LOG_DIR}/mongodb-audit.log" && touch "${AUDIT_LOG}"
 MONGODB_LOG="${MMS_LOG_DIR}/mongodb.log" && touch "${MONGODB_LOG}"
 
 tail -F "${AGENT_VERBOSE_LOG}" 2> /dev/null | json_log 'automation-agent-verbose' &
 tail -F "${AGENT_STDERR_LOG}" 2> /dev/null | json_log 'automation-agent-stderr' &
 tail -F "${MONGODB_LOG}" 2> /dev/null | json_log 'mongodb' &
+tail -F "${AUDIT_LOG}" 2> /dev/null | json_log 'mongodb-audit' &
 
 wait
