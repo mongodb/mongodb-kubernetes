@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/klog/v2"
+
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator"
@@ -86,6 +88,7 @@ func parseCommandLineArgs() commandLineFlags {
 }
 
 func main() {
+	klog.InitFlags(nil)
 	initializeEnvironment()
 
 	// Get a config to talk to the apiserver
