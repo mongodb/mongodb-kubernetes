@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	diff "github.com/r3labs/diff/v3"
+	"github.com/r3labs/diff/v3"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"k8s.io/utils/pointer"
 
 	apierror "github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
@@ -318,20 +318,20 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(changeDeploymentFunc func(Deplo
 	}
 
 	_, err = oc.UpdateDeployment(deployment)
-	if err != nil {
-		if util.ShouldLogAutomationConfigDiff() {
-			originalDeployment, err := oc.ReadDeployment()
-			if err != nil {
-				return apierror.New(err)
-			}
-
-			changelog, err := diff.Diff(originalDeployment, deployment, diff.AllowTypeMismatch(true))
-			if err != nil {
-				return apierror.New(err)
-			}
-
-			log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
+	if util.ShouldLogAutomationConfigDiff() {
+		originalDeployment, err := oc.ReadDeployment()
+		if err != nil {
+			return apierror.New(err)
 		}
+
+		changelog, err := diff.Diff(originalDeployment, deployment, diff.AllowTypeMismatch(true))
+		if err != nil {
+			return apierror.New(err)
+		}
+
+		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
+	}
+	if err != nil {
 		return apierror.New(err)
 	}
 	return nil
@@ -382,14 +382,15 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 
 	// we are using UpdateAutomationConfig since we need to apply our changes.
 	err = oc.UpdateAutomationConfig(ac, log)
-	if err != nil {
-		if util.ShouldLogAutomationConfigDiff() {
-			var originalDeployment = original.Deployment
-			log.Debug("Current Automation Config")
-			originalDeployment.Debug(log)
-			log.Debug("Invalid Automation Config")
-			ac.Deployment.Debug(log)
+	if util.ShouldLogAutomationConfigDiff() {
+		changelog, err := diff.Diff(original.Deployment, ac.Deployment, diff.AllowTypeMismatch(true))
+		if err != nil {
+			return apierror.New(err)
 		}
+
+		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
+	}
+	if err != nil {
 		log.Errorf("error updating automation config. %s", err)
 		return apierror.New(err)
 	}
