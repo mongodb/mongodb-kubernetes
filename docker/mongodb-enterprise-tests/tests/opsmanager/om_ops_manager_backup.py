@@ -1,3 +1,4 @@
+import time
 from operator import attrgetter
 from typing import Optional, Dict
 
@@ -531,7 +532,9 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "firstProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
         resource.configure_backup(mode="disabled")
-        return create_or_update(resource)
+
+        try_load(resource)
+        return resource
 
     @fixture(scope="class")
     def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
@@ -542,19 +545,26 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "secondProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
         resource.configure_backup(mode="disabled")
-        return create_or_update(resource)
+
+        try_load(resource)
+        return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        create_or_update(mdb_latest)
+        create_or_update(mdb_prev)
+
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
-        mdb_latest.update()
+        create_or_update(mdb_latest)
+
         mdb_prev.load()
         mdb_prev.configure_backup(mode="enabled")
-        mdb_prev.update()
+        create_or_update(mdb_prev)
+
         mdb_prev.assert_reaches_phase(Phase.Running)
         mdb_latest.assert_reaches_phase(Phase.Running)
 
@@ -602,6 +612,42 @@ class TestBackupForMongodb:
 
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=0)
+
+        # assert backup is deactivated
+        om_tester_second.wait_until_backup_deactivated()
+
+    def test_hosts_were_removed(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_second.wait_until_hosts_are_empty()
+
+    def test_deploy_same_mdb_again_with_orphaned_backup(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+        mdb_prev.configure_backup(mode="enabled")
+        mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = False
+        # we need to make sure to use a clean resource since we might have loaded it
+        del mdb_prev["metadata"]["resourceVersion"]
+        mdb_prev.create()
+        mdb_prev.assert_reaches_phase(Phase.Running)
+
+        mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
+        mdb_prev.delete()
+
+        def resource_is_deleted() -> bool:
+            try:
+                mdb_prev.load()
+                return False
+            except ApiException:
+                return True
+
+        # wait until the resource is deleted
+        run_periodically(resource_is_deleted, timeout=300)
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+
+        # assert backup is orphaned
+        om_tester_second.wait_until_backup_running()
+
+    def test_hosts_were_not_removed(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_second.wait_until_hosts_are_not_empty()
 
 
 @mark.e2e_om_ops_manager_backup
