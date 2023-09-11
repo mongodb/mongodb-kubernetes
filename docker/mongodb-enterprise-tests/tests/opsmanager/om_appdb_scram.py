@@ -127,7 +127,10 @@ class TestChangeOpsManagerUserPassword:
             "key": "new-key",
         }
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+
+        # Swapping the password can lead to a race where we check for the status before om reconciler was able to swap
+        # the password.
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     @pytest.mark.xfail(reason="the auto generated password should have been deleted once the user creates their own")

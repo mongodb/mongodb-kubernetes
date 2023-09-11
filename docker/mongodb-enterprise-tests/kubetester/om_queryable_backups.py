@@ -98,22 +98,26 @@ class OMQueryableBackup:
 
     def _wait_until_ready_to_query(self, timeout: int):
         initial_timeout = timeout
-        ready_status = "waitingForCustomer"
+        ready_statuses = ["waitingForCustomer", "completed"]
+        last_reached_state = ""
         while timeout > 0:
-            restoreEntries = self._authenticated_http_get(
+            restore_entries = self._authenticated_http_get(
                 f"{self._om_url}/v2/backup/restore/{self._project_id}",
                 headers={"Accept": "application/json"},
             ).json()
 
-            if len(restoreEntries) > 0 and restoreEntries[0].get("progressPhase") == ready_status:
+            if len(restore_entries) > 0 and restore_entries[0].get("progressPhase") in ready_statuses:
                 time_needed = initial_timeout - timeout
-                print(f"needed {time_needed} to be able to query backups")
+                print(f"needed {time_needed} seconds to be able to query backups")
                 return
-
+            last_reached_state = restore_entries[0].get("progressPhase")
             time.sleep(3)
             timeout -= 3
 
-        raise Exception(f"Timeout ({initial_timeout}) reached while waiting for '{ready_status}' snapshot query status")
+        raise Exception(
+            f"Timeout ({initial_timeout}) reached while waiting for '{ready_statuses}' snapshot query status. "
+            f"Last reached status: {last_reached_state}"
+        )
 
     def connection_params(self, timeout: int):
         """Retrieves the connection config (host, ca / client pem files) used to query a backup snapshot."""

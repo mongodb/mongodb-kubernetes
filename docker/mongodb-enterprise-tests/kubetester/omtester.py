@@ -505,6 +505,7 @@ class OMTester(object):
             tls=True,
             tlsCAFile=caPem.name,
             tlsCertificateKeyFile=clientPem.name,
+            serverSelectionTimeoutMs=120000,
         )[db_name]
         collection = dbClient[collection_name]
         return list(collection.find())

@@ -1,7 +1,6 @@
 package agents
 
 import (
-	"errors"
 	"fmt"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -100,9 +99,7 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 	log = log.With("statefulset", set.Name)
 
 	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...) {
-		return errors.New("some agents failed to register or the Operator is using the wrong host names for the pods. " +
-			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
-			"name ('cluster.local') ")
+		return getAgentRegisterError()
 	}
 	return nil
 }
@@ -110,11 +107,15 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 // WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster waits for the specified agents to registry with Ops Manager.
 func WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
 	if !waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...) {
-		return errors.New("some agents failed to register or the Operator is using the wrong host names for the pods. " +
-			"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
-			"name ('cluster.local') ")
+		return getAgentRegisterError()
 	}
 	return nil
+}
+
+func getAgentRegisterError() error {
+	return xerrors.New("some agents failed to register or the Operator is using the wrong host names for the pods. " +
+		"Make sure the 'spec.clusterDomain' is set if it's different from the default Kubernetes cluster " +
+		"name ('cluster.local') ")
 }
 
 // waitUntilRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
