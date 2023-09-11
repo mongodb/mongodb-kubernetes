@@ -26,10 +26,8 @@ from kubetester import (
 )
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
+from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
-
-CREATE_RESOURCES = True
-skip_if_not_create = mark.skipif(not CREATE_RESOURCES, reason="Only run when CREATE_RESOURCES")
 
 TEST_DB = "testdb"
 TEST_COLLECTION = "testcollection"
@@ -102,31 +100,8 @@ def new_om_data_store(
 
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
-    if CREATE_RESOURCES:
-        create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
-
-
-def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
-    create_or_update_secret(
-        namespace,
-        secret_name,
-        {
-            "accessKey": aws_s3_client.aws_access_key,
-            "secretKey": aws_s3_client.aws_secret_access_key,
-        },
-    )
-    print("\nCreated a secret for S3 credentials", secret_name)
-
-
-def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
-    """creates a s3 bucket and a s3 config"""
-    bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
-    if CREATE_RESOURCES:
-        aws_s3_client.create_s3_bucket(bucket_prefix)
-        print("Created S3 bucket", bucket_prefix)
-
-    yield bucket_prefix
+    create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
 @fixture(scope="module")
@@ -174,10 +149,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
-    if CREATE_RESOURCES:
-        yield resource.create()
-    else:
-        yield resource.load()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -188,10 +161,8 @@ def s3_replica_set(ops_manager, namespace) -> MongoDB:
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
-    if CREATE_RESOURCES:
-        yield resource.create()
-    else:
-        yield resource.load()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -203,10 +174,9 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
     ).configure(ops_manager, "blockstore")
 
     resource["spec"]["version"] = custom_mdb_version
-    if CREATE_RESOURCES:
-        yield resource.create()
-    else:
-        yield resource.load()
+
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -215,20 +185,17 @@ def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    if CREATE_RESOURCES:
-        print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-        create_or_update_secret(
-            KubernetesTester.get_namespace(),
-            resource.get_secret_name(),
-            {
-                "password": USER_PASSWORD,
-            },
-        )
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    create_or_update_secret(
+        KubernetesTester.get_namespace(),
+        resource.get_secret_name(),
+        {
+            "password": USER_PASSWORD,
+        },
+    )
 
-    if CREATE_RESOURCES:
-        yield resource.create()
-    else:
-        yield resource.load()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -243,20 +210,17 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    if CREATE_RESOURCES:
-        print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
-        create_or_update_secret(
-            KubernetesTester.get_namespace(),
-            resource.get_secret_name(),
-            {
-                "password": USER_PASSWORD,
-            },
-        )
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    create_or_update_secret(
+        KubernetesTester.get_namespace(),
+        resource.get_secret_name(),
+        {
+            "password": USER_PASSWORD,
+        },
+    )
 
-    if CREATE_RESOURCES:
-        yield resource.create()
-    else:
-        yield resource.load()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -268,10 +232,8 @@ def mdb42(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
     ).configure(ops_manager, PROJECT_NAME)
     resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
     resource.configure_backup(mode="enabled")
-    if CREATE_RESOURCES:
-        return resource.create()
-    else:
-        return resource.load()
+    create_or_update(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -281,7 +243,6 @@ def mdb_test_collection(mdb42: MongoDB):
 
 
 @mark.e2e_om_ops_manager_queryable_backup
-@skip_if_not_create
 class TestOpsManagerCreation:
     """
     name: Ops Manager successful creation with backup and oplog stores enabled
@@ -384,7 +345,6 @@ class TestOpsManagerCreation:
 
 
 @mark.e2e_om_ops_manager_queryable_backup
-@skip_if_not_create
 class TestBackupDatabasesAdded:
     """name: Creates three mongodb resources for oplog, s3 and blockstore and waits until OM resource gets to
     running state"""
@@ -399,7 +359,7 @@ class TestBackupDatabasesAdded:
         """Creates mongodb databases all at once"""
         oplog_replica_set.load()
         oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-        oplog_replica_set.update()
+        create_or_update(oplog_replica_set)
         oplog_replica_set.assert_reaches_phase(Phase.Running)
         s3_replica_set.assert_reaches_phase(Phase.Running)
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -408,7 +368,7 @@ class TestBackupDatabasesAdded:
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
-        ops_manager.update()
+        create_or_update(ops_manager)
 
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
@@ -469,7 +429,6 @@ class TestBackupDatabasesAdded:
 
 
 @mark.e2e_om_ops_manager_queryable_backup
-@skip_if_not_create
 class TestOpsManagerWatchesBlockStoreUpdates:
     def test_om_running(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=40)
@@ -478,7 +437,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
         the order of operations (scram first, MongoDBUser - next) is important"""
         blockstore_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
-        blockstore_replica_set.update()
+        create_or_update(blockstore_replica_set)
 
         # timeout of 600 is required when enabling SCRAM in mdb5.0.0
         blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -487,7 +446,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
         ops_manager.load()
         ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
-        ops_manager.update()
+        create_or_update(ops_manager)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
             timeout=200,
