@@ -1,16 +1,19 @@
+import time
 from typing import Optional
 
-import tests.opsmanager.om_ops_manager_backup_sharded_cluster
+from pytest import mark, fixture
+
 from kubetester import get_default_storage_class, try_load, create_or_update, create_or_update_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     KubernetesTester,
+    run_periodically,
 )
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import mark, fixture
+from kubernetes.client.rest import ApiException
 
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
@@ -253,7 +256,8 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "firstProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
         resource.configure_backup(mode="disabled")
-        create_or_update(resource)
+
+        try_load(resource)
         return resource
 
     @fixture(scope="class")
@@ -265,37 +269,46 @@ class TestBackupForMongodb:
         ).configure(ops_manager, "secondProject")
         resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
         resource.configure_backup(mode="disabled")
-        create_or_update(resource)
+
+        try_load(resource)
         return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        create_or_update(mdb_latest)
+        create_or_update(mdb_prev)
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1000)
         mdb_prev.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.load()
         mdb_latest.configure_backup(mode="enabled")
-        mdb_latest.update()
+        create_or_update(mdb_latest)
+
         mdb_prev.load()
         mdb_prev.configure_backup(mode="enabled")
-        mdb_prev.update()
-        mdb_prev.assert_reaches_phase(Phase.Running)
-        mdb_latest.assert_reaches_phase(Phase.Running)
+        create_or_update(mdb_prev)
+
+        mdb_prev.assert_reaches_phase(Phase.Running, timeout=600)
+        mdb_latest.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_mdbs_backuped(self, ops_manager: MongoDBOpsManager):
         om_tester_first = ops_manager.get_om_tester(project_name="firstProject")
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
 
         # wait until a first snapshot is ready for both
-        om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1, expected_config_count=4)
-        om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1, expected_config_count=4)
+        om_tester_first.wait_until_backup_snapshots_are_ready(
+            expected_count=1, expected_config_count=4, is_sharded_cluster=True
+        )
+        om_tester_second.wait_until_backup_snapshots_are_ready(
+            expected_count=1, expected_config_count=4, is_sharded_cluster=True
+        )
 
     def test_can_transition_from_started_to_stopped(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         # a direction transition from enabled to disabled is a single
         # step for the operator
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_prev.configure_backup(mode="disabled")
-        mdb_prev.update()
+        create_or_update(mdb_prev)
         mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
 
     def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
@@ -303,8 +316,39 @@ class TestBackupForMongodb:
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
         mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
         mdb_latest.configure_backup(mode="terminated")
-        mdb_latest.update()
+        create_or_update(mdb_latest)
         mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=600)
+
+    def test_backup_terminated_for_deleted_resource(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+        # re-enable backup
+        mdb_prev.configure_backup(mode="enabled")
+        mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
+        create_or_update(mdb_prev)
+        mdb_prev.assert_backup_reaches_status("STARTED", timeout=600)
+        mdb_prev.delete()
+
+        def resource_is_deleted() -> bool:
+            try:
+                mdb_prev.load()
+                return False
+            except ApiException:
+                return True
+
+        # wait until the resource is deleted
+        run_periodically(resource_is_deleted, timeout=300)
+
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_second.wait_until_backup_snapshots_are_ready(
+            expected_count=0, expected_config_count=4, is_sharded_cluster=True
+        )
+        om_tester_second.wait_until_backup_deactivated(is_sharded_cluster=True, expected_config_count=4)
+
+    def test_hosts_were_removed(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+        om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
+        om_tester_second.wait_until_hosts_are_empty()
+
+    # Note: as of right now, we cannot deploy the same mdb again, because we will run into the error: Backup failed
+    # to start: Config server <hostname>: 27017 has no startup parameters.
 
 
 # This test extends om_ops_manager_backup.TestBackupSnapshotSchedule tests but overrides fixtures

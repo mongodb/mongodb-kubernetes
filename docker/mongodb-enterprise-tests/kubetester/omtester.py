@@ -15,7 +15,7 @@ import pymongo
 import tempfile
 
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import build_auth
+from kubetester.kubetester import build_auth, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 
@@ -122,11 +122,11 @@ class OMTester(object):
         raise Exception("Failed to create a restore job!")
 
     def wait_until_backup_snapshots_are_ready(
-        self, expected_count: int, timeout: int = 3000, expected_config_count: int = 1
+        self, expected_count: int, timeout: int = 1500, expected_config_count: int = 1, is_sharded_cluster: bool = False
     ):
         """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
-        cluster_id = self.get_backup_cluster_id(expected_config_count)
+        cluster_id = self.get_backup_cluster_id(expected_config_count, is_sharded_cluster)
 
         if expected_count == 1:
             print(f"Waiting until 1 snapshot is ready (can take a while)")
@@ -176,11 +176,18 @@ class OMTester(object):
             f"project {self.context.group_name} "
         )
 
-    def get_backup_cluster_id(self, expected_config_count: int = 1) -> str:
+    def get_backup_cluster_id(self, expected_config_count: int = 1, is_sharded_cluster: bool = False) -> str:
         configs = self.api_read_backup_configs()
         assert len(configs) == expected_config_count
-        # we can use the first config as there's only one MongoDB in deployment
-        return configs[0]["clusterId"]
+
+        if not is_sharded_cluster:
+            # we can use the first config as there's only one MongoDB in deployment
+            return configs[0]["clusterId"]
+        # retrieve the sharded_replica_set
+        clusters = self.api_get_clusters()["results"]
+        for cluster in clusters:
+            if cluster["typeName"] == "SHARDED_REPLICA_SET":
+                return cluster["id"]
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
@@ -280,6 +287,20 @@ class OMTester(object):
         self.get_automation_config_tester().assert_empty()
         hosts = self.api_get_hosts()
         assert len(hosts["results"]) == 0
+
+    def wait_until_hosts_are_empty(self, timeout=30):
+        def hosts_are_empty():
+            hosts = self.api_get_hosts()["results"]
+            return len(hosts) == 0
+
+        run_periodically(fn=hosts_are_empty, timeout=timeout)
+
+    def wait_until_hosts_are_not_empty(self, timeout=30):
+        def hosts_are_not_empty():
+            hosts = self.api_get_hosts()["results"]
+            return len(hosts) != 0
+
+        run_periodically(fn=hosts_are_not_empty, timeout=timeout)
 
     def assert_om_version(self, expected_version: str):
         assert self.api_get_om_version() == expected_version
@@ -384,6 +405,40 @@ class OMTester(object):
     def api_read_backup_configs(self) -> List:
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
 
+    # Backup states are from here:
+    # https://github.com/10gen/mms/blob/bcec76f60fc10fd6b7de40ee0f57951b54a4b4a0/server/src/main/com/xgen/cloud/common/brs/_public/model/BackupConfigState.java#L8
+    def wait_until_backup_deactivated(self, timeout=30, is_sharded_cluster=False, expected_config_count=1):
+        def wait_until_backup_deactivated():
+            found_backup = False
+            cluster_id = self.get_backup_cluster_id(
+                is_sharded_cluster=is_sharded_cluster, expected_config_count=expected_config_count
+            )
+            for config in self.api_read_backup_configs():
+                if config["clusterId"] == cluster_id:
+                    found_backup = True
+                    # Backup has been deactivated
+                    if config["statusName"] in ["INACTIVE", "TERMINATING", "STOPPED"]:
+                        return True
+                # Backup does not exist, which we correlate with backup is deactivated
+                if not found_backup:
+                    return True
+            return False
+
+        run_periodically(fn=wait_until_backup_deactivated, timeout=timeout)
+
+    def wait_until_backup_running(self, timeout=30, is_sharded_cluster=False, expected_config_count=1):
+        def wait_until_backup_running():
+            cluster_id = self.get_backup_cluster_id(
+                is_sharded_cluster=is_sharded_cluster, expected_config_count=expected_config_count
+            )
+            for config in self.api_read_backup_configs():
+                if config["clusterId"] == cluster_id:
+                    if config["statusName"] in ["STARTED", "PROVISIONING"]:
+                        return True
+            return False
+
+        run_periodically(fn=wait_until_backup_running, timeout=timeout)
+
     def api_read_backup_snapshot_schedule(self) -> Dict:
         backup_configs = self.api_read_backup_configs()[0]
         return self.om_request(
@@ -426,6 +481,9 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots").json()[
             "results"
         ]
+
+    def api_get_clusters(self) -> List:
+        return self.om_request("get", f"/groups/{self.context.project_id}/clusters/").json()
 
     def api_create_restore_job_pit(self, cluster_id: str, pit_milliseconds: int):
         """Creates a restore job that reverts a mongodb cluster to some time defined by 'pit_milliseconds'"""

@@ -91,7 +91,6 @@ func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader Ho
 		l := log.With("cluster id", config.ClusterId)
 
 		l.Debugw("Found backup/host config", "status", config.Status)
-
 		// Any status except for inactive will result in API rejecting the deletion of resource - we need to disable backup
 		if config.Status != Inactive {
 			cluster, err := hostClusterReader.ReadHostCluster(config.ClusterId)
@@ -100,7 +99,10 @@ func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader Ho
 			} else {
 				l.Debugw("Read cluster information", "details", cluster)
 			}
-
+			// We need to compare the returned backup type with the given type because for sharded_clusters we
+			// have 4 configs.
+			// Three replica_sets and one sharded_replica_set.
+			// We only want to disable the backup for the sharded_replica_set
 			if cluster.ClusterName == name &&
 				(resourceType == ReplicaSetType && cluster.TypeName == "REPLICA_SET" ||
 					resourceType == ShardedClusterType && cluster.TypeName == "SHARDED_REPLICA_SET") {
