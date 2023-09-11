@@ -499,7 +499,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(obj runtime.Object, log *zap.S
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
-		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ReplicaSetType, log); err != nil {
+		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ShardedClusterType, log); err != nil {
 			return err
 		}
 	}
