@@ -1,17 +1,16 @@
-import time
 from typing import Optional
 
 import yaml
+from pytest import fixture, mark
+
+from kubetester import get_default_storage_class, create_or_update, try_load
 from kubetester.kubetester import (
     fixture as yaml_fixture,
     skip_if_local,
     KubernetesTester,
 )
-from kubetester import get_default_storage_class, create_or_update
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
-from pytest import fixture, mark
-
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
@@ -37,7 +36,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_appdb_multi_cluster_deployment(om)
 
-    create_or_update(om)
+    try_load(om)
     return om
 
 
@@ -48,24 +47,27 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
         namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
     resource["spec"]["version"] = VERSION_IN_OPS_MANAGER
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_localmode
 def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
+    create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_om_localmode
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_om_localmode
 def test_replica_set_version_upgraded_reaches_failed_phase(replica_set: MongoDB):
     replica_set["spec"]["version"] = VERSION_NOT_IN_OPS_MANAGER
-    replica_set.update()
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(
         Phase.Failed,
         msg_regexp=f".*Invalid config: MongoDB version {VERSION_NOT_IN_OPS_MANAGER} is not available.*",
@@ -75,7 +77,7 @@ def test_replica_set_version_upgraded_reaches_failed_phase(replica_set: MongoDB)
 @mark.e2e_om_localmode
 def test_replica_set_recovers(replica_set: MongoDB):
     replica_set["spec"]["version"] = VERSION_IN_OPS_MANAGER
-    replica_set.update()
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -89,7 +91,7 @@ def test_client_can_connect_to_mongodb(replica_set: MongoDB):
 def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
     ops_manager.load()
     ops_manager["spec"]["configuration"]["mms.testUtil.enabled"] = "false"
-    ops_manager.update()
+    create_or_update(ops_manager)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
@@ -97,8 +99,9 @@ def test_restart_ops_manager_pod(ops_manager: MongoDBOpsManager):
 def test_can_scale_replica_set(replica_set: MongoDB):
     replica_set.load()
     replica_set["spec"]["members"] = 5
-    replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    create_or_update(replica_set)
+    # We should retry if we are running into errors while adding new members.
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
 @skip_if_local
