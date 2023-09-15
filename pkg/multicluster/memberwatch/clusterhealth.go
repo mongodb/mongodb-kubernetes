@@ -4,9 +4,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"github.com/hashicorp/go-retryablehttp"
 	"net/http"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -70,6 +71,7 @@ func (m *MemberHeathCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 	}
 
 	if err != nil || statusCode != http.StatusOK {
+		log.Debugf("Response code from cluster endpoint call: %d", statusCode)
 		return false
 	}
 

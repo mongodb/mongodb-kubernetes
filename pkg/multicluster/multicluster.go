@@ -114,6 +114,7 @@ type KubeConfigFile struct {
 }
 
 type KubeConfigClusterItem struct {
+	Name    string            `json:"name"`
 	Cluster KubeConfigCluster `json:"cluster"`
 }
 
@@ -124,6 +125,7 @@ type KubeConfigCluster struct {
 
 type KubeConfigUserItem struct {
 	User KubeConfigUser `json:"user"`
+	Name string         `json:"name"`
 }
 
 type KubeConfigUser struct {
@@ -137,6 +139,7 @@ type KubeConfigContextItem struct {
 type KubeConfigContext struct {
 	Cluster   string `json:"cluster"`
 	Namespace string `json:"namespace"`
+	User      string `json:"user"`
 }
 
 // GetMemberClusterNamespace returns the namespace that will be used for all member clusters.
