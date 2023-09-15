@@ -27,7 +27,6 @@ type MemberClusterHealthChecker struct {
 // WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enqueues the
 // MongoDBMultiCluster resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
 func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client, clustersMap map[string]cluster.Cluster) {
-
 	// check if the local cache is populated if not let's do that
 	if len(m.Cache) == 0 {
 		// load the kubeconfig file contents from disk
@@ -45,24 +44,34 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLo
 		}
 
 		for n := range kubeConfig.Contexts {
-
-			clusterName := kubeConfig.Contexts[n].Name
-
+			context := kubeConfig.Contexts[n]
+			clusterName := context.Context.Cluster
 			if _, ok := clustersMap[clusterName]; !ok {
 				continue
 			}
 
-			server := kubeConfig.Clusters[n].Cluster.Server
-			certificateAuthority, err := base64.StdEncoding.DecodeString(kubeConfig.Clusters[n].Cluster.CertificateAuthority)
+			// fetch the cluster from the "clusters" with the given clusterName from the context
+			cluster := getClusterFromContext(clusterName, kubeConfig.Clusters)
+			if cluster == nil {
+				log.Errorf("Failed to get cluster with clustername: %s, doesn't exists in Kubeconfig clusters", clusterName)
+				continue
+			}
+
+			server := cluster.Server
+			certificateAuthority, err := base64.StdEncoding.DecodeString(cluster.CertificateAuthority)
 			if err != nil {
 				log.Errorf("Failed to decode certificate for cluster: %s, err: %s", clusterName, err)
 				continue
 			}
 
+			// fetch the user from the "users" against the given user from the context
+			user := getUserFromContext(context.Context.User, kubeConfig.Users)
+			if user == nil {
+				log.Errorf("Failed to get user with clustername: %s, doesn't exists in Kubeconfig users", clusterName)
+				continue
+			}
 			token := kubeConfig.Users[n].User.Token
-
 			m.Cache[clusterName] = NewMemberHealthCheck(server, certificateAuthority, token, log)
-
 		}
 	}
 
@@ -227,4 +236,22 @@ func getClusterMembers(clusterSpecList []mdb.ClusterSpecItem, clusterName string
 		}
 	}
 	return 0
+}
+
+func getClusterFromContext(clusterName string, clusters []multicluster.KubeConfigClusterItem) *multicluster.KubeConfigCluster {
+	for _, e := range clusters {
+		if e.Name == clusterName {
+			return &e.Cluster
+		}
+	}
+	return nil
+}
+
+func getUserFromContext(userName string, users []multicluster.KubeConfigUserItem) *multicluster.KubeConfigUser {
+	for _, e := range users {
+		if e.Name == userName {
+			return &e.User
+		}
+	}
+	return nil
 }
