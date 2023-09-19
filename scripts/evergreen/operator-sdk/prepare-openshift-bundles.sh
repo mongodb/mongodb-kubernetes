@@ -42,11 +42,13 @@ echo "Running digest pinning for certified bundle"
 # We decided to skip digest pinning during the as it is a post-processing step and it should be fine to skip it when testing OLM during the release.
 if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
   operator_image=$(yq ".spec.install.spec.deployments[0].spec.template.spec.containers[0].image" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
-   if docker manifest inspect "${operator_image}" > /dev/null 2>&1; then
-      echo "Running digest pinning, since the operator image exists"
+  operator_annotation_image=$(yq ".metadata.annotations.containerImage" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
+   if docker manifest inspect "${operator_image}" > /dev/null 2>&1 && docker manifest inspect "${operator_annotation_image}" > /dev/null 2>&1; then
+      echo "Running digest pinning, since the operator image: ${operator_image} exists"
+      echo "Running digest pinning, since the operator image annotation: ${operator_annotation_image} exists"
       operator-manifest-tools pinning pin -v --resolver skopeo "bundle/${VERSION}/manifests"
     else
-      echo "Skipping pinning tools, since the operator image is missing and we are most likely in a release"
+      echo "Skipping pinning tools, since the operator image: ${operator_image} or ${operator_annotation_image} are missing and we are most likely in a release"
     fi
 fi
 
