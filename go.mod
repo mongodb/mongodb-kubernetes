@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.4
 	github.com/hashicorp/vault/api v1.8.3
 	github.com/imdario/mergo v0.3.15
-	github.com/mongodb/mongodb-kubernetes-operator v0.8.3-0.20230828141630-16aa87e96620
+	github.com/mongodb/mongodb-kubernetes-operator v0.8.3-0.20230913153433-424bb8a0232b
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/common v0.44.0
@@ -32,6 +32,7 @@ require (
 	k8s.io/apimachinery v0.25.12
 	k8s.io/client-go v0.25.12
 	k8s.io/code-generator v0.24.14
+	k8s.io/klog/v2 v2.70.1
 	k8s.io/utils v0.0.0-20220728103510-ee6ede2d64ed
 	sigs.k8s.io/controller-runtime v0.12.3
 )
@@ -118,11 +119,15 @@ require (
 	k8s.io/apiextensions-apiserver v0.24.14 // indirect
 	k8s.io/component-base v0.24.14 // indirect
 	k8s.io/gengo v0.0.0-20211129171323-c02415ce4185 // indirect
-	k8s.io/klog/v2 v2.70.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20220803162953-67bda5d908f1 // indirect
 	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+// to replace Community Operator to a locally cloned project run:
+//   go mod edit -replace github.com/mongodb/mongodb-kubernetes-operator=../mongodb-kubernetes-operator
+// to replace it to a specific commit run:
+//   go mod edit -replace github.com/mongodb/mongodb-kubernetes-operator=github.com/mongodb/mongodb-kubernetes-operator@master
 
 go 1.21

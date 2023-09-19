@@ -139,8 +139,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return [services[0], services[1]]
 
-    def read_statefulset(self) -> client.V1StatefulSet:
-        return client.AppsV1Api().read_namespaced_stateful_set(self.name, self.namespace)
+    def read_statefulset(self, api_client: Optional[client.ApiClient] = None) -> client.V1StatefulSet:
+        return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(self.name, self.namespace)
 
     def pick_one_member_cluster_name(self) -> Optional[str]:
         if self.is_appdb_multi_cluster():
@@ -148,8 +148,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         else:
             return None
 
-    def read_appdb_statefulset(self) -> client.V1StatefulSet:
-        member_cluster_name = self.pick_one_member_cluster_name()
+    def read_appdb_statefulset(self, member_cluster_name: str = None) -> client.V1StatefulSet:
+        if member_cluster_name is None:
+            member_cluster_name = self.pick_one_member_cluster_name()
+
         return client.AppsV1Api(
             api_client=get_member_cluster_api_client(member_cluster_name)
         ).read_namespaced_stateful_set(self.app_db_sts_name(member_cluster_name), self.namespace)

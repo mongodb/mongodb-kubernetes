@@ -187,4 +187,6 @@ type MemberCluster struct {
 	// Active marks a cluster as a member holding database nodes. The flag is useful for only relying on active clusters when reading
 	// information about the topology of the multi-cluster MongoDB or AppDB resource. This could mean automation config or cluster specific configuration.
 	Active bool
+	// Healthy marks if we have connection to the cluster.
+	Healthy bool
 }

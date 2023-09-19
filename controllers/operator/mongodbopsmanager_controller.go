@@ -144,7 +144,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(opsManager, workflow.Unsupported("Ops Manager Version %s is not supported by this version of the operator. Please upgrade to a version >=%s", opsManager.Spec.Version, oldestSupportedOpsManagerVersion), log, opsManagerExtraStatusParams)
 	}
 
-	appDbReconciler, err := r.createNewAppDBReconciler(opsManager)
+	appDbReconciler, err := r.createNewAppDBReconciler(opsManager, log)
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
 	}
@@ -1642,8 +1642,8 @@ func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) {
 	log.Info("Cleaned up Ops Manager related resources.")
 }
 
-func (r *OpsManagerReconciler) createNewAppDBReconciler(opsManager *omv1.MongoDBOpsManager) (*ReconcileAppDbReplicaSet, error) {
-	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, r.versionMappingProvider, r.memberClustersMap)
+func (r *OpsManagerReconciler) createNewAppDBReconciler(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, r.versionMappingProvider, r.memberClustersMap, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all of the annotations that should be applied to the resource
