@@ -329,7 +329,7 @@ def get_pod_when_ready(
     namespace: str,
     label_selector: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
-    default_retry: Optional[int] = 20,
+    default_retry: Optional[int] = 60,
 ) -> client.V1Pod:
     """
     Returns a Pod that matches label_selector. It will block until the Pod is in
@@ -338,9 +338,10 @@ def get_pod_when_ready(
     cnt = 0
 
     while True and cnt < default_retry:
-        print(f": namespace={namespace}, label_selector={label_selector}")
-        time.sleep(3)
+        print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
 
+        if cnt > 0:
+            time.sleep(1)
         cnt += 1
         try:
             pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector)

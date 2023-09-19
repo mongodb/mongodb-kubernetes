@@ -12,8 +12,15 @@
   The behaviour can be turned off by setting `MDB_AUTOMATIC_RECOVERY_ENABLE` environment variable to `false`.
 
 ###  MongoDBOpsManager Resource
-- Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
-- Additionally, [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
+## New Features
+* Improved handling of unreachable clusters in AppDB Multi-Cluster resources:
+  * The operator will still successfully manage the remaining healthy clusters, as long as they have a majority of votes to elect a primary.
+  * Unreachable clusters specified in both `mongodb-enterprise-operator-member-list` and `spec.applicationDatabase.clusterSpecList` will be bypassed during the resource reconciliation.
+  * The associated processes of an unreachable cluster are not automatically removed from the automation config and replica set configuration. These processes will only be removed under the following conditions:
+    * The corresponding cluster is deleted from `spec.applicationDatabase.clusterSpecList` or has zero members specified. 
+    * When deleted, the operator scales down the replica set by removing processes tied to that cluster one at a time.
+* Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
+* [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.21.0

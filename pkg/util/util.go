@@ -177,3 +177,19 @@ func Redact(toRedact interface{}) string {
 	}
 	return "<redacted>"
 }
+
+// Transform converts a slice of objects to a new slice containing objects returned from f.
+// It is useful for simple slice transformations that otherwise require declaring a new slice var and for loop.
+//
+// Example:
+//
+//	 processHostnames := util.Transform(ac.Processes, func(obj automationconfig.Process) string {
+//		  return obj.HostName
+//	 })
+func Transform[T any, U any](objs []T, f func(obj T) U) []U {
+	result := make([]U, len(objs))
+	for i := 0; i < len(objs); i++ {
+		result[i] = f(objs[i])
+	}
+	return result
+}

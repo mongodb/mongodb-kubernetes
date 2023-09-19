@@ -311,9 +311,10 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 }
 
 func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
+	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().Build()
 	kubeManager := mock.NewManager(&testOm)
-	appDBReconciler, err := newAppDbReconciler(kubeManager, testOm)
+	appDBReconciler, err := newAppDbReconciler(kubeManager, testOm, log)
 	require.NoError(t, err)
 
 	password, err := appDBReconciler.ensureAppDbPassword(testOm, zap.S())
@@ -322,6 +323,7 @@ func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 }
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
+	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm)
 
@@ -331,7 +333,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 		},
 	}
 
-	appDBReconciler, err := reconciler.createNewAppDBReconciler(&testOm)
+	appDBReconciler, err := reconciler.createNewAppDBReconciler(&testOm, log)
 	require.NoError(t, err)
 	password, err := appDBReconciler.ensureAppDbPassword(testOm, zap.S())
 

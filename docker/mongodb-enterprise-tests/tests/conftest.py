@@ -192,17 +192,16 @@ def crd_api():
 
 def install_multi_cluster_cert_manager(namespace: str):
     install_cert_manager(
-        namespace,
-        cluster_client=get_central_cluster_client(),
-        cluster_name=get_central_cluster_name(),
+        namespace, cluster_client=get_central_cluster_client(), cluster_name=get_central_cluster_name()
     )
-
-    for client in get_member_cluster_clients():
+    for member_client in get_member_cluster_clients():
         install_cert_manager(
-            namespace,
-            cluster_client=client.api_client,
-            cluster_name=client.cluster_name,
+            namespace, cluster_client=member_client.api_client, cluster_name=member_client.cluster_name
         )
+
+    wait_for_cert_manager_ready(namespace, cluster_client=get_central_cluster_client())
+    for member_client in get_member_cluster_clients():
+        wait_for_cert_manager_ready(namespace, cluster_client=member_client.api_client)
 
     return "cert-manager"
 
@@ -212,11 +211,11 @@ def cert_manager(namespace: str) -> str:
     if is_multi_cluster():
         return install_multi_cluster_cert_manager(namespace)
     else:
-        return install_cert_manager(
-            namespace,
-            cluster_client=get_central_cluster_client(),
-            cluster_name=get_central_cluster_name(),
+        result = install_cert_manager(
+            namespace, cluster_client=get_central_cluster_client(), cluster_name=get_central_cluster_name()
         )
+        wait_for_cert_manager_ready(namespace, cluster_client=get_central_cluster_client())
+        return result
 
 
 @fixture(scope="module")
@@ -850,6 +849,14 @@ def install_cert_manager(
             helm_args={"installCRDs": "true"},
         )
 
+    return name
+
+
+def wait_for_cert_manager_ready(
+    namespace: str,
+    cluster_client: Optional[client.ApiClient] = None,
+    name="cert-manager",
+):
     # waits until the cert-manager webhook and controller are Ready, otherwise creating
     # Certificate Custom Resources will fail.
     get_pod_when_ready(
@@ -862,7 +869,6 @@ def install_cert_manager(
         f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
         api_client=cluster_client,
     )
-    return name
 
 
 def get_cluster_clients() -> dict[str, kubernetes.client.api_client.ApiClient]:
