@@ -15,7 +15,7 @@ operator:
   operator_image_name: mongodb-enterprise-operator-ubi
 
   # Version of mongodb-enterprise-operator
-  version: 1.21.0
+  version: 1.22.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:

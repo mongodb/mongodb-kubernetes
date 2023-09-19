@@ -2,25 +2,26 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.22.0
 ## Breaking Changes
-* The "Reconciling" state is no longer used by the Operator. In most of the cases it has been replaced with "Pending" and a proper message
+* **All Resources**: The Operator no longer uses the "Reconciling" state. In most of the cases it has been replaced with "Pending" and a proper message
 
 ## Deprecations
-## Bug Fixes
-## New Features
-* An Automatic Recovery mechanism has been introduced for `MongoDB` resources and is turned on by default. If a Custom Resource remains in `Pending` or `Failed` state for a longer period of time (controlled by `MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S` environment variable at the Operator Pod spec level, the default is 20 minutes)
-  the Automation Config is pushed to the Ops Manager. This helps to prevent a deadlock when an Automation Config can not be pushed because of the StatefulSet not being ready and the StatefulSet being not ready because of a broken Automation Config.
-  The behaviour can be turned off by setting `MDB_AUTOMATIC_RECOVERY_ENABLE` environment variable to `false`.
+None
 
-###  MongoDBOpsManager Resource
+## Bug Fixes
+* **MongoDB**: Fix support for setting `autoTerminateOnDeletion=true` for sharded clusters. This setting makes sure that the operator stops and terminates the backup before the cleanup.
+
 ## New Features
-* Improved handling of unreachable clusters in AppDB Multi-Cluster resources:
+* **MongoDB**: An Automatic Recovery mechanism has been introduced for `MongoDB` resources and is turned on by default. If a Custom Resource remains in `Pending` or `Failed` state for a longer period of time (controlled by `MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S` environment variable at the Operator Pod spec level, the default is 20 minutes)
+  the Automation Config is pushed to the Ops Manager. This helps to prevent a deadlock when an Automation Config can not be pushed because of the StatefulSet not being ready and the StatefulSet being not ready because of a broken Automation Config.
+  The behavior can be turned off by setting `MDB_AUTOMATIC_RECOVERY_ENABLE` environment variable to `false`.
+* **MongoDBOpsManager**: Improved handling of unreachable clusters in AppDB Multi-Cluster resources:
   * The operator will still successfully manage the remaining healthy clusters, as long as they have a majority of votes to elect a primary.
   * Unreachable clusters specified in both `mongodb-enterprise-operator-member-list` and `spec.applicationDatabase.clusterSpecList` will be bypassed during the resource reconciliation.
   * The associated processes of an unreachable cluster are not automatically removed from the automation config and replica set configuration. These processes will only be removed under the following conditions:
     * The corresponding cluster is deleted from `spec.applicationDatabase.clusterSpecList` or has zero members specified. 
     * When deleted, the operator scales down the replica set by removing processes tied to that cluster one at a time.
-* Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
-* [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
+* **MongoDBOpsManager**: Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
+* **MongoDBOpsManager**: [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.21.0
