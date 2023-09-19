@@ -9,9 +9,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import create_appdb_certs
 from tests.multicluster.conftest import cluster_spec_list
 
-MDB_RESOURCE = "om-backup-db"
 CERT_PREFIX = "prefix"
-BUNDLE_SECRET_NAME = f"{CERT_PREFIX}-{MDB_RESOURCE}-cert"
 
 
 @fixture(scope="module")
@@ -88,7 +86,6 @@ def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
@@ -99,7 +96,6 @@ def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clust
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
@@ -110,7 +106,6 @@ def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clu
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
@@ -121,7 +116,6 @@ def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_clus
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_scale_down_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
@@ -132,7 +126,6 @@ def test_scale_down_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cl
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_add_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
@@ -142,7 +135,6 @@ def test_add_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_membe
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()
@@ -152,7 +144,6 @@ def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
-@mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb
 def test_readd_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
     ops_manager.load()

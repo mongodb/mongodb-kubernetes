@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -189,6 +190,23 @@ func TestSetIntersection(t *testing.T) {
 	rightNotIdentifiable = []someId{oneLeft, twoLeft}
 
 	assert.Len(t, identifiable.SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable), 0)
+}
+
+func TestTransform(t *testing.T) {
+	assert.Equal(t, []string{"1", "2", "3"}, Transform([]int{1, 2, 3}, func(v int) string {
+		return fmt.Sprintf("%d", v)
+	}))
+
+	assert.Equal(t, []string{}, Transform([]int{}, func(v int) string {
+		return fmt.Sprintf("%d", v)
+	}))
+
+	type tmpStruct struct {
+		str string
+	}
+	assert.Equal(t, []string{"a", "b", "c"}, Transform([]tmpStruct{{"a"}, {"b"}, {"c"}}, func(v tmpStruct) string {
+		return v.str
+	}))
 }
 
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {

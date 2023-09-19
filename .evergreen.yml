@@ -1757,7 +1757,7 @@ tasks:
   commands:
     - func: e2e_test
 
-- name: e2e_multi_cluster_s3_based_backup_restore
+- name: e2e_multi_cluster_appdb_s3_based_backup_restore
   tags: ["patch-run"]
   commands:
     - func: e2e_test
@@ -1881,6 +1881,11 @@ tasks:
     - func: e2e_test
 
 - name: e2e_om_ops_manager_backup_restore_minio
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_appdb_disaster_recovery
   tags: ["patch-run"]
   commands:
     - func: e2e_test
@@ -2191,9 +2196,12 @@ task_groups:
     - func: setup_kubernetes_environment
     - func: setup_cloud_qa
   tasks:
+    # Dedicated AppDB Multi-Cluster tests
     - e2e_multi_cluster_appdb_validation
     - e2e_multi_cluster_appdb
-    - e2e_multi_cluster_s3_based_backup_restore
+    - e2e_multi_cluster_appdb_s3_based_backup_restore
+    - e2e_multi_cluster_appdb_disaster_recovery
+    # Reused OM tests with AppDB Multi-Cluster topology
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_configure_all_images
     - e2e_om_appdb_upgrade

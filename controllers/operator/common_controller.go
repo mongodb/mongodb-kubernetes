@@ -152,6 +152,7 @@ func ensureRoles(roles []mdbv1.MongoDbRole, conn om.Connection, log *zap.Sugared
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func (r *ReconcileCommonController) updateStatus(reconciledResource v1.CustomResourceReadWriter, status workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	mergedOptions := append(statusOptions, status.StatusOptions()...)
+	log.Debugf("Updating status: phase=%v, options=%+v", status.Phase(), mergedOptions)
 	reconciledResource.UpdateStatus(status.Phase(), mergedOptions...)
 	if err := r.patchUpdateStatus(reconciledResource, statusOptions...); err != nil {
 		log.Errorf("Error updating status to %s: %s", status.Phase(), err)
