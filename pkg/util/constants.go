@@ -291,8 +291,8 @@ const (
 
 const (
 	OperatorEnvironmentDev   string = "dev"
-	OperatorEnvironmentProd         = "prod"
-	OperatorEnvironmentLocal        = "local"
+	OperatorEnvironmentProd  string = "prod"
+	OperatorEnvironmentLocal string = "local"
 )
 
 // ***** These variables are set at compile time

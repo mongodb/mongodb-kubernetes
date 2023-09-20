@@ -205,7 +205,7 @@ func TestOpsManagerValidation(t *testing.T) {
 	for testName := range tests {
 		t.Run(testName, func(t *testing.T) {
 			testConfig := tests[testName]
-			err, part := testConfig.testedOm.ProcessValidationsOnReconcile()
+			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 			assert.Equal(t, testConfig.expectedError, err != nil)
 			assert.Equal(t, testConfig.expectedPart, part)
 			if len(testConfig.expectedErrorMessage) != 0 {
@@ -220,7 +220,7 @@ func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
 	version, err := versionutil.StringToSemverVersion(om.Spec.Version)
 	assert.NoError(t, err)
 
-	err, part := om.ProcessValidationsOnReconcile()
+	part, err := om.ProcessValidationsOnReconcile()
 	assert.Equal(t, status.None, part)
 	assert.NoError(t, err)
 	assert.Equal(t, uint64(3), version.Major)

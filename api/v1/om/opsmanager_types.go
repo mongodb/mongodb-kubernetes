@@ -155,7 +155,7 @@ type TLSSecretRef struct {
 }
 
 func (ms MongoDBOpsManagerSpec) IsKmipEnabled() bool {
-	if ms.Backup == nil || ms.Backup.Enabled == false || ms.Backup.Encryption == nil || ms.Backup.Encryption.Kmip == nil {
+	if ms.Backup == nil || !ms.Backup.Enabled || ms.Backup.Encryption == nil || ms.Backup.Encryption.Kmip == nil {
 		return false
 	}
 	return true

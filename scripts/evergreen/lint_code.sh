@@ -23,8 +23,8 @@ if ! [[ -x "$(command -v goimports)" ]]; then
 fi
 
 
-# check for dead code
-PATH=$GOPATH/bin:$PATH staticcheck -checks U1000,SA4006,ST1019,S1005,S1019 ./...
+# lint code with staticcheck, configuration file is ops-manager-kubernetes/staticcheck.conf
+PATH=$GOPATH/bin:$PATH staticcheck ./...
 
 echo "Go Version: $(go version)"
 

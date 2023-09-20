@@ -13,7 +13,7 @@ import (
 // pendingStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type pendingStatus struct {
 	commonStatus
-	retryInSeconds time.Duration
+	retryInSeconds int
 	requeue        bool
 }
 
@@ -26,7 +26,7 @@ func (p *pendingStatus) WithWarnings(warnings []status.Warning) *pendingStatus {
 	return p
 }
 
-func (p *pendingStatus) WithRetry(retryInSeconds time.Duration) *pendingStatus {
+func (p *pendingStatus) WithRetry(retryInSeconds int) *pendingStatus {
 	p.retryInSeconds = retryInSeconds
 	return p
 }
@@ -37,7 +37,7 @@ func (p *pendingStatus) WithResourcesNotReady(resourcesNotReady []status.Resourc
 }
 
 func (p pendingStatus) ReconcileResult() (reconcile.Result, error) {
-	return reconcile.Result{RequeueAfter: time.Second * p.retryInSeconds, Requeue: p.requeue}, nil
+	return reconcile.Result{RequeueAfter: time.Second * time.Duration(p.retryInSeconds), Requeue: p.requeue}, nil
 }
 
 func (p pendingStatus) IsOK() bool {

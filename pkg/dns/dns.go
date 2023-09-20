@@ -65,8 +65,7 @@ func GetMultiClusterHostnamesForMonitoring(mdbmName, namespace string, clusterNu
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
-		var hostname string
-		hostname = fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiAppDBPodName(mdbmName, clusterNum, podNum), GetMultiHeadlessServiceName(mdbmName, clusterNum), namespace)
+		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiAppDBPodName(mdbmName, clusterNum, podNum), GetMultiHeadlessServiceName(mdbmName, clusterNum), namespace)
 		hostnames = append(hostnames, hostname)
 	}
 

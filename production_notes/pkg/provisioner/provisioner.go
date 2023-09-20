@@ -23,9 +23,9 @@ func checkClusterExists(clusterName string) (bool, error) {
 }
 
 func execWithOutputAndReturnError(cmd *exec.Cmd) error {
-	log.Printf(cmd.String())
+	log.Print(cmd.String())
 	out, err := cmd.CombinedOutput()
-	log.Printf(string(out))
+	log.Print(string(out))
 	return err
 }
 

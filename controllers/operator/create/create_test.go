@@ -1,7 +1,6 @@
 package create
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -257,7 +256,7 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
 	for _, expectedService := range expectedServices {
-		actualService, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf(expectedService.GetName()), Namespace: "my-namespace"})
+		actualService, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: "my-namespace"})
 		require.NoError(t, err, "serviceName: %s", expectedService.GetName())
 		require.NotNil(t, actualService)
 		require.Len(t, actualService.Spec.Ports, len(expectedService.Spec.Ports))
@@ -279,7 +278,7 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
-		_, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf(expectedService.GetName()), Namespace: "my-namespace"})
+		_, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: "my-namespace"})
 		assert.True(t, errors.IsNotFound(err))
 	}
 }
@@ -305,18 +304,18 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	err = createMongosSts(t, mdb, log, manager)
 	require.NoError(t, err)
 
-	actualService, err := manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-mongos-0-svc-external"), Namespace: "my-namespace"})
+	actualService, err := manager.Client.GetService(types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
 	require.NoError(t, err)
 	require.NotNil(t, actualService)
 
-	actualService, err = manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-mongos-1-svc-external"), Namespace: "my-namespace"})
+	actualService, err = manager.Client.GetService(types.NamespacedName{Name: "mdb-mongos-1-svc-external", Namespace: "my-namespace"})
 	require.NoError(t, err)
 	require.NotNil(t, actualService)
 
-	_, err = manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-config-0-svc-external"), Namespace: "my-namespace"})
+	_, err = manager.Client.GetService(types.NamespacedName{Name: "mdb-config-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no config service")
 
-	_, err = manager.Client.GetService(types.NamespacedName{Name: fmt.Sprintf("mdb-0-svc-external"), Namespace: "my-namespace"})
+	_, err = manager.Client.GetService(types.NamespacedName{Name: "mdb-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no shard service")
 
 }
