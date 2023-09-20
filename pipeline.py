@@ -117,15 +117,18 @@ def build_configuration_from_env() -> Dict[str, str]:
 def operator_build_configuration(
     builder: str, parallel: bool, debug: bool
 ) -> BuildConfiguration:
-    default_config_location = os.path.expanduser("~/.operator-dev/context.env")
-    context_file = os.environ.get(
-        "OPERATOR_BUILD_CONFIGURATION", default_config_location
-    )
+    # TODO: commented to unblock the release; fix it after the release
+    # default_config_location = os.path.expanduser("~/.operator-dev/context.env")
+    # context_file = os.environ.get(
+    #     "OPERATOR_BUILD_CONFIGURATION", default_config_location
+    # )
+    #
+    # if os.path.exists(context_file):
+    #     context = build_configuration_from_context_file(context_file)
+    # else:
+    context = build_configuration_from_env()
 
-    if os.path.exists(context_file):
-        context = build_configuration_from_context_file(context_file)
-    else:
-        context = build_configuration_from_env()
+    print(f"Context: {context}")
 
     return BuildConfiguration(
         image_type=context.get("image_type", DEFAULT_IMAGE_TYPE),
@@ -247,6 +250,9 @@ def sonar_build_image(
         "fail_on_errors": True,
         "pipeline": build_configuration.pipeline,
     }
+
+    print(f"Sonar build configuration: {build_configuration}")
+
     process_image(
         image_name,
         skip_tags=build_configuration.get_skip_tags(),

@@ -255,7 +255,7 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-init-database-ubi
             - name: INIT_DATABASE_VERSION
-              value: 1.0.18
+              value: 1.0.19
             - name: DATABASE_VERSION
               value: 2.0.2
             # Ops Manager
