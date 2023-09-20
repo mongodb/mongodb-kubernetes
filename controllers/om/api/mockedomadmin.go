@@ -17,7 +17,7 @@ import (
 // Surely don't use it in production :)
 // ********************************************************************************************************************
 
-// Global variable for current OM admin object that was created by MongoDbOpsManager - just for tests
+// CurrMockedAdmin is a global variable for current OM admin object that was created by MongoDbOpsManager - just for tests
 // It's important to clear the state on time - the lifespan of om admin is supposed to be bound to a lifespan of a
 // OM controller instance - once a new OM controller is created the mocked admin state must be cleared
 var CurrMockedAdmin *MockedOmAdmin
@@ -121,7 +121,7 @@ func (a *MockedOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
 
 func (a *MockedOmAdmin) DeleteS3Config(id string) error {
 	if _, ok := a.s3Configs[id]; !ok {
-		return errors.New("Failed to remove as the s3 config doesn't exist!")
+		return errors.New("failed to remove as the s3 config doesn't exist")
 	}
 	delete(a.s3Configs, id)
 	return nil
@@ -163,7 +163,7 @@ func (a *MockedOmAdmin) UpdateOplogStoreConfig(config backup.DataStoreConfig) er
 
 func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
 	if _, ok := a.oplogConfigs[id]; !ok {
-		return errors.New("Failed to remove as the oplog doesn't exist!")
+		return errors.New("failed to remove as the oplog doesn't exist")
 	}
 	delete(a.oplogConfigs, id)
 	return nil
@@ -189,7 +189,7 @@ func (a *MockedOmAdmin) CreateS3OplogStoreConfig(s3Config backup.S3Config) error
 
 func (a *MockedOmAdmin) DeleteS3OplogStoreConfig(id string) error {
 	if _, ok := a.s3OpLogConfigs[id]; !ok {
-		return errors.New("Failed to remove as the s3 oplog doesn't exist!")
+		return errors.New("failed to remove as the s3 oplog doesn't exist")
 	}
 	delete(a.s3OpLogConfigs, id)
 	return nil
@@ -221,7 +221,7 @@ func (a *MockedOmAdmin) UpdateBlockStoreConfig(config backup.DataStoreConfig) er
 
 func (a *MockedOmAdmin) DeleteBlockStoreConfig(id string) error {
 	if _, ok := a.blockStoreConfigs[id]; !ok {
-		return errors.New("Failed to remove as the block store doesn't exist!")
+		return errors.New("failed to remove as the block store doesn't exist")
 	}
 	delete(a.blockStoreConfigs, id)
 	return nil

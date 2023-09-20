@@ -15,7 +15,7 @@ import (
 // failedStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type failedStatus struct {
 	commonStatus
-	retryInSeconds time.Duration
+	retryInSeconds int
 	// err contains error with stacktrace
 	err error
 }
@@ -29,13 +29,13 @@ func (f *failedStatus) WithWarnings(warnings []status.Warning) *failedStatus {
 	return f
 }
 
-func (f *failedStatus) WithRetry(retryInSeconds time.Duration) *failedStatus {
+func (f *failedStatus) WithRetry(retryInSeconds int) *failedStatus {
 	f.retryInSeconds = retryInSeconds
 	return f
 }
 
 func (f failedStatus) ReconcileResult() (reconcile.Result, error) {
-	return reconcile.Result{RequeueAfter: time.Second * f.retryInSeconds}, nil
+	return reconcile.Result{RequeueAfter: time.Second * time.Duration(f.retryInSeconds)}, nil
 }
 
 func (f failedStatus) IsOK() bool {

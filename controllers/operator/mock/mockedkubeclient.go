@@ -299,7 +299,7 @@ func (m *MockedClient) Scheme() *apiruntime.Scheme {
 }
 
 func (m *MockedClient) WithResource(object client.Object) *MockedClient {
-	err := m.Create(context.TODO(), object.(client.Object))
+	err := m.Create(context.TODO(), object)
 	if err != nil {
 		// panicking here instead of adding to return type as this function
 		// is used to initialize the mocked client, with this we can ensure we never

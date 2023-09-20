@@ -193,8 +193,6 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		svc := BuildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
-
-		svc.Spec.Ports = append(svc.Spec.Ports)
 		externalService = &svc
 	} else {
 		if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {

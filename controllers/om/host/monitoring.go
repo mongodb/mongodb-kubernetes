@@ -44,7 +44,7 @@ func StopMonitoring(getRemover GetRemover, hostnames []string, log *zap.SugaredL
 	}
 
 	if errorHappened {
-		return errors.New("Failed to remove some hosts from monitoring in Ops manager")
+		return errors.New("failed to remove some hosts from monitoring in Ops manager")
 	}
 	return nil
 }
