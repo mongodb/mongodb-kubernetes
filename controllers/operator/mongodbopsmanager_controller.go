@@ -149,7 +149,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
 	}
 
-	if err, part := opsManager.ProcessValidationsOnReconcile(); err != nil {
+	if part, err := opsManager.ProcessValidationsOnReconcile(); err != nil {
 		return r.updateStatus(opsManager, workflow.Invalid(err.Error()), log, mdbstatus.NewOMPartOption(part))
 	}
 
@@ -852,6 +852,7 @@ func (r OpsManagerReconciler) ensureGenKey(om omv1.MongoDBOpsManager, log *zap.S
 
 		// the length must be equal to 'EncryptionUtils.DES3_KEY_LENGTH' (24) from mms
 		token := make([]byte, 24)
+		//lint:ignore SA1019 Deprecated rand library usage
 		rand.Read(token)
 		keyMap := map[string][]byte{"gen.key": token}
 

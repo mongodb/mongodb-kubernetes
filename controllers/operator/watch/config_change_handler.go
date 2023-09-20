@@ -97,7 +97,6 @@ type ConfigMapEventHandler struct {
 }
 
 func (m ConfigMapEventHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
-	return
 }
 
 func (m ConfigMapEventHandler) Update(e event.UpdateEvent, _ workqueue.RateLimitingInterface) {
@@ -120,7 +119,6 @@ func (m ConfigMapEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimit
 }
 
 func (m ConfigMapEventHandler) Generic(e event.GenericEvent, _ workqueue.RateLimitingInterface) {
-	return
 }
 
 func (m ConfigMapEventHandler) isMemberListCM(o client.Object) bool {

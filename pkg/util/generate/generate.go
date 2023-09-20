@@ -43,6 +43,7 @@ func randSeq(n int) string {
 }
 
 func GenerateRandomPassword() string {
+	//lint:ignore SA1019 Deprecated rand library usage
 	mrand.Seed(time.Now().UnixNano())
 	return randSeq(10)
 }

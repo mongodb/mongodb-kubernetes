@@ -97,6 +97,7 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 }
 
 func createTestKubeConfigAndSetEnv(t *testing.T) *os.File {
+	//lint:ignore S1039 I avoid to modify this string to not ruin the format
 	testKubeConfig := fmt.Sprintf(
 		`
 apiVersion: v1

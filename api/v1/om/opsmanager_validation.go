@@ -196,10 +196,11 @@ func (m *MongoDBOpsManager) ProcessValidationsWebhook() error {
 	}
 	return nil
 }
-func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() (error, status.Part) {
+
+func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() (status.Part, error) {
 	for _, res := range m.RunValidations() {
 		if res.Level == v1.ErrorLevel {
-			return errors.New(res.Msg), res.OmStatusPart
+			return res.OmStatusPart, errors.New(res.Msg)
 		}
 
 		if res.Level == v1.WarningLevel {
@@ -214,5 +215,5 @@ func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() (error, status.Part)
 		}
 	}
 
-	return nil, status.None
+	return status.None, nil
 }

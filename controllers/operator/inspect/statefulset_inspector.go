@@ -41,7 +41,7 @@ func (s StatefulSetState) GetMessage() string {
 	if s.IsReady() {
 		return fmt.Sprintf("StatefulSet %s is ready", s.statefulSetKey)
 	}
-	return fmt.Sprintf("StatefulSet not ready")
+	return "StatefulSet not ready"
 }
 
 func (s StatefulSetState) IsReady() bool {

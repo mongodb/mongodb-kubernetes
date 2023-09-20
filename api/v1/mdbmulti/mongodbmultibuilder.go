@@ -59,6 +59,7 @@ func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSet
 }
 
 func (m *MultiReplicaSetBuilder) SetClusterSpecList(clusters []string) *MultiReplicaSetBuilder {
+	//lint:ignore SA1019 Deprecated rand library usage
 	rand.Seed(time.Now().UnixNano())
 
 	for _, e := range clusters {
