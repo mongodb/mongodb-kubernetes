@@ -14,9 +14,24 @@ None
 * **MongoDB**: An Automatic Recovery mechanism has been introduced for `MongoDB` resources and is turned on by default. If a Custom Resource remains in `Pending` or `Failed` state for a longer period of time (controlled by `MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S` environment variable at the Operator Pod spec level, the default is 20 minutes)
   the Automation Config is pushed to the Ops Manager. This helps to prevent a deadlock when an Automation Config can not be pushed because of the StatefulSet not being ready and the StatefulSet being not ready because of a broken Automation Config.
   The behavior can be turned off by setting `MDB_AUTOMATIC_RECOVERY_ENABLE` environment variable to `false`.
-* **MongoDBOpsManager**: Improved handling of unreachable clusters in AppDB Multi-Cluster resources:
-  * The operator will still successfully manage the remaining healthy clusters, as long as they have a majority of votes to elect a primary.
-  * Unreachable clusters specified in both `mongodb-enterprise-operator-member-list` and `spec.applicationDatabase.clusterSpecList` will be bypassed during the resource reconciliation.
+* **MongoDB**: MongoDB audit logs can now be routed to Kubernetes pod logs.
+  * Ensure MongoDB audit logs are written to `/var/log/mongodb-mms-automation/mongodb-audit.log` file. Pod monitors this file and tails its content to k8s logs.
+  * Use the following example configuration in MongoDB resource to send audit logs to k8s logs:
+  ```
+  spec:
+    additionalMongodConfig:
+      auditLog:
+        destination: file
+        format: JSON
+        path: /var/log/mongodb-mms-automation/mongodb-audit.log
+  ```
+  * Audit log entries are tagged with the "mongodb-audit" key in pod logs. Extract audit log entries with the following example command:
+  ```
+  kubectl logs -c mongodb-enterprise-database replica-set-0 | jq -r 'select(.logType == "mongodb-audit") | .contents'
+  ```
+* **MongoDBOpsManager**: Improved handling of unreachable clusters in AppDB Multi-Cluster resources
+  * In the last release, the operator required a healthy connection to the cluster to scale down processes, which could block the reconcile process if there was a full-cluster outage.
+  * Now, the operator will still successfully manage the remaining healthy clusters, as long as they have a majority of votes to elect a primary.
   * The associated processes of an unreachable cluster are not automatically removed from the automation config and replica set configuration. These processes will only be removed under the following conditions:
     * The corresponding cluster is deleted from `spec.applicationDatabase.clusterSpecList` or has zero members specified. 
     * When deleted, the operator scales down the replica set by removing processes tied to that cluster one at a time.
