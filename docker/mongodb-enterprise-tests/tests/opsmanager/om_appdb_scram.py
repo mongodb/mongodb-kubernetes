@@ -181,7 +181,9 @@ class TestChangeOpsManagerExistingUserPassword:
     def test_om_reconciled(self, ops_manager: MongoDBOpsManager):
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running)
         ops_manager.om_status().assert_abandons_phase(Phase.Running)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        # Swapping the password can lead to a race where we check for the status before om reconciler was able to swap
+        # the password.
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     @pytest.mark.xfail(reason="the auto generated password should have been deleted once the user creates their own")
