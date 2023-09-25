@@ -8,6 +8,7 @@ spec:
   adminCredentials: ops-manager-admin-secret
   configuration:
     mms.testUtil.enabled: "true"
+
   backup:
     enabled: true
     headDB:
