@@ -46,19 +46,20 @@ def ops_manager(
     if is_multi_cluster():
         enable_appdb_multi_cluster_deployment(om)
 
-    create_or_update(om)
     return om
 
 
 @fixture(scope="module")
 def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
-    """First replicaset to be created before Ops Manager is configured with HTTPS."""
+    """The First replicaset to be created before Ops Manager is configured with HTTPS."""
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
         ops_manager, "replicaset0"
     )
+
     resource["spec"]["version"] = custom_mdb_version
 
-    return create_or_update(resource)
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -67,9 +68,13 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset1", namespace=namespace).configure(
         ops_manager, "replicaset1"
     )
+
+    # NOTE: If running a test using a version different from 6.0.5 for OM6 means we will need to
+    # also download the respective signature (tgz.sig) as seen in om_https_enabled.yaml
     resource["spec"]["version"] = custom_mdb_version
 
-    return create_or_update(resource)
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -80,6 +85,7 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_ops_manager_https_enabled
 def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
     """Ops Manager is started over plain HTTP. AppDB also doesn't have TLS enabled"""
+
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     assert ops_manager.om_status().get_url().startswith("http://")
@@ -119,19 +125,30 @@ def test_appdb_not_connectibel_without_tls(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_ops_manager_https_enabled
 def test_replica_set_over_non_https_ops_manager(replicaset0: MongoDB):
     """First replicaset is started over non-HTTPS Ops Manager."""
+    create_or_update(replicaset0)
     replicaset0.assert_reaches_phase(Phase.Running)
     replicaset0.assert_connectivity()
 
 
 @mark.e2e_om_ops_manager_https_enabled
-def test_enable_https_on_opsmanager(ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_certs: str):
+def test_enable_https_on_opsmanager(
+    ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_certs: str, custom_version: Optional[str]
+):
     """Ops Manager is restarted with HTTPS enabled."""
-    ops_manager.load()
     ops_manager["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {"ca": issuer_ca_configmap},
     }
-    ops_manager.update()
+
+    # this enables download verification for om with https
+    # probably need to be done above and if only test replicaset1 since that one already has tls setup or test below
+    #  custom ca setup
+    # only run this test if om > 6.0.18
+    if custom_version >= "6.0.18":
+        print("verifying download signature for OM!")
+        ops_manager["spec"]["configuration"]["mms.featureFlag.automation.verifyDownloads"] = "enabled"
+
+    create_or_update(ops_manager)
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -165,10 +182,9 @@ def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, replica
     """Both replicasets get to running state and are reachable.
     Note that 'replicaset1' is created just now."""
 
-    # TODO: Find a way to fix this, after discussing CLOUDP-92131.
-    # replicaset0.assert_reaches_phase(Phase.Running, timeout=360)
-    # replicaset0.assert_connectivity()
+    create_or_update(replicaset1)
 
+    # This would fail if there are no, sig files provided for the respective mongodb which the agent downloads.
     replicaset1.assert_reaches_phase(Phase.Running, timeout=360)
     replicaset1.assert_connectivity()
 
