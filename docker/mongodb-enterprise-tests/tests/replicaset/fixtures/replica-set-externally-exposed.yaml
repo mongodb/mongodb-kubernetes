@@ -11,4 +11,4 @@ spec:
       name: my-project
   credentials: my-credentials
   persistent: false
-  exposedExternally: true
+  externalAccess: {}

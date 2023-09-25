@@ -304,9 +304,6 @@ spec:
               credentials:
                 description: Name of the Secret holding credentials information
                 type: string
-              exposedExternally:
-                description: 'DEPRECATED: use ExternalAccessConfiguration instead'
-                type: boolean
               externalAccess:
                 description: ExternalAccessConfiguration provides external access
                   configuration.
