@@ -217,9 +217,6 @@ type ClusterSpecItem struct {
 	ClusterName string `json:"clusterName,omitempty"`
 	// this is an optional service, it will get the name "<rsName>-service" in case not provided
 	Service string `json:"service,omitempty"`
-	// DEPRECATED: use ExternalAccessConfiguration instead
-	// +optional
-	ExposedExternally *bool `json:"exposedExternally,omitempty"`
 	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
 	// +optional
 	ExternalAccessConfiguration ExternalAccessConfiguration `json:"externalAccess,omitempty"`
@@ -306,10 +303,6 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
 	ConnectionSpec `json:",inline"`
-
-	// DEPRECATED: use ExternalAccessConfiguration instead
-	// +optional
-	ExposedExternally bool `json:"exposedExternally,omitempty"`
 	// ExternalAccessConfiguration provides external access configuration.
 	// +optional
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
@@ -1169,13 +1162,6 @@ func (m *MongoDB) InitDefaults() {
 
 	// ProjectName defaults to the name of the resource
 	m.Spec.ProjectName = m.Name
-
-	// External Access old API compatibility code
-	if m.Spec.ExposedExternally {
-		if m.Spec.ExternalAccessConfiguration == nil {
-			m.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{}
-		}
-	}
 }
 
 func (m *MongoDB) ObjectKey() client.ObjectKey {
