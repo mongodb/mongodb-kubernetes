@@ -1064,7 +1064,7 @@ func ReconcileReplicaSetAC(d om.Deployment, processes []om.Process, spec mdbv1.D
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
 	if pc != nil {
-		// At this point we won't bubble-up the error we got from this
+		// At this point, we won't bubble-up the error we got from this
 		// function, we don't want to fail the MongoDB resource because
 		// Prometheus can't be enabled.
 		_ = UpdatePrometheus(&d, pc.conn, pc.prometheus, pc.secretsClient, pc.namespace, pc.prometheusCertHash, log)

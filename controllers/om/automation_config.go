@@ -136,7 +136,7 @@ func isEqualAfterModification(changeDeploymentFunc func(Deployment) error, deplo
 }
 
 // NewAutomationConfig returns an AutomationConfig instance with all reference
-// types initialized with non nil values
+// types initialized with non-nil values
 func NewAutomationConfig(deployment Deployment) *AutomationConfig {
 	return &AutomationConfig{AgentSSL: &AgentSSL{}, Auth: NewAuth(), Deployment: deployment}
 }
@@ -163,7 +163,7 @@ func (a *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
 }
 
 // this is needed only for the cluster config file when we use a headless agent
-func (a *AutomationConfig) SetOptions(downloadBase string) *AutomationConfig {
+func (a *AutomationConfig) SetOptionsDownloadBase(downloadBase string) *AutomationConfig {
 	a.Deployment["options"] = map[string]string{"downloadBase": downloadBase}
 
 	return a
@@ -241,7 +241,7 @@ func (a *Auth) AddUser(user MongoDBUser) {
 }
 
 // HasUser returns true if a user exists with the specified username and password
-// or false if the user does not exists
+// or false if the user does not exist
 func (a *Auth) HasUser(username, db string) bool {
 	_, user := a.GetUser(username, db)
 	return user != nil

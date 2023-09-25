@@ -75,8 +75,9 @@ func init() {
 // https://github.com/10gen/mms-automation/blob/master/go_planner/config_specs/clusterConfig_spec.md
 //
 // Dev note: it's important to keep to the following principle during development: we don't use structs for json
-// (de)serialization as we don't want to own the schema and synchronize it with the api one constantly. Also we don't
-// want to override any configuration provided by OM by accident. The Operator only sets the configuration it "owns" but
+// (de)serialization as we don't want to own the schema and synchronize it with the api one constantly.
+// Also, we don't want to override any configuration provided by OM by accident.
+// The Operator only sets the configuration it "owns" but
 // keeps the other one that was set by the user in Ops Manager if any
 type Deployment map[string]interface{}
 
