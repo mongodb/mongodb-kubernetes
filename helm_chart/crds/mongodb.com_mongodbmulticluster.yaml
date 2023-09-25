@@ -213,9 +213,6 @@ spec:
                         on one mapping with the service-account created in the central
                         cluster to talk to the workload clusters.
                       type: string
-                    exposedExternally:
-                      description: 'DEPRECATED: use ExternalAccessConfiguration instead'
-                      type: boolean
                     externalAccess:
                       description: ExternalAccessConfiguration provides external access
                         configuration for Multi-Cluster.
@@ -322,9 +319,6 @@ spec:
                   should create the service objects in all the clusters or not. By
                   default, if not specified the operator would create the duplicate
                   svc objects.'
-                type: boolean
-              exposedExternally:
-                description: 'DEPRECATED: use ExternalAccessConfiguration instead'
                 type: boolean
               externalAccess:
                 description: ExternalAccessConfiguration provides external access

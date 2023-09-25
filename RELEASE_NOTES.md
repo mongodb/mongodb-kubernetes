@@ -1,5 +1,9 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
+
+## Breaking Changes
+
+* **MongoDB**: Remove `spec.exposedExternally` in favor of `spec.externalAccess`. `spec.exposedExternally` was deprecated in operator version 1.19.
 # MongoDB Enterprise Kubernetes Operator 1.22.0
 ## Breaking Changes
 * **All Resources**: The Operator no longer uses the "Reconciling" state. In most of the cases it has been replaced with "Pending" and a proper message
@@ -33,7 +37,7 @@ None
   * In the last release, the operator required a healthy connection to the cluster to scale down processes, which could block the reconcile process if there was a full-cluster outage.
   * Now, the operator will still successfully manage the remaining healthy clusters, as long as they have a majority of votes to elect a primary.
   * The associated processes of an unreachable cluster are not automatically removed from the automation config and replica set configuration. These processes will only be removed under the following conditions:
-    * The corresponding cluster is deleted from `spec.applicationDatabase.clusterSpecList` or has zero members specified. 
+    * The corresponding cluster is deleted from `spec.applicationDatabase.clusterSpecList` or has zero members specified.
     * When deleted, the operator scales down the replica set by removing processes tied to that cluster one at a time.
 * **MongoDBOpsManager**: Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
 * **MongoDBOpsManager**: [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
@@ -58,9 +62,9 @@ None
   - `om.spec.applicationDatabase.clusterSpecList` for configuring the list of Kubernetes clusters which will have For extended considerations for the multi-cluster AppDB configuration, check [the official guide](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-om-resource.html#using-onprem-with-multi-kubernetes-cluster-deployments) and the `OpsManager` [resource specification](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-om-specification/#k8s-om-specification).
 The implementation is backwards compatible with single cluster deployments of AppDB, by defaulting `om.spec.applicationDatabase.topology` to `SingleCluster`. Existing `OpsManager` resources do not need to be modified to upgrade to this version of the operator.
 * Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
-  * The list consists of single certificate strings, each references a secret containing a certificate authority. 
-  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
-  * Note: 
+  * The list consists of single certificate strings, each references a secret containing a certificate authority.
+  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported.
+  * Note:
     * If providing a list of `customCertificateSecretRefs`, then those certificates will be used instead of the default certificates setup in the JVM Trust Store (in Ops Manager or Cloud Manager).
     * If none are provided, the default JVM Truststore certificates will be used instead.
 
@@ -85,9 +89,9 @@ The implementation is backwards compatible with single cluster deployments of Ap
 
 ## New Features
 * Support for providing a list of custom certificates for S3 based backups via secret references `spec.backup.[]s3Stores.customCertificateSecretRefs` and `spec.backup.[]s3OpLogStores.customCertificateSecretRefs`
-  * The list consists of single certificate strings, each references a secret containing a certificate authority. 
-  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported. 
-  * Note: 
+  * The list consists of single certificate strings, each references a secret containing a certificate authority.
+  * We do not support adding multiple certificates in a chain. In that case, only the first certificate in the chain is imported.
+  * Note:
     * If providing a list of `customCertificateSecretRefs`, then those certificates will be used instead of the default certificates setup in the JVM Trust Store (in Ops Manager or Cloud Manager).
     * If none are provided, the default JVM Truststore certificates will be used instead.
 

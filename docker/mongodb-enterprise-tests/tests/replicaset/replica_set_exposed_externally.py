@@ -55,7 +55,7 @@ def test_service_node_port_stays_the_same(namespace: str, replica_set: MongoDB):
 def test_service_gets_deleted(replica_set: MongoDB, namespace: str):
     replica_set.load()
     last_transition = replica_set.get_status_last_transition_time()
-    replica_set["spec"]["exposedExternally"] = False
+    replica_set["spec"]["externalAccess"] = None
     replica_set.update()
 
     replica_set.assert_state_transition_happens(last_transition)
