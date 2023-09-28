@@ -551,6 +551,8 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 }
 
 // GetClusterSpecList returns the cluster spec items.
+// This method should ideally be not used in the reconciler. Always, prefer to
+// use the GetHealthyMemberClusters() method from the reconciler.
 func (m *MongoDBMultiSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
 	return m.ClusterSpecList
 }

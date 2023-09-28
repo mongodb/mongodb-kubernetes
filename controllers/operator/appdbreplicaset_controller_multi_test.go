@@ -27,6 +27,7 @@ import (
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -716,7 +717,6 @@ func createAppDBTLSCert(t *testing.T, k8sClient client.Client, appDBSpec om.AppD
 }
 
 func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t *testing.T) {
-	log := zap.S()
 	builder := DefaultOpsManagerBuilder().
 		SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
 			{
@@ -725,6 +725,66 @@ func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t 
 			}}).
 		SetAppDBTopology(om.ClusterTopologyMultiCluster)
 	opsManager := builder.Build()
-	_, err := newAppDbReconciler(mock.NewManager(&opsManager), opsManager, log)
+	_, err := newAppDbReconciler(mock.NewManager(&opsManager), opsManager, zap.S())
 	assert.Error(t, err)
+}
+
+func (c *appDBClusterChecks) checkStatefulSetDoesNotExist(statefulSetName string, expectedMembers int) {
+	sts := appsv1.StatefulSet{}
+	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, statefulSetName), &sts)
+	require.True(c.t, apiErrors.IsNotFound(err))
+}
+
+func TestAppDBMultiClusterRemoveResources(t *testing.T) {
+	builder := DefaultOpsManagerBuilder().
+		SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
+			{
+				ClusterName: "a",
+				Members:     2,
+			},
+			{
+				ClusterName: "b",
+				Members:     2,
+			},
+			{
+				ClusterName: "c",
+				Members:     1,
+			},
+		}).
+		SetAppDBTopology(om.ClusterTopologyMultiCluster)
+
+	opsManager := builder.Build()
+
+	clusters = []string{"a", "b", "c"}
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters)
+
+	// create opsmanager reconciler
+	reconciler, _, _ := defaultTestOmReconciler(t, opsManager, memberClusterMap)
+
+	appDBReconciler, _ := newAppDbMultiReconciler(mock.NewManager(&opsManager), opsManager, memberClusterMap, zap.S())
+
+	// initially requeued as monitoring needs to be configured
+	_, err := appDBReconciler.ReconcileAppDB(&opsManager)
+	assert.NoError(t, err)
+
+	// check AppDB statefulset exists in cluster "a" and cluster "b"
+	for clusterIdx, clusterSpecItem := range opsManager.Spec.AppDB.ClusterSpecList {
+		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
+		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+
+		memberClusterChecks.checkStatefulSet(opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
+	}
+
+	// delete the OM resource
+	reconciler.OnDelete(&opsManager, zap.S())
+	assert.Zero(t, len(reconciler.WatchedResources))
+
+	// assert STS objects in member cluster
+	for clusterIdx, clusterSpecItem := range opsManager.Spec.AppDB.ClusterSpecList {
+		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
+		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+
+		memberClusterChecks.checkStatefulSetDoesNotExist(opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
+	}
+
 }

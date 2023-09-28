@@ -401,7 +401,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 		SetAppDbMembers(1).
 		SetVersion("5.0.0").
 		Build()
-	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
+	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager, nil)
 
 	checkOMReconciliationSuccessful(t, omReconciler, &opsManager)
 
@@ -438,7 +438,7 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetAppDbMembers(1).
 		SetAdditionalMongodbConfig(mdb.NewAdditionalMongodConfig("net.port", 30000)).
 		Build()
-	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager)
+	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager, nil)
 
 	checkOMReconciliationSuccessful(t, omReconciler, &opsManager)
 
@@ -708,7 +708,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager 
 	// Ensure the password exists for the Ops Manager User. The Ops Manager controller will have ensured this.
 	// We are ignoring this err on purpose since the secret might already exist.
 	_ = createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, "my-password")
-	reconciler, err := newAppDbReconciler(kubeManager, opsManager, log)
+	reconciler, err := newAppDbReconciler(kubeManager, opsManager, zap.S())
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
@@ -735,7 +735,7 @@ func newAppDbReconciler(mgr manager.Manager, opsManager omv1.MongoDBOpsManager, 
 	versionMappingProvider := func(s string) ([]byte, error) {
 		return nil, nil
 	}
-	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, versionMappingProvider, nil, log)
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, versionMappingProvider, nil, zap.S())
 }
 
 func newAppDbMultiReconciler(mgr manager.Manager, opsManager omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {

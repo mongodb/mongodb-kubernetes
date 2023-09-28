@@ -14,7 +14,7 @@ import (
 type MongoDBOpsManagerEventHandler struct {
 	*handler.EnqueueRequestForObject
 	reconciler interface {
-		delete(obj interface{}, log *zap.SugaredLogger)
+		OnDelete(obj interface{}, log *zap.SugaredLogger)
 	}
 }
 
@@ -24,7 +24,7 @@ func (eh *MongoDBOpsManagerEventHandler) Delete(e event.DeleteEvent, _ workqueue
 	logger := zap.S().With("resource", objectKey)
 
 	zap.S().Infow("Cleaning up OpsManager resource", "resource", e.Object)
-	eh.reconciler.delete(e.Object, logger)
+	eh.reconciler.OnDelete(e.Object, logger)
 
 	logger.Info("Removed Ops Manager resource")
 }
