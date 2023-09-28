@@ -263,7 +263,7 @@ func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(appDBSpec omv1.AppDB
 				Index:        0,
 				Client:       r.centralClient,
 				Replicas:     appDBSpec.Members,
-				SecretClient: r.ReconcileCommonController.SecretClient,
+				SecretClient: r.SecretClient,
 				Active:       true,
 				Healthy:      true,
 			},
