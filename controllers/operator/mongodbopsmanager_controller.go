@@ -1627,19 +1627,36 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 	return user, nil
 }
 
-// delete cleans up Ops Manager related resources on CR removal.
+// OnDelete cleans up Ops Manager related resources on CR removal.
 // it's used in MongoDBOpsManagerEventHandler
-func (r *OpsManagerReconciler) delete(obj interface{}, log *zap.SugaredLogger) {
+func (r *OpsManagerReconciler) OnDelete(obj interface{}, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
 
 	r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
 
-	for range opsManager.Spec.AppDB.GetClusterSpecList() {
-		// TODO fix getting cluster number when deleting AppDB sts
-		// r.RemoveDependentWatchedResources(opsManager.AppDBStatefulSetObjectKey(clusterSpecItem.ClusterName))
-		r.RemoveDependentWatchedResources(opsManager.AppDBStatefulSetObjectKey(0))
+	appDbReconciler, err := r.createNewAppDBReconciler(opsManager, log)
+	if err != nil {
+		log.Errorf("Error initializing AppDB reconciler: %s", err)
+		return
 	}
 
+	// remove AppDB from each of the member clusters(or the same cluster as OM in case of single cluster )
+	for _, memberCluster := range appDbReconciler.getHealthyMemberClusters() {
+		// fetch the clusterNum for a given clusterName
+		r.RemoveAllDependentWatchedResources(opsManager.Namespace, opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name)))
+	}
+
+	// delete the AppDB statefulset form each of the member cluster. We need to delete the
+	// resource explicitly in case of multi-cluster because we can't set owner reference cross cluster
+	for _, memberCluster := range appDbReconciler.getHealthyMemberClusters() {
+		memberClient := memberCluster.Client
+		stsNamespacedName := opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name))
+
+		err := memberClient.DeleteStatefulSet(stsNamespacedName)
+		if err != nil {
+			log.Warnf("Failed to delete statefulset: %s in cluster: %s", stsNamespacedName, memberCluster.Name)
+		}
+	}
 	log.Info("Cleaned up Ops Manager related resources.")
 }
 

@@ -410,8 +410,6 @@ class TestOpsManagerRemoved:
         with pytest.raises(ApiException):
             ops_manager.read_statefulset()
 
-    # FIXME: remove skip after implementing resource removal
-    @pytest.mark.skipif(is_multi_cluster(), reason="Resource cleanup not implemented yet in multi-cluster appdb mode")
     def test_om_appdb_removed(self, ops_manager: MongoDBOpsManager):
         with pytest.raises(ApiException):
             ops_manager.read_appdb_statefulset()
