@@ -28,6 +28,7 @@ require (
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.12.0
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	k8s.io/api v0.25.12
 	k8s.io/apimachinery v0.25.12
 	k8s.io/client-go v0.25.12

@@ -1,17 +1,16 @@
 # Build compilable stuff
 
-ARG readiness_probe_repo
-ARG readiness_probe_version
-ARG version_upgrade_post_start_hook_version
-
-FROM ${readiness_probe_repo}:${readiness_probe_version} as readiness_builder
-FROM quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${version_upgrade_post_start_hook_version} as version_upgrade_builder
+FROM golang:1.21 as readiness_builder
+COPY . /go/src/github.com/10gen/ops-manager-kubernetes
+WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
+RUN CGO_ENABLED=0 go build -o /readinessprobe github.com/mongodb/mongodb-kubernetes-operator/cmd/readiness
+RUN CGO_ENABLED=0 go build -o /version-upgrade-hook github.com/mongodb/mongodb-kubernetes-operator/cmd/versionhook
 
 FROM scratch
 ARG mongodb_tools_url_ubi
 
-COPY --from=readiness_builder /probes/readinessprobe /data/
-COPY --from=version_upgrade_builder /version-upgrade-hook /data/version-upgrade-hook
+COPY --from=readiness_builder /readinessprobe /data/
+COPY --from=readiness_builder /version-upgrade-hook /data/version-upgrade-hook
 
 ADD ${mongodb_tools_url_ubi} /data/mongodb_tools_ubi.tgz
 
