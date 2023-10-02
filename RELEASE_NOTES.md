@@ -1,8 +1,13 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 
-## Breaking Changes
+## Warnings and Breaking Changes
 
+* Starting from 1.22 component image versions will be unified to the MongoDB Enterprise Operator release tag. This affects the following images:
+  * `quay.io/mongodb/mongodb-enterprise-database-ubi`
+  * `quay.io/mongodb/mongodb-enterprise-init-database-ubi`
+  * `quay.io/mongodb/mongodb-enterprise-init-appdb-ubi`
+  * `quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi`
 * **MongoDB**: Remove `spec.exposedExternally` in favor of `spec.externalAccess`. `spec.exposedExternally` was deprecated in operator version 1.19.
 # MongoDB Enterprise Kubernetes Operator 1.22.0
 ## Breaking Changes

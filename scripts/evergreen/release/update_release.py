@@ -45,8 +45,6 @@ def update_release_json():
     newest_version = data["supportedImages"]["ops-manager"]["versions"][-1]
     update_tools_version(data, newest_version)
 
-    update_readiness_hook_version_if_newer(data)
-
     with open(release, "w") as f:
         json.dump(
             data,
@@ -75,26 +73,6 @@ def update_tools_version(data, missing_version):
         data["mongodbToolsBundle"]["ubi"] = version_name
     else:
         print(f"was not able to request file from {url}: {response.text}")
-        sys.exit(1)
-
-
-def update_readiness_hook_version_if_newer(local_data):
-    url = f"https://raw.githubusercontent.com/mongodb/mongodb-kubernetes-operator/master/release.json"
-    response = requests.get(url, headers=get_headers())
-    # Check if the request was successful
-    if response.status_code == 200:
-        community_release_data = response.json()
-        community_upgrade = community_release_data["version-upgrade-hook"]
-        community_readiness = community_release_data["readiness-probe"]
-        local_readiness = local_data["readinessProbeVersion"]
-        local_upgrade = local_data["versionUpgradePostStartHookVersion"]
-
-        if Version(community_readiness) > Version(local_readiness):
-            local_data["readinessProbeVersion"] = community_readiness
-        if Version(community_upgrade) > Version(local_upgrade):
-            local_data["versionUpgradePostStartHookVersion"] = community_upgrade
-    else:
-        print(f"was not able to request file from {url}: {response.text}.")
         sys.exit(1)
 
 
