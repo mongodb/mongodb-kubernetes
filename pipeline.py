@@ -605,26 +605,11 @@ def build_init_appdb(build_configuration: BuildConfiguration):
         base_url, release["mongodbToolsBundle"]["ubi"]
     )
 
-    readiness_probe_version = release["readinessProbeVersion"]
-    version_upgrade_post_start_hook_version = release[
-        "versionUpgradePostStartHookVersion"
-    ]
-
     args = dict(
         version=version,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
-        readiness_probe_version=readiness_probe_version,
-        version_upgrade_post_start_hook_version=version_upgrade_post_start_hook_version,
         is_appdb=True,
     )
-
-    if os.environ.get("readiness_probe"):
-        logger.info(
-            "Using readiness_probe source image: %s", os.environ["readiness_probe"]
-        )
-        repo, tag = os.environ["readiness_probe"].split(":")
-        args["readiness_probe_repo"] = repo
-        args["readiness_probe_version"] = tag
 
     sonar_build_image(
         image_name,
@@ -691,16 +676,9 @@ def build_init_database(build_configuration: BuildConfiguration):
         base_url, release["mongodbToolsBundle"]["ubi"]
     )
 
-    readiness_probe_version = release["readinessProbeVersion"]
-    version_upgrade_post_start_hook_version = release[
-        "versionUpgradePostStartHookVersion"
-    ]
-
     args = dict(
         version=version,
         mongodb_tools_url_ubi=mongodb_tools_url_ubi,
-        readiness_probe_version=readiness_probe_version,
-        version_upgrade_post_start_hook_version=version_upgrade_post_start_hook_version,
         is_appdb=False,
     )
 
@@ -714,8 +692,6 @@ def build_init_database(build_configuration: BuildConfiguration):
             "Using readiness_probe source image: %s", os.environ["readiness_probe"]
         )
         repo, tag = os.environ["readiness_probe"].split(":")
-        args["readiness_probe_repo"] = repo
-        args["readiness_probe_version"] = tag
 
     sonar_build_image(
         image_name,
