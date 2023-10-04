@@ -16,7 +16,7 @@ import (
 
 // AutomationConfig maintains the raw map in the Deployment field
 // and constructs structs to make use of go's type safety
-// Dev notes: actually, this object is just a wrapper for the `Deployment` object which is received from Ops Manager
+// Dev notes: actually, this object is just a wrapper for the `Deployment` object which is received from Ops Manager,
 // and it's not equal to the AutomationConfig object from mms! It contains some transient struct fields for easier
 // configuration which are merged into the `Deployment` object before sending it back to Ops Manager
 type AutomationConfig struct {
@@ -26,9 +26,9 @@ type AutomationConfig struct {
 	Ldap       *ldap.Ldap
 }
 
-// applyInto merges the state of all concrete structs into the Deployment (map[string]interface{})
-func (a *AutomationConfig) Apply() error {
-	return applyInto(*a, &a.Deployment)
+// Apply merges the state of all concrete structs into the Deployment (map[string]interface{})
+func (ac *AutomationConfig) Apply() error {
+	return applyInto(*ac, &ac.Deployment)
 }
 
 // applyInto is a helper method that does not mutate AutomationConfig "a", but only Deployment "deployment"
@@ -69,12 +69,12 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 // structs, such as AutomationConfig.AgentSSL or AutomationConfig.Auth use non-pointer fields (without `omitempty`).
 // When merging them into AutomationConfig.deployment, JSON unmarshaller renders them into their representations,
 // and they get into the final result. Sadly, some tests (especially TestLDAPIsMerged) relies on this behavior.
-func (a *AutomationConfig) EqualsWithoutDeployment(b AutomationConfig) bool {
+func (ac *AutomationConfig) EqualsWithoutDeployment(b AutomationConfig) bool {
 	deploymentsComparer := cmp.Comparer(func(x, y Deployment) bool {
 		return true
 	})
 
-	acA, err := getSerializedAC(*a)
+	acA, err := getSerializedAC(*ac)
 	if err != nil {
 		return false
 	}
@@ -156,43 +156,43 @@ func NewAuth() *Auth {
 	}
 }
 
-// this is needed only for the cluster config file when we use a headless agent
-func (a *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
-	a.Deployment["version"] = configVersion
-	return a
+// SetVersion is needed only for the cluster config file when we use a headless agent
+func (ac *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
+	ac.Deployment["version"] = configVersion
+	return ac
 }
 
-// this is needed only for the cluster config file when we use a headless agent
-func (a *AutomationConfig) SetOptionsDownloadBase(downloadBase string) *AutomationConfig {
-	a.Deployment["options"] = map[string]string{"downloadBase": downloadBase}
+// SetOptionsDownloadBase is needed only for the cluster config file when we use a headless agent
+func (ac *AutomationConfig) SetOptionsDownloadBase(downloadBase string) *AutomationConfig {
+	ac.Deployment["options"] = map[string]string{"downloadBase": downloadBase}
 
-	return a
+	return ac
 }
 
-// this is needed only for the cluster config file when we use a headless agent
-func (a *AutomationConfig) SetMongodbVersions(versionConfigs []MongoDbVersionConfig) *AutomationConfig {
-	a.Deployment["mongoDbVersions"] = versionConfigs
+// SetMongodbVersions is needed only for the cluster config file when we use a headless agent
+func (ac *AutomationConfig) SetMongodbVersions(versionConfigs []MongoDbVersionConfig) *AutomationConfig {
+	ac.Deployment["mongoDbVersions"] = versionConfigs
 
-	return a
+	return ac
 }
 
-func (a *AutomationConfig) MongodbVersions() []MongoDbVersionConfig {
-	return a.Deployment["mongoDbVersions"].([]MongoDbVersionConfig)
+func (ac *AutomationConfig) MongodbVersions() []MongoDbVersionConfig {
+	return ac.Deployment["mongoDbVersions"].([]MongoDbVersionConfig)
 }
 
-// this is needed only for the cluster config file when we use a headless agent
-func (a *AutomationConfig) SetBaseUrlForAgents(baseUrl string) *AutomationConfig {
-	for _, v := range a.Deployment.getBackupVersions() {
+// SetBaseUrlForAgents is needed only for the cluster config file when we use a headless agent
+func (ac *AutomationConfig) SetBaseUrlForAgents(baseUrl string) *AutomationConfig {
+	for _, v := range ac.Deployment.getBackupVersions() {
 		cast.ToStringMap(v)["baseUrl"] = baseUrl
 	}
-	for _, v := range a.Deployment.getMonitoringVersions() {
+	for _, v := range ac.Deployment.getMonitoringVersions() {
 		cast.ToStringMap(v)["baseUrl"] = baseUrl
 	}
-	return a
+	return ac
 }
 
-func (a *AutomationConfig) Serialize() ([]byte, error) {
-	return a.Deployment.Serialize()
+func (ac *AutomationConfig) Serialize() ([]byte, error) {
+	return ac.Deployment.Serialize()
 }
 
 type Auth struct {
@@ -280,8 +280,7 @@ func (a *Auth) EnsureUser(user MongoDBUser) {
 }
 
 // EnsureUserRemoved will remove user of given username and password. A boolean
-// indicating whether or not the underlying array was modified will be
-// returned
+// indicating whether the underlying array was modified will be returned
 func (a *Auth) EnsureUserRemoved(username, db string) bool {
 	if a.HasUser(username, db) {
 		a.RemoveUser(username, db)
@@ -312,7 +311,7 @@ type MongoDBUser struct {
 	Database                   string   `json:"db"`
 	AuthenticationRestrictions []string `json:"authenticationRestrictions"`
 
-	// The cleartext password to be assigned to the user
+	// The clear text password to be assigned to the user
 	InitPassword string `json:"initPwd,omitempty"`
 
 	// ScramShaCreds are generated by the operator.
@@ -367,7 +366,7 @@ func (ac *AutomationConfig) EnsureKeyFileContents() error {
 
 // EnsurePassword makes sure that there is an Automation Agent password
 // that the agents will use to communicate with the deployments. The password
-// is returned so it can be provided to the other agents
+// is returned, so it can be provided to the other agents
 func (ac *AutomationConfig) EnsurePassword() (string, error) {
 	if ac.Auth.AutoPwd == "" || ac.Auth.AutoPwd == util.InvalidAutomationAgentPassword {
 		automationAgentBackupPassword, err := generate.KeyFileContents()
@@ -423,11 +422,11 @@ func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConf
 		if err != nil {
 			return nil, err
 		}
-		ldap := &ldap.Ldap{}
-		if err := json.Unmarshal(ldapMarshalled, ldap); err != nil {
+		acLdap := &ldap.Ldap{}
+		if err := json.Unmarshal(ldapMarshalled, acLdap); err != nil {
 			return nil, err
 		}
-		finalAutomationConfig.Ldap = ldap
+		finalAutomationConfig.Ldap = acLdap
 	}
 
 	return finalAutomationConfig, nil

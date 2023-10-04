@@ -28,7 +28,7 @@ type S3Config struct {
 
 	// Flag indicating the style of this endpoint.
 	// true: Path-style URL endpoint eg. s3.amazonaws.com/<bucket>
-	// false: Virtual-host-style URL endpoint eg. <bucket>.s3.amazonaws.com
+	// false: Virtual-host-style URL endpoint e.g. <bucket>.s3.amazonaws.com
 	PathStyleAccessEnabled bool `json:"pathStyleAccessEnabled"`
 
 	// Flag indicating whether you can assign backup jobs to this data store.
@@ -97,7 +97,7 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri string, s3CustomCertificates []S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
+func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri string, s3CustomCertificates []S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
 	authMode := IAM
 	cred := S3Credentials{}
 
@@ -110,7 +110,7 @@ func NewS3Config(opsManager omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri 
 		S3Bucket:               bucket,
 		S3Credentials:          cred,
 		AcceptedTos:            true,
-		AssignmentEnabled:      true, // default to enabled. This will not be overridden on merge so it can be manually disabled in UI.
+		AssignmentEnabled:      true, // defaults to true. This will not be overridden on merge, so it can be manually disabled in UI.
 		SseEnabled:             false,
 		DisableProxyS3:         nil,
 		Id:                     s3Config.Name,

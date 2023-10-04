@@ -32,7 +32,7 @@ func TestAppDBAgentFlags(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	om.Spec.AppDB.AutomationAgent.StartupParameters = agentStartupParameters
 	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(&om, omv1.DummmyCentralClusterName, 0, nil), nil)
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, omv1.DummmyCentralClusterName, 0, nil), nil)
 	assert.NoError(t, err)
 
 	command := sts.Spec.Template.Spec.Containers[0].Command
@@ -66,7 +66,7 @@ func TestResourceRequirements(t *testing.T) {
 	}
 
 	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(&om, "central", 0, nil), nil)
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "central", 0, nil), nil)
 	assert.NoError(t, err)
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
@@ -91,7 +91,7 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 
 	// without related imaged sts is configured using env vars
 	om.Spec.AppDB.Version = "1.2.3-ent"
-	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(&om, omv1.DummmyCentralClusterName, 0, nil), nil)
+	sts, err := AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, omv1.DummmyCentralClusterName, 0, nil), nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:1.2.3-ent", sts.Spec.Template.Spec.Containers[1].Image)
@@ -103,7 +103,7 @@ func TestAppDbStatefulSetWithRelatedImages(t *testing.T) {
 	t.Setenv(initAppdbRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-appdb@sha256:INIT_APPDB_SHA")
 
 	om.Spec.AppDB.Version = "1.2.3-ent"
-	sts, err = AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(&om, omv1.DummmyCentralClusterName, 0, nil), nil)
+	sts, err = AppDbStatefulSet(om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, omv1.DummmyCentralClusterName, 0, nil), nil)
 	assert.NoError(t, err)
 	// agent's image is not used from RELATED_IMAGE because its value is from AGENT_IMAGE which is full image version
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent:10.26.0.6851-1", sts.Spec.Template.Spec.Containers[0].Image)

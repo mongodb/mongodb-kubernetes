@@ -1,6 +1,5 @@
 package om
 
-// ProjectsResponse
 type ProjectsResponse struct {
 	OMPaginated
 	Groups []*Project `json:"results"`
@@ -15,7 +14,6 @@ func (o ProjectsResponse) Results() []interface{} {
 	return ans
 }
 
-// Project
 type Project struct {
 	ID          string   `json:"id,omitempty"`
 	Name        string   `json:"name"`

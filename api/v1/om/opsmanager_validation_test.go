@@ -14,7 +14,7 @@ import (
 
 func TestOpsManagerValidation(t *testing.T) {
 	type args struct {
-		testedOm             MongoDBOpsManager
+		testedOm             *MongoDBOpsManager
 		expectedPart         status.Part
 		expectedError        bool
 		expectedErrorMessage string
@@ -215,7 +215,7 @@ func TestOpsManagerValidation(t *testing.T) {
 	}
 }
 
-func TestOpsManager_RunValidations_InvalidPrerelease(t *testing.T) {
+func TestOpsManager_RunValidations_InvalidPreRelease(t *testing.T) {
 	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").SetAppDbVersion("4.4.4-ent").Build()
 	version, err := versionutil.StringToSemverVersion(om.Spec.Version)
 	assert.NoError(t, err)

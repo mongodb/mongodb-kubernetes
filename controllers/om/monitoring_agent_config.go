@@ -72,7 +72,6 @@ func (m *MonitoringAgentConfig) UnsetLdapGroupDN() {
 	m.MonitoringAgentTemplate.LdapGroupDN = util.MergoDelete
 }
 
-// BuildMonitoringAgentConfigFromBytes
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {
 	fullMap := make(map[string]interface{})
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {

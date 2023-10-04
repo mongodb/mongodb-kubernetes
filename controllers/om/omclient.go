@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -13,7 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"k8s.io/utils/pointer"
 
-	apierror "github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
+	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
@@ -139,14 +140,12 @@ func GetMutex(projectName, orgId string) *sync.Mutex {
 type BackingDatabaseType string
 
 const (
-	AppDBDatabaseType      BackingDatabaseType = "APP_DB"
-	BlockStoreDatabaseType BackingDatabaseType = "BLOCKSTORE_DB"
-	OplogDatabaseType      BackingDatabaseType = "OPLOG_DB"
+	AppDBDatabaseType BackingDatabaseType = "APP_DB"
 )
 
 // ConnectionFactory type defines a function to create a connection to Ops Manager API.
 // That's the way we implement some kind of Template Factory pattern to create connections using some incoming parameters
-// (groupId, api key etc - all encapsulated into 'context'). The reconciler later uses this factory to build real
+// (groupId, api key etc. - all encapsulated into 'context'). The reconciler later uses this factory to build real
 // connections and this allows us to mock out Ops Manager communication during unit testing
 type ConnectionFactory func(context *OMContext) Connection
 
@@ -170,7 +169,6 @@ type OMContext struct {
 	CACertificate string
 }
 
-// HTTPOmConnection
 type HTTPOmConnection struct {
 	context *OMContext
 
@@ -207,7 +205,8 @@ func (oc *HTTPOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, e
 		// always return values). In Ops Manager 6, if this object doesn't yet exist, we get 401. So the only reasonable
 		// thing to do here is to check whether the error comes from the Ops Manager (if we can parse it), and if we do,
 		// we just ignore it.
-		_, ok := apiErr.(*apierror.Error)
+		var err *apierror.Error
+		ok := errors.As(apiErr, &err)
 		if ok {
 			return backup.GroupBackupConfig{
 				Id: pointer.String(oc.GroupID()),
@@ -263,7 +262,7 @@ func (oc *HTTPOmConnection) PrivateKey() string {
 	return oc.context.PrivateKey
 }
 
-// GetOpsManagerVersion returns the current Ops Manager version
+// OpsManagerVersion returns the current Ops Manager version
 func (oc *HTTPOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion {
 	return oc.context.Version
 }
@@ -413,7 +412,6 @@ func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
 	return response.AutomationAgentVersion, nil
 }
 
-// GenerateAgentKey
 func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 	data := map[string]string{"desc": "Agent key for Kubernetes"}
 	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupID()), data)
@@ -538,7 +536,8 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingDatabaseType) error {
 	_, err := oc.post(fmt.Sprintf("/api/private/v1.0/groups/%s/markAsBackingDatabase", oc.GroupID()), string(backingType))
 	if err != nil {
-		if apiErr, ok := err.(*apierror.Error); ok {
+		var apiErr *apierror.Error
+		if errors.As(err, &apiErr) {
 			if apiErr.Status != nil && *apiErr.Status == 400 && strings.Contains(apiErr.Detail, "INVALID_DOCUMENT") {
 				return nil
 			}
@@ -579,7 +578,6 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (
 	return projectsResponse, nil
 }
 
-// CreateProject
 func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 	res, err := oc.post("/api/public/v1.0/groups", project)
 
@@ -595,7 +593,6 @@ func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 	return g, nil
 }
 
-// UpdateProject
 func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s", project.ID)
 	res, err := oc.patch(path, project)
@@ -612,7 +609,6 @@ func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
 	return project, nil
 }
 
-// ReadBackupConfigs
 func (oc *HTTPOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs", oc.GroupID())
 	res, err := oc.get(mPath)
@@ -628,7 +624,6 @@ func (oc *HTTPOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error)
 	return response, nil
 }
 
-// ReadBackupConfig
 func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*backup.Config, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 	res, err := oc.get(mPath)
@@ -644,7 +639,6 @@ func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*backup.Config, 
 	return response, nil
 }
 
-// UpdateBackupConfig
 func (oc *HTTPOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.Config, error) {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), config.ClusterId)
 	res, err := oc.patch(path, config)
@@ -659,7 +653,6 @@ func (oc *HTTPOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.C
 	return response, nil
 }
 
-// ReadHostCluster
 func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*backup.HostCluster, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/clusters/%s", oc.GroupID(), clusterID)
 	res, err := oc.get(mPath)
@@ -675,7 +668,6 @@ func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*backup.HostClust
 	return cluster, nil
 }
 
-// UpdateBackupStatus
 func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status backup.Status) error {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 
@@ -740,13 +732,13 @@ func (oc *HTTPOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) 
 		return nil, err
 	}
 
-	backup, err := BuildBackupAgentConfigFromBytes(ans)
+	backupAgentConfig, err := BuildBackupAgentConfigFromBytes(ans)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return backup, nil
+	return backupAgentConfig, nil
 }
 
 func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
@@ -774,16 +766,16 @@ func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupA
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	backup, err := oc.ReadBackupAgentConfig()
+	backupAgentConfig, err := oc.ReadBackupAgentConfig()
 	if err != nil {
 		return err
 	}
 
-	if err := backupFunc(backup); err != nil {
+	if err := backupFunc(backupAgentConfig); err != nil {
 		return err
 	}
 
-	if _, err := oc.UpdateBackupAgentConfig(backup, log); err != nil {
+	if _, err := oc.UpdateBackupAgentConfig(backupAgentConfig, log); err != nil {
 		return err
 	}
 

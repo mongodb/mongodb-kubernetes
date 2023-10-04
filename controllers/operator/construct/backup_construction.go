@@ -31,7 +31,7 @@ const (
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
-func BackupDaemonStatefulSet(secretGetUpdateCreator secrets.SecretClient, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func BackupDaemonStatefulSet(secretGetUpdateCreator secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := backupOptions(additionalOpts...)(opsManager)
 	if err := opts.updateHTTPSCertSecret(secretGetUpdateCreator, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err
@@ -62,8 +62,8 @@ func BackupDaemonStatefulSet(secretGetUpdateCreator secrets.SecretClient, opsMan
 }
 
 // backupOptions returns a function which returns the OpsManagerStatefulSetOptions to create the BackupDaemon StatefulSet.
-func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
-	return func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+	return func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		opts := getSharedOpsManagerOptions(opsManager)
 
 		opts.ServicePort = BackupDaemonServicePort
@@ -71,7 +71,6 @@ func backupOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) f
 		opts.Name = opsManager.BackupStatefulSetName()
 		opts.Replicas = opsManager.Spec.Backup.Members
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
-		opts.OpsManagerCaName = opsManager.Spec.GetOpsManagerCA()
 
 		if opsManager.Spec.Backup != nil {
 			if opsManager.Spec.Backup.StatefulSetConfiguration != nil {

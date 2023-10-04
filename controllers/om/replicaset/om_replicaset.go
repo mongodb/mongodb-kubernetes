@@ -7,7 +7,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
-	zap "go.uber.org/zap"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	appsv1 "k8s.io/api/apps/v1"
 )

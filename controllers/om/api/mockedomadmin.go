@@ -18,7 +18,7 @@ import (
 // ********************************************************************************************************************
 
 // CurrMockedAdmin is a global variable for current OM admin object that was created by MongoDbOpsManager - just for tests
-// It's important to clear the state on time - the lifespan of om admin is supposed to be bound to a lifespan of a
+// It's important to clear the state on time - the lifespan of om admin is supposed to be bound to a lifespan of an
 // OM controller instance - once a new OM controller is created the mocked admin state must be cleared
 var CurrMockedAdmin *MockedOmAdmin
 
@@ -70,13 +70,6 @@ func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) OpsMana
 
 func (a *MockedOmAdmin) Reset() {
 	NewMockedAdminProvider(a.BaseURL, a.PublicKey, a.PrivateKey)
-}
-
-// NewMockedAdmin creates an empty mocked om admin. This must be called by tests when the Om controller is created to
-// make sure the state is cleaned
-func NewMockedAdmin() *MockedOmAdmin {
-	CurrMockedAdmin = &MockedOmAdmin{}
-	return CurrMockedAdmin
 }
 
 func (a *MockedOmAdmin) ReadDaemonConfigs() ([]backup.DaemonConfig, error) {

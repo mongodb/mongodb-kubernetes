@@ -55,7 +55,6 @@ type OpsManagerStatefulSetOptions struct {
 	Namespace                    string
 	OwnerName                    string
 	ServicePort                  int
-	OpsManagerCaName             string
 	QueryableBackupPemSecretName string
 	StatefulSetSpecOverride      *appsv1.StatefulSetSpec
 	VaultConfig                  vault.VaultConfiguration
@@ -88,7 +87,7 @@ func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerState
 	}
 }
 
-func WithKmipConfig(opsManager omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) func(opts *OpsManagerStatefulSetOptions) {
+func WithKmipConfig(opsManager *omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		if !opsManager.Spec.IsKmipEnabled() {
 			return
@@ -188,7 +187,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 
 // OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
-func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := opsManagerOptions(additionalOpts...)(opsManager)
 
 	if err := opts.updateHTTPSCertSecret(secretGetterCreator, opsManager.OwnerReferences, log); err != nil {
@@ -222,24 +221,23 @@ func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager 
 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
-func getSharedOpsManagerOptions(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          kube.BaseOwnerReference(&opsManager),
+		OwnerReference:          kube.BaseOwnerReference(opsManager),
 		OwnerName:               opsManager.Name,
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Version:                 opsManager.Spec.Version,
 		Namespace:               opsManager.Namespace,
-		OpsManagerCaName:        opsManager.Spec.GetOpsManagerCA(),
 		Labels:                  opsManager.Labels,
 	}
 }
 
 // opsManagerOptions returns a function which returns the OpsManagerStatefulSetOptions to create the OpsManager StatefulSet
-func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
-	return func(opsManager omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+	return func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if opsManager.Spec.StatefulSetConfiguration != nil {
 			stsSpec = &opsManager.Spec.StatefulSetConfiguration.SpecWrapper.Spec
@@ -594,7 +592,7 @@ func getOpsManagerContainerPort(httpsSecretName string) int {
 
 // opsManagerConfigurationToEnvVars returns a list of corev1.EnvVar which should be passed
 // to the container running Ops Manager
-func opsManagerConfigurationToEnvVars(m omv1.MongoDBOpsManager) []corev1.EnvVar {
+func opsManagerConfigurationToEnvVars(m *omv1.MongoDBOpsManager) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	for name, value := range m.Spec.Configuration {
 		envVars = append(envVars, corev1.EnvVar{

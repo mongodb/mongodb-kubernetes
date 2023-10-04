@@ -63,12 +63,6 @@ type AppDBStatefulSetOptions struct {
 	PrometheusTLSCertHash string
 }
 
-func WithAppDBVaultConfig(config vault.VaultConfiguration) func(opts *AppDBStatefulSetOptions) {
-	return func(opts *AppDBStatefulSetOptions) {
-		opts.VaultConfig = config
-	}
-}
-
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
 // It returns -1 if it doesn't exist
 func getContainerIndexByName(containers []corev1.Container, name string) int {
@@ -90,7 +84,7 @@ func removeContainerByName(containers []corev1.Container, name string) []corev1.
 }
 
 // appDbLabels returns a statefulset modification which adds labels that are specific to the appDB.
-func appDbLabels(opsManager om.MongoDBOpsManager, memberClusterNum int) statefulset.Modification {
+func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(memberClusterNum),
 		ControllerLabelName:     util.OperatorName,
@@ -292,7 +286,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 
 // customPersistenceConfig applies to the statefulset the modifications
 // provided by the user through spec.persistence.
-func customPersistenceConfig(om om.MongoDBOpsManager) statefulset.Modification {
+func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification {
 	defaultPodSpecPersistence := newDefaultPodSpec().Persistence
 	// Two main branches - as the user can either define a single volume for data, logs and journal
 	// or three different volumes
@@ -366,7 +360,7 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler scalers.AppDBScaler, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager *om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler scalers.AppDBScaler, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
@@ -412,7 +406,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		// if we run in certified bundle with digest pinning it will be properly updated to digest
 		customPersistenceConfig(opsManager),
 		statefulset.WithUpdateStrategyType(opsManager.GetAppDBUpdateStrategyType()),
-		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
+		statefulset.WithOwnerReference(kube.BaseOwnerReference(opsManager)),
 		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
@@ -421,7 +415,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				podtemplatespec.WithContainer(construct.AgentName,
 					container.Apply(
 						container.WithCommand(automationAgentCommand),
-						container.WithEnvs(appdbContainerEnv(*appDb, podVars)...),
+						container.WithEnvs(appdbContainerEnv(*appDb)...),
 						container.WithVolumeMounts([]corev1.VolumeMount{acVersionMount}),
 					),
 				),
@@ -642,7 +636,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 				container.WithCommand(monitoringCommand),
 				container.WithResourceRequirements(buildRequirementsFromPodSpec(*NewDefaultPodSpecWrapper(*appDB.PodSpec))),
 				container.WithVolumeMounts(monitoringMounts),
-				container.WithEnvs(appdbContainerEnv(appDB, &podVars)...),
+				container.WithEnvs(appdbContainerEnv(appDB)...),
 			)(monitoringContainer)
 			podTemplateSpec.Spec.Containers = append(podTemplateSpec.Spec.Containers, *monitoringContainer)
 		},
@@ -650,7 +644,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 }
 
 // appdbContainerEnv returns the set of env var needed by the AppDB.
-func appdbContainerEnv(appDbSpec om.AppDBSpec, podVars *env.PodEnvVars) []corev1.EnvVar {
+func appdbContainerEnv(appDbSpec om.AppDBSpec) []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
 		{
 			Name:      podNamespaceEnv,
