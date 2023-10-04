@@ -41,7 +41,7 @@ import (
 // * Any overriding of default behavior can be done via functions (e.g. 'CreateGroupFunc', 'UpdateGroupFunc')
 // * To emulate the work of real OM it's possible to emulate the agents delay in "reaching" goal state. This can be
 //   configured using 'AgentsDelayCount' property
-// * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc) this class can
+// * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc.) this class can
 //   be used as an access point to those fields for testing (see 'getProcesses' as an example)
 // * Note that the variable 'CurrMockedConnection' is global (as Go tests don't allow to have setup/teardown hooks)
 //  The state is cleaned as soon as a new mocked api object is built (which usually occurs when the new reconciler is
@@ -115,7 +115,7 @@ func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
 }
 
 // NewEmptyMockedOmConnectionWithDelay is the function that builds the mocked connection with some "delay" for agents
-// to reach goal state, apart of this it's the same as 'NewEmptyMockedOmConnection'
+// to reach goal state, apart from this it's the same as 'NewEmptyMockedOmConnection'
 func NewEmptyMockedOmConnectionWithDelay(ctx *OMContext) Connection {
 	conn := NewEmptyMockedOmConnection(ctx)
 	conn.(*MockedOmConnection).AgentsDelayCount = 1
@@ -130,7 +130,7 @@ func NewMockedOmConnection(d Deployment) *MockedOmConnection {
 	connection.BackupConfigs = make(map[string]*backup.Config)
 	connection.BackupHostClusters = make(map[string]*backup.HostCluster)
 	connection.SnapshotSchedules = make(map[string]*backup.SnapshotSchedule)
-	// By default we don't wait for agents to reach goal
+	// By default, we don't wait for agents to reach goal
 	connection.AgentsDelayCount = 0
 	// We use a simplified version of context as this is the only thing needed to get lock for the update
 	connection.context = &OMContext{GroupName: TestGroupName, OrgID: TestOrgID, GroupID: TestGroupID}

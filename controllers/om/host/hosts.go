@@ -38,14 +38,3 @@ type GetAdder interface {
 	Getter
 	Adder
 }
-
-// Contains accepts a slice of Hosts and a host to look for
-// it returns true if the host is present in the slice otherwise false
-func Contains(hosts []Host, host Host) bool {
-	for _, h := range hosts {
-		if h.Hostname == host.Hostname {
-			return true
-		}
-	}
-	return false
-}

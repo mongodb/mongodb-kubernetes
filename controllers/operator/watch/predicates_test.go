@@ -36,13 +36,13 @@ func TestPredicatesForOpsManager(t *testing.T) {
 		newOm := oldOm.DeepCopy()
 		newOm.Spec.Replicas = 2
 		newOm.Status.OpsManagerStatus = omv1.OpsManagerStatus{Warnings: []status.Warning{"warning"}}
-		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: &oldOm, ObjectNew: newOm}))
+		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
 	})
 	t.Run("Reconciliation happens for MongoDBOpsManager if statuses are equal", func(t *testing.T) {
 		oldOm := omv1.NewOpsManagerBuilder().Build()
 		newOm := oldOm.DeepCopy()
 		newOm.Spec.Replicas = 2
-		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: &oldOm, ObjectNew: newOm}))
+		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
 	})
 }
 

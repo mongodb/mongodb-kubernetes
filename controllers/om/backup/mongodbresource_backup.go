@@ -141,7 +141,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		// Status: 409 (Conflict), ErrorCode: CANNOT_MODIFY_SHARD_BACKUP_CONFIG, Detail: Cannot modify backup configuration for individual shard; use cluster ID 611a63f668d22f4e2e62c2e3 for entire cluster.
 		// If backup was never enabled and the deployment has `spec.backup.mode=disabled` specified
 		// we don't send this state to OM, or we will get
-		// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.'
+		// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.
 		if desiredConfig.Status == Stopped && config.Status == Inactive {
 			continue
 		}
@@ -243,7 +243,7 @@ func getCurrentBackupStatusOption(configReader ConfigReader, clusterId string) (
 func getMongoDBBackupConfig(backupSpec *mdbv1.Backup, projectId string) *Config {
 	mappings := getStatusMappings()
 	return &Config{
-		// the encryptionEnabled field is also only used in old backup, 4.2 backup will copy all files whether or not they are encrypted
+		// the encryptionEnabled field is also only used in old backup, 4.2 backup will copy all files whether they are encrypted
 		// the encryption happens at the mongod level and should be managed by the customer
 		EncryptionEnabled: false,
 
@@ -258,7 +258,7 @@ func getMongoDBBackupConfig(backupSpec *mdbv1.Backup, projectId string) *Config 
 
 		// with 4.2 backup we only need to support wired tiger
 		StorageEngineName: wiredTigerStorageEngine,
-		// syncSource is only required on pre-4.2 backup, the value is still validated however so we can just send primary
+		// syncSource is only required on pre-4.2 backup, the value is still validated however, so we can just send primary
 		SyncSource: "PRIMARY",
 		ProjectId:  projectId,
 	}

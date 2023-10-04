@@ -34,7 +34,7 @@ func (agent AgentStatus) IsRegistered(hostnamePrefix string, log *zap.SugaredLog
 	}
 	if strings.HasPrefix(agent.Hostname, hostnamePrefix) {
 		// Any pings earlier than 1 minute ago are signs that agents are in trouble, so we cannot consider them as
-		// registered (may be we should decrease this to ~5-10 seconds?)
+		// registered (maybe we should decrease this to ~5-10 seconds?)
 		if lastPing.Add(time.Minute).Before(time.Now()) {
 			log.Debugw("Agent is registered but its last ping was more than 1 minute ago", "ping",
 				lastPing, "hostname", agent.Hostname)

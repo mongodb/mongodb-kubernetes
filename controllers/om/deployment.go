@@ -30,10 +30,8 @@ const (
 	// Note that the default version constants shouldn't need to be changed often
 	// as the AutomationAgent upgrades both other agents automatically
 
-	// MonitoringAgentDefaultVersion
 	MonitoringAgentDefaultVersion = "11.12.0.7388-1"
 
-	// BackupAgentDefaultVersion
 	BackupAgentDefaultVersion = "11.12.0.7388-1"
 
 	// Default listen address for Prometheus
@@ -81,14 +79,12 @@ func init() {
 // keeps the other one that was set by the user in Ops Manager if any
 type Deployment map[string]interface{}
 
-// BuildDeploymentFromBytes
 func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 	deployment := Deployment{}
 	err := json.Unmarshal(jsonBytes, &deployment)
 	return deployment, err
 }
 
-// NewDeployment
 func NewDeployment() Deployment {
 	ans := Deployment{}
 	ans.setProcesses(make([]Process, 0))
@@ -114,8 +110,8 @@ func (d Deployment) TLSConfigurationWillBeDisabled(security *mdbv1.Security) boo
 
 	// To detect that TLS is enabled, it is sufficient to check for the
 	// d["tls"]["CAFilePath"] attribute to have a value different from nil.
-	if tls, ok := d["tls"]; ok {
-		if caFilePath, ok := tls.(map[string]interface{})["CAFilePath"]; ok {
+	if tlsMap, ok := d["tls"]; ok {
+		if caFilePath, ok := tlsMap.(map[string]interface{})["CAFilePath"]; ok {
 			if caFilePath != nil {
 				tlsIsCurrentlyEnabled = true
 			}
@@ -204,7 +200,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		}
 	}
 
-	// In both cases (the new replicaset was added to OM deployment or it was merged with OM one) we need to make sure
+	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one) we need to make sure
 	// there are no more than 7 voting members
 	d.limitVotingMembers(operatorRs.Rs.Name())
 }
@@ -244,7 +240,7 @@ func (d Deployment) ConfigurePrometheus(prom *mdbcv1.Prometheus, hash string, sa
 	return promConfig
 }
 
-// DeploymentShardedClusterMergeOptions contains all of the required values to update the ShardedCluster
+// DeploymentShardedClusterMergeOptions contains all the required values to update the ShardedCluster
 // in the automation config. These values should be provided my the MongoDB resource.
 type DeploymentShardedClusterMergeOptions struct {
 	Name                                 string
@@ -280,7 +276,7 @@ func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOption
 
 // AddMonitoringAndBackup adds monitoring and backup agents to each process
 // The automation agent will update the agents versions to the latest version automatically
-// Note, that these two are deliberately combined together as all clients (standalone, rs etc) need both backup and monitoring
+// Note, that these two are deliberately combined as all clients (standalone, rs etc.) need both backup and monitoring
 // together
 func (d Deployment) AddMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
 	if len(d.getProcesses()) == 0 {
@@ -346,14 +342,12 @@ func (d Deployment) RemoveMonitoringAndBackup(names []string, log *zap.SugaredLo
 	d.removeBackup(names, log)
 }
 
-// DisableProcesses
 func (d Deployment) DisableProcesses(processNames []string) {
 	for _, p := range processNames {
 		d.getProcessByName(p).SetDisabled(true)
 	}
 }
 
-// MarkRsMembersUnvoted
 func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) error {
 	rs := d.getReplicaSetByName(rsName)
 	if rs == nil {
@@ -445,7 +439,7 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 	d.removeReplicaSets(shardNames, log)
 
 	// 3. Remove config server replicaset
-	d.RemoveReplicaSetByName(sc.ConfigServerRsName(), log)
+	_ = d.RemoveReplicaSetByName(sc.ConfigServerRsName(), log)
 
 	// 4. Remove mongos processes for cluster
 	d.removeProcesses(d.getMongosProcessesNames(clusterName), log)
@@ -654,7 +648,6 @@ func (d Deployment) GetAgentVersion() string {
 	return maputil.ReadMapValueAsString(agentVersionMap, "name")
 }
 
-// Debug
 func (d Deployment) Debug(l *zap.SugaredLogger) {
 	dep := Deployment{}
 	for key, value := range d {
@@ -736,7 +729,7 @@ func (d Deployment) GetShardedClusterConfigProcessNames(name string) []string {
 	return nil
 }
 
-// GetShardedClusterMongosProcessNames returns the process names of mongoso the sharded cluster named "name"
+// GetShardedClusterMongosProcessNames returns the process names of mongos of the sharded cluster named "name"
 func (d Deployment) GetShardedClusterMongosProcessNames(name string) []string {
 	if sc := d.getShardedClusterByName(name); sc != nil {
 		return d.getMongosProcessesNames(name)
@@ -934,7 +927,7 @@ func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogge
 
 func (d Deployment) removeReplicaSets(replicaSets []string, log *zap.SugaredLogger) {
 	for _, v := range replicaSets {
-		d.RemoveReplicaSetByName(v, log)
+		_ = d.RemoveReplicaSetByName(v, log)
 	}
 }
 
@@ -1041,7 +1034,7 @@ func (d Deployment) getTLS() map[string]interface{} {
 func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
-	ans := []string{}
+	var ans []string
 
 	for _, v := range d.getReplicaSets() {
 		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
@@ -1057,7 +1050,7 @@ func isShardOfShardedCluster(clusterName, rsName string) bool {
 
 // removeMonitoring removes the monitoring agent configuration that match any of processes hosts 'processNames' parameter
 // Note, that by contract there will be only one monitoring agent, but the method tries to be maximum safe and clean
-// all matches (may be someone "hacked" the automation config manually and added the monitoring agents there)
+// all matches (maybe someone "hacked" the automation config manually and added the monitoring agents there)
 // Note 2: it's ok if nothing was removed as the processes in the array may be from replica set from sharded cluster
 // which doesn't have a monitoring agents (one monitoring agent per cluster)
 func (d Deployment) removeMonitoring(processNames []string) {
@@ -1134,7 +1127,7 @@ func (d Deployment) removeBackup(processNames []string, log *zap.SugaredLogger) 
 // So if current RS deployment that came from OM has processes A, B, C and operator wants to scale up on 2 more members
 // (meaning it wants to add X, Y processes) - then in the end of this function deployment will contain processes A, B, C,
 // and X, Y where X, Y will be complete copies of A instead of names and aliases.
-// "processes" is the array of "Operator view" processes (so for the example above they will be "A, B, C, X, Y"
+// "processes" is the array of "Operator view" processes (so for the example above they will be "A, B, C, X, Y")
 // "idxOfFirstNewMember" is the index of the first NEW member. So for the example above it will be 3
 func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFirstNewMember int, log *zap.SugaredLogger) error {
 	newProcesses := processes[idxOfFirstNewMember:]
@@ -1144,7 +1137,7 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 	// The sample process must be the one that exist in OM deployment - so if for some reason OM added some
 	// processes to Deployment (and they won't get into merged deployment) - we must find the first one matching
 	// As an example let's consider the RS that contained processes A, B, C and then OM UI removed the processes A and B
-	// So the "processes" array (which is Kubernetes view of RS) will still contain A, B, C, .. so in the end the sample
+	// So the "processes" array (which is Kubernetes view of RS) will still contain A, B, C, … so in the end the sample
 	// process will be C (as this is the only process that intersects in the "OM view" and "Kubernetes view" and it will
 	// get into final deployment
 	for _, v := range processes {
@@ -1169,10 +1162,10 @@ func (d Deployment) copyFirstProcessToNewPositions(processes []Process, idxOfFir
 		}
 		sampleProcessCopy.setName(p.Name())
 
-		// add here other attributes that mustn's be copied (may be some others should be added here)
+		// add here other attributes that mustn't be copied (maybe some others should be added here)
 		delete(sampleProcessCopy, "alias")
 
-		// This is just fool protection - if for some reasons the process already exists in deployment (it mustn't actually)
+		// This is just fool protection - if for some reason the process already exists in deployment (it mustn't actually)
 		// then we don't add the copy of sample one
 		if d.getProcessByName(p.Name()) == nil {
 			d.addProcess(sampleProcessCopy)

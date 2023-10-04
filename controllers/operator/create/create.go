@@ -109,7 +109,7 @@ func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, o
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) error {
+func AppDBInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) error {
 
 	set, err := enterprisests.CreateOrUpdateStatefulset(client,
 		opsManager.Namespace,
@@ -121,7 +121,7 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOp
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, &opsManager, pointer.String(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(namespacedName, opsManager, pointer.String(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
@@ -133,7 +133,7 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOp
 }
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
-func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
+func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(
 		client,
 		opsManager.Namespace,
@@ -156,14 +156,14 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager omv1.Mo
 		return true, nil
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	err = service.CreateOrUpdateService(client, internalService)
 	return false, err
 }
 
 // OpsManagerInKubernetes creates all of the required Kubernetes resources for Ops Manager.
 // It creates the StatefulSet and all required services.
-func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
+func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	set, err := enterprisests.CreateOrUpdateStatefulset(client,
 		opsManager.Namespace,
 		log,
@@ -176,7 +176,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	_, port := opsManager.GetSchemePort()
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
 		if err := addQueryableBackupPortToService(opsManager, &internalService, internalConnectivityPortName); err != nil {
@@ -192,7 +192,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 	namespacedName = kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
 	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
-		svc := BuildService(namespacedName, &opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
+		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
 		externalService = &svc
 	} else {
 		if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {
@@ -220,7 +220,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager omv1.Mong
 
 // addQueryableBackupPortToService adds the backup port to the existing external Ops Manager service.
 // this function assumes externalService is not nil.
-func addQueryableBackupPortToService(opsManager omv1.MongoDBOpsManager, service *corev1.Service, portName string) error {
+func addQueryableBackupPortToService(opsManager *omv1.MongoDBOpsManager, service *corev1.Service, portName string) error {
 	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
 	if err != nil {
 		return xerrors.Errorf("can't parse queryable backup port: %w", err)

@@ -15,7 +15,7 @@ import (
 
 // parseAPIError
 func parseAPIError(statusCode int, method, url string, body []byte) *apierror.Error {
-	// If no body - returning the error object with only HTTP status
+	// If nobody - returning the error object with only HTTP status
 	if body == nil {
 		return &apierror.Error{
 			Status: &statusCode,

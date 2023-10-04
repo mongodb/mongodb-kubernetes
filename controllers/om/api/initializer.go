@@ -15,11 +15,6 @@ import (
 // The 'TryCreateUser' method doesn't use authentication so doesn't use the digest auth.
 // That's why it's not added into the 'omclient.go' file
 
-// KubernetesNetMask seems to be the default k8s cluster mask we need to whitelist
-// (see https://github.com/kubernetes/kops/issues/2564)
-// TODO we can try to guess it (CLOUDP-51402)
-const KubernetesNetMask = "100.96.0.0%2F16"
-
 // Initializer knows how to make calls to Ops Manager to create a first user
 type Initializer interface {
 	// TryCreateUser makes the call to Ops Manager to create the first admin user. Returns the public API key or an
@@ -73,7 +68,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 	}
 
 	// As of now, there is no HTTPS context that we pass to the operator, so we'll skip
-	// the HTTPS verification, because this OM instance was just created by the operator itself
+	// the HTTPS verification, because this OM instance was just created by the operator itself,
 	// and we should trust it.
 	client, err := NewHTTPClient(OptionSkipVerify)
 	if err != nil {

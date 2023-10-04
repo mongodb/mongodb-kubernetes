@@ -23,7 +23,7 @@ func TestFieldsAreUpdatedBackupConfig(t *testing.T) {
 	config.BackupAgentTemplate.Username = "my-backup-user-name"
 	config.BackupAgentTemplate.SSLPemKeyFile = "my-backup-pem-file"
 
-	config.Apply()
+	_ = config.Apply()
 
 	assert.Equal(t, config.BackingMap["username"], "my-backup-user-name")
 	assert.Equal(t, config.BackingMap["sslPEMKeyFile"], "my-backup-pem-file")
@@ -37,7 +37,7 @@ func TestBackupFieldsAreNotLost(t *testing.T) {
 	assert.Contains(t, config.BackingMap, "logRotate")
 	assert.Contains(t, config.BackingMap, "urls")
 
-	config.Apply()
+	_ = config.Apply()
 
 	assert.Equal(t, config.BackingMap["logPath"], testBackupAgentConfig.BackingMap["logPath"])
 	assert.Equal(t, config.BackingMap["logRotate"], testBackupAgentConfig.BackingMap["logRotate"])
@@ -50,7 +50,7 @@ func TestNestedFieldsAreNotLost(t *testing.T) {
 
 	config.EnableX509Authentication("namespace")
 
-	config.Apply()
+	_ = config.Apply()
 
 	urls := config.BackingMap["urls"].(map[string]interface{})
 
@@ -72,7 +72,7 @@ func TestFieldsCanBeDeleted(t *testing.T) {
 
 	config.BackupAgentTemplate.SSLPemKeyFile = util.MergoDelete
 
-	config.Apply()
+	_ = config.Apply()
 
 	assert.Equal(t, config.BackingMap["username"], testBackupAgentConfig.BackingMap["username"])
 	assert.NotContains(t, config.BackingMap, "sslPEMKeyFile")

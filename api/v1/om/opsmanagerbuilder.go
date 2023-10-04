@@ -243,9 +243,9 @@ func (b *OpsManagerBuilder) SetAppDBClusterSpecList(clusterSpecItems []mdbv1.Clu
 	return b
 }
 
-func (b *OpsManagerBuilder) Build() MongoDBOpsManager {
+func (b *OpsManagerBuilder) Build() *MongoDBOpsManager {
 	b.om.InitDefaultFields()
-	return *b.om.DeepCopy()
+	return b.om.DeepCopy()
 }
 
 // ************************* Private methods ************************************

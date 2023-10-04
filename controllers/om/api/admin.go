@@ -67,7 +67,7 @@ type BlockStoreAdmin interface {
 	// ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
 	ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error)
 
-	// CreateBlockStoreConfig creates an Block store in Ops Manager
+	// CreateBlockStoreConfig creates a Block store in Ops Manager
 	CreateBlockStoreConfig(config backup.DataStoreConfig) error
 
 	// UpdateBlockStoreConfig updates the Block store in Ops Manager
@@ -171,7 +171,7 @@ func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignme
 }
 
 // ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
-// Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite unprobable
+// Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite improbable
 // to have 500+ configs)
 func (a *DefaultOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error) {
 	res, _, err := a.get("admin/backup/oplog/mongoConfigs/")
@@ -233,7 +233,7 @@ func (a *DefaultOmAdmin) DeleteS3OplogStoreConfig(id string) error {
 }
 
 // ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
-// Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite unprobable
+// Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite improbable
 // to have 500+ configs)
 func (a *DefaultOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error) {
 	res, _, err := a.get("admin/backup/snapshot/mongoConfigs/")
@@ -249,13 +249,13 @@ func (a *DefaultOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, erro
 	return dataStoreConfigResponse.DataStoreConfigs, nil
 }
 
-// CreateBlockStoreConfig creates an Block store in Ops Manager
+// CreateBlockStoreConfig creates a Block store in Ops Manager
 func (a *DefaultOmAdmin) CreateBlockStoreConfig(config backup.DataStoreConfig) error {
 	_, _, err := a.post("admin/backup/snapshot/mongoConfigs/", config)
 	return err
 }
 
-// UpdateBlockStoreConfig updates an Block store in Ops Manager
+// UpdateBlockStoreConfig updates a Block store in Ops Manager
 func (a *DefaultOmAdmin) UpdateBlockStoreConfig(config backup.DataStoreConfig) error {
 	_, _, err := a.put("admin/backup/snapshot/mongoConfigs/%s", config, config.Id)
 	return err
@@ -323,7 +323,7 @@ func (a *DefaultOmAdmin) ReadGlobalAPIKeys() ([]Key, error) {
 	return apiKeyResponse.ApiKeys, nil
 }
 
-// addWhitelistEntryIfItDoesntExist adds a whitelist through OM API. If it already exists, in just retun
+// addWhitelistEntryIfItDoesntExist adds a whitelist through OM API. If it already exists, in just return
 func (a *DefaultOmAdmin) addWhitelistEntryIfItDoesntExist(cidrBlock string, description string) error {
 	_, _, err := a.post("admin/whitelist", Whitelist{
 		CidrBlock:   cidrBlock,

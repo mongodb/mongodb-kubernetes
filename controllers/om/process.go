@@ -11,7 +11,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 	"github.com/blang/semver"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -29,7 +28,7 @@ const (
 
 /*
 This is a class for all types of processes.
-Note, that mongos types of processes don't have some fields (replication, storage etc) but it's impossible to use a
+Note, that mongos types of processes don't have some fields (replication, storage etc.) but it's impossible to use a
 separate types for different processes (mongos, mongod) with different methods due to limitation of Go embedding model.
 So the code using this type must be careful and make sure the state is consistent.
 
@@ -39,7 +38,7 @@ the process that was read from Ops Manager.
 - the main principle used everywhere in 'om' code: the Operator overrides only the configurations it "owns" but leaves
 the other properties unmodified. That's why structs are not used anywhere as they would result in possible overriding of
 the whole elements which we don't want. Deal with data as with maps, create convenience methods (setters, getters,
-ensuremap etc) and make sure not to override anything unrelated.
+ensuremap etc.) and make sure not to override anything unrelated.
 
 The resulting json for this type (example):
 
@@ -87,15 +86,12 @@ The resulting json for this type (example):
 // used to indicate standalones when a type is used as an identifier
 type Standalone map[string]interface{}
 
-// Process
 type Process map[string]interface{}
 
-// NewProcessFromInterface
 func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-// NewMongosProcess
 func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
 	if additionalMongodConfig == nil {
 		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
@@ -120,7 +116,6 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.Addit
 	return p
 }
 
-// NewMongodProcess
 func NewMongodProcess(idx int, name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
 	if additionalConfig == nil {
 		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
@@ -155,7 +150,6 @@ func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongod
 
 }
 
-// DeepCopy
 func (p Process) DeepCopy() (Process, error) {
 	return util.MapDeepCopy(p)
 }
@@ -213,7 +207,6 @@ func (p Process) DbPath() string {
 	return maputil.ReadMapValueAsString(p.Args(), "storage", "dbPath")
 }
 
-// SetWiredTigerCache
 func (p Process) SetWiredTigerCache(cacheSizeGb float32) Process {
 	if p.ProcessType() != ProcessTypeMongod {
 		// WiredTigerCache can be set only for mongod processes
@@ -236,7 +229,6 @@ func (p Process) WiredTigerCache() *float32 {
 	return &f
 }
 
-// SetLogPath
 func (p Process) SetLogPath(logPath string) Process {
 	sysLogMap := util.ReadOrCreateMap(p.Args(), "systemLog")
 	sysLogMap["destination"] = "file"
@@ -244,7 +236,6 @@ func (p Process) SetLogPath(logPath string) Process {
 	return p
 }
 
-// LogPath
 func (p Process) LogPath() string {
 	return maputil.ReadMapValueAsString(p.Args(), "systemLog", "path")
 }
@@ -403,31 +394,11 @@ func WithProcessType(processType MongoType) ProcessOption {
 	}
 }
 
-func WithMemberOptions(memberOptions automationconfig.MemberOptions) ProcessOption {
-	return func(process Process) {
-		if memberOptions.Votes != nil {
-			process["votes"] = cast.ToInt(memberOptions.Votes)
-		}
-		if memberOptions.Priority != nil {
-			process["priority"] = cast.ToFloat32(memberOptions.Priority)
-		}
-		process["tags"] = memberOptions.Tags
-	}
-}
-
 func WithAdditionalMongodConfig(additionalConfig mdbv1.AdditionalMongodConfig) ProcessOption {
 	return func(process Process) {
 		// Applying the user-defined options if any
 		process["args2_6"] = additionalConfig.ToMap()
 		process.EnsureNetConfig()["port"] = additionalConfig.GetPortOrDefault()
-	}
-}
-
-func WithProcessAlias(idx int, aliases []string) ProcessOption {
-	return func(process Process) {
-		if aliases != nil && idx < len(aliases) {
-			process["alias"] = aliases[idx]
-		}
 	}
 }
 

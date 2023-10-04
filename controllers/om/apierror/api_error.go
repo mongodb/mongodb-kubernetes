@@ -1,17 +1,16 @@
 package apierror
 
 import (
+	"errors"
 	"fmt"
 )
 
 const (
 	// Error codes that Ops Manager may return that we are concerned about
-	InvalidAttribute           = "INVALID_ATTRIBUTE"
 	OrganizationNotFound       = "ORG_NAME_NOT_FOUND"
 	ProjectNotFound            = "GROUP_NAME_NOT_FOUND"
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
-	S3ConfigNotFound           = "S3_SNAPSHOT_CONFIG_NOT_FOUND"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
 )
 
@@ -32,8 +31,9 @@ func New(err error) error {
 	if err == nil {
 		return nil
 	}
-	switch v := err.(type) {
-	case *Error:
+	var v *Error
+	switch {
+	case errors.As(err, &v):
 		return v
 	default:
 		return &Error{Detail: err.Error()}
@@ -77,7 +77,6 @@ func (e *Error) Error() string {
 	return e.Detail
 }
 
-// ErrorCodeIn
 func (e *Error) ErrorCodeIn(errorCodes ...string) bool {
 	for _, c := range errorCodes {
 		if e.ErrorCode == c {
