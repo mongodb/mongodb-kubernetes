@@ -195,6 +195,21 @@ def remove_group_by_id(group_id: str, retry=3):
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
     while retry > 0:
+        controlled_features_data = {
+            "externalManagementSystem": {"name": "mongodb-enterprise-operator"},
+            "policies": [],
+        }
+
+        result = requests.put(
+            f"{url}/controlledFeature",
+            auth=get_auth("org_owner"),
+            json=controlled_features_data,
+        )
+        print(result)
+        result = requests.put(
+            f"{url}/automationConfig", auth=get_auth("org_owner"), json={}
+        )
+        print(result)
         result = requests.delete(url, auth=get_auth("org_owner"))
         print(result)
         if result.status_code != 202:

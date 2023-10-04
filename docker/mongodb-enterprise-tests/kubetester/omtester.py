@@ -534,6 +534,9 @@ class OMTester(object):
         ).json()
 
     def api_remove_group(self):
+        controlled_features_data = {"externalManagementSystem": {"name": "mongodb-enterprise-operator"}, "policies": []}
+        self.om_request("put", f"/groups/{self.context.project_id}/controlledFeature", controlled_features_data)
+        self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", {})
         return self.om_request("delete", f"/groups/{self.context.project_id}")
 
     def _restore_job_payload(self, cluster_id) -> Dict:
