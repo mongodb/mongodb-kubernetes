@@ -9,9 +9,6 @@ import copy
 import json
 import logging
 import os
-import re
-
-import semver
 import shutil
 import subprocess
 import sys
@@ -19,10 +16,10 @@ import tarfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
-from distutils.version import StrictVersion
 from typing import Dict, List, Optional, Tuple, Union
 
 import requests
+import semver
 from sonar.sonar import process_image
 
 import docker
@@ -31,9 +28,9 @@ LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logger = logging.getLogger("pipeline")
 logger.setLevel(LOGLEVEL)
 
-skippable_tags = frozenset(["ubi", "ubuntu"])
+skippable_tags = frozenset(["ubi"])
 
-DEFAULT_IMAGE_TYPE = "ubuntu"
+DEFAULT_IMAGE_TYPE = "ubi"
 DEFAULT_NAMESPACE = "default"
 
 
@@ -93,7 +90,7 @@ def build_configuration_from_context_file(filename: str) -> Dict[str, str]:
     # calculates skip_tags from image_type in local mode
     config["skip_tags"] = list(skippable_tags - {config["image_type"]})
 
-    # explicitely skipping release tags locally
+    # explicitly skipping release tags locally
     config["skip_tags"].append("release")
 
     return config
@@ -117,16 +114,16 @@ def build_configuration_from_env() -> Dict[str, str]:
 def operator_build_configuration(
     builder: str, parallel: bool, debug: bool
 ) -> BuildConfiguration:
-    # TODO: commented to unblock the release; fix it after the release
-    # default_config_location = os.path.expanduser("~/.operator-dev/context.env")
-    # context_file = os.environ.get(
-    #     "OPERATOR_BUILD_CONFIGURATION", default_config_location
-    # )
-    #
-    # if os.path.exists(context_file):
-    #     context = build_configuration_from_context_file(context_file)
-    # else:
-    context = build_configuration_from_env()
+    # TODO: This will be fixed/changed once we update the local dev tooling
+    default_config_location = os.path.expanduser("~/.operator-dev/context.env")
+    context_file = os.environ.get(
+        "OPERATOR_BUILD_CONFIGURATION", default_config_location
+    )
+
+    if os.path.exists(context_file):
+        context = build_configuration_from_context_file(context_file)
+    else:
+        context = build_configuration_from_env()
 
     print(f"Context: {context}")
 
@@ -404,7 +401,6 @@ def image_config(
     name_prefix: str = "mongodb-enterprise-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
     ubi_suffix: str = "-ubi",
-    ubuntu_suffix: str = "",
 ) -> Tuple[str, Dict[str, str]]:
     """Generates configuration for an image suitable to be passed
     to Sonar.
@@ -412,9 +408,6 @@ def image_config(
     It returns a dictionary with registries and S3 configuration."""
     args = {
         "quay_registry": "quay.io/mongodb/{}{}".format(name_prefix, image_name),
-        "ecr_registry": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubuntu/{}{}".format(
-            name_prefix, image_name
-        ),
         "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/{}{}".format(
             name_prefix, image_name
         ),
@@ -422,7 +415,6 @@ def image_config(
             s3_bucket, name_prefix, image_name
         ),
         "ubi_suffix": ubi_suffix,
-        "ubuntu_suffix": ubuntu_suffix,
     }
 
     return image_name, args
@@ -448,20 +440,16 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
             s3_bucket="enterprise-operator-dockerfiles",
             # community ubi image does not have a suffix in its name
             ubi_suffix="",
-            # there is no ubuntu version of this image
-            ubuntu_suffix="",
         ),
         image_config(
             image_name="mongodb-kubernetes-readinessprobe",
             ubi_suffix="",
-            ubuntu_suffix="",
             name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
         image_config(
             image_name="mongodb-kubernetes-operator-version-upgrade-post-start-hook",
             ubi_suffix="",
-            ubuntu_suffix="",
             name_prefix="",
             s3_bucket="enterprise-operator-dockerfiles",
         ),
