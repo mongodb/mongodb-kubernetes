@@ -25,17 +25,17 @@ var _ webhook.Validator = &MongoDBOpsManager{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (m *MongoDBOpsManager) ValidateCreate() error {
-	return m.ProcessValidationsWebhook()
+func (om *MongoDBOpsManager) ValidateCreate() error {
+	return om.ProcessValidationsWebhook()
 }
 
-func (m *MongoDBOpsManager) ValidateUpdate(old runtime.Object) error {
-	return m.ProcessValidationsWebhook()
+func (om *MongoDBOpsManager) ValidateUpdate(_ runtime.Object) error {
+	return om.ProcessValidationsWebhook()
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (m *MongoDBOpsManager) ValidateDelete() error {
+func (om *MongoDBOpsManager) ValidateDelete() error {
 	return nil
 }
 
@@ -147,7 +147,7 @@ func validateEmptyClusterSpecListSingleCluster(os MongoDBOpsManagerSpec) v1.Vali
 	return v1.ValidationSuccess()
 }
 
-func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
+func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
 		validAppDBVersion,
@@ -188,8 +188,8 @@ func (om MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	return validationResults
 }
 
-func (m *MongoDBOpsManager) ProcessValidationsWebhook() error {
-	for _, res := range m.RunValidations() {
+func (om *MongoDBOpsManager) ProcessValidationsWebhook() error {
+	for _, res := range om.RunValidations() {
 		if res.Level == v1.ErrorLevel {
 			return errors.New(res.Msg)
 		}
@@ -197,8 +197,8 @@ func (m *MongoDBOpsManager) ProcessValidationsWebhook() error {
 	return nil
 }
 
-func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() (status.Part, error) {
-	for _, res := range m.RunValidations() {
+func (om *MongoDBOpsManager) ProcessValidationsOnReconcile() (status.Part, error) {
+	for _, res := range om.RunValidations() {
 		if res.Level == v1.ErrorLevel {
 			return res.OmStatusPart, errors.New(res.Msg)
 		}
@@ -206,11 +206,11 @@ func (m *MongoDBOpsManager) ProcessValidationsOnReconcile() (status.Part, error)
 		if res.Level == v1.WarningLevel {
 			switch res.OmStatusPart {
 			case status.OpsManager:
-				m.AddOpsManagerWarningIfNotExists(status.Warning(res.Msg))
+				om.AddOpsManagerWarningIfNotExists(status.Warning(res.Msg))
 			case status.AppDb:
-				m.AddAppDBWarningIfNotExists(status.Warning(res.Msg))
+				om.AddAppDBWarningIfNotExists(status.Warning(res.Msg))
 			case status.Backup:
-				m.AddBackupWarningIfNotExists(status.Warning(res.Msg))
+				om.AddBackupWarningIfNotExists(status.Warning(res.Msg))
 			}
 		}
 	}

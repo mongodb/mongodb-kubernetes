@@ -228,9 +228,6 @@ type ClusterSpecItem struct {
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
 	// +optional
 	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Discard holds the value(true or false) whether a cluster should be removed while generating the clusterEntries
-	// for a reconcilliation
-	Discard bool `json:"-"`
 }
 
 // +kubebuilder:object:generate=false

@@ -33,7 +33,6 @@ import (
 		]
 }*/
 
-// ReplicaSet
 type ReplicaSet map[string]interface{}
 
 /* This corresponds to:
@@ -44,20 +43,16 @@ type ReplicaSet map[string]interface{}
  		"slaveDelay": 0
  }*/
 
-// ReplicaSetMember
 type ReplicaSetMember map[string]interface{}
 
-// NewReplicaSetFromInterface
 func NewReplicaSetFromInterface(i interface{}) ReplicaSet {
 	return i.(map[string]interface{})
 }
 
-// NewReplicaSetMemberFromInterface
 func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
 	return i.(map[string]interface{})
 }
 
-// NewReplicaSet
 func NewReplicaSet(name, version string) ReplicaSet {
 	ans := ReplicaSet{}
 	ans["members"] = make([]ReplicaSetMember, 0)
@@ -85,7 +80,7 @@ func (r ReplicaSetMember) Name() string {
 }
 
 func (r ReplicaSetMember) Id() int {
-	// Practice shows that the type of unmarshalled data can be even float64 (no floating point though) or int32..
+	// Practice shows that the type of unmarshalled data can be even float64 (no floating point though) or int32
 	return cast.ToInt(r["_id"])
 }
 

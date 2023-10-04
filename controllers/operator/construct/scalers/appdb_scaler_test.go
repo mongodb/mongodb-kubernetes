@@ -280,7 +280,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := opsManagerBuilder().SetAppDBTopology(omv1.ClusterTopologyMultiCluster)
 			opsManager := builder.SetAppDBClusterSpecList(tc.clusterSpecList).Build()
-			scaler := GetAppDBScaler(&opsManager, tc.memberClusterName, tc.memberClusterNum, tc.prevMembers)
+			scaler := GetAppDBScaler(opsManager, tc.memberClusterName, tc.memberClusterNum, tc.prevMembers)
 
 			assert.Equal(t, tc.expectedDesiredReplicas, scaler.DesiredReplicas(), "Desired replicas")
 			assert.Equal(t, tc.expectedCurrentReplicas, scaler.CurrentReplicas(), "Current replicas")

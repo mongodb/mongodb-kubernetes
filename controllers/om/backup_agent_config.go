@@ -72,7 +72,6 @@ func (bac *BackupAgentConfig) UnsetLdapGroupDN() {
 	bac.BackupAgentTemplate.LdapGroupDN = util.MergoDelete
 }
 
-// BuildBackupAgentConfigFromBytes
 func BuildBackupAgentConfigFromBytes(jsonBytes []byte) (*BackupAgentConfig, error) {
 	fullMap := make(map[string]interface{})
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {

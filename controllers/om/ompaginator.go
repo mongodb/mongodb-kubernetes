@@ -16,7 +16,7 @@ type Link struct {
 	Rel string `json:"rel"`
 }
 
-// HasNext return true if there is next page (see 'ApiBaseResource.handlePaginationInternal` in mms code)
+// HasNext return true if there is next page (see 'ApiBaseResource.handlePaginationInternal' in mms code)
 func (o OMPaginated) HasNext() bool {
 	for _, l := range o.Links {
 		if l.Rel == "next" {

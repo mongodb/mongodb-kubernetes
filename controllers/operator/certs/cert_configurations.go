@@ -190,14 +190,14 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 	}
 }
 
-func AppDBReplicaSetConfig(om omv1.MongoDBOpsManager) Options {
+func AppDBReplicaSetConfig(om *omv1.MongoDBOpsManager) Options {
 	mdb := om.Spec.AppDB
 	opts := Options{
 		ResourceName:              mdb.Name(),
 		CertSecretName:            mdb.GetSecurity().MemberCertificateSecretName(mdb.Name()),
 		InternalClusterSecretName: mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name()),
 		Namespace:                 mdb.Namespace,
-		Replicas:                  scale.ReplicasThisReconciliation(scalers.NewAppDBSingleClusterScaler(&om)),
+		Replicas:                  scale.ReplicasThisReconciliation(scalers.NewAppDBSingleClusterScaler(om)),
 		ServiceName:               mdb.ServiceName(),
 		ClusterDomain:             mdb.ClusterDomain,
 		OwnerReference:            om.GetOwnerReferences(),
@@ -210,7 +210,7 @@ func AppDBReplicaSetConfig(om omv1.MongoDBOpsManager) Options {
 	return opts
 }
 
-func AppDBMultiClusterReplicaSetConfig(om omv1.MongoDBOpsManager, scaler scalers.AppDBScaler) Options {
+func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler scalers.AppDBScaler) Options {
 	mdb := om.Spec.AppDB
 	opts := Options{
 		ResourceName:              mdb.NameForCluster(scaler.MemberClusterNum()),

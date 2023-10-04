@@ -169,7 +169,7 @@ func (s ShardedCluster) setShards(shards []Shard) {
 // draining returns the "draining" array which contains the names of replicasets for shards which are currently being
 // removed. This is necessary for the AutomationAgent to keep the knowledge about shards to survive restarts (it's
 // necessary to restart the mongod with the same 'shardSrv' option even if the shard is not in sharded cluster in
-// Automation Config any more)
+// Automation Config anymore)
 func (s ShardedCluster) draining() []string {
 	if _, ok := s["draining"]; !ok {
 		return make([]string, 0)
@@ -179,7 +179,7 @@ func (s ShardedCluster) draining() []string {
 	// []interface{} and not []string, so we must check for
 	// that particular case.
 	if obj, ok := s["draining"].([]interface{}); ok {
-		hostNames := []string{}
+		var hostNames []string
 		for _, hn := range obj {
 			hostNames = append(hostNames, hn.(string))
 		}
@@ -195,7 +195,7 @@ func (s ShardedCluster) setDraining(rsNames []string) {
 }
 
 func (s ShardedCluster) addToDraining(rsNames []string) {
-	// constructor is a better place to initialize the array but we aim a better backward compatibility with OM 4.0
+	// constructor is a better place to initialize the array, but we aim a better backward compatibility with OM 4.0
 	// versions (which learnt about this field in 4.0.12) so doing lazy initialization
 	if _, ok := s["draining"]; !ok {
 		s.setDraining([]string{})
@@ -213,7 +213,7 @@ func (s ShardedCluster) removeDraining() {
 
 // getAllReplicaSets returns all replica sets associated with sharded cluster
 func (s ShardedCluster) getAllReplicaSets() []string {
-	ans := []string{}
+	var ans []string
 	for _, s := range s.shards() {
 		ans = append(ans, s.rs())
 	}

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -27,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 )
 
 func init() {
@@ -40,7 +41,6 @@ const (
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
-
 // +k8s:deepcopy-gen=true
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
@@ -61,11 +61,11 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om MongoDBOpsManager) AddValidationToManager(m manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	return ctrl.NewWebhookManagedBy(m).For(&om).Complete()
+func (om *MongoDBOpsManager) AddValidationToManager(mgr manager.Manager, _ map[string]cluster.Cluster) error {
+	return ctrl.NewWebhookManagedBy(mgr).For(om).Complete()
 }
 
-func (om MongoDBOpsManager) GetAppDBProjectConfig(client secrets.SecretClient) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(client secrets.SecretClient) (mdbv1.ProjectConfig, error) {
 	var operatorVaultSecretPath string
 	if client.VaultClient != nil {
 		operatorVaultSecretPath = client.VaultClient.OperatorSecretPath()
@@ -185,12 +185,12 @@ func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
 	return ""
 }
 
-func (m MongoDBOpsManager) ObjectKey() client.ObjectKey {
-	return kube.ObjectKey(m.Namespace, m.Name)
+func (om *MongoDBOpsManager) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(om.Namespace, om.Name)
 }
 
-func (m MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) client.ObjectKey {
-	return kube.ObjectKey(m.Namespace, m.Spec.AppDB.NameForCluster(memberClusterNum))
+func (om *MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) client.ObjectKey {
+	return kube.ObjectKey(om.Namespace, om.Spec.AppDB.NameForCluster(memberClusterNum))
 }
 
 // MongoDBOpsManagerServiceDefinition struct that defines the mechanism by which this Ops Manager resource
@@ -367,7 +367,7 @@ func (s S3Config) Identifier() interface{} {
 
 // MongodbResourceObjectKey returns the "name-namespace" object key. Uses the AppDB name if the mongodb resource is not
 // specified
-func (s S3Config) MongodbResourceObjectKey(opsManager MongoDBOpsManager) client.ObjectKey {
+func (s S3Config) MongodbResourceObjectKey(opsManager *MongoDBOpsManager) client.ObjectKey {
 	ns := opsManager.Namespace
 	if s.MongoDBResourceRef == nil {
 		return client.ObjectKey{}
@@ -391,7 +391,7 @@ func (s S3Config) MongodbUserObjectKey(defaultNamespace string) client.ObjectKey
 
 // MongodbResourceObjectKey returns the object key for the mongodb resource referenced by the dataStoreConfig.
 // It uses the "parent" object namespace if it is not overriden by 'MongoDBResourceRef.namespace'
-func (f DataStoreConfig) MongodbResourceObjectKey(defaultNamespace string) client.ObjectKey {
+func (f *DataStoreConfig) MongodbResourceObjectKey(defaultNamespace string) client.ObjectKey {
 	ns := defaultNamespace
 	if f.MongoDBResourceRef.Namespace != "" {
 		ns = f.MongoDBResourceRef.Namespace
@@ -399,7 +399,7 @@ func (f DataStoreConfig) MongodbResourceObjectKey(defaultNamespace string) clien
 	return client.ObjectKey{Name: f.MongoDBResourceRef.Name, Namespace: ns}
 }
 
-func (f DataStoreConfig) MongodbUserObjectKey(defaultNamespace string) client.ObjectKey {
+func (f *DataStoreConfig) MongodbUserObjectKey(defaultNamespace string) client.ObjectKey {
 	ns := defaultNamespace
 	if f.MongoDBResourceRef.Namespace != "" {
 		ns = f.MongoDBResourceRef.Namespace
@@ -411,39 +411,39 @@ type MongoDBUserRef struct {
 	Name string `json:"name"`
 }
 
-func (m *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
+func (om *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *MongoDBOpsManager
-	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
+	if err := json.Unmarshal(data, (MongoDBJSON)(om)); err != nil {
 		return err
 	}
-	m.InitDefaultFields()
+	om.InitDefaultFields()
 
 	return nil
 }
 
-func (m *MongoDBOpsManager) InitDefaultFields() {
+func (om *MongoDBOpsManager) InitDefaultFields() {
 	// providing backward compatibility for the deployments which didn't specify the 'replicas' before Operator 1.3.1
 	// This doesn't update the object in Api server so the real spec won't change
 	// All newly created resources will pass through the normal validation so 'replicas' will never be 0
-	if m.Spec.Replicas == 0 {
-		m.Spec.Replicas = 1
+	if om.Spec.Replicas == 0 {
+		om.Spec.Replicas = 1
 	}
 
-	if m.Spec.Backup == nil {
-		m.Spec.Backup = newBackup()
+	if om.Spec.Backup == nil {
+		om.Spec.Backup = newBackup()
 	}
 
-	if m.Spec.Backup.Members == 0 {
-		m.Spec.Backup.Members = 1
+	if om.Spec.Backup.Members == 0 {
+		om.Spec.Backup.Members = 1
 	}
 
-	m.Spec.AppDB.Security = ensureSecurityWithSCRAM(m.Spec.AppDB.Security)
+	om.Spec.AppDB.Security = ensureSecurityWithSCRAM(om.Spec.AppDB.Security)
 
 	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
-	m.Spec.AppDB.OpsManagerName = m.Name
-	m.Spec.AppDB.Namespace = m.Namespace
-	m.Spec.AppDB.ClusterDomain = m.Spec.GetClusterDomain()
-	m.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+	om.Spec.AppDB.OpsManagerName = om.Name
+	om.Spec.AppDB.Namespace = om.Namespace
+	om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
+	om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
 }
 
 func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
@@ -455,19 +455,19 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 	return specSecurity
 }
 
-func (m *MongoDBOpsManager) SvcName() string {
-	return m.Name + "-svc"
+func (om *MongoDBOpsManager) SvcName() string {
+	return om.Name + "-svc"
 }
 
-func (m *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
-	return m.Spec.AppDB.Name() + "-connection-string"
+func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
+	return om.Spec.AppDB.Name() + "-connection-string"
 }
 
-func (m *MongoDBOpsManager) BackupServiceName() string {
-	return m.BackupStatefulSetName() + "-svc"
+func (om *MongoDBOpsManager) BackupServiceName() string {
+	return om.BackupStatefulSetName() + "-svc"
 }
 
-func (ms *MongoDBOpsManagerSpec) BackupSvcPort() (int32, error) {
+func (ms MongoDBOpsManagerSpec) BackupSvcPort() (int32, error) {
 	if port, ok := ms.Configuration[queryableBackupConfigPath]; ok {
 		val, err := strconv.Atoi(port)
 		if err != nil {
@@ -478,18 +478,18 @@ func (ms *MongoDBOpsManagerSpec) BackupSvcPort() (int32, error) {
 	return queryableBackupDefaultPort, nil
 }
 
-func (m *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
-	if m.Spec.Configuration == nil {
-		m.Spec.Configuration = make(map[string]string)
+func (om *MongoDBOpsManager) AddConfigIfDoesntExist(key, value string) bool {
+	if om.Spec.Configuration == nil {
+		om.Spec.Configuration = make(map[string]string)
 	}
-	if _, ok := m.Spec.Configuration[key]; !ok {
-		m.Spec.Configuration[key] = value
+	if _, ok := om.Spec.Configuration[key]; !ok {
+		om.Spec.Configuration[key] = value
 		return true
 	}
 	return false
 }
 
-func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
+func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	var statusPart status.Part
 	if option, exists := status.GetOption(statusOptions, status.OMPartOption{}); exists {
 		statusPart = option.(status.OMPartOption).StatusPart
@@ -497,104 +497,104 @@ func (m *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...st
 
 	switch statusPart {
 	case status.AppDb:
-		m.updateStatusAppDb(phase, statusOptions...)
+		om.updateStatusAppDb(phase, statusOptions...)
 	case status.OpsManager:
-		m.updateStatusOpsManager(phase, statusOptions...)
+		om.updateStatusOpsManager(phase, statusOptions...)
 	case status.Backup:
-		m.updateStatusBackup(phase, statusOptions...)
+		om.updateStatusBackup(phase, statusOptions...)
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.AppDbStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
-		m.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
+		om.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
-		m.Status.AppDbStatus.Warnings = append(m.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
+		om.Status.AppDbStatus.Warnings = append(om.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
 	if phase == status.PhaseRunning {
-		spec := m.Spec.AppDB
-		m.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
-		m.Status.AppDbStatus.Message = ""
+		spec := om.Spec.AppDB
+		om.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
+		om.Status.AppDbStatus.Message = ""
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.OpsManagerStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+func (om *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOptions ...status.Option) {
+	om.Status.OpsManagerStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
-		m.Status.OpsManagerStatus.Url = option.(status.BaseUrlOption).BaseUrl
+		om.Status.OpsManagerStatus.Url = option.(status.BaseUrlOption).BaseUrl
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
-		m.Status.OpsManagerStatus.Warnings = append(m.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
+		om.Status.OpsManagerStatus.Warnings = append(om.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
 	if phase == status.PhaseRunning {
-		m.Status.OpsManagerStatus.Replicas = m.Spec.Replicas
-		m.Status.OpsManagerStatus.Version = m.Spec.Version
-		m.Status.OpsManagerStatus.Message = ""
+		om.Status.OpsManagerStatus.Replicas = om.Spec.Replicas
+		om.Status.OpsManagerStatus.Version = om.Spec.Version
+		om.Status.OpsManagerStatus.Message = ""
 	}
 }
 
-func (m *MongoDBOpsManager) updateStatusBackup(phase status.Phase, statusOptions ...status.Option) {
-	m.Status.BackupStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
+func (om *MongoDBOpsManager) updateStatusBackup(phase status.Phase, statusOptions ...status.Option) {
+	om.Status.BackupStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
-		m.Status.BackupStatus.Warnings = append(m.Status.BackupStatus.Warnings, option.(status.WarningsOption).Warnings...)
+		om.Status.BackupStatus.Warnings = append(om.Status.BackupStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 	if phase == status.PhaseRunning {
-		m.Status.BackupStatus.Message = ""
-		m.Status.BackupStatus.Version = m.Spec.Version
+		om.Status.BackupStatus.Message = ""
+		om.Status.BackupStatus.Version = om.Spec.Version
 	}
 }
 
-func (m *MongoDBOpsManager) SetWarnings(warnings []status.Warning, options ...status.Option) {
+func (om *MongoDBOpsManager) SetWarnings(warnings []status.Warning, options ...status.Option) {
 	for _, part := range getPartsFromStatusOptions(options...) {
 		switch part {
 		case status.OpsManager:
-			m.Status.OpsManagerStatus.Warnings = warnings
+			om.Status.OpsManagerStatus.Warnings = warnings
 		case status.Backup:
-			m.Status.BackupStatus.Warnings = warnings
+			om.Status.BackupStatus.Warnings = warnings
 		case status.AppDb:
-			m.Status.AppDbStatus.Warnings = warnings
+			om.Status.AppDbStatus.Warnings = warnings
 		}
 	}
 }
 
-func (m *MongoDBOpsManager) AddOpsManagerWarningIfNotExists(warning status.Warning) {
-	m.Status.OpsManagerStatus.Warnings = status.Warnings(m.Status.OpsManagerStatus.Warnings).AddIfNotExists(warning)
+func (om *MongoDBOpsManager) AddOpsManagerWarningIfNotExists(warning status.Warning) {
+	om.Status.OpsManagerStatus.Warnings = status.Warnings(om.Status.OpsManagerStatus.Warnings).AddIfNotExists(warning)
 }
-func (m *MongoDBOpsManager) AddAppDBWarningIfNotExists(warning status.Warning) {
-	m.Status.AppDbStatus.Warnings = status.Warnings(m.Status.AppDbStatus.Warnings).AddIfNotExists(warning)
+func (om *MongoDBOpsManager) AddAppDBWarningIfNotExists(warning status.Warning) {
+	om.Status.AppDbStatus.Warnings = status.Warnings(om.Status.AppDbStatus.Warnings).AddIfNotExists(warning)
 }
-func (m *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning) {
-	m.Status.BackupStatus.Warnings = status.Warnings(m.Status.BackupStatus.Warnings).AddIfNotExists(warning)
+func (om *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning) {
+	om.Status.BackupStatus.Warnings = status.Warnings(om.Status.BackupStatus.Warnings).AddIfNotExists(warning)
 }
 
-func (m MongoDBOpsManager) GetPlural() string {
+func (om *MongoDBOpsManager) GetPlural() string {
 	return "opsmanagers"
 }
 
-func (m *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
+func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
 	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
 		switch part.Value().(status.Part) {
 		case status.OpsManager:
-			return m.Status.OpsManagerStatus
+			return om.Status.OpsManagerStatus
 		case status.AppDb:
-			return m.Status.AppDbStatus
+			return om.Status.AppDbStatus
 		case status.Backup:
-			return m.Status.BackupStatus
+			return om.Status.BackupStatus
 		}
 	}
-	return m.Status
+	return om.Status
 }
 
-func (m MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
+func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
 		switch part.Value().(status.Part) {
 		case status.OpsManager:
@@ -613,15 +613,15 @@ func (m MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
-func (m *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
-	oldAPISecretName := fmt.Sprintf("%s-admin-key", m.Name)
+func (om *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
+	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
 	_, err := client.ReadSecret(oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
 	if err != nil {
 		if secrets.SecretNotExist(err) {
-			return fmt.Sprintf("%s-%s-admin-key", m.Namespace, m.Name), nil
+			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil
 		}
 
 		return "", err
@@ -629,54 +629,49 @@ func (m *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterfac
 	return oldAPISecretName, nil
 }
 
-func (m *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
-	if m.Spec.Security == nil {
+func (om *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
+	if om.Spec.Security == nil {
 		return MongoDBOpsManagerSecurity{}
 	}
-	return *m.Spec.Security
+	return *om.Spec.Security
 }
 
-func (m *MongoDBOpsManager) BackupStatefulSetName() string {
-	return fmt.Sprintf("%s-backup-daemon", m.GetName())
+func (om *MongoDBOpsManager) BackupStatefulSetName() string {
+	return fmt.Sprintf("%s-backup-daemon", om.GetName())
 }
 
-func (m MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
-	if m.IsTLSEnabled() {
+func (om *MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
+	if om.IsTLSEnabled() {
 		return SchemePortFromAnnotation("https")
 	}
 	return SchemePortFromAnnotation("http")
 }
 
-func (m MongoDBOpsManager) IsTLSEnabled() bool {
-	return m.Spec.Security != nil && (m.Spec.Security.TLS.SecretRef.Name != "" || m.Spec.Security.CertificatesSecretsPrefix != "")
+func (om *MongoDBOpsManager) IsTLSEnabled() bool {
+	return om.Spec.Security != nil && (om.Spec.Security.TLS.SecretRef.Name != "" || om.Spec.Security.CertificatesSecretsPrefix != "")
 }
 
-func (m MongoDBOpsManager) TLSCertificateSecretName() string {
+func (om *MongoDBOpsManager) TLSCertificateSecretName() string {
 	// The old field has the precedence
-	if m.GetSecurity().TLS.SecretRef.Name != "" {
-		return m.GetSecurity().TLS.SecretRef.Name
+	if om.GetSecurity().TLS.SecretRef.Name != "" {
+		return om.GetSecurity().TLS.SecretRef.Name
 	}
-	if m.GetSecurity().CertificatesSecretsPrefix != "" {
-		return fmt.Sprintf("%s-%s-cert", m.GetSecurity().CertificatesSecretsPrefix, m.Name)
+	if om.GetSecurity().CertificatesSecretsPrefix != "" {
+		return fmt.Sprintf("%s-%s-cert", om.GetSecurity().CertificatesSecretsPrefix, om.Name)
 	}
 	return ""
 }
 
-func (m MongoDBOpsManager) CentralURL() string {
-	fqdn := dns.GetServiceFQDN(m.SvcName(), m.Namespace, m.Spec.GetClusterDomain())
-	scheme, port := m.GetSchemePort()
+func (om *MongoDBOpsManager) CentralURL() string {
+	fqdn := dns.GetServiceFQDN(om.SvcName(), om.Namespace, om.Spec.GetClusterDomain())
+	scheme, port := om.GetSchemePort()
 
 	// TODO use url.URL to build the url
 	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
 }
 
-func (m MongoDBOpsManager) BackupDaemonHostNames() []string {
-	_, podnames := dns.GetDNSNames(m.BackupStatefulSetName(), "", m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
-	return podnames
-}
-
-func (m MongoDBOpsManager) BackupDaemonFQDNs() []string {
-	hostnames, _ := dns.GetDNSNames(m.BackupStatefulSetName(), m.BackupServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Backup.Members, nil)
+func (om *MongoDBOpsManager) BackupDaemonFQDNs() []string {
+	hostnames, _ := dns.GetDNSNames(om.BackupStatefulSetName(), om.BackupServiceName(), om.Namespace, om.Spec.GetClusterDomain(), om.Spec.Backup.Members, nil)
 	return hostnames
 }
 
@@ -702,53 +697,53 @@ func (v VersionedImplForMemberCluster) IsChangingVersion() bool {
 	return v.opsManager.IsChangingVersion()
 }
 
-func (m *MongoDBOpsManager) GetVersionedImplForMemberCluster(memberClusterNum int) *VersionedImplForMemberCluster {
+func (om *MongoDBOpsManager) GetVersionedImplForMemberCluster(memberClusterNum int) *VersionedImplForMemberCluster {
 	return &VersionedImplForMemberCluster{
-		Object:           m,
+		Object:           om,
 		memberClusterNum: memberClusterNum,
-		opsManager:       m,
+		opsManager:       om,
 	}
 }
 
-func (m MongoDBOpsManager) IsChangingVersion() bool {
-	prevVersion := m.getPreviousVersion()
-	return prevVersion != "" && prevVersion != m.Spec.AppDB.Version
+func (om *MongoDBOpsManager) IsChangingVersion() bool {
+	prevVersion := om.getPreviousVersion()
+	return prevVersion != "" && prevVersion != om.Spec.AppDB.Version
 }
 
-func (m MongoDBOpsManager) getPreviousVersion() string {
-	return annotations.GetAnnotation(&m, annotations.LastAppliedMongoDBVersion)
+func (om *MongoDBOpsManager) getPreviousVersion() string {
+	return annotations.GetAnnotation(om, annotations.LastAppliedMongoDBVersion)
 }
 
 // GetAppDBUpdateStrategyType returns the update strategy type the AppDB Statefulset needs to be configured with.
 // This depends on whether a version change is in progress.
-func (m MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
-	if !m.IsChangingVersion() {
+func (om *MongoDBOpsManager) GetAppDBUpdateStrategyType() appsv1.StatefulSetUpdateStrategyType {
+	if !om.IsChangingVersion() {
 		return appsv1.RollingUpdateStatefulSetStrategyType
 	}
 	return appsv1.OnDeleteStatefulSetStrategyType
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.
-func (m MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
-	secrets := []string{}
-	tls := m.TLSCertificateSecretName()
+func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
+	var secretNames []string
+	tls := om.TLSCertificateSecretName()
 	if tls != "" {
-		secrets = append(secrets, tls)
+		secretNames = append(secretNames, tls)
 	}
 
-	if m.Spec.AdminSecret != "" {
-		secrets = append(secrets, m.Spec.AdminSecret)
+	if om.Spec.AdminSecret != "" {
+		secretNames = append(secretNames, om.Spec.AdminSecret)
 	}
 
-	if m.Spec.Backup != nil {
-		for _, config := range m.Spec.Backup.S3Configs {
+	if om.Spec.Backup != nil {
+		for _, config := range om.Spec.Backup.S3Configs {
 			if config.S3SecretRef.Name != "" {
-				secrets = append(secrets, config.S3SecretRef.Name)
+				secretNames = append(secretNames, config.S3SecretRef.Name)
 			}
 		}
 	}
 
-	return secrets
+	return secretNames
 }
 
 // newBackup returns an empty backup object
@@ -795,7 +790,7 @@ type AppDBConfigurable struct {
 }
 
 // GetOwnerReferences returns the OwnerReferences pointing to the MongoDBOpsManager instance and used by SCRAM related resources.
-func (m AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
+func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	groupVersionKind := schema.GroupVersionKind{
 		Group:   GroupVersion.Group,
 		Version: GroupVersion.Version,
