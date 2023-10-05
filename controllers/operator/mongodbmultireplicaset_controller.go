@@ -331,6 +331,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(mrs mdbmultiv
 	return r.reconcileStatefulSets(mrs, log, conn, projectConfig)
 }
 
+type stsIdentifier struct {
+	namespace   string
+	name        string
+	client      kubernetesClient.Client
+	clusterName string
+}
+
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -340,6 +347,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 	if err != nil {
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
+
+	var stsLocators []stsIdentifier
 
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
@@ -381,10 +390,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return status
 		}
 
-		currentAgentAuthMode, err := conn.GetAgentAuthMode()
+		automationConfig, err := conn.ReadAutomationConfig()
 		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed to retrieve current agent auth mode in cluster: %s, err: %w", item.ClusterName, err))
+			return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config in cluster: %s, err: %w", item.ClusterName, err))
 		}
+
+		currentAgentAuthMode := automationConfig.GetAgentAuthMode()
+
 		certConfigurator := certs.MongoDBMultiX509CertConfigurator{
 			MongoDBMultiCluster: &mrs,
 			ClusterNum:          clusterNum,
@@ -458,17 +470,40 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			return workflow.Failed(xerrors.Errorf("failed to create/update StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 		}
 
-		if status := getStatefulSetStatus(sts.Namespace, sts.Name, memberClient); !status.IsOK() {
+		processes := automationConfig.Deployment.GetAllProcessNames()
+		// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
+		// stateful-sets in parallel.
+		// If we have processes defined, it means we want to wait until all of them are ready.
+		if len(processes) > 0 {
+			// We already have processes defined, and therefore we are waiting for each of them
+			if status := getStatefulSetStatus(sts.Namespace, sts.Name, memberClient); !status.IsOK() {
+				return status
+			}
+			log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
+		} else {
+			// We create all sts in parallel and wait below for all of them to finish
+			stsLocators = append(stsLocators, stsIdentifier{
+				namespace:   sts.Namespace,
+				name:        sts.Name,
+				client:      memberClient,
+				clusterName: item.ClusterName,
+			})
+		}
+	}
+
+	// Running into this means we are in the first deployment/don't have processes yet.
+	// That means we have created them in parallel and now waiting for them to get ready.
+	for _, locator := range stsLocators {
+		if status := getStatefulSetStatus(locator.namespace, locator.name, locator.client); !status.IsOK() {
 			return status
 		}
-
-		log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
+		log.Infof("Successfully ensured StatefulSet in cluster: %s", locator.clusterName)
 	}
 
 	return workflow.OK()
 }
 
-// shouldDeleteStatefulSet returns a boolean value indicating whether or not the StatefulSet associated with
+// shouldDeleteStatefulSet returns a boolean value indicating whether the StatefulSet associated with
 // the given cluster spec item should be deleted or not.
 func shouldDeleteStatefulSet(mrs mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem) (bool, error) {
 	for _, specItem := range mrs.Spec.ClusterSpecList {
