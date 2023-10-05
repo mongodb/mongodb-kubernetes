@@ -195,6 +195,14 @@ func (ac *AutomationConfig) Serialize() ([]byte, error) {
 	return ac.Deployment.Serialize()
 }
 
+// GetAgentAuthMode returns the agentAuthMode of the given automationConfig. If empty or nil we return the empty string.
+func (a *AutomationConfig) GetAgentAuthMode() string {
+	if a == nil || a.Auth == nil {
+		return ""
+	}
+	return a.Auth.AutoAuthMechanism
+}
+
 type Auth struct {
 	// Users is a list which contains the desired users at the project level.
 	Users    []*MongoDBUser `json:"usersWanted,omitempty"`
