@@ -496,17 +496,13 @@ def build_image_daily(
             logger.info("Rebuilding {} with variants {}".format(version, variants))
             args["release_version"] = version
             if version not in completed_versions:
-                try:
-                    sonar_build_image(
-                        "image-daily-build",
-                        build_configuration,
-                        args,
-                        inventory="inventories/daily.yaml",
-                    )
-                    completed_versions.add(version)
-                except Exception as e:
-                    # Log error and continue
-                    logger.error(e)
+                sonar_build_image(
+                    "image-daily-build",
+                    build_configuration,
+                    args,
+                    inventory="inventories/daily.yaml",
+                )
+                completed_versions.add(version)
 
     return inner
 
