@@ -53,7 +53,7 @@ spec:
   containers:
   - image: busybox
     name: keepalive
-    command: [ "/bin/sh", "-c", "sleep 600" ]
+    command: [ "/bin/sh", "-c", "sleep inf" ]
     volumeMounts:
       - name: results
         mountPath: /tmp/results
