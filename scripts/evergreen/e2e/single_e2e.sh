@@ -173,13 +173,15 @@ run_tests() {
         kubectl --context "${test_pod_context}" -n "${NAMESPACE}" logs "${TEST_APP_PODNAME}" -c mongodb-enterprise-operator-tests -f | tee "${output_filename}" || true
         kubectl --context "${operator_context}" -n "${NAMESPACE}" logs -l app.kubernetes.io/component=controller -c "${operator_container_name}" --tail -1 > "${operator_filename}"
 
-        kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
     fi
 
 
     # Waiting a bit until the pod gets to some end
     while ! test_app_ended "${test_pod_context}"; do printf .; sleep 1; done;
     echo
+
+    # We need to make sure to access this file after the test has finished
+    kubectl --context "${test_pod_context}" -n "${NAMESPACE}" cp "${TEST_APP_PODNAME}":/tmp/results/myreport.xml logs/myreport.xml
 
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]
