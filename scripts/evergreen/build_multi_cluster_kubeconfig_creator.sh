@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 OS=${OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}
 ARCH=${ARCH:-$(uname -m | tr '[:upper:]' '[:lower:]')}
 if [[ "${ARCH}" == "x86_64" ]]; then

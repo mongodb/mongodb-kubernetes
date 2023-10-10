@@ -41,23 +41,23 @@ configure_multi_cluster_environment() {
     kind_kubeconfig=$(mktemp)
     cp "${KUBECONFIG}" "${kind_kubeconfig}"
     local idx=1
-    for member_cluster in ${member_clusters}; do
+    for member_cluster in ${MEMBER_CLUSTERS}; do
       api_server_url="https://$(kubectl get svc --context "${member_cluster}" -n default kubernetes -o=jsonpath='{.spec.clusterIP}')"
       echo "Overriding in ${kind_kubeconfig} api_server for ${member_cluster} with node address: ${api_server_url}"
       kubectl config --kubeconfig "${kind_kubeconfig}" set "clusters.${member_cluster}.server" "${api_server_url}"
       ((idx++))
     done
     # shellcheck disable=SC2154
-    api_server_url="https://$(kubectl get svc --context "${central_cluster}" -n default kubernetes -o=jsonpath='{.spec.clusterIP}')"
-    echo "Overriding in ${kind_kubeconfig} api_server for ${central_cluster} with node address: ${api_server_url}"
-    kubectl config --kubeconfig "${kind_kubeconfig}" set "clusters.${central_cluster}.server" "${api_server_url}"
+    api_server_url="https://$(kubectl get svc --context "${CENTRAL_CLUSTER}" -n default kubernetes -o=jsonpath='{.spec.clusterIP}')"
+    echo "Overriding in ${kind_kubeconfig} api_server for ${CENTRAL_CLUSTER} with node address: ${api_server_url}"
+    kubectl config --kubeconfig "${kind_kubeconfig}" set "clusters.${CENTRAL_CLUSTER}.server" "${api_server_url}"
   fi
 
   echo "Ensuring namespaces"
   # shellcheck disable=SC2154
-  ensure_test_namespace "${central_cluster}"
+  ensure_test_namespace "${CENTRAL_CLUSTER}"
   # shellcheck disable=SC2154
-  for member_cluster in ${member_clusters}; do
+  for member_cluster in ${MEMBER_CLUSTERS}; do
     ensure_test_namespace "${member_cluster}"
     kubectl --context "${member_cluster}" label ns "${NAMESPACE}" istio-injection=enabled --overwrite
     # configure mtls at the namespace level.
@@ -95,9 +95,9 @@ EOF
 
   echo "Creating project configmap"
   # delete `my-project` if it exists
-  kubectl --context "${central_cluster}" --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
+  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
   # Configuring project
-  kubectl --context "${central_cluster}" --namespace "${NAMESPACE}" create configmap my-project \
+  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" create configmap my-project \
     --from-literal=projectName="${NAMESPACE}" --from-literal=baseUrl="${OM_BASE_URL}" \
     --from-literal=orgId="${OM_ORGID:-}"
 
@@ -105,14 +105,14 @@ EOF
 
   echo "Creating credentials secret"
   # delete `my-credentials` if it exists
-  kubectl --context "${central_cluster}" --namespace "${NAMESPACE}" delete secret my-credentials --ignore-not-found
+  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" delete secret my-credentials --ignore-not-found
   # Configure the Kubernetes credentials for Ops Manager
-  kubectl --context "${central_cluster}" --namespace "${NAMESPACE}" create secret generic my-credentials \
+  kubectl --context "${CENTRAL_CLUSTER}" --namespace "${NAMESPACE}" create secret generic my-credentials \
     --from-literal=user="${OM_USER:=admin}" --from-literal=publicApiKey="${OM_API_KEY}"
 
   echo "Creating required roles and service accounts."
-  kubectl --context "${central_cluster}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
-  for member_cluster in ${member_clusters}; do
+  kubectl --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
+  for member_cluster in ${MEMBER_CLUSTERS}; do
     kubectl --context "${member_cluster}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
   done
 
@@ -123,45 +123,45 @@ EOF
   local service_account_name="operator-tests-multi-cluster-service-account"
 
   local secret_name
-  secret_name="$(kubectl --context "${central_cluster}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
+  secret_name="$(kubectl --context "${CENTRAL_CLUSTER}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
   if [[ "${secret_name}" == "" ]]; then
     secret_name="${service_account_name}-token-secret"
-    create_service_account_token_secret "${central_cluster}" "${service_account_name}" "${secret_name}"
+    create_service_account_token_secret "${CENTRAL_CLUSTER}" "${service_account_name}" "${secret_name}"
   fi
 
   local central_cluster_token
-  central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
+  central_cluster_token="$(kubectl --context "${CENTRAL_CLUSTER}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
   echo "Creating Multi Cluster configuration secret"
 
   configuration_params=(
-    "--from-literal=central_cluster=${central_cluster}"
+    "--from-literal=central_cluster=${CENTRAL_CLUSTER}"
   )
 
   configuration_params+=(
-    "--from-literal=${central_cluster}=${central_cluster_token}"
+    "--from-literal=${CENTRAL_CLUSTER}=${central_cluster_token}"
   )
 
   local secret_name
-  secret_name="$(kubectl --context "${central_cluster}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
+  secret_name="$(kubectl --context "${CENTRAL_CLUSTER}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
   if [[ "${secret_name}" == "" ]]; then
     secret_name="${service_account_name}-token-secret"
-    create_service_account_token_secret "${central_cluster}" "${service_account_name}" "${secret_name}"
+    create_service_account_token_secret "${CENTRAL_CLUSTER}" "${service_account_name}" "${secret_name}"
   fi
 
   local central_cluster_token
-  central_cluster_token="$(kubectl --context "${central_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
+  central_cluster_token="$(kubectl --context "${CENTRAL_CLUSTER}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
   echo "Creating Multi Cluster configuration secret"
 
   configuration_params=(
-    "--from-literal=central_cluster=${central_cluster}"
+    "--from-literal=central_cluster=${CENTRAL_CLUSTER}"
   )
 
   configuration_params+=(
-    "--from-literal=${central_cluster}=${central_cluster_token}"
+    "--from-literal=${CENTRAL_CLUSTER}=${central_cluster_token}"
   )
 
   INDEX=1
-  for member_cluster in ${member_clusters}; do
+  for member_cluster in ${MEMBER_CLUSTERS}; do
     secret_name="$(kubectl --context "${member_cluster}" get secret -n "${NAMESPACE}" | { grep "${service_account_name}" || test $? = 1; } | awk '{ print $1 }')"
     if [[ "${secret_name}" == "" ]]; then
       secret_name="${service_account_name}-token-secret"
@@ -170,7 +170,7 @@ EOF
 
     member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
     # for 2 cluster tests central cluster is the first member, so we cannot add this as it will result in duplicate key and error in create secret
-    if [[ "${member_cluster}" != "${central_cluster}" ]]; then
+    if [[ "${member_cluster}" != "${CENTRAL_CLUSTER}" ]]; then
       configuration_params+=(
         "--from-literal=${member_cluster}=${member_cluster_token}"
       )
@@ -193,7 +193,7 @@ EOF
 
 prepare_multi_cluster_e2e_run() {
   # shellcheck disable=SC2034
-  operator_context="${central_cluster}"
+  operator_context="${CENTRAL_CLUSTER}"
   configure_multi_cluster_environment
 
   if [[ "$(uname)" == "Darwin" ]]; then
@@ -207,6 +207,15 @@ prepare_multi_cluster_e2e_run() {
       GOOS=darwin GOARCH="${goarch}" go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
     )
     PATH=$PATH:docker/mongodb-enterprise-tests
+  else
+    (
+      cd public/tools/multicluster/
+      # shellcheck disable=SC2030
+      export PATH=$GOROOT:$PATH
+      GOOS=linux GOARCH=amd64 go build -o "${MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH}" main.go
+    )
+    # shellcheck disable=SC2031
+    PATH=$PATH:docker/mongodb-enterprise-tests
   fi
 
   test_pod_secret_name="test-pod-multi-cluster-config"
@@ -215,12 +224,12 @@ prepare_multi_cluster_e2e_run() {
 
   # escape "." sign from cluster names
   # shellcheck disable=SC2001,SC2086
-  central_cluster_escaped=$(echo $central_cluster | sed 's/\./\\./g')
+  central_cluster_escaped=$(echo $CENTRAL_CLUSTER | sed 's/\./\\./g')
   # shellcheck disable=SC2206
-  member_cluster_list=($member_clusters)
+  member_cluster_list=($MEMBER_CLUSTERS)
 
   kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.central_cluster }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/central_cluster"
-  kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.${central_cluster_escaped} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/${central_cluster}"
+  kubectl --context "${test_pod_cluster}" get secret "${test_pod_secret_name}" -n "${NAMESPACE}" -o jsonpath="{ .data.${central_cluster_escaped} }" | base64 -d >"${MULTI_CLUSTER_CONFIG_DIR}/${CENTRAL_CLUSTER}"
 
   INDEX=1
   for member_cluster in "${member_cluster_list[@]}"; do
@@ -233,6 +242,7 @@ prepare_multi_cluster_e2e_run() {
 
 }
 
+# TODO: unify with scripts/funcs/operator_deployment
 run_multi_cluster_kube_config_creator() {
   if [[ "${LOCAL_OPERATOR}" != "true" ]]; then
     return
@@ -240,10 +250,10 @@ run_multi_cluster_kube_config_creator() {
 
   # shellcheck disable=SC2153
   # convert space separated to comma separated
-  member_clusters=$(echo -n "${MEMBER_CLUSTERS}" | xargs | sed "s/ /,/g")
+  comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
 
   params=(
-    "--member-clusters" "${member_clusters}"
+    "--member-clusters" "${comma_separated_list}"
     "--central-cluster" "${CENTRAL_CLUSTER}"
     "--member-cluster-namespace" "${NAMESPACE}"
     "--central-cluster-namespace" "${NAMESPACE}"

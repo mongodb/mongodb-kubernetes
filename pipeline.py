@@ -75,27 +75,6 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     return value
 
 
-def build_configuration_from_context_file(filename: str) -> Dict[str, str]:
-    config = {}
-    with open(filename) as fd:
-        for line in fd.readlines():
-            if line.startswith("#") or line.strip() == "":
-                continue
-
-            key, value = line.split("=")
-            key = key.replace("export ", "").lower()
-            value = value.strip().replace('"', "")
-            config[key] = value
-
-    # calculates skip_tags from image_type in local mode
-    config["skip_tags"] = list(skippable_tags - {config["image_type"]})
-
-    # explicitly skipping release tags locally
-    config["skip_tags"].append("release")
-
-    return config
-
-
 def build_configuration_from_env() -> Dict[str, str]:
     """Builds a running configuration by reading values from environment.
     This is to be used in Evergreen environment.
@@ -105,7 +84,7 @@ def build_configuration_from_env() -> Dict[str, str]:
     # would replace the `username` we use locally.
     return {
         "image_type": os.environ.get("distro"),
-        "base_repo_url": os.environ["registry"] + "/dev",
+        "base_repo_url": os.environ["BASE_REPO_URL"],
         "include_tags": os.environ.get("include_tags"),
         "skip_tags": os.environ.get("skip_tags"),
     }
@@ -114,16 +93,7 @@ def build_configuration_from_env() -> Dict[str, str]:
 def operator_build_configuration(
     builder: str, parallel: bool, debug: bool
 ) -> BuildConfiguration:
-    # TODO: This will be fixed/changed once we update the local dev tooling
-    default_config_location = os.path.expanduser("~/.operator-dev/context.env")
-    context_file = os.environ.get(
-        "OPERATOR_BUILD_CONFIGURATION", default_config_location
-    )
-
-    if os.path.exists(context_file):
-        context = build_configuration_from_context_file(context_file)
-    else:
-        context = build_configuration_from_env()
+    context = build_configuration_from_env()
 
     print(f"Context: {context}")
 

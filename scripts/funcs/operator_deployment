@@ -30,7 +30,7 @@ get_operator_helm_values() {
     "initAppDb.version=${INIT_APPDB_VERSION:-${version_id}}"
     "initDatabase.version=${INIT_DATABASE_VERSION:-${version_id}}"
     "database.version=${DATABASE_VERSION:-${version_id}}"
-    "agent.version=${agent_version}"
+    "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
   )
 
@@ -40,17 +40,13 @@ get_operator_helm_values() {
     config+=("agent.name=mongodb-agent")
   fi
    # shellcheck disable=SC2154
-  if [[ "${kube_environment_name-}" = "multi" ]]; then
-     comma_separated_list="$(echo "${member_clusters}" | tr ' ' ',')"
+  if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
+     comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
      # shellcheck disable=SC2154
      config+=("multiCluster.clusters={${comma_separated_list}}")
   fi
 
-  if [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]]; then
-    config+=("useRunningOperator=true")
-  fi
-
-  if [[ "${kube_environment_name:-}" == "multi" ]]; then
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
     config+=("operator.createOperatorServiceAccount=false")
   fi
 

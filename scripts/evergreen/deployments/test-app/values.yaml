@@ -24,6 +24,7 @@ skipExecution: 'false'
 # A Secret with type kubernetes.io/dockerconfigjson needs to exist.
 imagePullSecrets:
 
+localOperator: "false"
 
 multiCluster:
   memberClusters: "" # Set this to a space separated list of member clusters to configure the test pod for running a multi cluster test.

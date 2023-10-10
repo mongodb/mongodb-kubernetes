@@ -20,7 +20,7 @@ dump_all () {
     kubectl config use-context "${1:-$original_context}" &> /dev/null
     prefix="${1:-$original_context}_"
     # shellcheck disable=SC2154
-    if [[ "${kube_environment_name:-}" != "multi" ]]; then
+    if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]]; then
         prefix=""
     fi
 

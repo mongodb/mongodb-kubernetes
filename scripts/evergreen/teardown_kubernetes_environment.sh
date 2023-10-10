@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-
+set -x
 set -Eeou pipefail
 
-context_config="${workdir:?}/${kube_environment_name:?}_config"
+source scripts/dev/set_env_context.sh
 
-if [ "${kube_environment_name}" = "kind" ]; then
+if [ "${KUBE_ENVIRONMENT_NAME}" = "kind" ]; then
     echo "Deleting Kind cluster"
     kind delete clusters --all
-elif [[ "${kube_environment_name}" = "minikube" ]]; then
-    echo "Deleting Minikube cluster"
-    minikube delete
-fi
-
-if [ -f "${context_config}" ]; then
-    rm "${context_config}"
 fi

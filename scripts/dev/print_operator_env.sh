@@ -2,7 +2,7 @@
 
 set -Eeou pipefail
 
-source scripts/dev/set_env_context.sh
+# NOTE: these are the env vars which are required to run the operator, either via a pod or locally
 
 UBI_IMAGE_SUFFIX=""
 
@@ -50,7 +50,7 @@ IMAGE_PULL_SECRETS=\"image-registries-secret\""
 if [[ "${AGENT_IMAGE:-}" != "" ]]; then
   echo "AGENT_IMAGE=${AGENT_IMAGE}"
 else
-  echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${agent_version:-}\""
+  echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${AGENT_VERSION:-}\""
 fi
 
 if [[ "${KUBECONFIG:-""}" != "" ]]; then
@@ -71,6 +71,10 @@ fi
 
 if [[ "${OPS_MANAGER_MONITOR_APPDB:-""}" != "" ]]; then
   echo "OPS_MANAGER_MONITOR_APPDB=${OPS_MANAGER_MONITOR_APPDB}"
+fi
+
+if [[ "${OPERATOR_ENV:-""}" != "" ]]; then
+  echo "OPERATOR_ENV=${OPERATOR_ENV}"
 fi
 
 }

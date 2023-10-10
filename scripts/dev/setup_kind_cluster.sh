@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 ####
 # This file is copy-pasted from https://github.com/mongodb/mongodb-kubernetes-operator/blob/master/scripts/dev/setup_kind_cluster.sh
 # Do not edit !!!

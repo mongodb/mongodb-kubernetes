@@ -15,6 +15,7 @@ set -Eeou pipefail
 # for get_operator_helm_values function
 source scripts/funcs/operator_deployment
 source scripts/funcs/printing
+source scripts/dev/set_env_context.sh
 
 increment_version() {
   IFS=. read -r major minor patch <<< "$1"

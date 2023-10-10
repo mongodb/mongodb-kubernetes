@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
+source scripts/dev/set_env_context.sh
 
 function usage() {
   echo "This scripts has been designed to work in conjunction with recreate_kind_clusters.sh and verifies if inter-cluster connectivity works fine.

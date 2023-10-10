@@ -2,6 +2,7 @@
 set -Eeou pipefail
 
 source scripts/funcs/printing
+source scripts/dev/set_env_context.sh
 
 title "The following tools will be installed: kubectl, kops, helm, coreutils"
 echo "Note, that you must download 'go' and Docker by yourself"

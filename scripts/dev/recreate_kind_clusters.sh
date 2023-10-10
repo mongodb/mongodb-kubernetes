@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 # first script prepares registry, so to avoid race it have to finish running before we execute subsequent ones in parallel
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
 scripts/dev/setup_kind_cluster.sh -r -e -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210"

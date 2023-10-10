@@ -130,6 +130,10 @@ spec:
     - name: GITHUB_TOKEN_READ
       value: {{ .Values.githubToken }}
     {{ end }}
+    {{ if .Values.localOperator }}
+    - name: LOCAL_OPERATOR
+      value: "{{ .Values.localOperator }}"
+    {{ end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

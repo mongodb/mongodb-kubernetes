@@ -2,7 +2,7 @@
 
 set -Eeou pipefail
 
-source scripts/dev/read_context.sh
+source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/funcs/multicluster
@@ -19,18 +19,7 @@ reset_context() {
 
   set +e
 
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
-  helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
-
-  # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
-  # considerably less time
-  title "Cleaning Kubernetes resources in context: ${context}"
-
-  ensure_namespace "${namespace}"
-
-  kubectl delete --context "${context}" mdb --all -n "${namespace}"
-  kubectl delete --context "${context}" mdbu --all -n "${namespace}"
-  kubectl delete --context "${context}" mdbmc --all -n "${namespace}"
+  reset_namespace "$1" "$2"
 
   # Hack: remove the statefulset for backup daemon first - otherwise it may get stuck on removal if AppDB is removed first
   kubectl delete --context "${context}" "$(kubectl get sts -o name -n "${namespace}" | grep "backup-daemon")" 2>/dev/null
@@ -87,7 +76,7 @@ reset_context() {
 }
 
 # shellcheck disable=SC2154
-if [[ "${kube_environment_name}" == "multi" ]]; then
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   # reset central cluster
   central_cluster_namespaces=$(get_test_namespaces "${CENTRAL_CLUSTER}")
   echo "${CENTRAL_CLUSTER}: resetting namespaces: ${central_cluster_namespaces}"
@@ -96,7 +85,7 @@ if [[ "${kube_environment_name}" == "multi" ]]; then
   done
 
 # we are in our static cluster, lets skip!
-  if [[ "${central_cluster}" != "e2e.operator.mongokubernetes.com" ]]; then
+  if [[ "${CENTRAL_CLUSTER}" != "e2e.operator.mongokubernetes.com" ]]; then
     # reset member clusters
     for member_cluster in ${MEMBER_CLUSTERS}; do
       member_cluster_namespaces=$(get_test_namespaces "${member_cluster}")
@@ -109,5 +98,6 @@ if [[ "${kube_environment_name}" == "multi" ]]; then
   echo "Waiting for background jobs to complete..."
   wait
 else
+  # shellcheck disable=SC2153
   reset_context "$(kubectl config current-context)" "${NAMESPACE}"
 fi

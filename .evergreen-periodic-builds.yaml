@@ -1,31 +1,83 @@
-parameters:
-- key: registry
-  value: 268558157000.dkr.ecr.us-east-1.amazonaws.com
-  description: Development ECR registry
-
-- key: pin_tag_at
-  value: 00:00
-  description: Pin tags at this time of the day. Midnight by default.
 
 variables:
-  - &go_bin
-      "/opt/golang/go1.21/bin"
-  - &go_options
-    GOROOT: "/opt/golang/go1.21"
+  - &e2e_include_expansions_in_env
+    include_expansions_in_env:
+      - ecr_registry
+      - ecr_registry_needs_auth
+      - task_id
+      - GITHUB_TOKEN_READ
+      - openshift_url
+      - openshift_token
+      - workdir
+      - mms_eng_test_aws_access_key
+      - mms_eng_test_aws_secret
+      - mms_eng_test_aws_region
+      - OVERRIDE_VERSION_ID
+      - version_id
+      - e2e_cloud_qa_user_owner_ubi_cloudqa
+      - e2e_cloud_qa_apikey_owner_ubi_cloudqa
+      - e2e_cloud_qa_orgid_owner_ubi_cloudqa
+      - e2e_cloud_qa_user_owner_ubi_cloudqa_2
+      - e2e_cloud_qa_apikey_owner_ubi_cloudqa_2
+      - e2e_cloud_qa_orgid_owner_ubi_cloudqa_2
+
+parameters:
+  - key: pin_tag_at
+    value: 00:00
+    description: Pin tags at this time of the day. Midnight by default.
 
 ### All the functions in this file are copies of what is in
 ### .evergreen.yml. If there's any modification on these, it should be also
 ### modified in there.
 functions:
-  clone:
-  - command: subprocess.exec
+  setup_context: &setup_context
+    command: shell.exec
     type: setup
     params:
-      command: "mkdir -p src/github.com/10gen"
-  - command: git.get_project
+      shell: bash
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      <<: *e2e_include_expansions_in_env
+      script: |
+        echo "Switching context"
+        cp scripts/dev/contexts/evg-private-context scripts/dev/contexts/private-context
+        scripts/dev/switch_context.sh root-context
+        echo "Finished initializing to the root context"
+
+  switch_context: &switch_context
+    command: shell.exec
     type: setup
     params:
-      directory: src/github.com/10gen/ops-manager-kubernetes
+      shell: bash
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      <<: *e2e_include_expansions_in_env
+      script: |
+        echo "Switching context"
+        scripts/dev/switch_context.sh "${build_variant}"
+        echo "Finished switching context"
+
+  python_venv: &python_venv
+    command: subprocess.exec
+    type: setup
+    params:
+      command: /opt/python/3.9/bin/python3 -m venv --upgrade-deps ./venv
+
+  python_requirements: &python_requirements
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+
+  "clone":
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "mkdir -p src/github.com/10gen"
+    - command: git.get_project
+      type: setup
+      params:
+        directory: src/github.com/10gen/ops-manager-kubernetes
+    - *setup_context
 
   setup_preflight:
     - command: subprocess.exec
@@ -34,18 +86,9 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        include_expansions_in_env:
-          - workdir
         binary: scripts/evergreen/setup_preflight.sh
-    - command: subprocess.exec
-      type: setup
-      params:
-        command: python3 -m venv --upgrade ./venv
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        command: ${workdir}/venv/bin/python -m pip install -r requirements.txt
+    - *python_venv
+    - *python_requirements
 
   setup_prepare_openshift_bundles:
     - command: subprocess.exec
@@ -54,8 +97,6 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        include_expansions_in_env:
-          - workdir
         command: scripts/evergreen/setup_yq.sh
     - command: subprocess.exec
       type: setup
@@ -63,9 +104,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        include_expansions_in_env:
-          - workdir
-        command: scripts/evergreen/setup_prepare_openshift_bundles.sh
+        command:command: scripts/evergreen/setup_prepare_openshift_bundles.sh
 
   preflight_image:
     - command: subprocess.exec
@@ -80,84 +119,57 @@ functions:
         command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit ${preflight_submit}"
 
   configure_docker_auth:
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-      include_expansions_in_env:
-      - workdir
-      binary: scripts/evergreen/setup_aws.sh
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      add_to_path:
-      - ${workdir}/bin
-      include_expansions_in_env:
-      - workdir
-      env:
-        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-      binary: scripts/dev/configure_docker_auth.sh
-  - command: subprocess.exec
-    type: setup
-    params:
-      command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command:binary: scripts/evergreen/setup_aws.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command:binary: scripts/dev/configure_docker_auth.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: "docker login quay.io -u ${quay_prod_username} -p ${quay_prod_robot_token}"
 
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
-        include_expansions_in_env:
-          - workdir
-        working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
+        command:working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
         binary: ./build_and_push_appdb_database_images.sh
         add_to_path:
           - ${workdir}/bin
           - ${workdir}
-        env:
-          AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-          AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-          AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-
-
   pipeline:
-  - command: subprocess.exec
-    type: setup
-    params:
-      command: /opt/python/3.9/bin/python3 -m venv --upgrade-deps ./venv
-  - command: subprocess.exec
-    type: setup
-    params:
+    - *python_venv
+    - *python_requirements
+    - *switch_context
+    - command: subprocess.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        env:
+          IS_PATCH: ${is_patch}
+        include_expansions_in_env:
+          - version_id
+          - distro
+          - created_at
+          - pin_tag_at
+        add_to_path:
+          - ${workdir}/bin
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
-  - command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      env:
-        AWS_ACCESS_KEY_ID: ${mms_eng_test_aws_access_key}
-        AWS_SECRET_ACCESS_KEY: ${mms_eng_test_aws_secret}
-        AWS_DEFAULT_REGION: ${mms_eng_test_aws_region}
-        IS_PATCH: ${is_patch}
-      include_expansions_in_env:
-      - version_id
-      - registry
-      - distro
-      - include_tags
-      - skip_tags
-      - test_suffix
-      - om_version
-      - created_at
-      - pin_tag_at
-      add_to_path:
-      - ${workdir}/bin
-      command: "${workdir}/venv/bin/python pipeline.py --include ${image_name}"
+      binary: scripts/evergreen/run_pipelinepy.sh --include ${image_name}
 
-# Updates current expansions with variables from release.json file.
-# Use e.g. ${mongoDbOperator} afterwards.
+
+  # Updates current expansions with variables from release.json file.
+  # Use e.g. ${mongoDbOperator} afterwards.
   update_evergreen_expansions:
     - command: subprocess.exec
       params:
@@ -169,7 +181,7 @@ functions:
       params:
         file: "src/github.com/10gen/ops-manager-kubernetes/evergreen_expansions.yaml"
 
-# Uploads openshift bundle specified by bundle_file_name argument.
+  # Uploads openshift bundle specified by bundle_file_name argument.
   upload_openshift_bundle:
     - command: s3.put
       params:
@@ -188,12 +200,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-          - *go_bin # make bundle uses go install to install controller-gen and kustomize
-        include_expansions_in_env:
-          - workdir
-        env:
-          <<: [ *go_options ]
-        command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
+        command:command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 
   # This is a generic function for conditionally running given task.
   # It works by appending <task> to <variant> if <condition_script> returns no error.
@@ -230,275 +237,275 @@ functions:
         optional: true
 
 tasks:
-- name: preflight_images
-  commands:
-  - func: clone
-  - func: setup_preflight
-  - func: preflight_image
-    vars:
-      image_name: operator
-      project_id: ${rhc_operator_pid}
-  - func: preflight_image
-    vars:
-      image_name: ops-manager
-      project_id: ${rhc_om_pid}
-  - func: preflight_image
-    vars:
-      image_name: init-appdb
-      project_id: ${rhc_init_appdb_pid}
-  - func: preflight_image
-    vars:
-      image_name: init-database
-      project_id: ${rhc_init_database_pid}
-  - func: preflight_image
-    vars:
-      image_name: init-ops-manager
-      project_id: ${rhc_init_om_pid}
-  - func: preflight_image
-    vars:
-      image_name: database
-      project_id: ${rhc_database_pid}
-  - func: preflight_image
-    vars:
-      image_name: mongodb-enterprise-server # official server images
-      project_id: ${rhc_official_database_pid}
-  - func: preflight_image
-    vars:
-      image_name: mongodb-agent
-      project_id: ${rhc_agent_pid}
+  - name: preflight_images
+    commands:
+      - func: clone
+      - func: setup_preflight
+      - func: preflight_image
+        vars:
+          image_name: operator
+          project_id: ${rhc_operator_pid}
+      - func: preflight_image
+        vars:
+          image_name: ops-manager
+          project_id: ${rhc_om_pid}
+      - func: preflight_image
+        vars:
+          image_name: init-appdb
+          project_id: ${rhc_init_appdb_pid}
+      - func: preflight_image
+        vars:
+          image_name: init-database
+          project_id: ${rhc_init_database_pid}
+      - func: preflight_image
+        vars:
+          image_name: init-ops-manager
+          project_id: ${rhc_init_om_pid}
+      - func: preflight_image
+        vars:
+          image_name: database
+          project_id: ${rhc_database_pid}
+      - func: preflight_image
+        vars:
+          image_name: mongodb-enterprise-server # official server images
+          project_id: ${rhc_official_database_pid}
+      - func: preflight_image
+        vars:
+          image_name: mongodb-agent
+          project_id: ${rhc_agent_pid}
 
-- name: periodic_build_operator
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_operator_pid}
-  - func: pipeline
-    vars:
-      image_name: operator-daily
+  - name: periodic_build_operator
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_operator_pid}
+      - func: pipeline
+        vars:
+          image_name: operator-daily
 
-- name: periodic_build_init_appdb
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_init_appdb_pid}
-  - func: pipeline
-    vars:
-      image_name: init-appdb-daily
+  - name: periodic_build_init_appdb
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_init_appdb_pid}
+      - func: pipeline
+        vars:
+          image_name: init-appdb-daily
 
-- name: periodic_build_init_database
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_init_database_pid}
-  - func: pipeline
-    vars:
-      image_name: init-database-daily
+  - name: periodic_build_init_database
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_init_database_pid}
+      - func: pipeline
+        vars:
+          image_name: init-database-daily
 
-- name: periodic_build_init_opsmanager
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_init_om_pid}
-  - func: pipeline
-    vars:
-      image_name: init-ops-manager-daily
+  - name: periodic_build_init_opsmanager
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_init_om_pid}
+      - func: pipeline
+        vars:
+          image_name: init-ops-manager-daily
 
-- name: periodic_build_database
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_database_pid}
-  - func: pipeline
-    vars:
-      image_name: database-daily
+  - name: periodic_build_database
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_database_pid}
+      - func: pipeline
+        vars:
+          image_name: database-daily
 
-- name: periodic_build_ops_manager_5
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_om_pid}
-  - func: pipeline
-    vars:
-      image_name: ops-manager-5-daily
+  - name: periodic_build_ops_manager_5
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_om_pid}
+      - func: pipeline
+        vars:
+          image_name: ops-manager-5-daily
 
-- name: periodic_build_ops_manager_6
-  commands:
-  - func: clone
-  - func: configure_docker_auth
-    vars:
-      project_id: ${rhc_om_pid}
-  - func: pipeline
-    vars:
-      image_name: ops-manager-6-daily
+  - name: periodic_build_ops_manager_6
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_om_pid}
+      - func: pipeline
+        vars:
+          image_name: ops-manager-6-daily
 
-- name: periodic_build_agent
-  commands:
-    - func: clone
-    - func: configure_docker_auth
-      vars:
-        project_id: ${rhc_agent_pid}
-    - func: pipeline
-      vars:
-        image_name: mongodb-agent-daily
+  - name: periodic_build_agent
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_agent_pid}
+      - func: pipeline
+        vars:
+          image_name: mongodb-agent-daily
 
-- name: periodic_build_community_operator
-  commands:
-    - func: clone
-    - func: configure_docker_auth
-      vars:
-        project_id: ${rhc_mongodb_community_operator_pid}
-    - func: pipeline
-      vars:
-        image_name: mongodb-kubernetes-operator-daily
+  - name: periodic_build_community_operator
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_mongodb_community_operator_pid}
+      - func: pipeline
+        vars:
+          image_name: mongodb-kubernetes-operator-daily
 
-- name: periodic_build_readiness_probe
-  commands:
-    - func: clone
-    - func: configure_docker_auth
-      vars:
-        project_id: ${rhc_mongodb_readiness_probe_pid}
-    - func: pipeline
-      vars:
-        image_name: mongodb-kubernetes-readinessprobe-daily
+  - name: periodic_build_readiness_probe
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_mongodb_readiness_probe_pid}
+      - func: pipeline
+        vars:
+          image_name: mongodb-kubernetes-readinessprobe-daily
 
-- name: periodic_build_version_upgrade_post_start_hook
-  commands:
-    - func: clone
-    - func: configure_docker_auth
-      vars:
-        project_id: ${rhc_mongodb_build_version_upgrade_post_start_hook_pid}
-    - func: pipeline
-      vars:
-        image_name: mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily
+  - name: periodic_build_version_upgrade_post_start_hook
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_mongodb_build_version_upgrade_post_start_hook_pid}
+      - func: pipeline
+        vars:
+          image_name: mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily
 
-- name: periodic_build_appdb_database
-  commands:
-    - func: clone
-    - func: configure_docker_auth
-      vars:
-        project_id: ${rhc_appdb_database_pid}
-    - func: build_and_push_appdb_database
+  - name: periodic_build_appdb_database
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_appdb_database_pid}
+      - func: build_and_push_appdb_database
 
-- name: prepare_and_upload_openshift_bundles
-  commands:
-    - func: clone
-    - func: configure_docker_auth
-    - func: setup_prepare_openshift_bundles
-    - func: prepare_openshift_bundles
-    - func: update_evergreen_expansions
-    - func: upload_openshift_bundle
-      vars:
-        # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-        bundle_file_name: "operator-community-${mongodbOperator}.tgz"
-    - func: upload_openshift_bundle
-      vars:
-        bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
+  - name: prepare_and_upload_openshift_bundles
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+      - func: setup_prepare_openshift_bundles
+      - func: prepare_openshift_bundles
+      - func: update_evergreen_expansions
+      - func: upload_openshift_bundle
+        vars:
+          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
+          bundle_file_name: "operator-community-${mongodbOperator}.tgz"
+      - func: upload_openshift_bundle
+        vars:
+          bundle_file_name: "operator-certified-${mongodbOperator}.tgz"
 
-- name: run_conditionally_prepare_and_upload_openshift_bundles
-  commands:
-    - func: clone
-    - func: run_task_conditionally
-      vars:
-        condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
-        variant: prepare_openshift_bundles
-        task: prepare_and_upload_openshift_bundles
+  - name: run_conditionally_prepare_and_upload_openshift_bundles
+    commands:
+      - func: clone
+      - func: run_task_conditionally
+        vars:
+          condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
+          variant: prepare_openshift_bundles
+          task: prepare_and_upload_openshift_bundles
 
 task_groups:
   - name: periodic_build_task_group
     max_hosts: 5
     tasks:
-    - periodic_build_operator
-    - periodic_build_readiness_probe
-    - periodic_build_version_upgrade_post_start_hook
-    - periodic_build_init_appdb
-    - periodic_build_init_database
-    - periodic_build_init_opsmanager
-    - periodic_build_ops_manager_5
-    - periodic_build_ops_manager_6
-    - periodic_build_database
-    - periodic_build_agent
-    - periodic_build_community_operator
-    - periodic_build_appdb_database
+      - periodic_build_operator
+      - periodic_build_readiness_probe
+      - periodic_build_version_upgrade_post_start_hook
+      - periodic_build_init_appdb
+      - periodic_build_init_database
+      - periodic_build_init_opsmanager
+      - periodic_build_ops_manager_5
+      - periodic_build_ops_manager_6
+      - periodic_build_database
+      - periodic_build_agent
+      - periodic_build_community_operator
+      - periodic_build_appdb_database
 
   - name: preflight_images_task_group
     tasks:
-    - preflight_images
+      - preflight_images
 
 buildvariants:
-- name: periodic_build
-  display_name: periodic_build
-  run_on:
-  - ubuntu1804-small
-  tasks:
-    - name: periodic_build_task_group
+  - name: periodic_build
+    display_name: periodic_build
+    run_on:
+      - ubuntu1804-small
+    tasks:
+      - name: periodic_build_task_group
 
-- name: preflight_images
-  display_name: preflight_images
-  depends_on:
-    # We have to add every task in the periodic build variant here
-    # because otherwise evergreen moves on to the preflight task after
-    # a single task in the referenced task group succeeds.
-    - name: periodic_build_operator
-      variant: periodic_build
-    - name: periodic_build_init_appdb
-      variant: periodic_build
-    - name: periodic_build_init_database
-      variant: periodic_build
-    - name: periodic_build_init_opsmanager
-      variant: periodic_build
-    - name: periodic_build_ops_manager_5
-      variant: periodic_build
-    - name: periodic_build_ops_manager_6
-      variant: periodic_build
-    - name: periodic_build_database
-      variant: periodic_build
-    - name: periodic_build_agent
-      variant: periodic_build
-    - name: periodic_build_appdb_database
-      variant: periodic_build
-  run_on:
-  - rhel90-small
-  expansions:
-    preflight_submit: true
-  tasks:
-    - name: preflight_images_task_group
+  - name: preflight_images
+    display_name: preflight_images
+    depends_on:
+      # We have to add every task in the periodic build variant here
+      # because otherwise evergreen moves on to the preflight task after
+      # a single task in the referenced task group succeeds.
+      - name: periodic_build_operator
+        variant: periodic_build
+      - name: periodic_build_init_appdb
+        variant: periodic_build
+      - name: periodic_build_init_database
+        variant: periodic_build
+      - name: periodic_build_init_opsmanager
+        variant: periodic_build
+      - name: periodic_build_ops_manager_5
+        variant: periodic_build
+      - name: periodic_build_ops_manager_6
+        variant: periodic_build
+      - name: periodic_build_database
+        variant: periodic_build
+      - name: periodic_build_agent
+        variant: periodic_build
+      - name: periodic_build_appdb_database
+        variant: periodic_build
+    run_on:
+      - rhel90-small
+    expansions:
+      preflight_submit: true
+    tasks:
+      - name: preflight_images_task_group
 
-- name: prepare_openshift_bundles
-  display_name: prepare_openshift_bundles
-  depends_on:
-    # We have to add every task in the periodic build variant here
-    # because otherwise evergreen moves on to the preflight task after
-    # a single task in the referenced task group succeeds.
-    - name: periodic_build_operator
-      variant: periodic_build
-    - name: periodic_build_readiness_probe
-      variant: periodic_build
-    - name: periodic_build_version_upgrade_post_start_hook
-      variant: periodic_build
-    - name: periodic_build_init_appdb
-      variant: periodic_build
-    - name: periodic_build_init_database
-      variant: periodic_build
-    - name: periodic_build_init_opsmanager
-      variant: periodic_build
-    - name: periodic_build_ops_manager_5
-      variant: periodic_build
-    - name: periodic_build_ops_manager_6
-      variant: periodic_build
-    - name: periodic_build_database
-      variant: periodic_build
-    - name: periodic_build_agent
-      variant: periodic_build
-    - name: periodic_build_appdb_database
-      variant: periodic_build
-  run_on:
-    - ubuntu2204-small
-  tasks:
-    - name: run_conditionally_prepare_and_upload_openshift_bundles
+  - name: prepare_openshift_bundles
+    display_name: prepare_openshift_bundles
+    depends_on:
+      # We have to add every task in the periodic build variant here
+      # because otherwise evergreen moves on to the preflight task after
+      # a single task in the referenced task group succeeds.
+      - name: periodic_build_operator
+        variant: periodic_build
+      - name: periodic_build_readiness_probe
+        variant: periodic_build
+      - name: periodic_build_version_upgrade_post_start_hook
+        variant: periodic_build
+      - name: periodic_build_init_appdb
+        variant: periodic_build
+      - name: periodic_build_init_database
+        variant: periodic_build
+      - name: periodic_build_init_opsmanager
+        variant: periodic_build
+      - name: periodic_build_ops_manager_5
+        variant: periodic_build
+      - name: periodic_build_ops_manager_6
+        variant: periodic_build
+      - name: periodic_build_database
+        variant: periodic_build
+      - name: periodic_build_agent
+        variant: periodic_build
+      - name: periodic_build_appdb_database
+        variant: periodic_build
+    run_on:
+      - ubuntu2204-small
+    tasks:
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
 

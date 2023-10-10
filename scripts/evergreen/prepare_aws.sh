@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
+
 set -Eeou pipefail
+
+source scripts/dev/set_env_context.sh
 
 # Does general cleanup work for external sources (currently only aws). Must be called once per Evergreen run
 prepare_aws() {
