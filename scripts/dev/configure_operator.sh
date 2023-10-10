@@ -42,3 +42,4 @@ kubectl delete secret ${om_admin_secret} -n "${NAMESPACE}" 2>/dev/null || true
 kubectl create secret generic ${om_admin_secret}  --from-literal=Username="jane.doe@example.com" --from-literal=Password="Passw0rd."  --from-literal=FirstName="Jane" --from-literal=LastName="Doe" -n "${NAMESPACE}"
 
 title "All necessary ConfigMaps and Secrets for the Operator are configured"
+

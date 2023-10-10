@@ -2,6 +2,7 @@
 
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
 source scripts/funcs/checks
 source scripts/funcs/printing
 source scripts/funcs/kubernetes

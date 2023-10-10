@@ -28,7 +28,7 @@ metadata:
     evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
     evg/task-name: ${TASK_NAME:-'not-specified'}
     evg/task: "https://evergreen.mongodb.com/task/${task_id:-'not-specified'}"
-    evg/mms-version: "${MMS_VERSION:-'not-specified'}"
+    evg/mms-version: "${ops_manager_version:-'not-specified'}"
 EOF
 
     if kubectl get "ns/${namespace}" -o name &> /dev/null; then
@@ -40,130 +40,7 @@ EOF
     fi
 }
 
-# the function installs Ops Manager (legacy dev version) into Kubernetes cluster if it's not installed already
-# Note, that this requires the k8s node with 4 Gb of free memory
-ensure_ops_manager_k8s() {
-    local ops_manager_namespace="${1}"
-    local ops_manager_version="${2}"
-    local node_port="${3}"
-    local ecr_registry="${4}"
-    local version_id="${5}"
-
-    local om_name="ops-manager"
-
-    if [ -z "${ops_manager_namespace}" ]; then
-        error "ops_manager_namespace must be set!"
-        exit 1
-    fi
-    if [ -z "${ops_manager_version}" ]; then
-        error "ops_manager_version must be set!"
-        exit 1
-    fi
-    if [ -z "${node_port}" ]; then
-        error "node_port must be set!"
-        exit 1
-    fi
-
-    echo "##### Installing Ops Manager ${ops_manager_version} (namespace ${ops_manager_namespace} into Kubernetes..."
-
-    if _is_ops_manager_down "${ops_manager_namespace}"; then
-
-        # set the context to the ops manager namespace so the templated file will contain the correct release namespace.
-        kubectl config set-context "$(kubectl config current-context)" "--namespace=${ops_manager_namespace}"
-        echo "Installing the operator in the OpsManager namespace"
-        helm template -f helm_chart/values.yaml \
-            --set namespace="${ops_manager_namespace}" \
-            --set registry.operator="${ecr_registry}/dev/ubuntu" \
-            --set operator.version="${version_id}" \
-            --set registry.initAppDb="${ecr_registry}/dev/ubuntu" \
-            --set registry.OpsManager="${ecr_registry}/dev/ubuntu" \
-            --set registry.initOpsManager="${ecr_registry}/dev/ubuntu" \
-            --set initOpsManager.version="${version_id}" \
-            --set initAppDb.version="${version_id}" \
-            helm_chart > operator.yaml
-        NAMESPACE=${ops_manager_namespace}; OPS_MANAGER_NAMESPACE=${ops_manager_namespace}; source scripts/evergreen/e2e/configure_operator.sh
-
-        # revert after the file is generated
-        kubectl config set-context "$(kubectl config current-context)" "--namespace=default"
-
-        echo "Deleting old OpsManager Resources in case something is stuck"
-        kubectl delete opsmanagers.mongodb.com "$om_name" -n "${ops_manager_namespace}" --ignore-not-found=true
-        echo "Deleting AppDB PVC, if they exist"
-        kubectl delete pvc -l app=ops-manager-db-svc -n "${ops_manager_namespace}"
-
-        echo "Installing Ops Manager ${ops_manager_version}"
-        kubectl apply -f scripts/evergreen/deployments/ops-manager-vanilla.yaml -n "${ops_manager_namespace}"
-        kubectl patch opsmanagers.mongodb.com "$om_name" --type=json -p='[{"op": "replace", "path" : "/spec/version", "value" : "'"${ops_manager_version}"'"}]' -n "${ops_manager_namespace}"
-
-
-        kubectl apply -f operator.yaml -n "${ops_manager_namespace}"
-        rm operator.yaml
-
-
-        echo "Waiting for OpsManager to be ready"
-        until [[ $(kubectl get om "$om_name" -n "${ops_manager_namespace}" -o jsonpath='{.status.applicationDatabase.phase}') = "Running" && $(kubectl get om ops-manager  -n "${ops_manager_namespace}" -o jsonpath='{.status.opsManager.phase}') = "Running" ]]; do echo "OpsManager not yet ready, will retry in 20 seconds"; sleep 20; done
-
-
-        # we try to open ports for both security groups - in kops and openshift clusters
-        _ensure_vpc_rules "us-east-2" "nodes.e2e"
-
-        echo "Ops Manager is installed in this cluster. A new user will be added for automated tests to run."
-    else
-        echo "Ops Manager is already installed in this cluster."
-        echo "If you want to start with a fresh Ops Manager installation, please delete the \"${ops_manager_namespace}\" namespace."
-    fi
-
-    echo "##### Ops Manager is ready"
-
-    _print_om_endpoint "" "${ops_manager_namespace}" "${node_port}"
-}
-
-_print_om_endpoint() {
-    local ops_manager_namespace="${2}"
-    if [ -z "$ops_manager_namespace" ]; then
-        error "No ops_manager_namespace set: not able to find Ops Manager external IP"
-    else
-        local node_port="${3}"
-        local node_name
-        node_name=$(kubectl get pods/"$om_name"-0 -n "${ops_manager_namespace}" -o wide | tail -n 1 | awk '{print $7}')
-        local external_ip
-        external_ip="$(kubectl get nodes -o wide | grep "${node_name}" | awk '{print $7}')"
-
-        echo "Use the following address to access Ops Manager from the browser: http://${external_ip}:${node_port}"
-    fi
-}
-
-_ensure_vpc_rules() {
-    local region="$1"
-    local prefix="$2"
-    local group_id
-    group_id=$(aws ec2 describe-security-groups --region "${region}" | jq -r '.SecurityGroups[] | select(.GroupName | startswith( "'"$prefix"'")) | .GroupId')
-
-    if [[ -z $group_id ]]; then
-        echo "Failed to find group id for EC2 security group with prefix $prefix"
-        return 1
-    fi
-    # note, that the attempt to add the same rule will result in "already exists" error - so we just ignore errors by now
-    # open multiple node ports for different versions of Ops Manager
-    for i in $(seq 30039 30043); do
-        aws ec2 authorize-security-group-ingress --region "${region}" --group-id "${group_id}" --protocol tcp --port "${i}" --cidr "0.0.0.0/0" 2>/dev/null || true
-        echo "Opened port ${i} in AWS for the security group with prefix $prefix (group id: $group_id)"
-    done
-
-}
-# returns true if the namespace doesn't exist or if the OM pod is not running and this lasts for more than or equal to 1 hour.
-# This is supposed to work for concurrent builds when one of the builds is starting Ops Manager (ideally we need to check for 10 minutes
-# but parsing dates in bash is hard :( )
-_is_ops_manager_down() {
-    ! kubectl get "namespace/${1}" &> /dev/null || \
-    ! kubectl get pod/"$om_name"-0 -n "${1}" 2>/dev/null ||
-    kubectl get pod/"$om_name"-0 -o jsonpath="{.status.containerStatuses[0].ready}" -n "${1}" | grep -q "false"
-
-}
-
 delete_operator() {
-    [[ "${USE_RUNNING_OPERATOR:-}" == "true" ]] && return
-
     local ns="$1"
     local name=${OPERATOR_NAME:=mongodb-enterprise-operator}
 
@@ -202,66 +79,6 @@ wait_for_operator_start() {
     title "The Operator successfully installed to the Kubernetes cluster"
 }
 
-# Creates kops cluster and adds the support for dashboard
-create_kops_cluster() {
-    local cluster_name="${1}"
-    local node_count=${2}
-    local node_volume_size=${3}
-    local node_size="${4}"
-    local master_size="${5}"
-    local zones="${6}"
-    local k8s_version="${7:-}"
-
-    if [[ -z "${k8s_version}" ]]; then
-        k8s_version='v1.19.0'
-    fi
-
-    title "Creating kops cluster $cluster_name (master: $master_size, nodes: $master_size, zones: $zones)"
-
-    check_env_var "KOPS_STATE_STORE" "Make sure you add \"export KOPS_STATE_STORE=s3://kube-om-state-store\" to your ~/.bashrc"
-
-    echo "Make sure you use the latest version of kops (>= 1.19.0): 'brew upgrade kops'"
-    kops create cluster \
-         --node-count "$node_count" \
-         --zones "${zones}" \
-         --node-size "${node_size}" \
-         --node-volume-size "${node_volume_size}" \
-         --master-size="${master_size}" \
-         --master-volume-size 16  \
-         --kubernetes-version="${k8s_version}" \
-         --ssh-public-key=~/.ssh/id_rsa.pub \
-         --authorization RBAC "${cluster_name}"
-
-    kops create secret --name "${cluster_name}" sshpublickey admin -i ~/.ssh/id_rsa.pub
-
-    kops update cluster "${cluster_name}" --yes
-
-    echo "Waiting until kops cluster gets ready..."
-    kops validate cluster "${cluster_name}" --wait 10m
-
-    title "Kops cluster ${cluster_name} is ready! Note, that you need to use 'admin' user if you want to ssh to the nodes"
-
-    title "Adding support for Kubernetes dashboard"
-    kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml
-
-    title 'Kubernetes dashboard is installed, use "make dashboard" to open it'
-}
-
-# Makes sure the ECR repository exists.
-# The incoming parameter is expected to be the full ECR url (e.g. "268558157000.dkr.ecr.us-east-1.amazonaws.com/alis/ubuntu/mongodb-enterprise-appdb")
-ensure_ecr_repository() {
-    local repo_url=$1
-    local repo_name
-
-    if [[ $(expr "${BASE_REPO_URL}" : '.*\.ecr\..*') -gt 0 ]]; then
-        repo_name="$(echo "${repo_url}" | cut -d "/" -f2-)" # "alis/ubuntu/mongodb-enterprise-appdb"
-        if ! aws ecr describe-repositories | grep "${repo_name}" > /dev/null; then
-            echo "Creating repository ${repo_name} as it doesn't exist"
-            aws ecr create-repository --repository-name="${repo_name}"
-        fi
-    fi
-}
-
 # recreates docker credentials secret in the cluster
 create_image_registries_secret() {
   secret_name="image-registries-secret"
@@ -271,19 +88,26 @@ create_image_registries_secret() {
     exit 0
   fi
 
+  if which kubectl > /dev/null; then
+      echo "Kubectl command is there, proceeding..."
+  else
+      echo "Kubectl doesn't exist, skipping setting the context"
+      exit 0
+  fi
+
   echo "Creating/updating pull secret from docker configured file"
-  if [[ "${kube_environment_name:-}" == "multi" ]]; then
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
       # shellcheck disable=SC2154
-      if kubectl --context "${central_cluster}" get namespace "${NAMESPACE}"; then
+      if kubectl --context "${CENTRAL_CLUSTER}" get namespace "${NAMESPACE}"; then
         kubectl -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
-        kubectl --context "${central_cluster}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
+        kubectl --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
           --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
       else
-        echo "Skipping creating pull secret in ${central_cluster}/${NAMESPACE} as it doesn't exist yet."
+        echo "Skipping creating pull secret in ${CENTRAL_CLUSTER}/${NAMESPACE} as it doesn't exist yet."
       fi
 
       # shellcheck disable=SC2154
-      for member_cluster in ${member_clusters}; do
+      for member_cluster in ${MEMBER_CLUSTERS}; do
         if kubectl --context "${member_cluster}" get namespace "${NAMESPACE}"; then
           kubectl --context "${member_cluster}" -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
           kubectl --context "${member_cluster}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
@@ -297,4 +121,43 @@ create_image_registries_secret() {
     kubectl -n "${NAMESPACE}" create secret generic "${secret_name}" \
       --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
   fi
+}
+
+reset_namespace() {
+  context=$1
+  namespace=$2
+  if [[ "${context}" == "" ]]; then
+    echo "context cannot be empty"
+    exit 1
+  fi
+
+  set +e
+
+  helm uninstall --kube-context="${context}" mongodb-enterprise-operator || true &
+  helm uninstall --kube-context="${context}" mongodb-enterprise-operator-multi-cluster || true &
+
+  # Cleans the namespace. Note, that fine-grained cleanup is performed instead of just deleting the namespace as it takes
+  # considerably less time
+  title "Cleaning Kubernetes resources in context: ${context}"
+
+  ensure_namespace "${namespace}"
+
+  kubectl delete --context "${context}" mdb --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbu --all -n "${namespace}" || true
+  kubectl delete --context "${context}" mdbmc --all -n "${namespace}" || true
+  kubectl delete --context "${context}" om --all -n "${namespace}" || true
+
+  # Openshift variant runs all tests sequentially. In order to avoid clashes between tests, we need to wait till
+  # the namespace is gone. This trigger OpenShift Project deletion, which is a "Namespace on Steroids" and it takes
+  # a while to delete it.
+  should_wait="false"
+  # shellcheck disable=SC2153
+  if [[ $CONTEXT == e2e_mdb_openshift_ubi_cloudqa ]]; then
+    should_wait="true"
+    echo "Removing the test namespace ${namespace}, should_wait=$should_wait"
+    kubectl --context "${context}" delete "namespace/${namespace}" --wait="$should_wait" || true
+  fi
+
+  echo "Removing CSRs"
+  kubectl --context "${context}" delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" &> /dev/null || true
 }

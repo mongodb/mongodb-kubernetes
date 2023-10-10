@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+CUSTOM_OM_PREV_VERSION=5.0.1
+export CUSTOM_OM_PREV_VERSION
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_50_latest\s+(\S+)\s+#" < "$script_dir"/../../../../.evergreen.yml | awk '{print $3}')
+export CUSTOM_OM_VERSION
+
+export CUSTOM_MDB_VERSION=5.0.5
+export CUSTOM_MDB_PREV_VERSION=4.4.20
+
+export CUSTOM_APPDB_VERSION=4.4.20-ent
+export TEST_MODE=opsmanager
+export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
+

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 ####
 ## This script is based on https://gist.github.com/aojea/00bca6390f5f67c0a30db6acacf3ea91#multiple-clusters
 ####
@@ -42,6 +44,7 @@ for c in "${clusters[@]}"; do
   # Is there a better way to do it?
   service_cidr=$(kubectl --context "kind-$c" --namespace kube-system get configmap kubeadm-config -o=jsonpath='{.data.ClusterConfiguration}' | grep "serviceSubnet" | cut -d\  -f4)
   service_route=$(kubectl --context "kind-$c" get nodes -o=jsonpath='{range .items[*]}{"ip route add "}'"$service_cidr"'{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}')
+  # shellcheck disable=SC2086
   kind_node_in_docker=$(kind get nodes --name ${c})
 
   if [ "$verbose" -ne "0" ]; then
@@ -64,6 +67,7 @@ fi
 for c in "${kind_nodes_for_exec[@]}"; do
   for r in "${routes[@]}"; do
     error_code=0
+    # shellcheck disable=SC2086
     docker exec $c $r || error_code=$?
     if [ "$error_code" -ne "0" ] && [ "$error_code" -ne "2" ]; then
       echo "Error while interconnecting Kind clusters. Try debugging it manually by calling:"

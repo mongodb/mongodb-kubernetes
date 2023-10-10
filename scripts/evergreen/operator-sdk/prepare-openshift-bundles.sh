@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 # This script prepares two openshift bundles tgz: certified and community.
 
 RELEASE_JSON_PATH=${RELEASE_JSON_PATH:-"release.json"}

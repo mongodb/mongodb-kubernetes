@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-if [[ "${kube_environment_name-}" != "kind" && "${CLUSTER_TYPE-}" != "kind" ]]; then
-    echo "Skipping download of kind"
-    exit 0
-fi
+source scripts/dev/set_env_context.sh
 
 if command -v kind &>/dev/null; then
     echo "Kind is already present in this host"

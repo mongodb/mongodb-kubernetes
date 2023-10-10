@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
-export GOPATH="${workdir:-}"
+export GOPATH=${GOPATH:-$workdir}
 
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then
   git_last_changed=$(git diff --cached --name-only --diff-filter=ACM)

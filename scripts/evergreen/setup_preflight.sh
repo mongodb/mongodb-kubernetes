@@ -2,7 +2,7 @@
 #
 # A script Evergreen will use to setup openshift-preflight
 set -Eeou pipefail
-set -x
+source scripts/dev/set_env_context.sh
 
 bindir="${workdir:?}/bin"
 mkdir -p "${bindir}"

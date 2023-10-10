@@ -35,11 +35,6 @@ fi
 # making sure the namespace is created
 ensure_namespace "${NAMESPACE}"
 
-#installing the operator
-if [[ ${CLUSTER_TYPE} = "openshift" ]]; then
-    managed_security_context=true
-fi
-
 if [[ ${IMAGE_TYPE} = "ubi" ]]; then
     # we should use the UBI images with special names if quay.io is used as a source
     if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
@@ -83,7 +78,7 @@ helm_params=(
      "--set" "initAppDb.name=${INIT_APPDB_NAME:=mongodb-enterprise-init-appdb-ubi}"
      "--set" "initAppDb.version=latest"
      "--set" "namespace=${NAMESPACE}"
-     "--set" "managedSecurityContext=${managed_security_context:-false}"
+     "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
      "--set" "debug=${DEBUG-}"
      "--set" "debugPort=${DEBUG_PORT:-30042}"
      "--set" "registry.imagePullSecrets=image-registries-secret"

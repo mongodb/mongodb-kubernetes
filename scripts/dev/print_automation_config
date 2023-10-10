@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -Eeou pipefail
+source scripts/dev/set_env_context.sh
 
 # shellcheck disable=SC1090
 source ~/.operator-dev/om

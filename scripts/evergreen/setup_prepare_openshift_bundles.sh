@@ -6,7 +6,7 @@
 
 set -Eeou pipefail
 
-set -x
+source scripts/dev/set_env_context.sh
 
 source scripts/funcs/install
 
