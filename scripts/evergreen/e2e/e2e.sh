@@ -3,21 +3,17 @@ set -Eeou pipefail
 
 start_time=$(date +%s)
 
-if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
-    echo "Kube configuration file does not exist!"
-    exit 1
-fi
-
 source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/evergreen/e2e/dump_diagnostic_information
 source scripts/evergreen/e2e/lib
+source scripts/dev/set_env_context.sh
 
-# Externally Configured Ops Manager (Cloud Manager)
-# shellcheck source=~/.operator-dev/om
-# shellcheck disable=SC1090
-test -f "${OPS_MANAGER_ENV:-}" && source "${OPS_MANAGER_ENV}"
+if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
+    echo "Kube configuration: ${KUBECONFIG} file does not exist!"
+    exit 1
+fi
 
 #
 # This is the main entry point for running e2e tests. It can be used both for simple e2e tests (running a single test
@@ -39,8 +35,8 @@ fi
 
 current_context=$(kubectl config current-context)
 # shellcheck disable=SC2154
-if [[ "${kube_environment_name}" == "multi" ]]; then
-  current_context="${central_cluster}"
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
+  current_context="${CENTRAL_CLUSTER}"
   kubectl config set-context "${current_context}" "--namespace=${NAMESPACE}" &>/dev/null || true
   kubectl config use-context "${current_context}"
   echo "Current context: ${current_context}, namespace=${NAMESPACE}"
@@ -80,11 +76,11 @@ timeout --foreground "${timeout_sec}" scripts/evergreen/e2e/single_e2e.sh || TES
 # Dump information from all clusters.
 # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
 # shellcheck disable=SC2154
-if [[ "${kube_environment_name:-}" = "multi" ]]; then
-    echo "Dumping diagnostics for context ${central_cluster}"
-    dump_all "${central_cluster}" || true
+if [[ "${KUBE_ENVIRONMENT_NAME:-}" = "multi" ]]; then
+    echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
+    dump_all "${CENTRAL_CLUSTER}" || true
 
-    for member_cluster in ${member_clusters}; do
+    for member_cluster in ${MEMBER_CLUSTERS}; do
       echo "Dumping diagnostics for context ${member_cluster}"
       dump_all "${member_cluster}" || true
     done
@@ -93,28 +89,31 @@ else
     dump_all || true
 fi
 
-if [[ "${TEST_RESULTS}" -ne 0 ]]; then
-    # Mark namespace as failed to be cleaned later
-    kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
+# we only have static cluster in openshift, otherwise there is no need to mark and clean them up here
+if [[ ${CLUSTER_TYPE} == "openshift" ]]; then
+  if [[ "${TEST_RESULTS}" -ne 0 ]]; then
+      # Mark namespace as failed to be cleaned later
+      kubectl label "namespace/${NAMESPACE}" "evg/state=failed" --overwrite=true
 
-    if [ "${always_remove_testing_namespace-}" = "true" ]; then
-        # Failed namespaces might cascade into more failures if the namespaces
-        # are not being removed soon enough.
-        scripts/evergreen/e2e/teardown.sh "$(kubectl config current-context)" || true
-    fi
-else
-    if [[ "${kube_environment_name}" = "multi" ]]; then
-        echo "Tearing down cluster ${central_cluster}"
-        scripts/evergreen/e2e/teardown.sh "${central_cluster}" || true
+      if [ "${ALWAYS_REMOVE_TESTING_NAMESPACE-}" = "true" ]; then
+          # Failed namespaces might cascade into more failures if the namespaces
+          # are not being removed soon enough.
+          reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
+      fi
+  else
+      if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
+          echo "Tearing down cluster ${CENTRAL_CLUSTER}"
+          reset_namespace "${CENTRAL_CLUSTER}" "${NAMESPACE}" || true
 
-        for member_cluster in ${member_clusters}; do
-            echo "Tearing down cluster ${member_cluster}"
-            scripts/evergreen/e2e/teardown.sh "${member_cluster}" || true
-        done
-    else
-        # If the test pass, then the namespace is removed
-        scripts/evergreen/e2e/teardown.sh "$(kubectl config current-context)" || true
-    fi
+          for member_cluster in ${MEMBER_CLUSTERS}; do
+              echo "Tearing down cluster ${member_cluster}"
+              reset_namespace "${member_cluster}" "${NAMESPACE}" || true
+          done
+      else
+          # If the test pass, then the namespace is removed
+          reset_namespace "$(kubectl config current-context)" "${NAMESPACE}" || true
+      fi
+  fi
 fi
 
 # We exit with the test result to surface status to Evergreen.

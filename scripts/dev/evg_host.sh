@@ -35,62 +35,58 @@ kubeconfig_path="$HOME/.operator-dev/evg-host.kubeconfig"
 
 configure() {
   echo "Configuring ${host_url}..."
-  ssh -T -q "${host_url}" "mkdir -p ~/multi_cluster/tools; mkdir -p ~/scripts/dev; sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
+  ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "$HOME/.docker/config.json" ]]; then
     scp "$HOME/.docker/config.json" "${host_url}:/home/ubuntu/.docker/"
   fi
 
-  scp -r multi_cluster/tools "${host_url}:~/multi_cluster/"
-  scp -r scripts/dev "${host_url}:~/scripts/"
+  sync
 
-  ssh -T -q "${host_url}" <<"EOF"
-cd ~
-
-chmod +x ~/scripts/dev/*.sh
-chmod +x ~/multi_cluster/tools/*.sh
-
-echo "Increasing fs.inotify.max_user_instances"
-sudo sysctl -w fs.inotify.max_user_instances=8192
-
-download_kind() {
-  echo "Downloading kind..."
-  curl -s -o ./kind -L https://kind.sigs.k8s.io/dl/v0.19.0/kind-linux-amd64
-  chmod +x ./kind
-  sudo mv ./kind /usr/local/bin/kind
+  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; make switch context=root-context; scripts/dev/setup_evg_host.sh"
 }
 
-download_curl() {
-  echo "Downloading curl..."
-  curl -s -o kubectl -L https://dl.k8s.io/release/"$(curl -L -s https://dl.k8s.io/release/stable.txt)"/bin/linux/amd64/kubectl
-  chmod +x kubectl
-  sudo mv kubectl /usr/local/bin/kubectl
+sync() {
+  rsync --verbose --archive --compress --human-readable --recursive --progress \
+  --delete --delete-excluded --max-size=1000000 --prune-empty-dirs \
+  -e ssh \
+  --include-from=.rsyncinclude \
+  --exclude-from=.gitignore \
+  --exclude-from=.rsyncignore \
+  ./ "${host_url}:/home/ubuntu/ops-manager-kubernetes/"
+
+  rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
+    --max-size=1000000 \
+    -e ssh \
+    ~/.operator-dev/ \
+    "${host_url}:/home/ubuntu/.operator-dev" &
+
+  wait
 }
 
-download_helm() {
-  echo "Downloading helm..."
-  curl -s -o helm.tar.gz -L https://get.helm.sh/helm-v3.10.3-linux-amd64.tar.gz
-  tar -xf helm.tar.gz &2>/dev/null
-  sudo mv linux-amd64/helm /usr/local/bin/helm
-  rm helm.tar.gz
-  rm -rf linux-amd64/
-}
-download_kind &
-download_curl &
-download_helm &
-wait
+remote-prepare-local-e2e-run() {
+  set -x
+  sync
+  cmd make switch context=appdb-multi
+  cmd scripts/dev/prepare_local_e2e_run.sh
+  rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
+    --max-size=1000000 \
+    -e ssh \
+    "${host_url}:/home/ubuntu/ops-manager-kubernetes/.multi_cluster_local_test_files" \
+    ./ &
+  scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
-EOF
+  wait
 }
 
 get-kubeconfig() {
-    scp "${host_url}:/home/ubuntu/.kube/config" "${kubeconfig_path}"
+    scp "${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig" "${kubeconfig_path}"
 }
 
 recreate-kind-clusters() {
   configure
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "~/scripts/dev/recreate_kind_clusters.sh"
+  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/recreate_kind_clusters.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -100,7 +96,7 @@ recreate-kind-cluster() {
   cluster_name=$1
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
-  ssh -T "${host_url}" "~/scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  ssh -T "${host_url}" "cd ~/ops-manager-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -130,6 +126,22 @@ ssh_to_host() {
   ssh "$@" "${host_url}"
 }
 
+upload-my-ssh-private-key() {
+    ssh -T -q "${host_url}" "mkdir -p ~/.ssh"
+    scp "$HOME/.ssh/id_rsa" "${host_url}:/home/ubuntu/.ssh/id_rsa"
+    scp "$HOME/.ssh/id_rsa.pub" "${host_url}:/home/ubuntu/.ssh/id_rsa.pub"
+    ssh -T -q "${host_url}" "chmod 700 ~/.ssh && chown -R ubuntu:ubuntu ~/.ssh"
+}
+
+cmd() {
+  if [[ "$1" == "cmd" ]]; then
+    shift 1
+  fi
+
+  cmd="cd ~/ops-manager-kubernetes; $*"
+  ssh -T -q "${host_url}" "$cmd"
+}
+
 usage() {
   echo "USAGE:
   evg_host.sh <command>
@@ -141,12 +153,16 @@ PREREQUISITES:
   - VPN connection
 
 COMMANDS:
-  configure                 installs on a host: required software, copies scripts
-  recreate-kind-clusters    executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
-  get-kubeconfig            copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
-  tunnel                    creates ssh session with tunneling to all API servers
-  ssh [args]                creates ssh session passing optional arguments to ssh
-  help                      this message
+  configure                             installs on a host: calls sync, switches context, installs necessary software
+  sync                                  rsync of project directory
+  recreate-kind-clusters                executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
+  recreate-kind-clusters test-cluster   executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
+  get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
+  tunnel                                creates ssh session with tunneling to all API servers
+  ssh [args]                            creates ssh session passing optional arguments to ssh
+  cmd [command with args]               execute command as if being on evg host
+  upload-my-ssh-private-key             uploads your ssh keys (~/.ssh/id_rsa) to evergreen host
+  help                                  this message
 "
 }
 
@@ -155,8 +171,12 @@ configure) configure ;;
 recreate-kind-clusters) recreate-kind-clusters ;;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
+remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
 tunnel) tunnel ;;
+sync) sync ;;
+cmd) cmd "$@" ;;
+upload-my-ssh-private-key) upload-my-ssh-private-key ;;
 help) usage ;;
 *) usage ;;
 esac

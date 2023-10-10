@@ -3,6 +3,8 @@
 set -Eeou pipefail
 set -x
 
+source scripts/dev/set_env_context.sh
+
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then
   git_last_changed=$(git diff --cached --name-only --diff-filter=ACM)
 else
@@ -34,13 +36,13 @@ function generate_standalone_yaml() {
 
 function black_formatting() {
   # installing Black
-  if ! command -v "black" >/dev/null; then
-    pip3 install -r docker/mongodb-enterprise-tests/requirements-dev.txt
+  if [ -f "${workdir}"/venv/bin/black ]; then
+    "${workdir}"/venv/bin/pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt
   fi
 
   # Black formatting of every python file that was changed
   for file in $(echo "$git_last_changed" | grep '\.py$'); do
-    black -q "$file"
+    "${workdir}"/venv/bin/black -q "$file"
     git add "$file"
   done
 }

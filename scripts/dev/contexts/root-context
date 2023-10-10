@@ -1,0 +1,102 @@
+#!/bin/bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+# shellcheck disable=SC1091
+source "$script_dir/private-context"
+
+export PROJECT_DIR="$PWD"
+export IMAGE_TYPE=ubi
+export UBI_IMAGE_WITHOUT_SUFFIX=true
+export WATCH_NAMESPACE=$NAMESPACE
+
+#
+# changing variables below should not be necessary
+#
+
+# these are fixed when using scripts/dev/recreate_kind_clusters.sh
+export TEST_POD_CLUSTER="$CLUSTER_NAME"
+
+export MEMBER_CLUSTERS=${MEMBER_CLUSTERS-"kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"}
+export CENTRAL_CLUSTER="${CLUSTER_NAME}"
+export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
+export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-enterprise-tests/multi-cluster-kube-config-creator
+
+# override for /etc/config/kubeconfig file mounted in operator's pod
+if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
+  export KUBE_CONFIG_PATH=~/.operator-dev/evg-host.kubeconfig
+  export PERFORM_FAILOVER=false
+fi
+
+export OPERATOR_ENV="dev"
+export OPERATOR_REGISTRY=${BASE_REPO_URL}/${IMAGE_TYPE}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${IMAGE_TYPE}}
+
+export QUAY_REGISTRY=quay.io/mongodb
+
+# Appending image type (ubuntu/ubi) to the registry url (unless it's already appended)
+export REPO_URL=${BASE_REPO_URL}/${IMAGE_TYPE}
+export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY-"${REPO_URL}"}
+export INIT_APPDB_VERSION=latest
+export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${REPO_URL}"}
+export INIT_OPS_MANAGER_VERSION=latest
+export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${REPO_URL}"}
+export INIT_DATABASE_VERSION=latest
+export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"quay.io/mongodb"}
+export DATABASE_VERSION=latest
+export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
+export APPDB_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
+export OPS_MANAGER_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-ops-manager"
+
+export AGENT_VERSION=12.0.4.7554-1
+# these are needed to deploy OM
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
+export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager"
+export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
+export AGENT_IMAGE=quay.io/mongodb/mongodb-agent-ubi:${AGENT_VERSION}
+export MONGODB_IMAGE=mongodb-enterprise-server
+export MONGODB_REPO_URL=quay.io/mongodb
+
+# values from .evergreen.yml
+export CUSTOM_OM_PREV_VERSION=5.0.1
+export CUSTOM_MDB_VERSION=5.0.5
+export CUSTOM_MDB_PREV_VERSION="5.0.1"
+
+# Ops Manager
+export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
+
+# Moved from the old set_env_context.sh
+export LOCAL_RUN=true
+# version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
+# for local run
+version_id=${version_id-"latest"}
+if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
+  version_id="${OVERRIDE_VERSION_ID}"
+fi
+export version_id
+export VERSION_ID="$version_id"
+
+export KUBE_ENVIRONMENT_NAME=kind
+
+# when using EVG ec2 instance, we copy kubeconfig locally and use it
+if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
+  KUBECONFIG=~/.operator-dev/evg-host.kubeconfig
+else
+  KUBECONFIG=~/.kube/config
+fi
+export KUBECONFIG
+# Passed by the switch_context.sh
+export CONTEXT="${context:-"unknown"}"
+
+if [[ "$(uname)" == "Linux" ]]; then
+  export GOROOT=/opt/golang/go1.21
+fi
+
+

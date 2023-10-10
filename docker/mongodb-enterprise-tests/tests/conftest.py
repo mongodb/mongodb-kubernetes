@@ -167,7 +167,7 @@ def evergreen_task_id() -> str:
 
 
 def get_evergreen_task_id():
-    return os.environ.get("TASK_ID", "")
+    return os.environ.get("task_id", "")
 
 
 @fixture(scope="module")

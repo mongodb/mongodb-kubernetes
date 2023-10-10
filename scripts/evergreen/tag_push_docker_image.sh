@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+source scripts/dev/set_env_context.sh
+
 # Evaluates a string passed as argument.
 function evaluate {
     val="${1}"

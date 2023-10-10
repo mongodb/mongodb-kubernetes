@@ -15,16 +15,6 @@ source scripts/funcs/operator_deployment
 
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
 
-if [[ "${IMAGE_TYPE}" = "ubi" ]]; then
-    if [[ "${OPS_MANAGER_REGISTRY}" == quay.io* ]]; then
-      OPS_MANAGER_NAME=mongodb-enterprise-ops-manager-ubi
-    fi
-    # shellcheck disable=SC2153
-    if [[ "${DATABASE_REGISTRY}" == quay.io* ]]; then
-      DATABASE_NAME=mongodb-enterprise-database-ubi
-    fi
-fi
-
 
 deploy_test_app() {
     printenv
@@ -32,7 +22,7 @@ deploy_test_app() {
     local context=${1}
     local helm_template_file
     helm_template_file=$(mktemp)
-    tag="${version_id:-latest}"
+    tag="${VERSION_ID:-latest}"
     if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
       tag="${OVERRIDE_VERSION_ID}"
     fi
@@ -55,38 +45,42 @@ deploy_test_app() {
         "--set" "imageType=${IMAGE_TYPE}"
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
-        "--set" "registry=${BASE_REPO_URL:-268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${IMAGE_TYPE}}"
+        "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
     )
 
     # shellcheck disable=SC2154
-    if [[ ${kube_environment_name} = "multi" ]]; then
-        helm_params+=("--set" "multiCluster.memberClusters=${member_clusters}")
-        helm_params+=("--set" "multiCluster.centralCluster=${central_cluster}")
+    if [[ ${KUBE_ENVIRONMENT_NAME} = "multi" ]]; then
+        helm_params+=("--set" "multiCluster.memberClusters=${MEMBER_CLUSTERS}")
+        helm_params+=("--set" "multiCluster.centralCluster=${CENTRAL_CLUSTER}")
         helm_params+=("--set" "multiCluster.testPodCluster=${test_pod_cluster}")
     fi
 
-    if [[ -n "${custom_om_version:-}" ]]; then
+    if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
         # The test needs to create an OM resource with specific version
-        helm_params+=("--set" "customOmVersion=${custom_om_version}")
+        helm_params+=("--set" "customOmVersion=${CUSTOM_OM_VERSION}")
     fi
-    if [[ -n "${custom_om_prev_version:-}" ]]; then
+    if [[ -n "${CUSTOM_OM_PREV_VERSION:-}" ]]; then
         # The test needs to create an OM resource with specific version
-        helm_params+=("--set" "customOmPrevVersion=${custom_om_prev_version}")
+        helm_params+=("--set" "customOmPrevVersion=${CUSTOM_OM_PREV_VERSION}")
     fi
-    if [[ -n "${custom_mdb_version:-}" ]]; then
+    if [[ -n "${CUSTOM_MDB_VERSION:-}" ]]; then
         # The test needs to test MongoDB of a specific version
-        helm_params+=("--set" "customOmMdbVersion=${custom_mdb_version}")
+        helm_params+=("--set" "customOmMdbVersion=${CUSTOM_MDB_VERSION}")
     fi
-    if [[ -n "${custom_mdb_prev_version:-}" ]]; then
+    if [[ -n "${CUSTOM_MDB_PREV_VERSION:-}" ]]; then
         # The test needs to test MongoDB of a previous version
-        helm_params+=("--set" "customOmMdbPrevVersion=${custom_mdb_prev_version}")
+        helm_params+=("--set" "customOmMdbPrevVersion=${CUSTOM_MDB_PREV_VERSION}")
     fi
-    if [[ -n "${custom_appdb_version:-}" ]]; then
-        helm_params+=("--set" "customAppDbVersion=${custom_appdb_version}")
+    if [[ -n "${CUSTOM_APPDB_VERSION:-}" ]]; then
+        helm_params+=("--set" "customAppDbVersion=${CUSTOM_APPDB_VERSION}")
     fi
 
     if [[ -n "${GITHUB_TOKEN_READ:-}" ]]; then
         helm_params+=("--set" "githubToken=${GITHUB_TOKEN_READ}")
+    fi
+
+    if [[ "$LOCAL_OPERATOR" == true ]]; then
+        helm_params+=("--set" "localOperator=true")
     fi
 
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
@@ -136,8 +130,8 @@ run_tests() {
     operator_container_name="mongodb-enterprise-operator"
 
     test_pod_context="${operator_context}"
-    if [[ "${kube_environment_name}" = "multi" ]]; then
-        operator_context="${central_cluster}"
+    if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
+        operator_context="${CENTRAL_CLUSTER}"
          operator_container_name="mongodb-enterprise-operator-multi-cluster"
         # shellcheck disable=SC2154,SC2269
         test_pod_context="${test_pod_cluster:-$operator_context}"
@@ -148,7 +142,7 @@ run_tests() {
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 
-    if [[ "${kube_environment_name}" = "multi" ]]; then
+    if [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" ]]; then
         configure_multi_cluster_environment
     fi
 

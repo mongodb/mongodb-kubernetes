@@ -3,6 +3,7 @@
 # This file is a condition script used for conditionally executing evergreen task for generating openshift bundles (prepare_and_upload_openshift_bundles).
 
 set -Eeou pipefail
+source scripts/dev/set_env_context.sh
 
 check_file_exists() {
   url=$1

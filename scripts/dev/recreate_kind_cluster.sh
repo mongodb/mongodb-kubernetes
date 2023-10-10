@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+set -Eeou pipefail
+
+source scripts/dev/set_env_context.sh
+
 cluster_name=$1
 if [[ -z ${cluster_name} ]]; then
   echo "Usage: recreate_kind_cluster.sh <cluster_name>"

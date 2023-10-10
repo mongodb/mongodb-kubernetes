@@ -13,11 +13,9 @@ usage:
 	@ echo
 	@ echo "Usage:"
 	@ echo "  prerequisites:                  installs the command line applications necessary for working with this tool and adds git pre-commit hook."
-	@ echo "  init:                           prepares operator environment."
 	@ echo "  switch:                         switch current dev context, e.g 'make switch context=kops'. Note, that it switches"
 	@ echo "                                  kubectl context as well and sets the current namespace to the one configured as the default"
 	@ echo "                                  one"
-	@ echo "  contexts:                       list all available contexts"
 	@ echo "  operator:                       build and push Operator image, deploy it to the Kubernetes cluster"
 	@ echo "                                  Use the 'debug' flag to build and deploy the Operator in debug mode - you need"
 	@ echo "                                  to ensure the 30042 port on the K8s node is open"
@@ -39,7 +37,7 @@ usage:
 	@ echo "                                  Use a 'local=true' to run the test locally using 'pytest'."
 	@ echo "                                  Use a 'skip=true' to skip cleaning resources (this may help developing long-running tests like for Ops Manager)"
 	@ echo "                                  Sometimes you may need to pass some custom configuration, this can be done this way:"
-	@ echo "                                  make e2e test=e2e_om_ops_manager_upgrade custom_om_version=4.2.8"
+	@ echo "                                  make e2e test=e2e_om_ops_manager_upgrade CUSTOM_OM_VERSION=4.2.8"
 	@ echo "  recreate-e2e-kops:              deletes and creates a specified e2e cluster 'cluster' using kops (note, that you don't need to switch to the correct"
 	@ echo "                                  kubectl context - the script will handle everything). Pass the flag 'imsure=yes' to make it work."
 	@ echo "                                  Pass 'cluster' parameter for a cluster name if it's different from default ('e2e.mongokubernetes.com')"
@@ -58,19 +56,8 @@ usage:
 prerequisites:
 	@ scripts/dev/install.sh
 
-# prepare default configuration context files
-init:
-	@ mkdir -p ~/.operator-dev/contexts
-	@ cp -n scripts/dev/samples/* ~/.operator-dev/contexts || true
-	@ echo "Initialized dev environment (~/.operator-dev)"
-	@ make switch context=dev
-
 switch:
 	@ scripts/dev/switch_context.sh $(context)
-
-# prints all current contexts
-contexts:
-	@ scripts/dev/print_contexts
 
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
@@ -79,21 +66,16 @@ operator: configure-operator build-and-push-operator-image
 
 # build-push, (todo) restart database
 database: aws_login
-	@ ./pipeline.py --include database
+	@ scripts/evergreen/run_pipelinepy.sh --include database
 
 # ensures cluster is up, cleans Kubernetes + OM, build-push-deploy operator,
 # push-deploy database, create secrets, config map, resources etc
-full: ensure-k8s-and-reset build-and-push-images
+full: build-and-push-images
 	@ $(MAKE) deploy-and-configure-operator
-	@ scripts/dev/apply_resources
 
 # build-push appdb image
 appdb: aws_login
-	@ ./pipeline.py --include appdb
-
-log:
-	@ . scripts/dev/read_context.sh
-	@ kubectl logs -f deployment/mongodb-enterprise-operator --tail=1000
+	@ scripts/evergreen/run_pipelinepy.sh --include appdb
 
 # runs the e2e test: make e2e test=e2e_sharded_cluster_pv. The Operator is redeployed before the test, the namespace is cleaned.
 # The e2e test image is built and pushed together with all main ones (operator, database, init containers)
@@ -113,11 +95,6 @@ e2e-telepresence: build-and-push-test-image
 # deletes and creates a kops e2e cluster
 recreate-e2e-kops:
 	@ scripts/dev/recreate_e2e_kops.sh $(imsure) $(cluster)
-
-# TODO: Automate this process
-# deletes and creates a openshift e2e cluster
-recreate-e2e-openshift:
-	@ echo "Please follow instructions in docs/openshift4.md to install the Openshift4 cluster."
 
 # clean all kubernetes cluster resources and OM state. "light=true" to clean only Mongodb resources
 reset:
@@ -142,21 +119,21 @@ ac:
 # in parallel and both call 'aws_login') then Docker login may return an error "Error saving credentials:..The
 # specified item already exists in the keychain". Seems this allows to ignore the error
 aws_login:
-	@ . scripts/dev/set_env_context.sh; scripts/dev/configure_docker_auth.sh
+	@ scripts/dev/configure_docker_auth.sh
 
 # cleans up aws resources, including s3 buckets which are older than 5 hours
 aws_cleanup:
 	@ scripts/evergreen/prepare_aws.sh
 
 build-and-push-operator-image: aws_login
-	@ ./pipeline.py --include operator-quick
+	@ scripts/evergreen/run_pipelinepy.sh --include operator-quick
 
 build-and-push-database-image: aws_login
 	@ scripts/dev/build_push_database_image
 
 build-and-push-test-image: aws_login build-multi-cluster-binary
 	@ if [[ -z "$(local)" ]]; then \
-		./pipeline.py --include test; \
+		scripts/evergreen/run_pipelinepy.sh --include test; \
 	fi
 
 build-multi-cluster-binary:
@@ -168,13 +145,13 @@ build-and-push-images: build-and-push-operator-image appdb-init-image om-init-im
 	@ $(MAKE) database-init-image
 
 database-init-image:
-	@ ./pipeline.py --include init-database
+	@ scripts/evergreen/run_pipelinepy.sh --include init-database
 
 appdb-init-image:
-	@ ./pipeline.py --include init-appdb
+	@ scripts/evergreen/run_pipelinepy.sh --include init-appdb
 
 om-init-image:
-	@ ./pipeline.py --include init-ops-manager
+	@ scripts/evergreen/run_pipelinepy.sh --include init-ops-manager
 
 deploy-operator:
 	@ scripts/dev/deploy_operator.sh $(debug)
@@ -184,18 +161,12 @@ configure-operator:
 
 deploy-and-configure-operator: deploy-operator configure-operator
 
-ensure-k8s:
-	@ scripts/dev/ensure_k8s.sh
-
 cert:
 	@ openssl req  -nodes -new -x509  -keyout ca-tls.key -out ca-tls.crt -extensions v3_ca -days 3650
 	@ mv ca-tls.key ca-tls.crt docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/
 	@ cat docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls.crt \
 	docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/mongodb-download.crt \
 	> docker/mongodb-enterprise-tests/tests/opsmanager/fixtures/ca-tls-full-chain.crt
-
-ensure-k8s-and-reset: ensure-k8s
-	@ $(MAKE) reset
 
 .PHONY: recreate-e2e-multicluster-kind
 recreate-e2e-multicluster-kind:
@@ -288,7 +259,7 @@ undeploy:
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
+	export PATH=$(PATH); export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role paths=./... output:crd:artifacts:config=config/crd/bases
 	# copy the CRDs to the public folder
 	cp config/crd/bases/* helm_chart/crds/
 	cat "helm_chart/crds/"* > public/crds.yaml

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
-set -x
+
+source scripts/dev/set_env_context.sh
 
 INSTALL_DIR="${workdir:?}/.local/lib/aws"
 BIN_LOCATION="${workdir}/bin"

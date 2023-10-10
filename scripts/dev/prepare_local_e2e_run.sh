@@ -7,15 +7,23 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
-echo "Resetting"
-scripts/dev/reset.sh
+if [[ "$(uname)" == "Linux" ]]; then
+  export PATH=/opt/golang/go1.21/bin:${PATH}
+  export GOROOT=/opt/golang/go1.21
+fi
+
+if [[ "${RESET:-"true"}" == "true" ]]; then
+  echo "Resetting"
+  scripts/dev/reset.sh
+fi
+
+echo "Ensuring namespace ${NAMESPACE}"
+ensure_namespace "${NAMESPACE}"
 
 echo "Deleting ~/.docker/.config.json and re-creating it"
 rm ~/.docker/config.json || true
 scripts/dev/configure_docker_auth.sh
 
-echo "Ensuring namespace ${NAMESPACE}"
-ensure_namespace "${NAMESPACE}"
 
 echo "Configuring operator"
 scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator: "
@@ -27,7 +35,7 @@ rm -rf docker/mongodb-enterprise-tests/helm_chart
 cp -r helm_chart docker/mongodb-enterprise-tests/helm_chart
 
 # shellcheck disable=SC2154
-if [[ "${kube_environment_name}" == "multi" ]]; then
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   prepare_multi_cluster_e2e_run 2>&1 | prepend "prepare_multi_cluster_e2e_run"
   run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
 fi
@@ -45,7 +53,7 @@ if [[ "$LOCAL_OPERATOR" == true ]]; then
 fi
 
 
-if [[ "$kube_environment_name" == "kind" ]]; then
+if [[ "$KUBE_ENVIRONMENT_NAME" == "kind" ]]; then
   helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator --set "$(echo "$helm_values" | tr ' ' ',')"
 
   echo "patching all default sa with imagePullSecrets to ensure we can deploy without setting it for each pod"
