@@ -20,7 +20,6 @@ export WATCH_NAMESPACE=$NAMESPACE
 # these are fixed when using scripts/dev/recreate_kind_clusters.sh
 export TEST_POD_CLUSTER="$CLUSTER_NAME"
 
-export MEMBER_CLUSTERS=${MEMBER_CLUSTERS-"kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"}
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
 export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
