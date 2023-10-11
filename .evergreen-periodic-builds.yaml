@@ -104,7 +104,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        command:command: scripts/evergreen/setup_prepare_openshift_bundles.sh
+        command: scripts/evergreen/setup_prepare_openshift_bundles.sh
 
   preflight_image:
     - command: subprocess.exec
@@ -125,14 +125,14 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        command:binary: scripts/evergreen/setup_aws.sh
+        binary: scripts/evergreen/setup_aws.sh
     - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        command:binary: scripts/dev/configure_docker_auth.sh
+        binary: scripts/dev/configure_docker_auth.sh
     - command: subprocess.exec
       type: setup
       params:
@@ -141,7 +141,7 @@ functions:
   build_and_push_appdb_database:
     - command: subprocess.exec
       params:
-        command:working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
+        working_dir: src/github.com/10gen/ops-manager-kubernetes/docker/mongodb-enterprise-appdb-database
         binary: ./build_and_push_appdb_database_images.sh
         add_to_path:
           - ${workdir}/bin
@@ -154,7 +154,6 @@ functions:
       type: setup
       params:
         shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
         env:
           IS_PATCH: ${is_patch}
         include_expansions_in_env:
@@ -164,8 +163,8 @@ functions:
           - pin_tag_at
         add_to_path:
           - ${workdir}/bin
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      binary: scripts/evergreen/run_pipelinepy.sh --include ${image_name}
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/run_pipelinepy.sh --include ${image_name}
 
 
   # Updates current expansions with variables from release.json file.
@@ -200,7 +199,7 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
           - ${workdir}/bin
-        command:command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
+        command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 
   # This is a generic function for conditionally running given task.
   # It works by appending <task> to <variant> if <condition_script> returns no error.
