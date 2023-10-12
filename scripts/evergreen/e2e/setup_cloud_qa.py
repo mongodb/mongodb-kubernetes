@@ -318,7 +318,7 @@ def clean_unused_projects(org_id: str):
         remove_group_by_id(project["id"])
 
 
-def unconfigure():
+def unconfigure_all():
     """Tries to remove the project and API Key from Cloud-QA"""
     env_file_exists = True
     try:
@@ -355,6 +355,40 @@ def unconfigure():
     clean_unused_keys(org)
 
 
+def unconfigure_from_used_project():
+    """Tries to remove the project and API Key from Cloud-QA"""
+    env_file_exists = True
+    try:
+        env = read_env_file()
+    except Exception as e:
+        print("Got an exception trying to read env-file", e)
+        env_file_exists = False
+
+    namespace = None
+    try:
+        namespace = read_namespace()
+    except Exception as e:
+        print("Got an exception trying to read namespace", e)
+
+    # The "group" needs to be removed using the user's API credentials
+    if namespace is not None:
+        print("Got namespace:", namespace)
+        try:
+            remove_group_by_name(namespace)
+        except Exception as e:
+            print("Got an exception trying to remove group", e)
+
+    org = os.getenv(ORG_ID)
+
+    # The API Key needs to be removed using the Owner's API credentials
+    if env_file_exists:
+        key_id = env["OM_KEY_ID"]
+        try:
+            delete_api_key(org, key_id)
+        except Exception as e:
+            print("Got an exception trying to remove Api Key", e)
+
+
 def argv_error() -> int:
     print("This script can only be called with create or delete")
     return 1
@@ -386,10 +420,13 @@ def main() -> int:
         return argv_error()
     if sys.argv[1] == "delete":
         print("Removing project and api key from Cloud QA")
-        unconfigure()
+        unconfigure_from_used_project()
     elif sys.argv[1] == "create":
         print("Configuring Cloud QA")
         configure()
+    elif sys.argv[1] == "delete_all":
+        print("Removing all project and api key from Cloud QA which are older than X")
+        unconfigure_all()
     else:
         return argv_error()
     return 0
