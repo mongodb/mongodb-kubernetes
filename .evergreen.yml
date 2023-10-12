@@ -40,7 +40,6 @@ parameters:
   value: ""
   description: "Patch id to reuse images from other Evergreen build"
 
-
 functions:
   setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
     command: shell.exec
@@ -106,14 +105,14 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+      binary: scripts/evergreen/run_python.sh -m pip install -r requirements.txt --quiet --no-warn-script-location
 
   python_dev_requirements: &python_dev_requirements
     command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt --quiet --no-warn-script-location
+      binary: scripts/evergreen/run_python.sh -m pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt --quiet --no-warn-script-location
 
   setup_preflight:
   - command: subprocess.exec
@@ -131,7 +130,7 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt
+      binary: scripts/evergreen/run_python.sh -m pip install -r requirements.txt
 
   preflight_image:
   - *switch_context
@@ -145,7 +144,7 @@ functions:
       - rh_pyxis
       script: |
         source .generated/context.export.env
-        ${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
+        scripts/evergreen/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
 
   pipeline:
   - *python_venv
@@ -162,7 +161,7 @@ functions:
         - skip_tags
         - distro
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      binary: scripts/evergreen/run_pipelinepy.sh --include ${image_name}
+      binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name}
 
 
   upload_dockerfiles:
@@ -441,7 +440,7 @@ functions:
       add_to_path:
       - ${workdir}/bin
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: "${workdir}/venv/bin/python scripts/update_supported_dockerfiles.py"
+      binary: scripts/evergreen/run_python.sh scripts/update_supported_dockerfiles.py
   - command: subprocess.exec
     type: setup
     params:
