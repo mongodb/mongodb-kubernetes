@@ -345,7 +345,6 @@ functions:
       script: |
         source .generated/context.export.env
         scripts/evergreen/e2e/setup_cloud_qa.py create
-  - *switch_context
 
   teardown_cloud_qa:
   - command: shell.exec
@@ -1912,7 +1911,6 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
-
 - name: e2e_multi_cluster_om_appdb_task_group
   max_hosts: 30
   setup_group:
@@ -2051,6 +2049,7 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
+
 # Tests features only supported on OM60
 - name: e2e_ops_manager_kind_6_0_only_task_group
   max_hosts: 3
@@ -2090,7 +2089,6 @@ task_groups:
   teardown_group:
     - func: prune_docker_resources
     - func: run_retry_script
-
 
 # This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
 # it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means

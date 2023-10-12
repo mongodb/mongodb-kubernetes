@@ -170,6 +170,19 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name}
 
+  teardown_cloud_qa_all:
+    - *python_venv
+    - *python_requirements
+    - *switch_context
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          source .generated/context.export.env
+          scripts/evergreen/e2e/setup_cloud_qa.py delete_all
+
   # Updates current expansions with variables from release.json file.
   # Use e.g. ${mongoDbOperator} afterwards.
   update_evergreen_expansions:
@@ -418,6 +431,11 @@ tasks:
           variant: prepare_openshift_bundles
           task: prepare_and_upload_openshift_bundles
 
+  - name: teardowns
+    commands:
+      - func: clone
+      - func: teardown_cloud_qa_all
+
 task_groups:
   - name: periodic_build_task_group
     max_hosts: 5
@@ -439,7 +457,18 @@ task_groups:
     tasks:
       - preflight_images
 
+  - name: periodic_teardown_task_group
+    tasks:
+      - teardowns
+
 buildvariants:
+  - name: periodic_teardown
+    display_name: periodic_teardown
+    run_on:
+      - ubuntu1804-small
+    tasks:
+      - name: periodic_teardown_task_group
+
   - name: periodic_build
     display_name: periodic_build
     run_on:
