@@ -1,4 +1,3 @@
-
 variables:
   - &e2e_include_expansions_in_env
     include_expansions_in_env:
@@ -66,7 +65,7 @@ functions:
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      command: ${workdir}/venv/bin/python -m pip install -r requirements.txt --quiet --no-warn-script-location
+      command: scripts/evergreen/run_python.sh -m pip install -r requirements.txt --quiet --no-warn-script-location
 
   "clone":
     - command: subprocess.exec
@@ -87,7 +86,12 @@ functions:
         add_to_path:
           - ${workdir}/bin
         binary: scripts/evergreen/setup_preflight.sh
-    - *python_venv
+    # The python binary is in a different location for RHEL machines so we can't use the same process
+    # for creating the virtual environment.
+    - command: subprocess.exec
+      type: setup
+      params:
+        command: python3 -m venv --upgrade-deps ./venv
     - *python_requirements
 
   setup_prepare_openshift_bundles:
@@ -116,7 +120,7 @@ functions:
           - image_version
           - project_id
           - rh_pyxis
-        command: "${workdir}/venv/bin/python scripts/preflight_images.py --image ${image_name} --submit ${preflight_submit}"
+        command: "scripts/evergreen/run_python.sh scripts/preflight_images.py --image ${image_name} --submit ${preflight_submit}"
 
   configure_docker_auth:
     - command: subprocess.exec
@@ -164,8 +168,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        binary: scripts/evergreen/run_pipelinepy.sh --include ${image_name}
-
+        binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name}
 
   # Updates current expansions with variables from release.json file.
   # Use e.g. ${mongoDbOperator} afterwards.
@@ -507,4 +510,3 @@ buildvariants:
       - ubuntu2204-small
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
-

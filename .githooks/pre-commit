@@ -4,6 +4,9 @@ set -Eeou pipefail
 set -x
 
 source scripts/dev/set_env_context.sh
+if [ -f "${workdir}"/venv/bin/activate ]; then
+    source "${workdir}"/venv/bin/activate
+fi
 
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then
   git_last_changed=$(git diff --cached --name-only --diff-filter=ACM)
@@ -36,13 +39,13 @@ function generate_standalone_yaml() {
 
 function black_formatting() {
   # installing Black
-  if [ -f "${workdir}"/venv/bin/black ]; then
-    "${workdir}"/venv/bin/pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt
+  if ! command -v "black" >/dev/null ; then
+    pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt
   fi
 
   # Black formatting of every python file that was changed
   for file in $(echo "$git_last_changed" | grep '\.py$'); do
-    "${workdir}"/venv/bin/black -q "$file"
+    black -q "$file"
     git add "$file"
   done
 }
@@ -50,11 +53,7 @@ function black_formatting() {
 function update_values_yaml_files() {
   # ensure that all helm values files are up to date.
   # shellcheck disable=SC2154
-  if [[ -z "${workdir:-}" ]]; then
-    scripts/evergreen/release/update_helm_values_files.py
-  else
-    "${workdir}"/venv/bin/python scripts/evergreen/release/update_helm_values_files.py
-  fi
+  python scripts/evergreen/release/update_helm_values_files.py
 
   # commit any changes we made
   git add helm_chart/values.yaml
@@ -68,11 +67,7 @@ function update_values_yaml_files() {
 function update_release_json() {
   # ensure that release.json is up 2 date
   # shellcheck disable=SC2154
-  if [[ -z "${workdir:-}" ]]; then
-    scripts/evergreen/release/update_release.py
-  else
-    "${workdir}"/venv/bin/python scripts/evergreen/release/update_release.py
-  fi
+  python scripts/evergreen/release/update_release.py
 
   # commit any changes we made
   git add release.json

@@ -11,7 +11,7 @@ source "$script_dir/root-context"
 source "$script_dir/variables/om60"
 
 export KUBE_ENVIRONMENT_NAME=multi
-export CLUSTER_NAME="kind-e2e-operator"
+export CLUSTER_NAME="kind-e2e-cluster-1"
 export MEMBER_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
 export CENTRAL_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
