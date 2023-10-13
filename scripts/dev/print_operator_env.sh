@@ -4,28 +4,7 @@ set -Eeou pipefail
 
 # NOTE: these are the env vars which are required to run the operator, either via a pod or locally
 
-UBI_IMAGE_SUFFIX=""
-
-# some images here we set explicitly to quay here
-UBI_IMAGE_SUFFIX_QUAY=""
-
-# This is to set correct image names for ubuntu and ubi image types.
-# We publish official UBI images to quay by adding "-ubi" suffix to the image name, e.g.:
-#  ubuntu: quay.io/mongodb/mongodb-enterprise-init-database
-#  ubi:    quay.io/mongodb/mongodb-enterprise-init-database-ubi
-# But when we publish to our AWS dev registries we don't add suffixes to names, but publish them to:
-#  ubuntu: 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubuntu/mongodb-enterprise-init-database
-#  ubi:    268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/ubi/mongodb-enterprise-init-database
-if [[ "${IMAGE_TYPE}" == "ubi" ]]; then
-  UBI_IMAGE_SUFFIX_QUAY="-ubi"
-
-  if [[ "${UBI_IMAGE_WITHOUT_SUFFIX:-}" == "true" ]]; then
-    UBI_IMAGE_SUFFIX=""
-  else
-    UBI_IMAGE_SUFFIX="-ubi"
-  fi
-fi
-
+UBI_IMAGE_SUFFIX="-ubi"
 
 # Convert context variables to variables required by the operator binary
 function print_operator_env() {
@@ -50,7 +29,7 @@ IMAGE_PULL_SECRETS=\"image-registries-secret\""
 if [[ "${AGENT_IMAGE:-}" != "" ]]; then
   echo "AGENT_IMAGE=${AGENT_IMAGE}"
 else
-  echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX_QUAY}:${AGENT_VERSION:-}\""
+  echo "AGENT_IMAGE=\"quay.io/mongodb/mongodb-agent${UBI_IMAGE_SUFFIX}:${AGENT_VERSION:-}\""
 fi
 
 if [[ "${KUBECONFIG:-""}" != "" ]]; then
