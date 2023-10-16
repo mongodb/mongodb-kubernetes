@@ -26,6 +26,14 @@ Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
 }
 
 cmd=${1-""}
+ARCH=${2-"amd64"}
+
+echo "Configuring EVG host ${EVG_HOST_NAME} with architecture ${ARCH}"
+
+if [[ "${cmd}" == "configure" && "${ARCH}" != "amd64" && "${ARCH}" != "arm64" ]]; then
+  echo "'configure' command supports the following architectures: 'amd64', 'arm64'"
+  exit 1
+fi
 
 if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
@@ -42,7 +50,7 @@ configure() {
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; make switch context=root-context; scripts/dev/setup_evg_host.sh"
+  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; make switch context=root-context; scripts/dev/setup_evg_host.sh ${ARCH}"
 }
 
 sync() {
@@ -153,7 +161,7 @@ PREREQUISITES:
   - VPN connection
 
 COMMANDS:
-  configure                             installs on a host: calls sync, switches context, installs necessary software
+  configure <architecture>              installs on a host: calls sync, switches context, installs necessary software
   sync                                  rsync of project directory
   recreate-kind-clusters                executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
   recreate-kind-clusters test-cluster   executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig

@@ -45,6 +45,7 @@ class BuildConfiguration:
 
     builder: str = "docker"
     parallel: bool = False
+    architecture: Optional[List[str]] = None
 
     pipeline: bool = True
     debug: bool = True
@@ -91,7 +92,7 @@ def build_configuration_from_env() -> Dict[str, str]:
 
 
 def operator_build_configuration(
-    builder: str, parallel: bool, debug: bool
+    builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None
 ) -> BuildConfiguration:
     context = build_configuration_from_env()
 
@@ -106,6 +107,7 @@ def operator_build_configuration(
         builder=builder,
         parallel=parallel,
         debug=debug,
+        architecture=architecture,
     )
 
 
@@ -201,6 +203,69 @@ def copy_into_container(client, src, dst):
 
     with open(src + ".tar", "rb") as fd:
         container.put_archive(os.path.dirname(dst), fd.read())
+
+
+"""
+Generates docker manifests by running the following commands:
+1. Clear existing manifests
+docker manifest rm config.repo_url/image:tag
+2. Create the manifest
+docker manifest create config.repo_url/image:tag --amend config.repo_url/image:tag-amd64 --amend config.repo_url/image:tag-arm64
+3. Push the manifest
+docker manifest push config.repo_url/image:tag
+"""
+
+
+# This method calls docker directly on the command line, this is different from the rest of the code which uses
+# Sonar as an interface to docker. We decided to keep this asymmetry for now, as Sonar will be removed soon.
+
+
+def create_and_push_manifest(image: str, tag: str) -> None:
+    final_manifest = image + ":" + tag
+    args = ["docker", "manifest", "rm", final_manifest]
+    args_str = " ".join(args)
+    print(f"removing existing manifest: {args_str}")
+    subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    args = [
+        "docker",
+        "manifest",
+        "create",
+        final_manifest,
+        "--amend",
+        final_manifest + "-amd64",
+        "--amend",
+        final_manifest + "-arm64",
+    ]
+    args_str = " ".join(args)
+    print(f"creating new manifest: {args_str}")
+    cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if cp.returncode != 0:
+        raise Exception(cp.stderr)
+
+    args = ["docker", "manifest", "push", final_manifest]
+    args_str = " ".join(args)
+    print(f"pushing new manifest: {args_str}")
+    cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if cp.returncode != 0:
+        raise Exception(cp.stderr)
+
+
+"""
+Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
+
+:param str image: The image name and tag
+"""
+
+
+def check_multi_arch(image: str) -> bool:
+    client = docker.from_env()
+
+    reg_data = client.images.get_registry_data(image)
+
+    return reg_data.has_platform("linux/amd64") and reg_data.has_platform("linux/arm64")
 
 
 def sonar_build_image(
@@ -403,7 +468,7 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config("init-ops-manager"),
         image_config("operator"),
         image_config("ops-manager"),
-        image_config("mongodb-agent", name_prefix=""),
+        image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi"),
         image_config(
             image_name="mongodb-kubernetes-operator",
             name_prefix="",
@@ -427,6 +492,17 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
 
     images = {k: v for k, v in image_configs}
     return images[image_name]
+
+
+"""
+Starts the daily build process for an image. This function works for all images we support, for community and 
+enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
+Builds an image for each version listed in ./release.json
+The registry used to pull base image and output the daily build is configured in the image_config function, it is passed
+as an argument to the inventories/daily.yaml file.
+
+If the context image supports both ARM and AMD architectures, both will be built.
+"""
 
 
 def build_image_daily(
@@ -465,14 +541,62 @@ def build_image_daily(
 
             logger.info("Rebuilding {} with variants {}".format(version, variants))
             args["release_version"] = version
+
+            arch_set = set()
+            if build_configuration.architecture:
+                arch_set = set(build_configuration.architecture)
+
+            if arch_set == {"arm64"}:
+                raise ValueError("Building for ARM64 only is not supported yet")
+
             if version not in completed_versions:
-                sonar_build_image(
-                    "image-daily-build",
-                    build_configuration,
-                    args,
-                    inventory="inventories/daily.yaml",
-                )
-                completed_versions.add(version)
+                try:
+                    # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
+                    if check_multi_arch(
+                        args["quay_registry"]
+                        + args["ubi_suffix"]
+                        + ":"
+                        + args["release_version"]
+                        + "-"
+                        + "context"
+                    ) and (arch_set == {"amd64", "arm64"} or arch_set == set()):
+                        sonar_build_image(
+                            "image-daily-build-amd64",
+                            build_configuration,
+                            args,
+                            inventory="inventories/daily.yaml",
+                        )
+                        sonar_build_image(
+                            "image-daily-build-arm64",
+                            build_configuration,
+                            args,
+                            inventory="inventories/daily.yaml",
+                        )
+                        create_and_push_manifest(
+                            args["quay_registry"], args["release_version"]
+                        )
+                        create_and_push_manifest(
+                            args["quay_registry"],
+                            args["release_version"] + "-b" + args["build_id"],
+                        )
+                        create_and_push_manifest(
+                            args["ecr_registry_ubi"], args["release_version"]
+                        )
+                        create_and_push_manifest(
+                            args["ecr_registry_ubi"],
+                            args["release_version"] + "-b" + args["build_id"],
+                        )
+                    else:
+                        sonar_build_image(
+                            "image-daily-build",
+                            build_configuration,
+                            args,
+                            inventory="inventories/daily.yaml",
+                        )
+                    completed_versions.add(version)
+                except Exception as e:
+                    # Log error and continue
+                    logger.error(e)
 
     return inner
 
@@ -661,10 +785,16 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
 
 
 def build_all_images(
-    images: List[str], builder: str, debug: bool = False, parallel: bool = False
+    images: List[str],
+    builder: str,
+    debug: bool = False,
+    parallel: bool = False,
+    architecture: Optional[List[str]] = None,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(builder, parallel, debug)
+    build_configuration = operator_build_configuration(
+        builder, parallel, debug, architecture
+    )
 
     if parallel:
         raise NotImplemented(
@@ -721,18 +851,32 @@ def main():
     parser.add_argument("--list-images", action="store_true")
     parser.add_argument("--parallel", action="store_true", default=False)
     parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument(
+        "--arch",
+        choices=["amd64", "arm64"],
+        nargs="+",
+        help="for daily builds only, specify the list of architectures to build for images",
+    )
     args = parser.parse_args()
 
     if args.list_images:
         print(get_builder_function_for_image_name().keys())
         sys.exit(0)
 
+    if args.arch == ["arm64"]:
+        print("Building for arm64 only is not supported yet")
+        sys.exit(1)
+
     images_to_build = calculate_images_to_build(
         get_builder_function_for_image_name().keys(), args.include, args.exclude
     )
 
     build_all_images(
-        images_to_build, args.builder, debug=args.debug, parallel=args.parallel
+        images_to_build,
+        args.builder,
+        debug=args.debug,
+        parallel=args.parallel,
+        architecture=args.arch,
     )
 
 
