@@ -56,7 +56,7 @@ export APPDB_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
 export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
 
-export AGENT_VERSION=12.0.4.7554-1
+export AGENT_VERSION=12.0.25.7724-1
 # these are needed to deploy OM
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
 export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"

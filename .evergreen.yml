@@ -1670,7 +1670,7 @@ task_groups:
     - func: download_kube_tools
     - func: setup_shellcheck
   tasks:
-    # - lint_repo
+    - lint_repo
     - unit_tests
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
