@@ -26,6 +26,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	intp "github.com/10gen/ops-manager-kubernetes/pkg/util/int"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/timeutil"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/authentication/scram"
@@ -79,6 +80,13 @@ const (
 	// the hash of the Prometheus certificate. This is to avoid having to
 	// calculate and pass the Prometheus Cert Hash when it is not needed.
 	UnusedPrometheusConfiguration string = ""
+
+	// Used to convey to the operator to force reconfigure agent. At the moment
+	// it is used for DR in case of Multi-Cluster AppDB when after a cluster outage
+	// there is no primary in the AppDB deployment.
+	ForceReconfigureAnnotation = "mongodb.com/v1.forceReconfigure"
+
+	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
@@ -435,7 +443,9 @@ func getNextIndex(m map[string]int) int {
 }
 
 // shouldReconcileAppDB returns a boolean indicating whether or not the reconciliation for this set of processes should occur.
-func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(opsManager *omv1.MongoDBOpsManager,
+	log *zap.SugaredLogger) (bool, error) {
+
 	memberCluster := r.getMemberCluster(r.getNameOfFirstMemberCluster())
 	currentAc, err := automationconfig.ReadFromSecret(memberCluster.Client, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
@@ -635,6 +645,19 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Pending("Continuing scaling operation on AppDB %d", 1), log, appDbStatusOption, status.MembersOption(appDBScalers[0]))
 	}
 
+	// set the annotation to AppDB that forced reconfigure is performed to indicate to customers
+	if opsManager.Annotations == nil {
+		opsManager.Annotations = map[string]string{}
+	}
+	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == "true" {
+		annotationsToAdd := map[string]string{ForcedReconfigureAlreadyPerformedAnnotation: timeutil.Now()}
+
+		err := annotations.SetAnnotations(opsManager, annotationsToAdd, r.client)
+		if err != nil {
+			return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Failed to save force reconfigure annotation err: %s", err)), log, omStatusOption)
+		}
+	}
+
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	// FIXME: use correct MembersOption for scaler
@@ -686,6 +709,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(log *
 		return 0, workflow.Failed(xerrors.Errorf("Automation config versions have diverged: %+v", configVersions))
 	}
 
+	// at this point there is exactly one "configVersion", so we just return it
 	for configVersion := range configVersions {
 		return configVersion, workflow.OK()
 	}
@@ -728,6 +752,10 @@ func (r *ReconcileAppDbReplicaSet) needToPublishStateFirst(opsManager *omv1.Mong
 	if opsManager.IsChangingVersion() {
 		log.Info("Version change in progress, the StatefulSet must be updated first")
 		automationConfigFirst = false
+	}
+	// if we are performing a force reconfigure we should change the automation config first
+	if shouldPerformForcedReconfigure(opsManager.Annotations) {
+		automationConfigFirst = true
 	}
 
 	return automationConfigFirst
@@ -902,11 +930,14 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(opsManager *omv1.
 func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.MongoDBOpsManager, acType agentType, prometheusCertHash string, memberClusterName string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
+
 	auth := automationconfig.Auth{}
 	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: *opsManager}
+
 	if err := scram.Enable(&auth, r.SecretClient, &appDBConfigurable); err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
+
 	// the existing automation config is required as we compare it against what we build to determine
 	// if we need to increment the version.
 	secretName := rs.AutomationConfigSecretName()
@@ -918,10 +949,12 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.M
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
+
 	fcVersion := ""
 	if rs.FeatureCompatibilityVersion != nil {
 		fcVersion = *rs.FeatureCompatibilityVersion
 	}
+
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
 	var appdbSecretPath string
 	if r.VaultClient != nil {
@@ -937,7 +970,9 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.M
 		if err != nil {
 			log.Errorf("Could not enable Prometheus: %s", err)
 		}
+
 	}
+
 	// get member options from appDB spec
 	appDBSpec := opsManager.Spec.AppDB
 	memberOptions := appDBSpec.GetMemberOptions()
@@ -1029,7 +1064,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.M
 		builder.SetDomain(fmt.Sprintf("%s.svc.%s", opsManager.Namespace, opsManager.Spec.GetClusterDomain()))
 	}
 	ac, err := builder.Build()
-
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
@@ -1054,8 +1088,35 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.M
 		log.Debugf("Created automation config object (in-memory) for cluster=%s, total process count=%d, process hostnames=%+v, replicaset config=%+v", memberClusterName, replicasThisReconciliation, processHostnames, replicaSetMembers)
 	}
 
-	return ac, nil
+	// this is for force reconfigure. This sets "currentVersion: -1" in automation config
+	// when forceReconfig is triggered.
+	if acType == automation {
+		if shouldPerformForcedReconfigure(opsManager.Annotations) {
+			log.Debug("Performing forced reconfigure of AppDB")
+			builder.SetForceReconfigureToVersion(-1)
 
+			ac, err = builder.Build()
+			if err != nil {
+				log.Errorf("failed to build AC: %w", err)
+				return ac, err
+			}
+		}
+	}
+
+	return ac, nil
+}
+
+// shouldPerformForcedReconfigure checks whether forced reconfigure of the automation config needs to be performed or not
+// it checks this with the user provided annotation and if the operator has actually performed a force reconfigure already
+func shouldPerformForcedReconfigure(annotations map[string]string) bool {
+	if val, ok := annotations[ForceReconfigureAnnotation]; ok {
+		if val == "true" {
+			if _, ok := annotations[ForcedReconfigureAlreadyPerformedAnnotation]; !ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func getExistingAutomationMemberIds(automationConfig automationconfig.AutomationConfig) (map[string]int, int) {

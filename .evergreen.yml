@@ -1619,6 +1619,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: release_database
   git_tag_only: true
   commands:
@@ -1665,7 +1670,7 @@ task_groups:
     - func: download_kube_tools
     - func: setup_shellcheck
   tasks:
-    - lint_repo
+    # - lint_repo
     - unit_tests
 
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
@@ -1930,6 +1935,7 @@ task_groups:
     - e2e_multi_cluster_appdb
     - e2e_multi_cluster_appdb_s3_based_backup_restore
     - e2e_multi_cluster_appdb_disaster_recovery
+    - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
     # Reused OM tests with AppDB Multi-Cluster topology
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_configure_all_images

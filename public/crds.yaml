@@ -1980,6 +1980,8 @@ spec:
     name: v1
     schema:
       openAPIV3Schema:
+        description: The MongoDBOpsManager resource allows you to deploy Ops Manager
+          within your Kubernetes cluster
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
