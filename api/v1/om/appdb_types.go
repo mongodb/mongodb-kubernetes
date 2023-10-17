@@ -388,6 +388,10 @@ func (m *AppDBSpec) MonitoringAutomationConfigSecretName() string {
 	return m.Name() + "-monitoring-config"
 }
 
+func (m *AppDBSpec) GetAgentLogFile() string {
+	return ""
+}
+
 // This function is used in community to determine whether we need to create a single
 // volume for data+logs or two separate ones
 // unless spec.PodSpec.Persistence.MultipleConfig is set, a single volume will be created

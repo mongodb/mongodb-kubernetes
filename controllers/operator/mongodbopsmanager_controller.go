@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
+	"syscall"
 	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
@@ -488,7 +490,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 
 		for _, hostName := range opsManager.BackupDaemonFQDNs() {
 			_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
-			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
+			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound || errors.Is(err, syscall.ECONNREFUSED) {
 				backupStatus = workflow.Disabled()
 				break
 			}
