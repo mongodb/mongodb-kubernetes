@@ -550,53 +550,49 @@ def build_image_daily(
                 raise ValueError("Building for ARM64 only is not supported yet")
 
             if version not in completed_versions:
-                try:
-                    # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
-                    if check_multi_arch(
-                        args["quay_registry"]
-                        + args["ubi_suffix"]
-                        + ":"
-                        + args["release_version"]
-                        + "-"
-                        + "context"
-                    ) and (arch_set == {"amd64", "arm64"} or arch_set == set()):
-                        sonar_build_image(
-                            "image-daily-build-amd64",
-                            build_configuration,
-                            args,
-                            inventory="inventories/daily.yaml",
-                        )
-                        sonar_build_image(
-                            "image-daily-build-arm64",
-                            build_configuration,
-                            args,
-                            inventory="inventories/daily.yaml",
-                        )
-                        create_and_push_manifest(
-                            args["quay_registry"], args["release_version"]
-                        )
-                        create_and_push_manifest(
-                            args["quay_registry"],
-                            args["release_version"] + "-b" + args["build_id"],
-                        )
-                        create_and_push_manifest(
-                            args["ecr_registry_ubi"], args["release_version"]
-                        )
-                        create_and_push_manifest(
-                            args["ecr_registry_ubi"],
-                            args["release_version"] + "-b" + args["build_id"],
-                        )
-                    else:
-                        sonar_build_image(
-                            "image-daily-build",
-                            build_configuration,
-                            args,
-                            inventory="inventories/daily.yaml",
-                        )
-                    completed_versions.add(version)
-                except Exception as e:
-                    # Log error and continue
-                    logger.error(e)
+                # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
+                if check_multi_arch(
+                    args["quay_registry"]
+                    + args["ubi_suffix"]
+                    + ":"
+                    + args["release_version"]
+                    + "-"
+                    + "context"
+                ) and (arch_set == {"amd64", "arm64"} or arch_set == set()):
+                    sonar_build_image(
+                        "image-daily-build-amd64",
+                        build_configuration,
+                        args,
+                        inventory="inventories/daily.yaml",
+                    )
+                    sonar_build_image(
+                        "image-daily-build-arm64",
+                        build_configuration,
+                        args,
+                        inventory="inventories/daily.yaml",
+                    )
+                    create_and_push_manifest(
+                        args["quay_registry"], args["release_version"]
+                    )
+                    create_and_push_manifest(
+                        args["quay_registry"],
+                        args["release_version"] + "-b" + args["build_id"],
+                    )
+                    create_and_push_manifest(
+                        args["ecr_registry_ubi"], args["release_version"]
+                    )
+                    create_and_push_manifest(
+                        args["ecr_registry_ubi"],
+                        args["release_version"] + "-b" + args["build_id"],
+                    )
+                else:
+                    sonar_build_image(
+                        "image-daily-build",
+                        build_configuration,
+                        args,
+                        inventory="inventories/daily.yaml",
+                    )
+                completed_versions.add(version)
 
     return inner
 
