@@ -2036,6 +2036,26 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
+- name: e2e_smoke_task_group
+  max_hosts: 1
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_om_ops_manager_backup
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
 - name: e2e_ops_manager_kind_5_0_only_task_group
   max_hosts: 3
   setup_group:
@@ -2098,46 +2118,6 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
-# This task is identical to e2e_ops_manager_kind_only_task_group, with the exception that
-# it will run 2 hosts at a time, not more. In shared cluster (Kops/Openshift) this means
-# that the Ops Manager tests will not overload the cluster if run in parallel builds.
-# Operator upgrade tests must not be included here!
-- name: e2e_ops_manager_task_group_safe
-  max_hosts: 2
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-  tasks:
-    - e2e_om_appdb_agent_flags
-    - e2e_om_appdb_monitoring_tls
-    - e2e_om_appdb_multi_change
-    - e2e_om_appdb_scale_up_down
-    - e2e_om_appdb_upgrade
-    - e2e_om_appdb_validation
-    - e2e_om_appdb_scram
-    - e2e_om_external_connectivity
-    - e2e_om_jvm_params
-    - e2e_om_localmode
-    - e2e_om_ops_manager_enable_local_mode_running_om
-    - e2e_om_localmode_multiple_pv
-    - e2e_om_weak_password
-    - e2e_om_ops_manager_backup
-    - e2e_om_ops_manager_backup_sharded_cluster
-    - e2e_om_ops_manager_backup_light
-    - e2e_om_ops_manager_pod_spec
-    - e2e_om_ops_manager_scale
-    - e2e_om_ops_manager_upgrade
-    - e2e_om_ops_manager_secure_config
-    - e2e_om_appdb_configure_all_images
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-
-
 buildvariants:
 
 ## Build variants for E2E tests
@@ -2155,7 +2135,7 @@ buildvariants:
 - name: e2e_mdb_kind_ubi_cloudqa
   display_name: e2e_mdb_kind_ubi_cloudqa
   run_on:
-    - ubuntu1804-large
+    - ubuntu2204-large
   depends_on:
     - name: build_operator_ubi
       variant: init_test_run
@@ -2184,7 +2164,7 @@ buildvariants:
     - name: build_test_image
       variant: init_test_run
   run_on:
-  - ubuntu1804-small
+  - ubuntu2204-small
   tasks:
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
@@ -2194,7 +2174,7 @@ buildvariants:
 - name: e2e_om50_kind_ubi
   display_name: e2e_om50_kind_ubi
   run_on:
-  - ubuntu1804-large
+  - ubuntu2204-large
   depends_on:
   - name: build_om_images
     variant: build_om50_images
@@ -2218,7 +2198,7 @@ buildvariants:
 - name: e2e_om60_kind_ubi
   display_name: e2e_om60_kind_ubi
   run_on:
-  - ubuntu1804-large
+  - ubuntu2204-large
   depends_on:
   - name: build_om_images
     variant: build_om60_images
@@ -2238,6 +2218,16 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
+
+- name: e2e_smoke
+  display_name: e2e_smoke
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - name: build_test_image
+      variant: init_test_run
+  tasks:
+    - name: e2e_smoke_task_group
 
 - name: e2e_multi_cluster_kind
   display_name: e2e_multi_cluster_kind
@@ -2310,7 +2300,7 @@ buildvariants:
 - name: e2e_operator_kind_ubi_cloudqa
   display_name: e2e_operator_kind_ubi_cloudqa
   run_on:
-    - ubuntu1804-large
+    - ubuntu2204-large
   depends_on:
     - name: build_operator_ubi
       variant: init_test_run
@@ -2372,7 +2362,7 @@ buildvariants:
     - name: build_database_image_ubi
       variant: init_test_run
   run_on:
-    - ubuntu1804-small
+    - ubuntu2204-small
   tasks:
     - name: release_operator
     - name: release_init_appdb
@@ -2397,14 +2387,14 @@ buildvariants:
 - name: upload_dockerfiles
   display_name: upload_dockerfiles
   run_on:
-    - ubuntu1804-small
+    - ubuntu2204-small
   tasks:
     - name: upload_dockerfiles
 
 - name: init_test_run
   display_name: init_test_run
   run_on:
-    - ubuntu1804-small
+    - ubuntu2204-small
   tasks:
     - name: build_operator_ubi
     - name: build_test_image
@@ -2442,7 +2432,7 @@ buildvariants:
 - name: go_unit_tests
   display_name: "go_unit_tests"
   run_on:
-    - ubuntu1804-small
+    - ubuntu2204-small
   tasks:
     - name: "unit_task_group"
 
@@ -2451,21 +2441,21 @@ buildvariants:
 - name: build_om50_images
   display_name: build_om50_images
   run_on:
-  - ubuntu1804-small
+  - ubuntu2204-small
   tasks:
   - name: build_om_images
 
 - name: build_om60_images
   display_name: build_om60_images
   run_on:
-  - ubuntu1804-small
+  - ubuntu2204-small
   tasks:
   - name: build_om_images
 
 - name: publish_om50_images
   display_name: publish_om50_images
   run_on:
-  - ubuntu1804-small
+  - ubuntu2204-small
   depends_on:
   - variant: e2e_om50_kind_ubi
     name: '*'
@@ -2483,7 +2473,7 @@ buildvariants:
 - name: publish_om60_images
   display_name: publish_om60_images
   run_on:
-  - ubuntu1804-small
+  - ubuntu2204-small
   depends_on:
   - variant: e2e_om60_kind_ubi
     name: '*'

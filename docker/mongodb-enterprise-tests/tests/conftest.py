@@ -80,12 +80,6 @@ def get_operator_installation_config(namespace, version_id):
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
-    # if running on evergreen don't use the default image tag
-    if version_id != "latest":
-        config["database.version"] = version_id
-        config["initAppDb.version"] = version_id
-        config["initDatabase.version"] = version_id
-        config["initOpsManager.version"] = version_id
     return config
 
 
