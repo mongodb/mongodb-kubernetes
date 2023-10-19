@@ -3,12 +3,7 @@
 set -Eeou pipefail
 
 get_operator_helm_values() {
-  local version_id=${version_id:=latest}
-  if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
-    version_id="${OVERRIDE_VERSION_ID}"
-  fi
-
-  local operator_version="${OPERATOR_VERSION:-${version_id}}"
+  local operator_version="${OPERATOR_VERSION:-${VERSION_ID}}"
   # shellcheck disable=SC2153
   local database_registry=${DATABASE_REGISTRY}
   local database_name=${DATABASE_NAME:=mongodb-enterprise-database-ubi}
@@ -26,10 +21,10 @@ get_operator_helm_values() {
     "opsManager.name=${OPS_MANAGER_NAME:=mongodb-enterprise-ops-manager-ubi}"
     "database.name=${database_name:=mongodb-enterprise-database-ubi}"
     "operator.version=${operator_version}"
-    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-${version_id}}"
-    "initAppDb.version=${INIT_APPDB_VERSION:-${version_id}}"
-    "initDatabase.version=${INIT_DATABASE_VERSION:-${version_id}}"
-    "database.version=${DATABASE_VERSION:-${version_id}}"
+    "initOpsManager.version=${INIT_OPS_MANAGER_VERSION:-${VERSION_ID}}"
+    "initAppDb.version=${INIT_APPDB_VERSION:-${VERSION_ID}}"
+    "initDatabase.version=${INIT_DATABASE_VERSION:-${VERSION_ID}}"
+    "database.version=${DATABASE_VERSION:-${VERSION_ID}}"
     "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
   )

@@ -28,6 +28,7 @@ func init() {
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
+	tag := env.ReadOrDefault(InitDatabaseVersionEnv, "latest")
 	modification := buildDatabaseInitContainer()
 	container := &corev1.Container{}
 	modification(container)
@@ -38,7 +39,7 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 	}}
 	expectedContainer := &corev1.Container{
 		Name:         InitDatabaseContainerName,
-		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:latest",
+		Image:        "quay.io/mongodb/mongodb-enterprise-init-database:" + tag,
 		VolumeMounts: expectedVolumeMounts,
 	}
 	assert.Equal(t, expectedContainer, container)

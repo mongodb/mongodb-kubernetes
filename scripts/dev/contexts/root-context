@@ -44,13 +44,10 @@ export QUAY_REGISTRY=quay.io/mongodb
 # Appending image type (ubuntu/ubi) to the registry url (unless it's already appended)
 export REPO_URL=${BASE_REPO_URL}/${IMAGE_TYPE}
 export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY-"${REPO_URL}"}
-export INIT_APPDB_VERSION=latest
+
 export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${REPO_URL}"}
-export INIT_OPS_MANAGER_VERSION=latest
 export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${REPO_URL}"}
-export INIT_DATABASE_VERSION=latest
 export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"quay.io/mongodb"}
-export DATABASE_VERSION=latest
 export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
 export APPDB_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
@@ -77,12 +74,17 @@ export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 export LOCAL_RUN=true
 # version_id is similar to version_id from Evergreen. Used to differentiate different builds. Can be constant
 # for local run
-version_id=${version_id-"latest"}
+version_id=${version_id:-"latest"}
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
   version_id="${OVERRIDE_VERSION_ID}"
 fi
 export version_id
 export VERSION_ID="$version_id"
+
+export INIT_APPDB_VERSION="$VERSION_ID"
+export INIT_DATABASE_VERSION="$VERSION_ID"
+export INIT_OPS_MANAGER_VERSION="$VERSION_ID"
+export DATABASE_VERSION="$VERSION_ID"
 
 export KUBE_ENVIRONMENT_NAME=kind
 

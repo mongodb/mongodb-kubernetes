@@ -26,14 +26,6 @@ Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
 }
 
 cmd=${1-""}
-ARCH=${2-"amd64"}
-
-echo "Configuring EVG host ${EVG_HOST_NAME} with architecture ${ARCH}"
-
-if [[ "${cmd}" == "configure" && "${ARCH}" != "amd64" && "${ARCH}" != "arm64" ]]; then
-  echo "'configure' command supports the following architectures: 'amd64', 'arm64'"
-  exit 1
-fi
 
 if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
@@ -42,7 +34,16 @@ fi
 kubeconfig_path="$HOME/.operator-dev/evg-host.kubeconfig"
 
 configure() {
-  echo "Configuring ${host_url}..."
+  shift 1
+  arch=${1-"amd64"}
+
+  echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) with architecture ${arch}"
+
+  if [[ "${cmd}" == "configure" && "${arch}" != "amd64" && "${arch}" != "arm64" ]]; then
+    echo "'configure' command supports the following architectures: 'amd64', 'arm64'"
+    exit 1
+  fi
+
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
   if [[ -f "$HOME/.docker/config.json" ]]; then
     scp "$HOME/.docker/config.json" "${host_url}:/home/ubuntu/.docker/"
@@ -50,7 +51,7 @@ configure() {
 
   sync
 
-  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; make switch context=root-context; scripts/dev/setup_evg_host.sh ${ARCH}"
+  ssh -T -q "${host_url}" "cd ~/ops-manager-kubernetes; make switch context=root-context; scripts/dev/setup_evg_host.sh ${arch}"
 }
 
 sync() {
@@ -111,6 +112,7 @@ recreate-kind-cluster() {
 
 
 tunnel() {
+  shift 1
   api_servers=$(yq '.clusters.[].cluster.server' < "${kubeconfig_path}" | sed 's/https:\/\///g')
   port_forwards=()
   for api_server in ${api_servers}; do
@@ -124,7 +126,7 @@ tunnel() {
 
   set -x
   # shellcheck disable=SC2029
-  ssh "${port_forwards[@]}" "${host_url}"
+  ssh "${port_forwards[@]}" "${host_url}" "$@"
   set +x
 }
 
@@ -166,7 +168,7 @@ COMMANDS:
   recreate-kind-clusters                executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
   recreate-kind-clusters test-cluster   executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
-  tunnel                                creates ssh session with tunneling to all API servers
+  tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
   cmd [command with args]               execute command as if being on evg host
   upload-my-ssh-private-key             uploads your ssh keys (~/.ssh/id_rsa) to evergreen host
@@ -175,13 +177,13 @@ COMMANDS:
 }
 
 case $cmd in
-configure) configure ;;
+configure) configure "$@" ;;
 recreate-kind-clusters) recreate-kind-clusters ;;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;
 get-kubeconfig) get-kubeconfig ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
-tunnel) tunnel ;;
+tunnel) tunnel "$@" ;;
 sync) sync ;;
 cmd) cmd "$@" ;;
 upload-my-ssh-private-key) upload-my-ssh-private-key ;;
