@@ -19,17 +19,13 @@ variables:
       - mms_eng_test_aws_region
       - OVERRIDE_VERSION_ID
       - version_id
+      - task_name
       - e2e_cloud_qa_user_owner_ubi_cloudqa
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa
       - e2e_cloud_qa_orgid_owner_ubi_cloudqa
       - e2e_cloud_qa_user_owner_ubi_cloudqa_2
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa_2
       - e2e_cloud_qa_orgid_owner_ubi_cloudqa_2
-
-  - &e2e_environment_variables
-      TASK_NAME: ${task_name}
-      VERSION_ID: ${version_id}
-      NAMESPACE_FILE: ${workdir}/.namespace
 
 parameters:
 - key: evergreen_retry
@@ -401,8 +397,6 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         add_to_path:
         - ${workdir}/bin
-        env:
-          <<: *e2e_environment_variables
         binary: scripts/evergreen/e2e/e2e.sh
 
   run_retry_script:
