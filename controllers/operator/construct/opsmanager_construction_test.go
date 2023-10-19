@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"k8s.io/utils/pointer"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -40,6 +42,7 @@ func defaultSecretClient() secrets.SecretClient {
 }
 
 func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
+	tag := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	t.Setenv(util.InitOpsManagerImageUrl, "test-registry")
 
 	modification := buildOpsManagerAndBackupInitContainer()
@@ -52,7 +55,7 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 	}}
 	expectedContainer := &corev1.Container{
 		Name:         util.InitOpsManagerContainerName,
-		Image:        "test-registry:latest",
+		Image:        "test-registry:" + tag,
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
 			ReadOnlyRootFilesystem:   pointer.Bool(true),
