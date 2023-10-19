@@ -16,7 +16,7 @@ def get_latest_om_versions_from_evergreen_yml():
     evergreen_file = os.path.join(os.getcwd(), ".evergreen.yml")
     with open(evergreen_file) as f:
         data = yaml.safe_load(f)
-    return data["variables"][1], data["variables"][3]
+    return data["variables"][0], data["variables"][1]
 
 
 def get_headers():

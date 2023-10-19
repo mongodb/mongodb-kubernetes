@@ -102,4 +102,5 @@ if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.21
 fi
 
-
+export TASK_NAME="${task_name:-"unknown"}"
+export task_name="${TASK_NAME}"

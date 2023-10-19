@@ -1,7 +1,6 @@
 #!/bin/bash
 
 set -Eeou pipefail
-set -x
 
 source scripts/dev/set_env_context.sh
 if [ -f "${workdir}"/venv/bin/activate ]; then
