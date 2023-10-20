@@ -31,7 +31,25 @@ fi
 export NAMESPACE
 
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+
 export REGISTRY="$BASE_REPO_URL/ubi"
+export QUAY_REGISTRY=quay.io/mongodb
+export OPERATOR_REGISTRY=${REGISTRY}
+export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
+export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY}
+export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${QUAY_REGISTRY}"}
+export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
+export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${QUAY_REGISTRY}"}
+export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
+export APPDB_REGISTRY=${QUAY_REGISTRY}
+export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
+export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
+
+# these are needed to deploy OM
+export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
+export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
+export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
+
 export CLUSTER_TYPE="kind"
 # Empty sting means that we're not using it.
 export EVG_HOST_NAME=""
