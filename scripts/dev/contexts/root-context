@@ -36,31 +36,8 @@ if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
 fi
 
 export OPERATOR_ENV="dev"
-export OPERATOR_REGISTRY=${BASE_REPO_URL}/${IMAGE_TYPE}
-export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/${IMAGE_TYPE}}
-
-export QUAY_REGISTRY=quay.io/mongodb
-
-# Appending image type (ubuntu/ubi) to the registry url (unless it's already appended)
-export REPO_URL=${BASE_REPO_URL}/${IMAGE_TYPE}
-export INIT_APPDB_REGISTRY=${INIT_IMAGES_REGISTRY-"${REPO_URL}"}
-
-export INIT_OPS_MANAGER_REGISTRY=${INIT_IMAGES_REGISTRY-"${REPO_URL}"}
-export INIT_DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"${REPO_URL}"}
-export DATABASE_REGISTRY=${INIT_IMAGES_REGISTRY:-"quay.io/mongodb"}
-export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
-export APPDB_REGISTRY=${QUAY_REGISTRY:-"quay.io/mongodb"}
-export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
-export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
 
 export AGENT_VERSION=12.0.25.7724-1
-# these are needed to deploy OM
-export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
-export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"
-export INIT_OPS_MANAGER_IMAGE_REPOSITORY=${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-ops-manager
-export AGENT_IMAGE=quay.io/mongodb/mongodb-agent-ubi:${AGENT_VERSION}
-export MONGODB_IMAGE=mongodb-enterprise-server
-export MONGODB_REPO_URL=quay.io/mongodb
 
 # values from .evergreen.yml
 export CUSTOM_OM_PREV_VERSION=5.0.1
