@@ -34,12 +34,15 @@ cleanup() {
     wait "${agentPid}"
 
     mongoPid="$(cat /data/mongod.lock)"
-    kill -15 "$mongoPid"
 
-    script_log "Waiting until mongod process is shutdown. Note, that if mongod process fails to shutdown in the time specified by the 'terminationGracePeriodSeconds' property (default $termination_timeout_seconds seconds) then the container will be killed by Kubernetes."
+    if [ -n "$mongoPid" ]; then
+      kill -15 "$mongoPid"
 
-    # dev note: we cannot use 'wait' for the external processes, seems the spinning loop is the best option
-    while [ -e "/proc/$mongoPid" ]; do sleep 0.1; done
+      script_log "Waiting until mongod process is shutdown. Note, that if mongod process fails to shutdown in the time specified by the 'terminationGracePeriodSeconds' property (default $termination_timeout_seconds seconds) then the container will be killed by Kubernetes."
+
+      # dev note: we cannot use 'wait' for the external processes, seems the spinning loop is the best option
+      while [ -e "/proc/$mongoPid" ]; do sleep 0.1; done
+    fi
 
     script_log "Mongod and automation agent processes are shutdown"
 }
