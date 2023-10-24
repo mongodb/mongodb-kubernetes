@@ -5,6 +5,7 @@ vars:
   ecr_registry_ubi: 268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/<image-name-ecr>
   # ubi suffix is "-ubi" by default, but it's empty for mongodb-kubernetes-operator, readiness and versionhook images
   ubi_suffix: "-ubi"
+  base_suffix: ""
 
 images:
   - name: image-daily-build
@@ -19,7 +20,7 @@ images:
       - build_id
       dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
       buildargs:
-        imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context
+        imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context
         # This is required for correctly labeling the agent image and is not used
         # in the other images.
         agent_version: $(inputs.params.release_version)
@@ -48,7 +49,7 @@ images:
           - build_id
         dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
         buildargs:
-          imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context-amd64
+          imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context-amd64
           # This is required for correctly labeling the agent image and is not used
           # in the other images.
           agent_version: $(inputs.params.release_version)
@@ -77,7 +78,7 @@ images:
           - build_id
         dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
         buildargs:
-          imagebase: $(inputs.params.quay_registry):$(inputs.params.release_version)-context-arm64
+          imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context-arm64
           # This is required for correctly labeling the agent image and is not used
           # in the other images.
           agent_version: $(inputs.params.release_version)
