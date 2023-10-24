@@ -253,6 +253,19 @@ def create_and_push_manifest(image: str, tag: str) -> None:
         raise Exception(cp.stderr)
 
 
+def try_get_platform_data(client, image):
+    """Helper function to try and retrieve platform data."""
+    try:
+        return client.images.get_registry_data(image)
+    except Exception as e:
+        logger.debug(
+            "Failed to get registry data for image: {0}. Error: {1}".format(
+                image, str(e)
+            )
+        )
+        return None
+
+
 """
 Checks if a docker image supports AMD and ARM platforms by inspecting the registry data.
 
@@ -260,12 +273,22 @@ Checks if a docker image supports AMD and ARM platforms by inspecting the regist
 """
 
 
-def check_multi_arch(image: str) -> bool:
+def check_multi_arch(image: str, suffix: str) -> bool:
     client = docker.from_env()
+    platforms = ["linux/amd64", "linux/arm64"]
 
-    reg_data = client.images.get_registry_data(image)
+    for img in [image, image + suffix]:
+        reg_data = try_get_platform_data(client, img)
+        if reg_data is not None and all(reg_data.has_platform(p) for p in platforms):
+            logger.debug(
+                "Base image {} supports multi architecture, building for ARM64 and AMD64".format(
+                    img
+                )
+            )
+            return True
 
-    return reg_data.has_platform("linux/amd64") and reg_data.has_platform("linux/arm64")
+    logger.debug("Base image {} is single-arch, building only for AMD64.".format(img))
+    return False
 
 
 def sonar_build_image(
@@ -436,6 +459,7 @@ def image_config(
     name_prefix: str = "mongodb-enterprise-",
     s3_bucket: str = "enterprise-operator-dockerfiles",
     ubi_suffix: str = "-ubi",
+    base_suffix: str = "",
 ) -> Tuple[str, Dict[str, str]]:
     """Generates configuration for an image suitable to be passed
     to Sonar.
@@ -450,6 +474,7 @@ def image_config(
             s3_bucket, name_prefix, image_name
         ),
         "ubi_suffix": ubi_suffix,
+        "base_suffix": base_suffix,
     }
 
     return image_name, args
@@ -468,7 +493,9 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config("init-ops-manager"),
         image_config("operator"),
         image_config("ops-manager"),
-        image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi"),
+        image_config(
+            "mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"
+        ),
         image_config(
             image_name="mongodb-kubernetes-operator",
             name_prefix="",
@@ -551,14 +578,17 @@ def build_image_daily(
 
             if version not in completed_versions:
                 # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
-                if check_multi_arch(
-                    args["quay_registry"]
-                    + args["ubi_suffix"]
-                    + ":"
-                    + args["release_version"]
-                    + "-"
-                    + "context"
-                ) and (arch_set == {"amd64", "arm64"} or arch_set == set()):
+                if (
+                    arch_set == {"amd64", "arm64"}
+                    or arch_set == set()
+                    and check_multi_arch(
+                        image=args["quay_registry"]
+                        + args["ubi_suffix"]
+                        + ":"
+                        + args["release_version"],
+                        suffix="-context",
+                    )
+                ):
                     sonar_build_image(
                         "image-daily-build-amd64",
                         build_configuration,
