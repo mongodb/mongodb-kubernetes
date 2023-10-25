@@ -99,6 +99,7 @@ class MongoTester:
         db: str = "admin",
         col: str = "myCol",
         opts: Optional[List[Dict[str, any]]] = None,
+        write_concern: pymongo.WriteConcern = None,
     ):
         if opts is None:
             opts = []
@@ -111,6 +112,10 @@ class MongoTester:
             attempts -= 1
             try:
                 self.client.admin.command("ismaster")
+                if write_concern:
+                    d = self.client.get_database(name=db, write_concern=write_concern)
+                    c = d.get_collection(name=col)
+                    c.insert_one({})
                 if "authMechanism" in options:
                     # Perform an action that will require auth.
                     self.client[db][col].insert_one({})
@@ -346,10 +351,11 @@ class ReplicaSetTester(MongoTester):
         check_every=5,
         with_srv=False,
         attempts: int = 5,
+        write_concern: pymongo.WriteConcern = None,
         opts: Optional[List[Dict[str, str]]] = None,
     ):
         """For replica sets in addition to is_master() we need to make sure all replicas are up"""
-        super().assert_connectivity(attempts=attempts, opts=opts)
+        super().assert_connectivity(attempts=attempts, write_concern=write_concern, opts=opts)
 
         if self.replicas_count == 1:
             # On 1 member replica-set, there won't be a "primary" and secondaries will be `set()`
@@ -445,7 +451,7 @@ class ShardedClusterTester(MongoTester):
 
 class BackgroundHealthChecker(threading.Thread):
     """BackgroundHealthChecker is the thread which periodically calls the function to check health of some resource. It's
-    run as a daemon so usually there's no need in stopping it manually.
+    run as a daemon, so usually there's no need to stop it manually.
     """
 
     def __init__(
@@ -523,11 +529,14 @@ class MongoDBBackgroundTester(BackgroundHealthChecker):
         mongo_tester: MongoTester,
         wait_sec: int = 3,
         allowed_sequential_failures: int = 1,
+        health_function_params=None,
     ):
+        if health_function_params is None:
+            health_function_params = {"attempts": 1}
         super().__init__(
             health_function=mongo_tester.assert_connectivity,
-            health_function_params={"attempts": 1},
             wait_sec=wait_sec,
+            health_function_params=health_function_params,
             allowed_sequential_failures=allowed_sequential_failures,
         )
 

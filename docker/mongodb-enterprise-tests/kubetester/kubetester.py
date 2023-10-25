@@ -455,30 +455,37 @@ class KubernetesTester(object):
                 group, version, namespace, plural(kind), resource
             )
         except ApiException as e:
-            if isinstance(e.body, str):
-                # In Kubernetes v1.16+ the result body is a json string that needs to be parsed, according to
-                # whatever exception_reason was passed.
-                try:
-                    body_json = json.loads(e.body)
-                except json.decoder.JSONDecodeError:
-                    # The API did not return a JSON string
-                    pass
-                else:
-                    reason = validation_reason_from_exception(exception_reason)
+            if e.status == 409:
+                KubernetesTester.clients("customv1", api_client=api_client).patch_namespaced_custom_object(
+                    group, version, namespace, plural(kind), name, resource
+                )
+            else:
+                if isinstance(e.body, str):
+                    # In Kubernetes v1.16+ the result body is a json string that needs to be parsed, according to
+                    # whatever exception_reason was passed.
+                    try:
+                        body_json = json.loads(e.body)
+                    except json.decoder.JSONDecodeError:
+                        # The API did not return a JSON string
+                        pass
+                    else:
+                        reason = validation_reason_from_exception(exception_reason)
 
-                    if reason is not None:
-                        field = exception_reason.split()[0]
-                        for cause in body_json["details"]["causes"]:
-                            if cause["reason"] == reason and cause["field"] == field:
-                                return None, None
+                        if reason is not None:
+                            field = exception_reason.split()[0]
+                            for cause in body_json["details"]["causes"]:
+                                if cause["reason"] == reason and cause["field"] == field:
+                                    return None, None
 
-            if exception_reason:
-                assert e.reason == exception_reason or exception_reason in e.body, "Real exception is: {}".format(e)
-                print('"{}" exception raised while creating the resource - this is expected!'.format(exception_reason))
-                return None, None
+                if exception_reason:
+                    assert e.reason == exception_reason or exception_reason in e.body, "Real exception is: {}".format(e)
+                    print(
+                        '"{}" exception raised while creating the resource - this is expected!'.format(exception_reason)
+                    )
+                    return None, None
 
-            print("Failed to create a resource ({}): \n {}".format(e, resource))
-            raise
+                print("Failed to create a resource ({}): \n {}".format(e, resource))
+                raise
 
         else:
             if exception_reason:

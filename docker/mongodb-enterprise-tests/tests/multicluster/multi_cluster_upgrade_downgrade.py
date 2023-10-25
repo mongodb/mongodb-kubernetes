@@ -1,14 +1,14 @@
 import kubernetes
+import pymongo
 import pytest
 
-from kubetester import create_or_update
-from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti
+from kubetester import create_or_update, try_load
 from kubetester.kubetester import (
     fixture as yaml_fixture,
-    skip_if_local,
 )
+from kubetester.mongodb import Phase
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.operator import Operator
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -27,7 +27,17 @@ def mongodb_multi(
     resource["spec"]["version"] = "4.4.11-ent"
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return create_or_update(resource)
+    try_load(resource)
+    return resource
+
+
+@pytest.fixture(scope="module")
+def mdb_health_checker(mongodb_multi: MongoDBMulti) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mongodb_multi.tester(),
+        allowed_sequential_failures=1,
+        health_function_params={"attempts": 1, "write_concern": pymongo.WriteConcern(w="majority")},
+    )
 
 
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
@@ -35,14 +45,18 @@ def test_deploy_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.assert_is_running()
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_create_mongodb_multi_running(mongodb_multi: MongoDBMulti):
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
     mongodb_multi.tester().assert_version("4.4.11-ent")
 
 
-@skip_if_local
+@pytest.mark.e2e_multi_cluster_upgrade_downgrade
+def test_start_background_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_mongodb_multi_upgrade(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
@@ -55,14 +69,12 @@ def test_mongodb_multi_upgrade(mongodb_multi: MongoDBMulti):
     mongodb_multi.tester().assert_version("5.0.5-ent")
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_upgraded_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_mongodb_multi_downgrade(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
@@ -74,8 +86,12 @@ def test_mongodb_multi_downgrade(mongodb_multi: MongoDBMulti):
     mongodb_multi.tester().assert_version("4.4.11-ent")
 
 
-@skip_if_local
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
 def test_downgraded_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
     tester.assert_connectivity()
+
+
+@pytest.mark.e2e_multi_cluster_upgrade_downgrade
+def test_mdb_healthy_throughout_change_version(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.assert_healthiness()
