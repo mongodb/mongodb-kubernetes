@@ -1,9 +1,26 @@
-import pytest
+import pymongo
+from pytest import fixture, mark
+
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongotester import ShardedClusterTester
+from kubetester.mongotester import ShardedClusterTester, MongoTester, MongoDBBackgroundTester
 
 
-@pytest.mark.e2e_sharded_cluster_upgrade_downgrade
+@fixture(scope="module")
+def mongod_tester():
+    return ShardedClusterTester("sh001-downgrade", 1)
+
+
+@fixture(scope="module")
+def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mongod_tester,
+        # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
+        allowed_sequential_failures=2,
+        health_function_params={"attempts": 1, "write_concern": pymongo.WriteConcern(w="majority")},
+    )
+
+
+@mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
     """
     name: ShardedCluster upgrade downgrade (create)
@@ -15,13 +32,15 @@ class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
       timeout: 300
     """
 
-    def test_db_connectable(self):
-        mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
+    def test_start_mongod_background_tester(self, mdb_health_checker):
+        mdb_health_checker.start()
+
+    def test_db_connectable(self, mongod_tester):
         mongod_tester.assert_connectivity()
         mongod_tester.assert_version("4.4.2")
 
 
-@pytest.mark.e2e_sharded_cluster_upgrade_downgrade
+@mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
     """
     name: ShardedCluster upgrade downgrade (update)
@@ -34,13 +53,11 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
       timeout: 300
     """
 
-    def test_db_connectable(self):
-        mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
-        mongod_tester.assert_connectivity()
+    def test_db_connectable(self, mongod_tester):
         mongod_tester.assert_version("4.4.0")
 
 
-@pytest.mark.e2e_sharded_cluster_upgrade_downgrade
+@mark.e2e_sharded_cluster_upgrade_downgrade
 class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     """
     name: ShardedCluster upgrade downgrade (downgrade)
@@ -52,7 +69,8 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
       timeout: 500
     """
 
-    def test_db_connectable(self):
-        mongod_tester = ShardedClusterTester("sh001-downgrade", 1)
-        mongod_tester.assert_connectivity()
+    def test_db_connectable(self, mongod_tester):
         mongod_tester.assert_version("4.4.2")
+
+    def test_mdb_healthy_throughout_change_version(self, mdb_health_checker):
+        mdb_health_checker.assert_healthiness()
