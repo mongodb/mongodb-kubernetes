@@ -1,6 +1,6 @@
-import time
 from typing import Optional
 
+from kubernetes.client.rest import ApiException
 from pytest import mark, fixture
 
 from kubetester import get_default_storage_class, try_load, create_or_update, create_or_update_secret
@@ -13,8 +13,6 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase, MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
-from kubernetes.client.rest import ApiException
-
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.conftest import ensure_ent_version

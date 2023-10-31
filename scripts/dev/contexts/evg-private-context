@@ -88,3 +88,11 @@ export kubernetes_kind_version=1.22.0
 
 # Note: this name is correct
 export task_id="$EVR_TASK_ID"
+
+export OTEL_TRACE_ID="${otel_trace_id}"
+export OTEL_PARENT_ID="${otel_parent_id}"
+export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint}"
+
+# This is given by an expansion from evg
+export TASK_NAME="${task_name:-"unknown"}"
+export task_name="${TASK_NAME}"

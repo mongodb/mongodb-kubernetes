@@ -46,6 +46,9 @@ deploy_test_app() {
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
         "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
+        "--set" "otel_parent_id=${OTEL_PARENT_ID}"
+        "--set" "otel_trace_id=${OTEL_TRACE_ID}"
+        "--set" "otel_endpoint=${OTEL_COLLECTOR_ENDPOINT}"
     )
 
     # shellcheck disable=SC2154
