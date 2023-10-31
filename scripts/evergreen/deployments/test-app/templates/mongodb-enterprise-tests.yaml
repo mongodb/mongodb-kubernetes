@@ -59,6 +59,21 @@ spec:
         mountPath: /tmp/results
   - name: mongodb-enterprise-operator-tests
     env:
+    # OTEL env vars can either be used to construct custom spans or are used by pytest opentelemetry dynamic instrumentation
+    {{ if .Values.otel_trace_id }}
+    - name: OTEL_TRACE_ID
+      value: {{ .Values.otel_trace_id }}
+    {{ end }}
+    {{ if .Values.otel_endpoint }}
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: {{ .Values.otel_endpoint}}
+    {{ end }}
+    {{ if .Values.otel_parent_id }}
+    - name: OTEL_PARENT_ID
+      value: {{ .Values.otel_parent_id }}
+    {{ end }}
+    - name: OTEL_SERVICE_NAME
+      value: evergreen-agent
     - name: TASK_ID
       value: {{ .Values.taskId }}
     - name: OM_HOST
@@ -137,7 +152,11 @@ spec:
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
+    {{ if .Values.otel_endpoint }}
+    args: ["-vv", "-m", "{{ .Values.taskName }}", "--trace-parent", "00-{{ .Values.otel_trace_id }}-{{ .Values.otel_parent_id }}-01", "--export-traces"]
+    {{ else }}
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
+    {{ end }}
     imagePullPolicy: Always
     volumeMounts:
       - mountPath: /tmp/results
