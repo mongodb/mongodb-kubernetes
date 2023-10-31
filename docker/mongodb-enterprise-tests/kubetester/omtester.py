@@ -1,25 +1,37 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import tempfile
 import time
 import urllib.parse
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional
 
+import pymongo
 import pytest
 import requests
 import semver
-import pymongo
-import tempfile
+from opentelemetry import trace
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import build_auth, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
-
 from .kubetester import get_env_var_or_fail
+
+span_context = SpanContext(
+    trace_id=int(os.environ.get("OTEL_TRACE_ID", "0xdeadbeef"), 16),
+    span_id=int(os.environ.get("OTEL_PARENT_ID", "0xdeadbeef"), 16),
+    trace_flags=TraceFlags(0x01),
+    is_remote=False,
+)
+ctx = trace.set_span_in_context(NonRecordingSpan(span_context))
+
+TRACER = trace.get_tracer("om_backup")
 
 
 def running_cloud_manager():
@@ -107,11 +119,12 @@ class OMTester(object):
     def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120):
         """creates a restore job to restore the mongodb cluster to some version specified by the parameter."""
         cluster_id = self.get_backup_cluster_id()
-
         while retry > 0:
             try:
-                self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
-                return
+                with TRACER.start_as_current_span("restore_job_pit", context=ctx) as span:
+                    span.set_attribute(key="pit_retries", value=retry)
+                    self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
+                    return
             except Exception as e:
                 # this exception is usually raised for some time (some oplog slices not received or whatever)
                 # but eventually is gone and restore job is started..
@@ -138,6 +151,8 @@ class OMTester(object):
             snapshots = self.api_get_snapshots(cluster_id)
             if len([s for s in snapshots if s["complete"]]) >= expected_count:
                 print(f"Snapshots are ready, project: {self.context.group_name}, time: {time.time() - start_time} sec")
+                with TRACER.start_as_current_span("snapshots_time", context=ctx) as span:
+                    span.set_attribute(key="snapshot_time", value=time.time() - start_time)
                 return
             time.sleep(3)
             timeout -= 3

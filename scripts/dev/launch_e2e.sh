@@ -27,9 +27,9 @@ fi
 
 # For any cluster except for kops (Kind, Openshift) access to ECR registry needs authorization - it will be handled
 # later in single_e2e.sh
-if [[ ${CLUSTER_TYPE} != "kops" ]] && [[ ${REPO_URL} == *".ecr."* ]]; then
+if [[ ${CLUSTER_TYPE} != "kops" ]] && [[ ${REGISTRY} == *".ecr."* ]]; then
     export ecr_registry_needs_auth="ecr-registry-secret"
-    ecr_registry="$(echo "${REPO_URL}" | cut -d "/" -f 1)"
+    ecr_registry="$(echo "${REGISTRY}" | cut -d "/" -f 1)"
     export ecr_registry
 fi
 
@@ -64,7 +64,7 @@ else
     WAIT_TIMEOUT="4m" \
     MODE="dev" \
     WATCH_NAMESPACE=${watch_namespace:-$NAMESPACE} \
-    REGISTRY=${REPO_URL} \
+    REGISTRY=${REGISTRY} \
     DEBUG=${debug-} \
     ./scripts/evergreen/e2e/e2e.sh
 fi
