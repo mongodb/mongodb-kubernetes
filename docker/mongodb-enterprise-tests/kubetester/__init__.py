@@ -277,6 +277,17 @@ def get_statefulset(
     return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(name, namespace)
 
 
+def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[client.ApiClient]):
+    try:
+        get_statefulset(namespace, name, api_client=api_client)
+        return False
+    except client.ApiException as e:
+        if e.status == 404:
+            return True
+        else:
+            raise e
+
+
 def delete_cluster_role(name: str, api_client: Optional[client.ApiClient] = None):
     try:
         client.RbacAuthorizationV1Api(api_client=api_client).delete_cluster_role(name)
