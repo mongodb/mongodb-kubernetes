@@ -11,13 +11,13 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/10gen/ops-manager-kubernetes/pkg/tls"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
@@ -582,19 +582,33 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(mrs mdbmultiv1.Mo
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
 func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, isRecovering bool, log *zap.SugaredLogger) error {
-	hostnames := make([]string, 0)
+	reachableHostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
 		return err
 	}
-
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		// When failing to retrieve the list of failed clusters we proceed assuming there are no failed clusters,
+		// but log the error as it indicates a malformed annotation.
+		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
+	}
 	for _, spec := range clusterSpecList {
 		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, spec.ExternalAccessConfiguration.ExternalDomain)
-		hostnames = append(hostnames, hostnamesToAdd...)
+		if stringutil.Contains(failedClusterNames, spec.ClusterName) {
+			log.Debugf("Skipping hostnames %+v as they are part of the failed cluster %s ", hostnamesToAdd, spec.ClusterName)
+			continue
+		}
+		if mrs.GetClusterSpecByName(spec.ClusterName) == nil {
+			log.Debugf("Skipping hostnames %+v as they are part of a cluster not known by the operator %s ", hostnamesToAdd, spec.ClusterName)
+			continue
+		}
+		reachableHostnames = append(reachableHostnames, hostnamesToAdd...)
+
 	}
 
-	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, hostnames, log)
+	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, reachableHostnames, log)
 	if err != nil {
 		return err
 	}
@@ -666,7 +680,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
 	}
 
-	if err := om.WaitForReadyState(conn, rs.GetProcessNames(), isRecovering, log); err != nil {
+	reachableProcessNames := make([]string, 0)
+	for _, proc := range rs.Processes {
+		if stringutil.Contains(reachableHostnames, proc.HostName()) {
+			reachableProcessNames = append(reachableProcessNames, proc.Name())
+		}
+	}
+	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil {
 		return err
 	}
 	return nil
