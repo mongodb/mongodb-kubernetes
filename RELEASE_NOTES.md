@@ -1,6 +1,6 @@
 *(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
-
+# MongoDB Enterprise Kubernetes Operator 1.23.0
 ## Warnings and Breaking Changes
 
 * Starting from 1.22 component image versions will be unified to the MongoDB Enterprise Operator release tag. This affects the following images:
@@ -9,6 +9,11 @@
   * `quay.io/mongodb/mongodb-enterprise-init-appdb-ubi`
   * `quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi`
 * **MongoDB**: Remove `spec.exposedExternally` in favor of `spec.externalAccess`. `spec.exposedExternally` was deprecated in operator version 1.19.
+
+## Bug Fixes
+* **MongoDBMultiCluster** Fix a bug with scaling a multi-cluster replica-set in the case of losing connectivity to a member cluster. The fix addresses both the manual and automated recovery procedures. 
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.22.0
 ## Breaking Changes
 * **All Resources**: The Operator no longer uses the "Reconciling" state. In most of the cases it has been replaced with "Pending" and a proper message
@@ -47,7 +52,6 @@ None
 * **MongoDBOpsManager**: Add support for configuring [logRotate](https://www.mongodb.com/docs/ops-manager/current/reference/cluster-configuration/#mongodb-instances) on the automation-agent for appdb.
 * **MongoDBOpsManager**: [systemLog](https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options) can now be configured to differ from the otherwise default of `/var/log/mongodb-mms-automation`.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.21.0
 ## Breaking changes
 * The environment variable to track the operator namespace has been renamed from [CURRENT_NAMESPACE](https://github.com/mongodb/mongodb-enterprise-kubernetes/blob/master/mongodb-enterprise.yaml#L244) to `NAMESPACE`. If you set this variable manually via YAML files, you should update this environment variable name while upgrading the operator deployment.
