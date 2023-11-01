@@ -1,18 +1,27 @@
-from typing import List
+from typing import List, Optional
 from pytest import mark, fixture
 
 import kubernetes
-from kubetester import create_or_update
+import time
+from kubetester import (
+    create_or_update,
+    delete_statefulset,
+    statefulset_is_deleted,
+    get_statefulset,
+    read_configmap,
+    update_configmap,
+)
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubernetes import client
 from kubeobject import CustomObject
 
-from tests.conftest import run_multi_cluster_recovery_tool, MULTI_CLUSTER_OPERATOR_NAME
+from tests.conftest import get_member_cluster_api_client, run_multi_cluster_recovery_tool, MULTI_CLUSTER_OPERATOR_NAME
 from .conftest import create_service_entries_objects, cluster_spec_list
 
+FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 RESOURCE_NAME = "multi-replica-set"
 
 
@@ -60,20 +69,48 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 
 
 @mark.e2e_multi_cluster_recover_network_partition
-def test_update_service_entry_block_cluster3_traffic(
+def test_update_service_entry_block_failed_cluster_traffic(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
 ):
-
+    healthy_cluster_names = [
+        cluster_name for cluster_name in member_cluster_names if cluster_name != FAILED_MEMBER_CLUSTER_NAME
+    ]
     service_entries = create_service_entries_objects(
         namespace,
         central_cluster_client,
-        [member_cluster_names[0], member_cluster_names[1]],
+        healthy_cluster_names,
     )
     for service_entry in service_entries:
         print(f"service_entry={service_entries}")
-        service_entry.update()
+        create_or_update(service_entry)
+
+
+@mark.e2e_multi_cluster_recover_network_partition
+def test_delete_database_statefulset_in_failed_cluster(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_names: list[str],
+):
+    failed_cluster_idx = member_cluster_names.index(FAILED_MEMBER_CLUSTER_NAME)
+    sts_name = f"{mongodb_multi.name}-{failed_cluster_idx}"
+    try:
+        delete_statefulset(
+            mongodb_multi.namespace,
+            sts_name,
+            propagation_policy="Background",
+            api_client=get_member_cluster_api_client(FAILED_MEMBER_CLUSTER_NAME),
+        )
+    except kubernetes.client.ApiException as e:
+        if e.status != 404:
+            raise e
+
+    run_periodically(
+        lambda: statefulset_is_deleted(
+            mongodb_multi.namespace, sts_name, api_client=get_member_cluster_api_client(FAILED_MEMBER_CLUSTER_NAME)
+        ),
+        timeout=120,
+    )
 
 
 @mark.e2e_multi_cluster_recover_network_partition

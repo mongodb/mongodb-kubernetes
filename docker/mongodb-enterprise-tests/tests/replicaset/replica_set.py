@@ -3,16 +3,13 @@ from typing import Dict
 
 import pytest
 from kubernetes import client
+from kubetester import assert_pod_container_security_context, assert_pod_security_context, create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    KubernetesTester,
-    skip_if_local,
-    fcv_from_version,
-)
+from kubetester.kubetester import KubernetesTester, fcv_from_version
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
-from kubetester import assert_pod_container_security_context, assert_pod_security_context, create_or_update
 from pytest import fixture
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"

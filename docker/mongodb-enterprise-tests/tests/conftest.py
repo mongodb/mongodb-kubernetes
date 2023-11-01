@@ -575,10 +575,10 @@ def multi_cluster_operator_manual_remediation(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
-    cluster_clients,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+    if not local_operator():
+        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,

@@ -1,20 +1,21 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import (
-    create_secret,
     delete_cluster_role,
     delete_cluster_role_binding,
+    get_statefulset,
     read_secret,
-    random_k8s_name,
     create_or_update_secret,
     create_or_update,
     create_or_update_configmap,
+    delete_statefulset,
+    statefulset_is_deleted,
 )
-from kubetester.kubetester import KubernetesTester, create_testing_namespace
+from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -25,11 +26,14 @@ from tests.conftest import (
     _install_multi_cluster_operator,
     run_kube_config_creation_tool,
     run_multi_cluster_recovery_tool,
+    get_member_cluster_api_client,
 )
 
 from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_service_entries_objects
 from .multi_cluster_clusterwide import create_namespace
+
+FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 
 
 @fixture(scope="module")
@@ -235,20 +239,65 @@ def test_create_mongodb_multi_nsa_nsb(mongodb_multi_a: MongoDBMulti, mongodb_mul
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_update_service_entry_block_cluster3_traffic(
+def test_update_service_entry_block_failed_cluster_traffic(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
 ):
     # TODO: add a way to simulate local operator connection cut-off
-    service_entries = create_service_entries_objects(
-        namespace,
-        central_cluster_client,
-        [member_cluster_names[0], member_cluster_names[1]],
-    )
+    healthy_cluster_names = [
+        cluster_name for cluster_name in member_cluster_names if cluster_name != FAILED_MEMBER_CLUSTER_NAME
+    ]
+
+    service_entries = create_service_entries_objects(namespace, central_cluster_client, healthy_cluster_names)
     for service_entry in service_entries:
         print(f"service_entry={service_entries}")
         service_entry.update()
+
+
+@mark.e2e_multi_cluster_recover_clusterwide
+def test_delete_database_statefulsets_in_failed_cluster(
+    mongodb_multi_a: MongoDBMulti,
+    mongodb_multi_b: MongoDBMulti,
+    mdba_ns: str,
+    mdbb_ns: str,
+    member_cluster_names: list[str],
+    member_cluster_clients: List[MultiClusterClient],
+):
+    failed_cluster_idx = member_cluster_names.index(FAILED_MEMBER_CLUSTER_NAME)
+    sts_a_name = f"{mongodb_multi_a.name}-{failed_cluster_idx}"
+    sts_b_name = f"{mongodb_multi_b.name}-{failed_cluster_idx}"
+
+    try:
+        delete_statefulset(
+            mdba_ns,
+            sts_a_name,
+            propagation_policy="Background",
+            api_client=member_cluster_clients[2].api_client,
+        )
+        delete_statefulset(
+            mdbb_ns,
+            sts_b_name,
+            propagation_policy="Background",
+            api_client=member_cluster_clients[2].api_client,
+        )
+
+    except kubernetes.client.ApiException as e:
+        if e.status != 404:
+            raise e
+
+    run_periodically(
+        lambda: statefulset_is_deleted(
+            mdba_ns, sts_a_name, api_client=member_cluster_clients[failed_cluster_idx].api_client
+        ),
+        timeout=120,
+    )
+    run_periodically(
+        lambda: statefulset_is_deleted(
+            mdbb_ns, sts_b_name, api_client=member_cluster_clients[failed_cluster_idx].api_client
+        ),
+        timeout=120,
+    )
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

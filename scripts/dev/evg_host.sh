@@ -166,7 +166,7 @@ COMMANDS:
   configure <architecture>              installs on a host: calls sync, switches context, installs necessary software
   sync                                  rsync of project directory
   recreate-kind-clusters                executes scripts/dev/recreate_kind_clusters.sh and executes get-kubeconfig
-  recreate-kind-clusters test-cluster   executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
+  recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
   tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
