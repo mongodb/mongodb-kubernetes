@@ -36,6 +36,14 @@ if [[ "${KUBECONFIG:-""}" != "" ]]; then
   echo "KUBECONFIG=${KUBECONFIG}"
 fi
 
+if [[ "${MDB_AGENT_VERSION:-""}" != "" ]]; then
+  echo "MDB_AGENT_VERSION=${MDB_AGENT_VERSION}"
+fi
+
+if [[ "${MDB_AGENT_DEBUG:-""}" != "" ]]; then
+  echo "MDB_AGENT_DEBUG=${MDB_AGENT_DEBUG}"
+fi
+
 if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
   echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
 fi
