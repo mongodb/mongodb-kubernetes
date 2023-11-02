@@ -576,6 +576,10 @@ def build_image_daily(
             if arch_set == {"arm64"}:
                 raise ValueError("Building for ARM64 only is not supported yet")
 
+            # Temporarily disabling multi arch building while we fix the runners
+            # TODO : remove
+            arch_set = {"amd64"}
+
             if version not in completed_versions:
                 # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
                 if (
