@@ -76,39 +76,24 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
     return value
 
 
-def build_configuration_from_env() -> Dict[str, str]:
-    """Builds a running configuration by reading values from environment.
-    This is to be used in Evergreen environment.
-    """
-
-    # The `base_repo_url` is suffixed with `/dev` because in Evergreen that
-    # would replace the `username` we use locally.
-    return {
-        "image_type": os.environ.get("distro"),
-        "base_repo_url": os.environ["BASE_REPO_URL"],
-        "include_tags": os.environ.get("include_tags"),
-        "skip_tags": os.environ.get("skip_tags"),
-    }
-
-
 def operator_build_configuration(
     builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None
 ) -> BuildConfiguration:
-    context = build_configuration_from_env()
-
-    print(f"Context: {context}")
-
-    return BuildConfiguration(
-        image_type=context.get("image_type", DEFAULT_IMAGE_TYPE),
-        base_repository=context.get("base_repo_url", ""),
-        namespace=context.get("namespace", DEFAULT_NAMESPACE),
-        skip_tags=context.get("skip_tags"),
-        include_tags=context.get("include_tags"),
+    bc = BuildConfiguration(
+        image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
+        base_repository=os.environ["BASE_REPO_URL"],
+        namespace=os.environ.get("namespace", DEFAULT_NAMESPACE),
+        skip_tags=os.environ.get("skip_tags"),
+        include_tags=os.environ.get("include_tags"),
         builder=builder,
         parallel=parallel,
         debug=debug,
         architecture=architecture,
     )
+
+    print(f"Context: {bc}")
+
+    return bc
 
 
 class MissingEnvironmentVariable(Exception):
