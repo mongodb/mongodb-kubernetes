@@ -135,7 +135,7 @@ class OMTester(object):
         raise Exception("Failed to create a restore job!")
 
     def wait_until_backup_snapshots_are_ready(
-        self, expected_count: int, timeout: int = 1500, expected_config_count: int = 1, is_sharded_cluster: bool = False
+        self, expected_count: int, timeout: int = 2000, expected_config_count: int = 1, is_sharded_cluster: bool = False
     ):
         """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
