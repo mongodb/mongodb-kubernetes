@@ -72,6 +72,8 @@ export AWS_SECRET_ACCESS_KEY="undefined"
 export AWS_DEFAULT_REGION="eu-central-1"
 
 # Ops Manager settings. Typically they need to be filled with your credentials from Cloud QA.
+# Make sure your organization type is "Cloud Manager" and not Atlas, and that billing is setup with the fake credit card.
+# OM_USER should be filled with your public API Key and not your username
 export OM_USER=""
 export OM_API_KEY=""
 export OM_ORGID=""
@@ -108,7 +110,7 @@ export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 export QUAY_REGISTRY=quay.io/mongodb
 export REGISTRY="$BASE_REPO_URL/ubi"
-export OPERATOR_REGISTRY=${BASE_REPO_URL}
+export OPERATOR_REGISTRY=${REGISTRY}
 
 export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
 
