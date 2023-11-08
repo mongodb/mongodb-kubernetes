@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"golang.org/x/xerrors"
 
@@ -85,9 +87,18 @@ func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.Suga
 	return user, nil
 }
 
+// Use MongoDBResourceRef namespace if specified, otherwise default to user's namespace.
+func getMongoDBObjectKey(user userv1.MongoDBUser) client.ObjectKey {
+	mongoDBResourceNamespace := user.Namespace
+	if user.Spec.MongoDBResourceRef.Namespace != "" {
+		mongoDBResourceNamespace = user.Spec.MongoDBResourceRef.Namespace
+	}
+	return kube.ObjectKey(mongoDBResourceNamespace, user.Spec.MongoDBResourceRef.Name)
+}
+
 // getMongoDB return a MongoDB deployment of type Single or Multi cluster based on the clusterType passed
 func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (project.Reader, error) {
-	name := kube.ObjectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
+	name := getMongoDBObjectKey(user)
 
 	// Try the single cluster resource
 	mdb := &mdbv1.MongoDB{}
@@ -103,7 +114,7 @@ func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (project.Rea
 
 // getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
 func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
-	name := kube.ObjectKey(user.Namespace, user.Spec.MongoDBResourceRef.Name)
+	name := getMongoDBObjectKey(user)
 
 	// Try single cluster resource
 	mdb := &mdbv1.MongoDB{}
@@ -135,7 +146,8 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 
 	if user.Spec.MongoDBResourceRef.Name != "" {
 		if mdb, err = r.getMongoDB(*user); err != nil {
-			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, err: %s", user.Spec.MongoDBResourceRef.Name, err)
+			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, namespace: %s, err: %s",
+				user.Spec.MongoDBResourceRef.Name, user.Spec.MongoDBResourceRef.Namespace, err)
 			return r.updateStatus(user, workflow.Pending(err.Error()), log)
 		}
 	} else {

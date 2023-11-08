@@ -23,6 +23,7 @@
     * automation-agent
     * mongodb
     * mongodb-audit
+* **MongoDBUser** Fix a bug ignoring the `Spec.MongoDBResourceRef.Namespace`. This prevented storing the user resources in another namespace than the MongoDB resource.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.22.0

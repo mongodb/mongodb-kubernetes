@@ -82,6 +82,7 @@ def mongodb_user(central_cluster_client: kubernetes.client.ApiClient, namespace:
         "key": "password",
     }
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
+    resource["spec"]["mongodbResourceRef"]["namespace"] = namespace
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     return resource.create()
 

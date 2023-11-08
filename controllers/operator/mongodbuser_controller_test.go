@@ -67,6 +67,51 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 }
 
+func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	user.Spec.MongoDBResourceRef.Namespace = user.Namespace
+	// the operator should correctly reconcile if the user resource is in a different namespace than the mongodb resource
+	otherNamespace := "userNamespace"
+	user.Namespace = otherNamespace
+
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	// we enable auth because we need to explicitly put the password secret in same namespace
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(client)
+	// the secret must be in the same namespace as the user, we do not support cross-referencing
+	createPasswordSecretInNamespace(client, user.Spec.PasswordSecretKeyRef, "password", otherNamespace)
+
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	expected := reconcile.Result{}
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, expected, actual, "there should be a successful reconciliation if MongoDBUser and MongoDB resources are in different namespaces")
+}
+
+func TestReconciliationSucceed_OnAddingUser_WithNoMongoDBNamespaceSpecified(t *testing.T) {
+	// DefaultMongoDBUserBuilder doesn't provide a namespace to the MongoDBResourceRef by default
+	// The reconciliation should succeed
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(client)
+	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
+
+	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	expected := reconcile.Result{}
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, expected, actual, "there should be a successful reconciliation if MongoDBResourceRef is not provided")
+}
+
 func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(t *testing.T) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
 	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
@@ -373,8 +418,12 @@ func containsNil(users []*om.MongoDBUser) bool {
 	return false
 }
 func createPasswordSecret(client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string) {
+	createPasswordSecretInNamespace(client, secretRef, password, mock.TestNamespace)
+}
+
+func createPasswordSecretInNamespace(client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string, namespace string) {
 	_ = client.Update(context.TODO(), &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: mock.TestNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: namespace},
 		Data: map[string][]byte{
 			secretRef.Key: []byte(password),
 		},
