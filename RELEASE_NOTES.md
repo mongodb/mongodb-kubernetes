@@ -1,17 +1,28 @@
-*(Please use the [release template](docs/dev/release/release-notes-template.md) as the template for this document)*
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.23.0
 ## Warnings and Breaking Changes
 
-* Starting from 1.22 component image versions will be unified to the MongoDB Enterprise Operator release tag. This affects the following images:
+* Starting from 1.23 component image version numbers will be aligned to the MongoDB Enterprise Operator release tag. This allows clear identification of all images related to a specific version of the Operator. This affects the following images:
   * `quay.io/mongodb/mongodb-enterprise-database-ubi`
   * `quay.io/mongodb/mongodb-enterprise-init-database-ubi`
   * `quay.io/mongodb/mongodb-enterprise-init-appdb-ubi`
   * `quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi`
-* **MongoDB**: Remove `spec.exposedExternally` in favor of `spec.externalAccess`. `spec.exposedExternally` was deprecated in operator version 1.19.
+* Removed `spec.exposedExternally` in favor of `spec.externalAccess` from the MongoDB Customer Resource. `spec.exposedExternally` was deprecated in operator version 1.19.
 
 ## Bug Fixes
-* **MongoDBMultiCluster** Fix a bug with scaling a multi-cluster replica-set in the case of losing connectivity to a member cluster. The fix addresses both the manual and automated recovery procedures. 
+* Fix a bug with scaling a multi-cluster replica-set in the case of losing connectivity to a member cluster. The fix addresses both the manual and automated recovery procedures.
+* Fix of a bug where changing the names of the automation agent and MongoDB audit logs prevented them from being sent to Kubernetes pod logs. There are no longer restrictions on MongoDB audit log file names (mentioned in the previous release).
+* New log types from the `mongodb-enterprise-database` container are now streamed to Kubernetes logs. 
+  * New log types: 
+    * agent-launcher-script
+    * monitoring-agent
+    * backup-agent
+  * The rest of available log types: 
+    * automation-agent-verbose
+    * automation-agent-stderr
+    * automation-agent
+    * mongodb
+    * mongodb-audit
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.22.0
