@@ -972,6 +972,7 @@ func (r *ReconcileMongoDbShardedCluster) getConfigServerOptions(sc mdbv1.MongoDB
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
+		WithAdditionalMongodConfig(sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig()),
 	)
 }
 
@@ -992,6 +993,7 @@ func (r *ReconcileMongoDbShardedCluster) getMongosOptions(sc mdbv1.MongoDB, opts
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
+		WithAdditionalMongodConfig(sc.Spec.MongosSpec.GetAdditionalMongodConfig()),
 	)
 }
 
@@ -1014,5 +1016,6 @@ func (r *ReconcileMongoDbShardedCluster) getShardOptions(sc mdbv1.MongoDB, shard
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(r.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
+		WithAdditionalMongodConfig(sc.Spec.ShardSpec.GetAdditionalMongodConfig()),
 	)
 }

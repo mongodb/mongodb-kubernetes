@@ -35,7 +35,7 @@ if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
   export PERFORM_FAILOVER=false
 fi
 
-export OPERATOR_ENV="dev"
+export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
 export AGENT_VERSION=12.0.25.7724-1
 

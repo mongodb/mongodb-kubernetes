@@ -159,8 +159,8 @@ class KubernetesTester(object):
         return cls.clients("corev1").read_namespaced_pod(name, namespace)
 
     @classmethod
-    def read_pod_logs(cls, namespace: str, name: str) -> str:
-        return cls.clients("corev1").read_namespaced_pod_log(name=name, namespace=namespace)
+    def read_pod_logs(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> str:
+        return cls.clients("corev1", api_client=api_client).read_namespaced_pod_log(name=name, namespace=namespace)
 
     @classmethod
     def read_operator_pod(cls, namespace: str) -> Dict[str, str]:

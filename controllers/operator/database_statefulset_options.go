@@ -1,6 +1,7 @@
 package operator
 
 import (
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/vault"
@@ -58,5 +59,11 @@ func WithLabels(labels map[string]string) func(options *construct.DatabaseStatef
 func WithVaultConfig(config vault.VaultConfiguration) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.VaultConfig = config
+	}
+}
+
+func WithAdditionalMongodConfig(additionalMongodConfig *mdbv1.AdditionalMongodConfig) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AdditionalMongodConfig = additionalMongodConfig
 	}
 }

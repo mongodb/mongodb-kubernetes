@@ -450,6 +450,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			CertificateHash(certHash),
 			InternalClusterHash(internalCertHash),
 			WithLabels(mongoDBMultiLabels(mrs.Name, mrs.Namespace)),
+			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(mrs, opts)

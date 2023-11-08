@@ -1,8 +1,24 @@
 #!/usr/bin/env bash
 set -Eeou pipefail
 
+export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.log"
+
+# We start tailing script logs immediately to not miss anything.
+# -F flag is equivalent to --follow=name --retry.
+# -n0 parameter is instructing tail to show only new lines (by default tail is showing last 10 lines)
+tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
+
 # shellcheck disable=SC1091
 source /opt/scripts/agent-launcher-lib.sh
+
+# all the following MDB_LOG_FILE_* env var should be defined in container's env vars
+tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
+tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" 2> /dev/null | json_log 'automation-agent-stderr' &
+tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT}" 2> /dev/null | json_log 'automation-agent' &
+tail -F -n0 "${MDB_LOG_FILE_MONITORING_AGENT}" 2> /dev/null | json_log 'monitoring-agent' &
+tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent' &
+tail -F -n0 "${MDB_LOG_FILE_MONGODB}" 2> /dev/null | json_log 'mongodb' &
+tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT}" 2> /dev/null | json_log 'mongodb-audit' &
 
 # This is the directory corresponding to 'options.downloadBase' in the automation config - the directory where
 # the agent will extract MongoDB binaries to
@@ -48,7 +64,7 @@ script_log "Created symlink: /data/journal -> $(readlink -f /data/journal)"
 
 # If it is a migration of the existing MongoDB - then there could be a mongodb.log in a default location -
 # let's try to copy it to a new directory
-if [[ -f /data/mongodb.log ]] && [[ ! -f "${MMS_LOG_DIR}/mongodb.log" ]]; then
+if [[ -f /data/mongodb.log ]] && [[ ! -f "${MDB_LOG_FILE_MONGODB}" ]]; then
     script_log "The mongodb log file /data/mongodb.log already exists - moving it to ${MMS_LOG_DIR}"
     mv /data/mongodb.log "${MMS_LOG_DIR}"
 fi
@@ -77,7 +93,6 @@ script_log "Automation Agent version: ${AGENT_VERSION}"
 # registers itself, use service FQDN instead of POD FQDN, this mapping is mounted into
 # the pod using configmap
 hostpath="$(hostname)"
-
 
 # We apply the ephemeralPortOffset when using externalDomain in Single Cluster
 # or whenever Multi-Cluster is on.
@@ -133,25 +148,14 @@ rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 debug="${MDB_AGENT_DEBUG-}"
 if [ "${debug}" = "true" ]; then
   export PATH=$PATH:/var/lib/mongodb-mms-automation/gopath/bin
-  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${MMS_HOME}/files/mongodb-mms-automation-agent" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${MMS_HOME}/files/mongodb-mms-automation-agent" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
 else
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-  "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MMS_LOG_DIR}/automation-agent-stderr.log" > >(json_log "automation-agent-stdout") &
+  "${MMS_HOME}/files/mongodb-mms-automation-agent" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
 fi
 export agentPid=$!
+script_log "Launched automation agent, pid=${agentPid}"
 
 trap cleanup SIGTERM
-
-# Note that we don't care about orphan processes as they will die together with container in case of any troubles
-# tail's -F flag is equivalent to --follow=name --retry. Should we track log rotation events?
-AGENT_VERBOSE_LOG="${MMS_LOG_DIR}/automation-agent-verbose.log" && touch "${AGENT_VERBOSE_LOG}"
-AGENT_STDERR_LOG="${MMS_LOG_DIR}/automation-agent-stderr.log" && touch "${AGENT_STDERR_LOG}"
-AUDIT_LOG="${MMS_LOG_DIR}/mongodb-audit.log" && touch "${AUDIT_LOG}"
-MONGODB_LOG="${MMS_LOG_DIR}/mongodb.log" && touch "${MONGODB_LOG}"
-
-tail -F "${AGENT_VERBOSE_LOG}" 2> /dev/null | json_log 'automation-agent-verbose' &
-tail -F "${AGENT_STDERR_LOG}" 2> /dev/null | json_log 'automation-agent-stderr' &
-tail -F "${MONGODB_LOG}" 2> /dev/null | json_log 'mongodb' &
-tail -F "${AUDIT_LOG}" 2> /dev/null | json_log 'mongodb-audit' &
 
 wait
