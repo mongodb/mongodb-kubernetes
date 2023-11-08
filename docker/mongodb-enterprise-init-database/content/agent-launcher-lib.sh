@@ -17,7 +17,7 @@ json_log() {
 
 # log a given message in json format
 script_log() {
-    echo "$1" | json_log 'agent-launcher-script' &>>"${MMS_LOG_DIR}/agent-launcher-script.log"
+    echo "$1" | json_log 'agent-launcher-script' &>>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
 }
 
 # the function reacting on SIGTERM command sent by the container on its shutdown. Makes sure all processes started (including
@@ -94,7 +94,7 @@ download_agent() {
       (
       cd /var/lib/mongodb-mms-automation
       curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-      tar -xzf go1.20.1.linux-amd64.tar.gz # TODO: make the go and dlv version configurable?
+      tar -xzf go1.20.1.linux-amd64.tar.gz
       mkdir -p /var/lib/mongodb-mms-automation/gopath
       export GOPATH=/var/lib/mongodb-mms-automation/gopath
       export GOCACHE=/var/lib/mongodb-mms-automation/.cache
@@ -127,11 +127,12 @@ download_agent() {
         curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
-    if ! curl "${curl_opts[@]}" &>"${MMS_LOG_DIR}/agent-launcher-script.log"; then
+    if ! curl "${curl_opts[@]}" &>"${MMS_LOG_DIR}/curl.log"; then
         script_log "Error while downloading the Mongodb agent"
-        json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/agent-launcher-script.log"
         exit 1
     fi
+    json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/curl.log" >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
+    rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
 
     script_log "The Mongodb Agent binary downloaded, unpacking"
     tar -xzf automation-agent.tar.gz
@@ -142,7 +143,6 @@ download_agent() {
     chmod +x "${MMS_HOME}/files/mongodb-mms-automation-agent"
     rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
     script_log "The Automation Agent was deployed at ${MMS_HOME}/files/mongodb-mms-automation-agent"
-
 
     popd >/dev/null
 }

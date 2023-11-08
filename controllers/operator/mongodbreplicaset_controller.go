@@ -180,6 +180,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		PrometheusTLSCertHash(prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
+		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
 	)
 
 	caFilePath := util.CAFilePathInContainer

@@ -3,9 +3,12 @@ package construct
 import (
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/maputil"
 
 	"go.uber.org/zap"
 
@@ -62,6 +65,14 @@ const (
 	// AGENT_API_KEY secret path
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key"
 	AgentAPIKeyVolumeName = "agent-api-key"
+
+	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
+	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
+	LogFileAutomationAgentStderrEnv  = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
+	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
+	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
+	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
+	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
 )
 
 type StsType int
@@ -95,6 +106,7 @@ type DatabaseStatefulSetOptions struct {
 	AgentConfig             mdbv1.AgentConfig
 	StatefulSetSpecOverride *appsv1.StatefulSetSpec
 	StsType                 StsType
+	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -692,13 +704,14 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 				container.WithLivenessProbe(DatabaseLivenessProbe()),
 				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 				configureContainerSecurityContext,
 			),
 		),
 	)
 }
 
-// StartupParametersToAgentFlag takes a map representing key-value paris
+// StartupParametersToAgentFlag takes a map representing key-value pairs
 // of startup parameters
 // and concatenates them into a single string that is then
 // returned as env variable AGENT_FLAGS
@@ -721,7 +734,54 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 }
 
 func defaultAgentParameters() mdbv1.StartupParameters {
-	return map[string]string{"logFile": "/var/log/mongodb-mms-automation/automation-agent.log"}
+	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
+}
+
+func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
+	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
+
+	// the following are hardcoded log files where we don't support changing the names
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
+
+	return envVars
+}
+
+func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) corev1.EnvVar {
+	auditLogFile := path.Join(util.PvcMountPathLogs, "mongodb-audit.log")
+	if additionalMongodConfig != nil {
+		if auditLogMap := maputil.ReadMapValueAsMap(additionalMongodConfig.ToMap(), "auditLog"); auditLogMap != nil {
+			auditLogDestination := maputil.ReadMapValueAsString(auditLogMap, "destination")
+			auditLogFilePath := maputil.ReadMapValueAsString(auditLogMap, "path")
+			if auditLogDestination == "file" && len(auditLogFile) > 0 {
+				auditLogFile = auditLogFilePath
+			}
+		}
+	}
+
+	return corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: auditLogFile}
+}
+
+func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
+	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
+	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
+		automationLogFile = logFileValue
+	}
+
+	logFileDir, logFileName := path.Split(automationLogFile)
+	logFileExt := path.Ext(logFileName)
+	logFileWithoutExt := logFileName[0 : len(logFileName)-len(logFileExt)]
+
+	verboseLogFile := fmt.Sprintf("%s%s-verbose%s", logFileDir, logFileWithoutExt, logFileExt)
+	stderrLogFile := fmt.Sprintf("%s%s-stderr%s", logFileDir, logFileWithoutExt, logFileExt)
+	return []corev1.EnvVar{
+		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
+		{Name: LogFileAutomationAgentStderrEnv, Value: stderrLogFile},
+		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
+	}
 }
 
 // databaseScriptsVolumeMount constructs the VolumeMount for the Database scripts

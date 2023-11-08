@@ -204,6 +204,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
+		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, nil)

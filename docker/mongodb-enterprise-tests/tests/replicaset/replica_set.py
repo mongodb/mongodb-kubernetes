@@ -3,6 +3,8 @@ from typing import Dict
 
 import pytest
 from kubernetes import client
+from pytest import fixture
+
 from kubetester import assert_pod_container_security_context, assert_pod_security_context, create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
@@ -10,7 +12,6 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
-from pytest import fixture
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
 DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"
@@ -149,27 +150,8 @@ class TestReplicaSetCreation(KubernetesTester):
             assert c0.resources.requests["memory"] == "300M"
 
     def test_pods_container_envvars(self):
-        for podname in self._get_pods("my-replica-set-{}", 3):
-            pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
-            for envvar in c0.env:
-                if envvar.name == "AGENT_API_KEY":
-                    assert envvar.value is None, "cannot configure value and value_from"
-                    assert envvar.value_from.secret_key_ref.name == f"{_get_group_id(c0.env)}-group-secret"
-                    assert envvar.value_from.secret_key_ref.key == "agentApiKey"
-                    continue
-
-                assert envvar.name in [
-                    "AGENT_FLAGS",
-                    "BASE_URL",
-                    "GROUP_ID",
-                    "USER_LOGIN",
-                    "LOG_LEVEL",
-                    "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
-                    "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
-                    "MULTI_CLUSTER_MODE",
-                ]
-                assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
+        for pod_name in self._get_pods("my-replica-set-{}", 3):
+            assert_container_env_vars(self.namespace, pod_name)
 
     def test_service_is_created(self):
         svc = self.corev1.read_namespaced_service("my-replica-set-svc", self.namespace)
@@ -385,27 +367,8 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert c0.ports[0].protocol == "TCP"
 
     def test_pods_container_envvars(self):
-        for podname in self._get_pods("my-replica-set-{}", 5):
-            pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
-            for envvar in c0.env:
-                if envvar.name == "AGENT_API_KEY":
-                    assert envvar.value is None, "cannot configure value and value_from"
-                    assert envvar.value_from.secret_key_ref.name == f"{_get_group_id(c0.env)}-group-secret"
-                    assert envvar.value_from.secret_key_ref.key == "agentApiKey"
-                    continue
-
-                assert envvar.name in [
-                    "AGENT_FLAGS",
-                    "BASE_URL",
-                    "GROUP_ID",
-                    "USER_LOGIN",
-                    "LOG_LEVEL",
-                    "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
-                    "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
-                    "MULTI_CLUSTER_MODE",
-                ]
-                assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
+        for pod_name in self._get_pods("my-replica-set-{}", 5):
+            assert_container_env_vars(self.namespace, pod_name)
 
     def test_service_is_created(self):
         svc = self.corev1.read_namespaced_service("my-replica-set-svc", self.namespace)
@@ -521,3 +484,33 @@ class TestReplicaSetDelete(KubernetesTester):
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):
             self.corev1.read_namespaced_service(RESOURCE_NAME + "-svc", self.namespace)
+
+
+def assert_container_env_vars(namespace: str, pod_name: str):
+    pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
+    c0 = pod.spec.containers[0]
+    for envvar in c0.env:
+        if envvar.name == "AGENT_API_KEY":
+            assert envvar.value is None, "cannot configure value and value_from"
+            assert envvar.value_from.secret_key_ref.name == f"{_get_group_id(c0.env)}-group-secret"
+            assert envvar.value_from.secret_key_ref.key == "agentApiKey"
+            continue
+
+        assert envvar.name in [
+            "AGENT_FLAGS",
+            "BASE_URL",
+            "GROUP_ID",
+            "USER_LOGIN",
+            "LOG_LEVEL",
+            "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
+            "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
+            "MULTI_CLUSTER_MODE",
+            "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
+            "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR",
+            "MDB_LOG_FILE_AUTOMATION_AGENT",
+            "MDB_LOG_FILE_MONITORING_AGENT",
+            "MDB_LOG_FILE_BACKUP_AGENT",
+            "MDB_LOG_FILE_MONGODB",
+            "MDB_LOG_FILE_MONGODB_AUDIT",
+        ]
+        assert envvar.value is not None or envvar.name == "AGENT_FLAGS"

@@ -2,9 +2,11 @@ import base64
 
 from pytest import fixture
 
-from kubetester import find_fixture, create_or_update
+from kubetester import find_fixture, create_or_update, try_load
 from kubetester.mongodb import MongoDB, Phase
+from kubetester.opsmanager import MongoDBOpsManager
 
+from kubetester.kubetester import fixture as yaml_fixture
 
 # This test is intended for manual run only.
 #
@@ -16,17 +18,40 @@ from kubetester.mongodb import MongoDB, Phase
 # Thanks to this, it is possible to quickly iterate on the script without the need to build and push init-database image.
 
 
+@fixture(scope="module")
+def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> MongoDBOpsManager:
+    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
+        yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
+    )
+
+    resource["spec"]["topology"] = "SingleCluster"
+    resource["spec"]["applicationDatabase"]["topology"] = "SingleCluster"
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
+
+    if try_load(resource):
+        return resource
+
+    create_or_update(resource)
+    return resource
+
+
 @fixture(scope="function")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("replica-set-override-agent-launcher-script.yaml"), namespace=namespace)
+def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> MongoDB:
+    resource = MongoDB.from_yaml(
+        find_fixture("replica-set-override-agent-launcher-script.yaml"), namespace=namespace
+    ).configure(ops_manager, "replica-set")
     resource["spec"]["version"] = custom_mdb_version + "-ent"
     resource["spec"]["logLevel"] = "INFO"
     resource["spec"]["additionalMongodConfig"] = {
         "auditLog": {
             "destination": "file",
             "format": "JSON",
-            "path": "/var/log/mongodb-mms-automation/mongodb-audit.log",
+            "path": "/var/log/mongodb-mms-automation/mongodb-audit-changed.log",
         },
+    }
+    resource["spec"]["agent"] = {
+        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileWithoutExt"}
     }
 
     return resource
@@ -47,6 +72,11 @@ echo -n "{agent_launcher_lib}" | base64 -d > /opt/scripts/agent-launcher-lib.sh
     replica_set["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"][0]["args"] = ["-c", command]
 
     create_or_update(replica_set)
+
+
+def test_om_running(ops_manager: MongoDBOpsManager):
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
 
 def test_replica_set_running(replica_set: MongoDB):
