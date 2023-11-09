@@ -1268,11 +1268,6 @@ tasks:
   commands:
     - func: "e2e_test"
 
-- name: e2e_om_appdb_configure_all_images
-  tags: ["patch-run"]
-  commands:
-    - func: "e2e_test"
-
 - name: e2e_om_ops_manager_backup
   tags: ["patch-run"]
   commands:
@@ -1935,7 +1930,6 @@ task_groups:
     - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
     # Reused OM tests with AppDB Multi-Cluster topology
     - e2e_om_appdb_agent_flags
-    - e2e_om_appdb_configure_all_images
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_monitoring_tls
     - e2e_om_ops_manager_backup_light
@@ -2021,7 +2015,6 @@ task_groups:
     - e2e_om_ops_manager_secure_config
     - e2e_om_update_before_reconciliation
     - e2e_om_multiple
-    - e2e_om_appdb_configure_all_images
     - e2e_om_feature_controls
     - e2e_vault_setup_om
     - e2e_vault_setup_om_backup
