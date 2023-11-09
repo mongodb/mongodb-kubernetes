@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -374,6 +376,87 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
+}
+
+// TestTryConfigureMonitoringInOpsManagerWithCustomTemplate runs different scenarios with activating monitoring and pod templates
+func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
+	builder := DefaultOpsManagerBuilder()
+	opsManager := builder.Build()
+	appdbScaler := scalers.GetAppDBScaler(opsManager, omv1.DummmyCentralClusterName, 0, nil)
+
+	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = mdb.PodTemplateSpecWrapper{
+		PodTemplate: &corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "mongodb-agent",
+						Image: "quay.io/mongodb/mongodb-agent-ubi:10",
+					},
+					{
+						Name:  "mongod",
+						Image: "quay.io/mongodb/mongodb:10",
+					},
+					{
+						Name:  "mongodb-agent-monitoring",
+						Image: "quay.io/mongodb/mongodb-agent-ubi:20",
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("do not override images while activating monitoring", func(t *testing.T) {
+		podVars := env.PodEnvVars{ProjectID: "something"}
+		appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+		assert.NoError(t, err)
+		assert.NotNil(t, appDbSts)
+
+		foundImages := 0
+		for _, c := range appDbSts.Spec.Template.Spec.Containers {
+			if c.Name == "mongodb-agent" {
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:10", c.Image)
+				foundImages += 1
+			}
+			if c.Name == "mongod" {
+				assert.Equal(t, "quay.io/mongodb/mongodb:10", c.Image)
+				foundImages += 1
+			}
+			if c.Name == "mongodb-agent-monitoring" {
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:20", c.Image)
+				foundImages += 1
+			}
+		}
+
+		assert.Equal(t, 3, foundImages)
+		assert.Equal(t, 3, len(appDbSts.Spec.Template.Spec.Containers))
+	})
+
+	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
+		podVars := env.PodEnvVars{}
+		appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+		assert.NoError(t, err)
+		assert.NotNil(t, appDbSts)
+
+		foundImages := 0
+		for _, c := range appDbSts.Spec.Template.Spec.Containers {
+			if c.Name == "mongodb-agent" {
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:10", c.Image)
+				foundImages += 1
+			}
+			if c.Name == "mongod" {
+				assert.Equal(t, "quay.io/mongodb/mongodb:10", c.Image)
+				foundImages += 1
+			}
+			if c.Name == "mongodb-agent-monitoring" {
+				assert.Equal(t, "quay.io/mongodb/mongodb-agent-ubi:20", c.Image)
+				foundImages += 1
+			}
+		}
+
+		assert.Equal(t, 2, foundImages)
+		assert.Equal(t, 2, len(appDbSts.Spec.Template.Spec.Containers))
+	})
+
 }
 
 func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {
