@@ -2,11 +2,11 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel80-x86_64-100.9.0.tgz"
   },
-  "mongodbOperator": "1.22.0",
-  "initDatabaseVersion": "1.0.19",
-  "initOpsManagerVersion": "1.0.12",
-  "initAppDbVersion": "1.0.18",
-  "databaseImageVersion": "2.0.2",
+  "mongodbOperator": "1.23.0",
+  "initDatabaseVersion": "1.23.0",
+  "initOpsManagerVersion": "1.23.0",
+  "initAppDbVersion": "1.23.0",
+  "databaseImageVersion": "1.23.0",
   "agentVersion": "12.0.28.7763-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
@@ -82,6 +82,7 @@
     "operator": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.23.0",
         "1.22.0",
         "1.21.0",
         "1.20.1",
@@ -151,6 +152,7 @@
     "init-ops-manager": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.23.0",
         "1.0.7",
         "1.0.8",
         "1.0.9",
@@ -165,6 +167,7 @@
     "init-database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.23.0",
         "1.0.9",
         "1.0.10",
         "1.0.11",
@@ -184,6 +187,7 @@
     "init-appdb": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.23.0",
         "1.0.9",
         "1.0.10",
         "1.0.11",
