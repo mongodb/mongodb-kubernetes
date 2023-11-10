@@ -13,9 +13,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/hashicorp/go-multierror"
-	"k8s.io/apimachinery/pkg/util/validation"
-
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
@@ -249,6 +248,24 @@ func (c *MockedStatefulSetClient) DeleteStatefulSet(key client.ObjectKey) error 
 	return nil
 }
 
+var _ client.StatusWriter = &MockedStatusWriter{}
+
+type MockedStatusWriter struct {
+	parent *MockedClient
+}
+
+func (m *MockedStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	panic("implement me")
+}
+
+func (m *MockedStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	return m.parent.Update(ctx, obj)
+}
+
+func (m *MockedStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return m.parent.Patch(ctx, obj, patch)
+}
+
 // MockedClient is the mocked implementation of client.Client from controller-runtime library
 type MockedClient struct {
 	*MockedConfigMapClient
@@ -354,10 +371,14 @@ func (m *MockedClient) AddDefaultMdbConfigResources() *MockedClient {
 	return m.AddCredentialsSecret(om.TestUser, om.TestApiKey)
 }
 
+func (m *MockedClient) SubResource(subResource string) client.SubResourceClient {
+	panic("implement me")
+}
+
 // Get retrieves an obj for the given object key from the Kubernetes Cluster.
 // obj must be a struct pointer so that obj can be updated with the response
 // returned by the Server.
-func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) (e error) {
+func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) (e error) {
 	resMap := k.GetMapForObject(obj)
 	k.addToHistory(reflect.ValueOf(k.Get), obj)
 	if _, exists := resMap[key]; !exists {
@@ -552,7 +573,7 @@ func (k *MockedClient) Patch(ctx context.Context, obj client.Object, patch clien
 func (k *MockedClient) Status() client.StatusWriter {
 	// MockedClient also implements StatusWriter and the Update function does what we need
 	k.addToHistory(reflect.ValueOf(k.Status), nil)
-	return k
+	return &MockedStatusWriter{parent: k}
 }
 
 // Not used in enterprise, these only exist in community.
