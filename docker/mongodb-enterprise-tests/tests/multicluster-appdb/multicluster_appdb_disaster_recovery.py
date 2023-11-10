@@ -213,19 +213,21 @@ def test_add_appdb_member_to_om_cluster_force_reconfig(ops_manager: MongoDBOpsMa
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME], [3, 2, 1]
     )
-    ops_manager["metadata"]["annotations"].update({"mongodb.com/v1.forceReconfigure": "true"})
+    create_or_update(ops_manager)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=1200)
 
+    ops_manager.reload()
+    ops_manager["metadata"]["annotations"].update({"mongodb.com/v1.forceReconfigure": "true"})
     create_or_update(ops_manager)
 
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    # This can potentially take quite a bit of time. AppDB needs to go up and sync with OM (which will be crashlooping)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=2400)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
-
-    current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
 
     replica_set_members = ops_manager.get_automation_config_tester().get_replica_set_members(f"{ops_manager.name}-db")
     assert len(replica_set_members) == 3 + 2 + 1
 
-    config_version.version = current_ac_version
+    config_version.version = ops_manager.get_automation_config_tester().automation_config["version"]
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
