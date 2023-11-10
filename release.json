@@ -7,7 +7,7 @@
   "initOpsManagerVersion": "1.0.12",
   "initAppDbVersion": "1.0.18",
   "databaseImageVersion": "2.0.2",
-  "agentVersion": "12.0.25.7724-1",
+  "agentVersion": "12.0.28.7763-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
@@ -117,8 +117,7 @@
       "Description": "Agents corresponding to OpsManager 5.x and 6.x series",
       "Description for specific versions": {
         "11.0.5.6963-1": "An upgraded version for OM 5.0 we use for Operator-only deployments",
-        "11.12.0.7388-1": "Version specific to OM 5.9",
-        "12.0.4.7554-1": "OM 6 basic version",
+        "12.0.28.7763-1": "OM 6 basic version",
         "12.0.15.7646-1": "Community and Helm Charts version"
       },
       "versions": [
@@ -128,7 +127,8 @@
         "12.0.15.7646-1",
         "12.0.21.7698-1",
         "12.0.24.7719-1",
-        "12.0.25.7724-1"
+        "12.0.25.7724-1",
+        "12.0.28.7763-1"
       ],
       "opsManagerMapping": [
         {
