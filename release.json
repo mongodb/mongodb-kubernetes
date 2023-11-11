@@ -206,6 +206,7 @@
     "database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.23.0",
         "2.0.2"
       ],
       "variants": [
