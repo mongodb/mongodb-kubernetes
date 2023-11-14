@@ -18,7 +18,29 @@ spec:
         pathStyleAccessEnabled: true
         s3BucketEndpoint: s3.us-east-1.amazonaws.com
         s3BucketName: test-bucket
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-backup-daemon
+                resources:
+                  requests:
+                    memory: 10G
+                  limits:
+                    memory: 10G
 
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: 15G
+                limits:
+                  memory: 15G
   applicationDatabase:
     members: 3
 
