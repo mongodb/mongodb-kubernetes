@@ -291,7 +291,12 @@ def configure():
 
 
 def clean_unused_keys(org_id: str):
-    """Iterates over all existing projects in the organization and removes the leftovers"""
+    """Iterates over all existing keys in the organization and removes the leftovers.
+    Keeps keys:
+    - older than minutes_interval
+    - currently used by the script (USER_OWNER env variable)
+    - containing "EVG" or "NOT_DELETE" in their description
+    """
     keys = get_keys_older_than(org_id, minutes_interval=70)
     print(f"found {len(keys)} keys for potential removal")
 
@@ -305,7 +310,11 @@ def clean_unused_keys(org_id: str):
 
 def keep_the_key(key: Dict) -> bool:
     """Returns True if the key shouldn't be removed"""
-    return key["publicKey"] == os.getenv(USER_OWNER).lower()
+    return (
+        key["publicKey"] == os.getenv(USER_OWNER).lower()
+        or "EVG" in key["desc"]
+        or "NOT_DELETE" in key["desc"]
+    )
 
 
 def clean_unused_projects(org_id: str):
