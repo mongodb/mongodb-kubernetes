@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+export om_download_url="https://mciuploads.s3.amazonaws.com/mms-ops-manager-main/mms_ops_manager_7.0_package_rpm_84fce5296df24bfafe911ec65ee97ed456ba2b9b_23_11_06_15_48_13/PACKAGE_OPS_MANAGER/mongodb-mms-7.0.0-rc4.500.20231106T1551Z.tar.gz"
+
+om_version=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" < "$script_dir"/../../../../.evergreen.yml | awk '{print $3}')
+export om_version

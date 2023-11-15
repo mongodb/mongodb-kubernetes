@@ -490,7 +490,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 
 		for _, hostName := range opsManager.BackupDaemonFQDNs() {
 			_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
-			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound || errors.Is(err, syscall.ECONNREFUSED) {
+			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() || errors.Is(err, syscall.ECONNREFUSED) {
 				backupStatus = workflow.Disabled()
 				break
 			}
@@ -1019,11 +1019,11 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager *omv1.MongoD
 	backupHostNames := opsManager.BackupDaemonFQDNs()
 	for _, hostName := range backupHostNames {
 		dc, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
-		if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
+		if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
 			log.Infow("Backup Daemons is not configured, enabling it", "hostname", hostName, "headDB", util.PvcMountPathHeadDb)
 
 			err = omAdmin.CreateDaemonConfig(hostName, util.PvcMountPathHeadDb, opsManager.Spec.Backup.AssignmentLabels)
-			if apierror.NewNonNil(err).ErrorCode == apierror.BackupDaemonConfigNotFound {
+			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
 				// Unfortunately by this time backup daemon may not have been started yet, and we don't have proper
 				// mechanism to ensure this using readiness probe, so we just retry
 				return workflow.Pending("BackupDaemon hasn't started yet")

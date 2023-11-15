@@ -11,6 +11,7 @@ from kubetester.kubetester import (
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import is_multi_cluster
+from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 gen_key_resource_version = None
@@ -18,25 +19,12 @@ admin_key_resource_version = None
 
 
 @fixture(scope="module")
-def initial_appdb_version(custom_appdb_version: str):
-    """
-    returns the initial appdb version which we update from
-    """
-    if custom_appdb_version.startswith("6."):
-        # simulate update from 5 to 6
-        return "5.0.5-ent"
-    else:
-        # simulate upgrade from 4 to 5 or 4 to 4
-        return "4.4.20-ent"
-
-
-@fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], initial_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_mdb_prev_version: str) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_upgrade.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
-    resource.set_appdb_version(initial_appdb_version)
+    resource.set_appdb_version(ensure_ent_version(custom_mdb_prev_version))
 
     if is_multi_cluster():
         enable_appdb_multi_cluster_deployment(resource)
@@ -51,14 +39,14 @@ class TestOpsManagerCreation:
     Creates an Ops Manager instance with AppDB of size 3. The test waits until the AppDB is ready, not the OM resource
     """
 
-    def test_appdb(self, ops_manager: MongoDBOpsManager, initial_appdb_version: str):
+    def test_appdb(self, ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
         # FIXME remove the if when appdb multi-cluster-aware status is implemented
         if not is_multi_cluster():
             assert ops_manager.appdb_status().get_members() == 3
 
-        assert ops_manager.appdb_status().get_version() == initial_appdb_version
+        assert ops_manager.appdb_status().get_version() == ensure_ent_version(custom_mdb_prev_version)
         db_pods = ops_manager.read_appdb_pods()
         for _, pod in db_pods:
             # the appdb pod container 'mongodb' by default has 500M
@@ -68,10 +56,10 @@ class TestOpsManagerCreation:
         ops_manager.get_automation_config_tester().reached_version(1)
 
     @skip_if_local
-    def test_mongod(self, ops_manager: MongoDBOpsManager, initial_appdb_version: str):
+    def test_mongod(self, ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str):
         mdb_tester = ops_manager.get_appdb_tester()
         mdb_tester.assert_connectivity()
-        mdb_tester.assert_version(initial_appdb_version)
+        mdb_tester.assert_version(custom_mdb_prev_version)
 
     def test_appdb_automation_config(self, ops_manager: MongoDBOpsManager):
         expected_roles = {

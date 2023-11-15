@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import MongoDB, create_or_update
+from kubetester import MongoDB, create_or_update, try_load
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
@@ -59,14 +59,18 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
 
-    return resource.create()
+    resource["spec"]["version"] = custom_mdb_version
+
+    try_load(resource)
+
+    return resource
 
 
 @mark.e2e_om_ops_manager_backup_liveness_probe
@@ -100,6 +104,7 @@ class TestOpsManagerCreation:
         self,
         oplog_replica_set: MongoDB,
     ):
+        create_or_update(oplog_replica_set)
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):

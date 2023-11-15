@@ -525,8 +525,8 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		log.Errorf("Unable to configure monitoring of AppDB: %s, configuration will be attempted next reconciliation.", err)
 
 		if podVars.ProjectID != "" {
-			// when there is error, but projectID is configured then that means OM has been configured before but might be down
-			// in that case we need to ensure that all member clusters have all the secrets to be mounted properly
+			// when there is an error, but projectID is configured, then that means OM has been configured before but might be down
+			// in that case, we need to ensure that all member clusters have all the secrets to be mounted properly
 			// newly added member clusters will not contain them otherwise until OM is recreated and running
 			if err := r.ensureProjectIDConfigMap(opsManager, podVars.ProjectID); err != nil {
 				// we ignore the error here and let reconciler continue

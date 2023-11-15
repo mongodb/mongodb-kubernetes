@@ -1,7 +1,7 @@
 import pytest
 from kubernetes import client
 
-from kubetester import create_or_update
+from kubetester import create_or_update, try_load
 from kubetester.kubetester import (
     skip_if_local,
     fixture as yaml_fixture,
@@ -26,16 +26,17 @@ OM5_CURRENT_VERSION = "5.0.9"
 
 
 @fixture(scope="module")
-def ops_manager(namespace, custom_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace, custom_version: str, custom_appdb_version: str, custom_om_prev_version: str
+) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_scale.yaml"), namespace=namespace)
-    if custom_version.startswith("6"):
-        resource.set_version(OM5_CURRENT_VERSION)
+    resource.set_version(custom_om_prev_version)
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
         enable_appdb_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    try_load(resource)
     return resource
 
 
@@ -58,6 +59,8 @@ class TestOpsManagerCreation:
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         # Backup is not fully configured so we wait until Pending phase
+
+        create_or_update(ops_manager)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
             timeout=900,
@@ -125,10 +128,11 @@ class TestOpsManagerVersionUpgrade:
         _ = background_tester
         ops_manager.load()
 
+        # This updates OM by a major version. For instance:
         # If running OM6 tests, this will update from 5.0.9 to latest OM6
         ops_manager.set_version(custom_version)
 
-        ops_manager.update()
+        create_or_update(ops_manager)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
