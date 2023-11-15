@@ -32,7 +32,7 @@ export NAMESPACE
 
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 
-export REGISTRY="$BASE_REPO_URL/ubi"
+export REGISTRY="$BASE_REPO_URL"
 export QUAY_REGISTRY=quay.io/mongodb
 export OPERATOR_REGISTRY=${REGISTRY}
 export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}

@@ -45,8 +45,6 @@ images:
       imagebase: $(inputs.params.registry)/ops-manager-context:$(inputs.params.version_id)
 
     output:
-    - registry: $(inputs.params.om_registry)/images/ubi/mongodb-enterprise-ops-manager
-      tag: $(inputs.params.om_version)
     - registry: $(inputs.params.om_registry)/images/ubi/mongodb-enterprise-ops-manager-ubi
       tag: $(inputs.params.om_version)
 

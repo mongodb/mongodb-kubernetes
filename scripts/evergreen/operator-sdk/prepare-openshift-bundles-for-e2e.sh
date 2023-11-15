@@ -26,7 +26,7 @@ increment_version() {
 if [[ "${REGISTRY:-""}" != "" ]]; then
   base_repo_url="${REGISTRY}"
 else
-  base_repo_url="${BASE_REPO_URL:-"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"}/ubi"
+  base_repo_url="${BASE_REPO_URL:-"268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"}"
 fi
 
 # Generates helm charts the same way they are generates part of pre-commit hook.
