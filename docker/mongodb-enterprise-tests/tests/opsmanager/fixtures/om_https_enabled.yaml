@@ -70,12 +70,12 @@ spec:
                   mountPath: /mongodb-ops-manager/mongodb-releases
             - name: setting-up-rhel-mongodb-6-0
               image: curlimages/curl:latest
-              command: [ "/bin/sh" ]
-              args:
-                - -c
-                - >-
-                  curl -L https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.5.tgz -o /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.5.tgz &&
-                  curl -L https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.5.tgz.sig -o /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.5.tgz.sig
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.5.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.5.tgz
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
@@ -87,6 +87,28 @@ spec:
                 - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-6.0.5.tgz.sig
                 - -o
                 - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-6.0.5.tgz.sig
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-7-0
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-7.0.2.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-7.0.2.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-7-0-sig
+              image: curlimages/curl:latest
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel80-7.0.2.tgz.sig
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel80-7.0.2.tgz.sig
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases

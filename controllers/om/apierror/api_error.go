@@ -77,11 +77,20 @@ func (e *Error) Error() string {
 	return e.Detail
 }
 
-func (e *Error) ErrorCodeIn(errorCodes ...string) bool {
-	for _, c := range errorCodes {
-		if e.ErrorCode == c {
-			return true
-		}
+// ErrorBackupDaemonConfigIsNotFound returns whether the api-error is of not found. Sometimes OM only returns the
+// http code.
+func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
+	if e == nil {
+		return false
 	}
+
+	if e.Status != nil && *e.Status == 404 {
+		return true
+	}
+
+	if e.ErrorCode == BackupDaemonConfigNotFound {
+		return true
+	}
+
 	return false
 }

@@ -181,13 +181,14 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 
 		log.Error(err)
 	}
-	if err == nil && len(organizations) == 1 {
-		// there is no error so we need to check if the organization found has this name
-		// (the organization found could be just the page of one single organization if the OM is old and "name"
-		// parameter is not supported)
-		if organizations[0].Name == name {
-			return organizations[0].ID, nil
+	if err == nil {
+		for _, organization := range organizations {
+			// there is no error so we need to check if the organization found has this name
+			if organization.Name == name {
+				return organization.ID, nil
+			}
 		}
+
 	}
 
 	return "", xerrors.Errorf("could not find organization %s: %w", name, err)

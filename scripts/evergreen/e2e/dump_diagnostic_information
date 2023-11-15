@@ -94,6 +94,8 @@ dump_pod_logs() {
         for container in $(kubectl get pods -n "${namespace}" "$pod" -o jsonpath='{.spec.containers[*].name}'); do
             echo "Writing log file for pod ${pod} - container ${container} to logs/${pod}-${container}.log"
             kubectl logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}.log"
+            echo "Writing log file for restarted ${pod} - container ${container} to logs/${pod}-${container}-previous.log"
+            kubectl logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${pod}-${container}-previous.log" || true
         done
     fi
 

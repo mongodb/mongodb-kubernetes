@@ -362,6 +362,16 @@ tasks:
         vars:
           image_name: ops-manager-6-daily
 
+  - name: periodic_build_ops_manager_7
+    commands:
+      - func: clone
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_om_pid}
+      - func: pipeline
+        vars:
+          image_name: ops-manager-7-daily
+
   - name: periodic_build_agent
     commands:
       - func: clone
@@ -451,6 +461,7 @@ task_groups:
       - periodic_build_init_opsmanager
       - periodic_build_ops_manager_5
       - periodic_build_ops_manager_6
+      - periodic_build_ops_manager_7
       - periodic_build_database
       - periodic_build_agent
       - periodic_build_community_operator
@@ -497,6 +508,8 @@ buildvariants:
         variant: periodic_build
       - name: periodic_build_ops_manager_6
         variant: periodic_build
+      - name: periodic_build_ops_manager_7
+        variant: periodic_build
       - name: periodic_build_database
         variant: periodic_build
       - name: periodic_build_agent
@@ -531,6 +544,8 @@ buildvariants:
       - name: periodic_build_ops_manager_5
         variant: periodic_build
       - name: periodic_build_ops_manager_6
+        variant: periodic_build
+      - name: periodic_build_ops_manager_7
         variant: periodic_build
       - name: periodic_build_database
         variant: periodic_build

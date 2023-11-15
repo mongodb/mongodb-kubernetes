@@ -60,7 +60,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_appdb_multi_cluster_deployment(resource)
 
-    create_or_update(resource)
+    try_load(resource)
     return resource
 
 
@@ -73,7 +73,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_prev_version: str) -> M
     ).configure(ops_manager, "development-oplog")
     resource["spec"]["version"] = custom_mdb_prev_version
 
-    create_or_update(resource)
+    try_load(resource)
     return resource
 
 
@@ -86,7 +86,7 @@ def mdb(ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str) -> MongoDB
     )
     resource["spec"]["version"] = custom_mdb_prev_version
     resource.configure(ops_manager, "development")
-    create_or_update(resource)
+    try_load(resource)
     return resource
 
 
@@ -97,6 +97,7 @@ class TestOpsManagerCreation:
     """
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        create_or_update(ops_manager)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
@@ -155,6 +156,7 @@ class TestBackupCreation:
         self,
         oplog_replica_set: MongoDB,
     ):
+        create_or_update(oplog_replica_set)
         oplog_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
@@ -187,6 +189,8 @@ class TestBackupCreation:
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestOpsManagerWithMongoDB:
     def test_mongodb_create(self, mdb: MongoDB, custom_mdb_prev_version: str):
+        create_or_update(mdb)
+
         mdb.assert_reaches_phase(Phase.Running, timeout=600)
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_prev_version)
@@ -207,7 +211,7 @@ class TestOpsManagerWithMongoDB:
 class TestOpsManagerConfigurationChange:
     """
     The OM configuration changes: one property is removed, another is added.
-    Note, that this is quite artificial change to make it testable, these properties affect the behavior of different
+    Note, that this is quite an artificial change to make it testable, these properties affect the behaviour of different
     endpoints in Ops Manager, so we can then check if the changes were propagated to OM
     """
 
@@ -318,11 +322,14 @@ class TestMongoDbsVersionUpgrade:
         the upgrade of all the agents
         - in case of major/minor OM upgrade the agents MUST be upgraded before reconciling - so that's why the agents upgrade
         is enforced before MongoDB reconciliation (the OM reconciliation happened above will drop the 'agents.nextScheduledTime'
-        counter)
+        counter and schedule an upgrade in the operator opsmanager reconcile)
         """
+
+        mdb.assert_reaches_phase(Phase.Running, timeout=1200)
         # Because OM was not in running phase, this resource, mdb, was also not in
         # running phase. We will wait for it to come back before applying any changes.
         mdb.reload()
+
         # At this point all the agent versions should be up to date and we can perform the database version upgrade.
         mdb["spec"]["version"] = custom_mdb_version
         mdb.update()
