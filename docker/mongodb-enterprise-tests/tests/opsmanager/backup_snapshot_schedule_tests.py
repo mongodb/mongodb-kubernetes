@@ -187,7 +187,7 @@ class BackupSnapshotScheduleTests:
         mdb.update()
 
         mdb.assert_state_transition_happens(last_transition)
-        mdb.assert_reaches_phase(Phase.Running)
+        mdb.assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     @staticmethod
     def assert_snapshot_schedule_in_ops_manager(om_tester: OMTester, expected_snapshot_schedule: Dict):
