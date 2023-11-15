@@ -1,9 +1,10 @@
+import time
 from typing import Optional
 
 from kubernetes.client.rest import ApiException
 from pytest import mark, fixture
 
-from kubetester import get_default_storage_class, try_load, create_or_update, create_or_update_secret
+from kubetester import get_default_storage_class, try_load, create_or_update, create_or_update_secret, wait_until
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     fixture as yaml_fixture,
@@ -280,6 +281,19 @@ class TestBackupForMongodb:
 
     def test_mdbs_enable_backup(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         mdb_latest.load()
+
+        def until_shards_are_here():
+            shards = mdb_latest.tester().client.admin.command("listShards")
+            if len(shards["shards"]) == 2:
+                return True
+            else:
+                print(f"shards are not configured yet: {shards}")
+
+        wait_until(until_shards_are_here, 500)
+
+        # we need to sleep here to give OM some time to recognize the shards.
+        # otherwise, if you start a backup during a topology change will lead the backup to be aborted.
+        time.sleep(30)
         mdb_latest.configure_backup(mode="enabled")
         create_or_update(mdb_latest)
 
