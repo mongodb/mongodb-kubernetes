@@ -6,7 +6,13 @@ set -Eeou pipefail
 # to the child process ("tail" in this case)
 cleanup () {
     echo "Caught SIGTERM signal."
-    kill -TERM "$child"
+    if [[ -n "$child" ]]; then
+        kill -TERM "$child"
+    else
+        # Kill all tail processes
+        echo "Was not able to find child process, killing all tail processes"
+        pkill -f tail -TERM
+    fi
 }
 
 # we need to change the Home directory for current bash so that the gen key was found correctly
@@ -17,7 +23,7 @@ CONFIG_DIR=${MMS_HOME}/conf
 
 if [ -d "${CONFIG_TEMPLATE_DIR}" ]
 then
-    if [ "$(ls -A $CONFIG_DIR)" ]; then
+    if [ "$(ls -A "$CONFIG_DIR")" ]; then
         echo "The ${CONFIG_DIR} directory is not empty. Skipping copying files from ${CONFIG_TEMPLATE_DIR}"
         echo "This might cause errors when booting up the OpsManager with read-only root filesystem"
     else
@@ -59,15 +65,17 @@ if [[ -z ${BACKUP_DAEMON+x} ]]; then
       exit 1
     }
 
-    trap cleanup SIGTERM
     tail -F -n 1000 "${MMS_LOG_DIR}/mms0.log" "${MMS_LOG_DIR}/mms0-startup.log" "${MMS_LOG_DIR}/mms-migration.log" &
 else
     echo "Starting Ops Manager Backup Daemon"
     "${MMS_HOME}/bin/mongodb-mms" start_backup_daemon
-    trap cleanup SIGTERM
 
     tail -F "${MMS_LOG_DIR}/daemon.log" &
 fi
 
-child=$!
+export child=$!
+echo "Launched tail, pid=${child}"
+
+trap cleanup SIGTERM
+
 wait "$child"

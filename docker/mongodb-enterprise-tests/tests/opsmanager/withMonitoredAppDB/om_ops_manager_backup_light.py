@@ -5,7 +5,7 @@ import kubernetes.client
 from kubernetes import client
 from pytest import mark, fixture
 
-from kubetester import MongoDB, wait_until, create_or_update
+from kubetester import MongoDB, wait_until, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import (
     skip_if_local,
@@ -60,14 +60,18 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
 
-    return resource.create()
+    resource["spec"]["version"] = custom_mdb_version
+
+    try_load(resource)
+
+    return resource
 
 
 def service_exists(service_name: str, namespace: str) -> bool:
@@ -93,6 +97,7 @@ class TestOpsManagerCreation:
         self,
         oplog_replica_set: MongoDB,
     ):
+        create_or_update(oplog_replica_set)
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):

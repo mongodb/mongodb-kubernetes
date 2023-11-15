@@ -155,13 +155,14 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
 
 
 @fixture(scope="module")
-def s3_replica_set(ops_manager, namespace) -> MongoDB:
+def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
 
+    resource["spec"]["version"] = custom_mdb_version
     yield create_or_update(resource)
 
 

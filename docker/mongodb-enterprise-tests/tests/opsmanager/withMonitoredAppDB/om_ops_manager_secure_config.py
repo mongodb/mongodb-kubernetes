@@ -43,24 +43,31 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
 
 @fixture(scope="module")
-def oplog_replica_set(ops_manager, namespace) -> MongoDB:
+def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "oplog")
-    return resource.create()
+
+    resource.set_version(custom_mdb_version)
+
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
-def blockstore_replica_set(ops_manager) -> MongoDB:
+def blockstore_replica_set(ops_manager, custom_mdb_version) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=ops_manager.namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
 
-    return resource.create()
+    resource.set_version(custom_mdb_version)
+
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
@@ -76,6 +83,9 @@ def test_appdb_monitoring_configured(ops_manager: MongoDBOpsManager):
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_backing_dbs_created(oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
+    create_or_update(oplog_replica_set)
+    create_or_update(blockstore_replica_set)
+
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
 

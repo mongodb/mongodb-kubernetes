@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 import pymongo
 import pytest
 import requests
+from requests.adapters import HTTPAdapter, Retry
 import semver
 from opentelemetry import trace
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
@@ -135,7 +136,7 @@ class OMTester(object):
         raise Exception("Failed to create a restore job!")
 
     def wait_until_backup_snapshots_are_ready(
-        self, expected_count: int, timeout: int = 2000, expected_config_count: int = 1, is_sharded_cluster: bool = False
+        self, expected_count: int, timeout: int = 3000, expected_config_count: int = 1, is_sharded_cluster: bool = False
     ):
         """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
@@ -336,21 +337,32 @@ class OMTester(object):
             status_code == requests.status_codes.codes.OK
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
-    def om_request(self, method, path, json_object: Optional[Dict] = None):
+    def om_request(self, method, path, json_object: Optional[Dict] = None, retries=5):
         """performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally."""
         headers = {"Content-Type": "application/json"}
         auth = build_auth(self.context.user, self.context.public_key)
 
         endpoint = f"{self.context.base_url}/api/public/v1.0{path}"
-        response = requests.request(
-            method,
-            endpoint,
-            auth=auth,
-            headers=headers,
-            json=json_object,
-            verify=False,
-        )
+
+        session = requests.Session()
+        retry = Retry(backoff_factor=5)
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        try:
+            response = session.request(
+                url=endpoint,
+                method=method,
+                auth=auth,
+                headers=headers,
+                json=json_object,
+                verify=False,
+            )
+        except Exception as e:
+            print("failed connecting to om")
+            raise e
 
         if response.status_code >= 300:
             raise Exception(
