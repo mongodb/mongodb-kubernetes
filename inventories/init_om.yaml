@@ -15,7 +15,7 @@ images:
     dockerfile: Dockerfile.builder
 
     output:
-    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-context
+    - registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-context
       tag: $(inputs.params.version_id)
 
 
@@ -36,16 +36,12 @@ images:
     tags: ["ubi"]
 
     buildargs:
-      imagebase: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-context:$(inputs.params.version_id)
+      imagebase: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-context:$(inputs.params.version_id)
 
     output:
-    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager
+    - registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-ubi
       tag: $(inputs.params.version_id)
-    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager
-      tag: latest
-    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-ubi
-      tag: $(inputs.params.version_id)
-    - registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-ubi
+    - registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-ubi
       tag: latest
 
   - name: init-ops-manager-release-context
@@ -53,7 +49,7 @@ images:
     tags: ["release"]
 
     source:
-      registry: $(inputs.params.registry)/ubi/mongodb-enterprise-init-ops-manager-context
+      registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-context
       tag: $(inputs.params.version_id)
 
     destination:
