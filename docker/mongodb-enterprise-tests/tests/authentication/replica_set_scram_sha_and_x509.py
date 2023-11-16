@@ -134,7 +134,8 @@ class TestAddMongoDBUser(KubernetesTester):
 
 @pytest.mark.e2e_replica_set_scram_sha_and_x509
 class TestX509CertCreationAndApproval(KubernetesTester):
-    def setup(self):
+    def setup_method(self):
+        super().setup_method()
         self.cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
 
     def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):

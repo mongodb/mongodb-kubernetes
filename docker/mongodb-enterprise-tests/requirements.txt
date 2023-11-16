@@ -3,7 +3,7 @@ chardet==3.0.4
 jsonpatch==1.33
 kubernetes==17.17.0
 pymongo==3.11.4
-pytest==6.0.2
+pytest==7.4.3
 pytest-asyncio==0.14.0
 PyYAML==5.4.1
 requests==2.31.0
