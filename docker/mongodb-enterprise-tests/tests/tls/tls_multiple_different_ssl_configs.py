@@ -10,10 +10,7 @@ mdb_resources = {
 
 
 def cert_names(namespace, members=3):
-    return [
-        "{}-{}.{}".format(mdb_resources["ssl_enabled"], i, namespace)
-        for i in range(members)
-    ]
+    return ["{}-{}.{}".format(mdb_resources["ssl_enabled"], i, namespace) for i in range(members)]
 
 
 @pytest.mark.e2e_tls_multiple_different_ssl_configs
@@ -37,10 +34,7 @@ class TestMultipleCreation(KubernetesTester):
         mdb = self.customv1.get_namespaced_custom_object(
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resources["ssl_enabled"]
         )
-        assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
-        )
+        assert mdb["status"]["message"] == "Not all certificates have been approved by Kubernetes CA"
 
         mdb = self.customv1.get_namespaced_custom_object(
             "mongodb.com",
@@ -60,7 +54,8 @@ class TestMultipleApproval(KubernetesTester):
       Approves the certificates in Kubernetes, the MongoDB resource should move to Successful state.
     """
 
-    def setup(self):
+    def setup_method(self):
+        super().setup_method()
         [self.approve_certificate(cert) for cert in cert_names(self.namespace)]
 
     def test_noop(self):

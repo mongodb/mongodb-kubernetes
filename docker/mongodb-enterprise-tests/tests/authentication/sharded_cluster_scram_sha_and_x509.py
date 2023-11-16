@@ -1,6 +1,6 @@
 import pytest
 
-from kubetester import create_secret
+from kubetester import create_secret, try_load, create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import ShardedClusterTester
@@ -43,7 +43,9 @@ def agent_certs(issuer: str, namespace: str) -> str:
 def sharded_cluster(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("sharded-cluster-tls-scram-sha-256.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return res.create()
+
+    try_load(res)
+    return res
 
 
 @pytest.fixture(scope="module")
@@ -75,6 +77,7 @@ def x509_user(sharded_cluster: MongoDB, namespace: str) -> MongoDBUser:
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_sharded_cluster_running(sharded_cluster: MongoDB):
+    create_or_update(sharded_cluster)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
 
 
@@ -85,7 +88,7 @@ def test_sharded_cluster_connectivity(sharded_cluster: MongoDB, ca_path: str):
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
-def test_ops_manager_state_correctly_updated():
+def test_ops_manager_state_correctly_updated_sha():
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled()
@@ -135,7 +138,7 @@ def test_enable_x509(sharded_cluster: MongoDB):
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
-def test_ops_manager_state_correctly_updated():
+def test_ops_manager_state_correctly_updated_sha_and_x509():
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
@@ -152,7 +155,8 @@ def test_x509_user_exists_in_automation_config(x509_user: MongoDBUser):
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 class TestX509CertCreationAndApproval(KubernetesTester):
-    def setup(self):
+    def setup_method(self):
+        super().setup_method()
         self.cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
 
     def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
