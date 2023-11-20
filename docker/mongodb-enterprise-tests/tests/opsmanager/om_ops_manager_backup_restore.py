@@ -2,7 +2,7 @@ import datetime
 import time
 from typing import Optional
 
-from kubetester import MongoDB, create_or_update
+from kubetester import MongoDB, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -25,7 +25,7 @@ The test checks the backup for MongoDB 4.0 and 4.2, checks that snapshots are bu
 restore from snapshot are working.
 """
 
-TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
+TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 
@@ -33,13 +33,13 @@ OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
 @fixture(scope="module")
 def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, OPLOG_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-oplog")
 
 
 @fixture(scope="module")
@@ -74,7 +74,9 @@ def mdb_latest(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: st
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
     resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
     resource.configure_backup(mode="enabled")
-    return resource.create()
+    try_load(resource)
+
+    return resource
 
 
 @fixture(scope="module")
@@ -86,7 +88,9 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
     ).configure(ops_manager, "mdbPreviousProject")
     resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
     resource.configure_backup(mode="enabled")
-    return resource.create()
+    try_load(resource)
+
+    return resource
 
 
 @fixture(scope="module")
@@ -151,6 +155,9 @@ class TestBackupForMongodb:
     Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        create_or_update(mdb_latest)
+        create_or_update(mdb_prev)
+
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
 
@@ -200,15 +207,18 @@ class TestBackupRestorePIT:
         For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually"""
         print("\nWaiting until the db data is restored")
         retries = 120
+        last_error = None
+
         while retries > 0:
             try:
                 records = list(mdb_prev_test_collection.find())
                 assert records == [TEST_DATA]
 
-                records = list(mdb_latest_test_collection.find())
+                records = list(mdb_prev_test_collection.find())
                 assert records == [TEST_DATA]
                 return
-            except AssertionError:
+            except AssertionError as e:
+                last_error = e
                 pass
             except ServerSelectionTimeoutError:
                 # The mongodb driver complains with `No replica set members
@@ -231,7 +241,7 @@ class TestBackupRestorePIT:
         print("\nExisting data in previous MDB: {}".format(list(mdb_prev_test_collection.find())))
         print("Existing data in latest MDB: {}".format(list(mdb_latest_test_collection.find())))
 
-        raise AssertionError("The data hasn't been restored in 2 minutes!")
+        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
 
 
 @mark.e2e_om_ops_manager_backup_restore

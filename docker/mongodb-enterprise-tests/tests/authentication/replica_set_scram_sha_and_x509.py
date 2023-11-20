@@ -83,7 +83,7 @@ class TestScramUserCanAuthenticate(KubernetesTester):
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )
 
     def test_user_can_authenticate_with_correct_password(self, ca_path):
@@ -93,7 +93,7 @@ class TestScramUserCanAuthenticate(KubernetesTester):
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )
 
     def test_enable_x509(self, replica_set: MongoDB):
@@ -141,7 +141,7 @@ class TestX509CertCreationAndApproval(KubernetesTester):
     def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
         create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path)
+        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, tlsCAFile=ca_path)
 
     def teardown(self):
         self.cert_file.close()
@@ -156,7 +156,7 @@ class TestCanStillAuthAsScramUsers(KubernetesTester):
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )
 
     def test_user_can_authenticate_with_correct_password(self, ca_path: str):
@@ -166,5 +166,5 @@ class TestCanStillAuthAsScramUsers(KubernetesTester):
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )

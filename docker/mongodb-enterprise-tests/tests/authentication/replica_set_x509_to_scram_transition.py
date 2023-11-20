@@ -150,7 +150,7 @@ class TestCreateScramSha256User(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
             ssl=True,
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
             # As of today, user CRs don't have the status/phase fields. So there's no other way
             # to verify that they were created other than just spinning and checking.
             # See https://jira.mongodb.org/browse/CLOUDP-150729
@@ -165,7 +165,7 @@ class TestCreateScramSha256User(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
             ssl=True,
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )
 
 

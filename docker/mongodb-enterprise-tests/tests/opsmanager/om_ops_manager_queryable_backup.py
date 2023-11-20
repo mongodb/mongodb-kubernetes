@@ -31,7 +31,8 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_clus
 
 TEST_DB = "testdb"
 TEST_COLLECTION = "testcollection"
-TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
+TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
+
 PROJECT_NAME = "firstProject"
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "DEBUG").upper()

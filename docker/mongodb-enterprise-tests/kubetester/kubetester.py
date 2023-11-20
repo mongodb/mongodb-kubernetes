@@ -1227,7 +1227,7 @@ class KubernetesTester(object):
         mongodburi = self.build_mongodb_uri_for_rs(hosts)
         options = {}
         if ssl:
-            options = {"ssl": True, "ssl_ca_certs": SSL_CA_CERT}
+            options = {"ssl": True, "tlsCAFile": SSL_CA_CERT}
         client = pymongo.MongoClient(mongodburi, **options)
 
         # The ismaster command is cheap and does not require auth.
