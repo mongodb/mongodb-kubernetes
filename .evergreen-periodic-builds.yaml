@@ -81,6 +81,19 @@ functions:
         directory: src/github.com/10gen/ops-manager-kubernetes
     - *setup_context
 
+  enable_QEMU:
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          echo "Enabling QEMU building for Docker"
+          sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          sudo docker buildx create --name mybuilder
+          sudo docker buildx use mybuilder
+          sudo docker buildx inspect --bootstrap
+
   setup_preflight:
     - command: subprocess.exec
       type: setup
@@ -375,6 +388,7 @@ tasks:
   - name: periodic_build_agent
     commands:
       - func: clone
+      - func: enable_QEMU
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_agent_pid}
@@ -385,6 +399,7 @@ tasks:
   - name: periodic_build_community_operator
     commands:
       - func: clone
+      - func: enable_QEMU
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_mongodb_community_operator_pid}
