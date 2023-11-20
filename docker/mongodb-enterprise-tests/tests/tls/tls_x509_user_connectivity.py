@@ -83,7 +83,7 @@ class TestX509CertCreationAndApproval(KubernetesTester):
     def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
         create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path)
+        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, tlsCAFile=ca_path)
 
     def teardown(self):
         self.cert_file.close()

@@ -20,9 +20,7 @@ MDB_RESOURCE = "ldap-replica-set"
 
 @fixture(scope="module")
 def server_certs(namespace: str, issuer: str):
-    create_mongodb_tls_certs(
-        issuer, namespace, "ldap-replica-set", "certs-ldap-replica-set-cert"
-    )
+    create_mongodb_tls_certs(issuer, namespace, "ldap-replica-set", "certs-ldap-replica-set-cert")
     return "certs"
 
 
@@ -34,9 +32,7 @@ def replica_set(
     server_certs: str,
     namespace: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
@@ -76,9 +72,7 @@ def replica_set(
 
 
 @fixture(scope="module")
-def user_ldap(
-    replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDAPUser]
-) -> MongoDBUser:
+def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDAPUser]) -> MongoDBUser:
     mongodb_user = ldap_mongodb_users[0]
     user = generic_user(
         namespace,
@@ -135,22 +129,18 @@ def test_create_ldap_user(replica_set: MongoDB, user_ldap: MongoDBUser):
     user_ldap.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()
-    ac.assert_authentication_mechanism_enabled(
-        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True
-    )
+    ac.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=True)
     ac.assert_expected_users(1)
 
 
 @mark.e2e_replica_set_ldap
-def test_new_mdb_users_are_created_and_can_authenticate(
-    replica_set: MongoDB, user_ldap: MongoDBUser, ca_path: str
-):
+def test_new_mdb_users_are_created_and_can_authenticate(replica_set: MongoDB, user_ldap: MongoDBUser, ca_path: str):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
         password=user_ldap.password,
-        ssl_ca_certs=ca_path,
+        tls_ca_file=ca_path,
         attempts=10,
     )
 
@@ -160,9 +150,7 @@ def test_create_scram_user(replica_set: MongoDB, user_scram: MongoDBUser):
     user_scram.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()
-    ac.assert_authentication_mechanism_enabled(
-        "SCRAM-SHA-256", active_auth_mechanism=False
-    )
+    ac.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
     ac.assert_expected_users(2)
 
 
@@ -173,9 +161,7 @@ def test_replica_set_connectivity(replica_set: MongoDB, ca_path: str):
 
 
 @mark.e2e_replica_set_ldap
-def test_ops_manager_state_correctly_updated(
-    replica_set: MongoDB, user_ldap: MongoDBUser
-):
+def test_ops_manager_state_correctly_updated(replica_set: MongoDB, user_ldap: MongoDBUser):
     expected_roles = {
         ("admin", "clusterAdmin"),
         ("admin", "readWriteAnyDatabase"),
@@ -187,16 +173,12 @@ def test_ops_manager_state_correctly_updated(
     tester.assert_has_user(user_ldap["spec"]["username"])
     tester.assert_user_has_roles(user_ldap["spec"]["username"], expected_roles)
 
-    tester.assert_authentication_mechanism_enabled(
-        "SCRAM-SHA-256", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=3)
 
 
 @mark.e2e_replica_set_ldap
-def test_user_cannot_authenticate_with_incorrect_password(
-    replica_set: MongoDB, ca_path: str
-):
+def test_user_cannot_authenticate_with_incorrect_password(replica_set: MongoDB, ca_path: str):
     tester = replica_set.tester(ca_path=ca_path)
 
     tester.assert_scram_sha_authentication_fails(
@@ -204,21 +186,19 @@ def test_user_cannot_authenticate_with_incorrect_password(
         username="mms-user-1",
         auth_mechanism="SCRAM-SHA-256",
         ssl=True,
-        ssl_ca_certs=ca_path,
+        tlsCAFile=ca_path,
     )
 
 
 @mark.e2e_replica_set_ldap
-def test_user_can_authenticate_with_correct_password(
-    replica_set: MongoDB, ca_path: str
-):
+def test_user_can_authenticate_with_correct_password(replica_set: MongoDB, ca_path: str):
     tester = replica_set.tester(ca_path=ca_path)
     tester.assert_scram_sha_authentication(
         password=PASSWORD,
         username="mms-user-1",
         auth_mechanism="SCRAM-SHA-256",
         ssl=True,
-        ssl_ca_certs=ca_path,
+        tlsCAFile=ca_path,
     )
 
 
@@ -257,9 +237,7 @@ def test_x509_user_created(replica_set: MongoDB, user_x509: MongoDBUser):
     tester.assert_has_user(user_x509["spec"]["username"])
     tester.assert_user_has_roles(user_x509["spec"]["username"], expected_roles)
 
-    tester.assert_authentication_mechanism_enabled(
-        "MONGODB-X509", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
 
 
 @mark.e2e_replica_set_ldap
@@ -274,9 +252,7 @@ def test_x509_user_connectivity(
     create_x509_user_cert(issuer, namespace, path=cert_file.name)
 
     tester = replica_set.tester()
-    tester.assert_x509_authentication(
-        cert_file_name=cert_file.name, ssl_ca_certs=ca_path
-    )
+    tester.assert_x509_authentication(cert_file_name=cert_file.name, tlsCAFile=ca_path)
 
 
 @mark.e2e_replica_set_ldap
@@ -288,9 +264,7 @@ def test_change_ldap_servers(
     secondary_ldap_mongodb_agent_user,
 ):
     secret_name = "bind-query-password-secondary"
-    create_secret(
-        namespace, secret_name, {"password": secondary_openldap.admin_password}
-    )
+    create_secret(namespace, secret_name, {"password": secondary_openldap.admin_password})
     ac_secret_name = "automation-config-password-secondary"
     create_secret(
         namespace,
@@ -298,12 +272,8 @@ def test_change_ldap_servers(
         {"automationConfigPassword": secondary_ldap_mongodb_agent_user.password},
     )
     replica_set.load()
-    replica_set["spec"]["security"]["authentication"]["ldap"]["servers"] = [
-        secondary_openldap.servers
-    ]
-    replica_set["spec"]["security"]["authentication"]["ldap"][
-        "bindQueryPasswordSecretRef"
-    ] = {"name": secret_name}
+    replica_set["spec"]["security"]["authentication"]["ldap"]["servers"] = [secondary_openldap.servers]
+    replica_set["spec"]["security"]["authentication"]["ldap"]["bindQueryPasswordSecretRef"] = {"name": secret_name}
     replica_set["spec"]["security"]["authentication"]["agents"] = {
         "mode": "LDAP",
         "automationPasswordSecretRef": {
@@ -318,14 +288,10 @@ def test_change_ldap_servers(
 
 
 @mark.e2e_replica_set_ldap
-def test_replica_set_ldap_settings_are_updated(
-    replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]
-):
+def test_replica_set_ldap_settings_are_updated(replica_set: MongoDB, ldap_mongodb_users: List[LDAPUser]):
     replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["ldap"]["timeoutMS"] = 12345
-    replica_set["spec"]["security"]["authentication"]["ldap"][
-        "userCacheInvalidationInterval"
-    ] = 60
+    replica_set["spec"]["security"]["authentication"]["ldap"]["userCacheInvalidationInterval"] = 60
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)

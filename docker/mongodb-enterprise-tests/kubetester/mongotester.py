@@ -20,10 +20,10 @@ TEST_COLLECTION = "test-collection"
 def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, str]:
     # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
     # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
-    options = {"ssl": use_tls}
+    options = {"tls": use_tls}
 
     if use_tls:
-        options["ssl_ca_certs"] = kubetester.SSL_CA_CERT if ca_path is None else ca_path
+        options["tlsCAFile"] = kubetester.SSL_CA_CERT if ca_path is None else ca_path
     return options
 
 
@@ -44,19 +44,19 @@ def with_x509(cert_file_name: str, ca_path: Optional[str] = None) -> Dict[str, s
     options.update(
         {
             "authMechanism": "MONGODB-X509",
-            "ssl_certfile": cert_file_name,
-            "ssl_cert_reqs": ssl.CERT_REQUIRED,
+            "tlsCertificateKeyFile": cert_file_name,
+            "tlsAllowInvalidCertificates": False,
         }
     )
     return options
 
 
-def with_ldap(ssl_certfile: Optional[str] = None, ssl_ca_certs: Optional[str] = None) -> Dict[str, str]:
+def with_ldap(ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = None) -> Dict[str, str]:
     options = {}
-    if ssl_ca_certs is not None:
-        options.update(with_tls(True, ssl_ca_certs))
+    if tls_ca_file is not None:
+        options.update(with_tls(True, tls_ca_file))
     if ssl_certfile is not None:
-        options["ssl_certfile"] = ssl_certfile
+        options["tlsCertificateKeyFile"] = ssl_certfile
     return options
 
 
@@ -91,7 +91,7 @@ class MongoTester:
         return options
 
     def _init_client(self, **kwargs):
-        return pymongo.MongoClient(self.cnx_string, **kwargs)
+        return pymongo.MongoClient(self.cnx_string, serverSelectionTimeoutMs=120000, **kwargs)
 
     def assert_connectivity(
         self,
@@ -140,7 +140,7 @@ class MongoTester:
             self.assert_is_enterprise()
 
     def assert_data_size(self, expected_count, test_collection=TEST_COLLECTION):
-        assert self.client[TEST_DB][test_collection].count() == expected_count
+        assert self.client[TEST_DB][test_collection].estimated_document_count() == expected_count
 
     def assert_is_enterprise(self):
         assert "enterprise" in self.client.admin.command("buildInfo")["modules"]
@@ -205,7 +205,7 @@ class MongoTester:
 
         options = self._merge_options(
             [
-                with_tls(ssl, ca_path=kwargs.get("ssl_ca_certs")),
+                with_tls(ssl, ca_path=kwargs.get("tlsCAFile")),
                 with_scram(username, password, auth_mechanism),
             ]
         )
@@ -219,7 +219,7 @@ class MongoTester:
 
         options = self._merge_options(
             [
-                with_x509(cert_file_name, kwargs.get("ssl_ca_certs", kubetester.SSL_CA_CERT)),
+                with_x509(cert_file_name, kwargs.get("tlsCAFile", kubetester.SSL_CA_CERT)),
             ]
         )
 
@@ -241,20 +241,20 @@ class MongoTester:
         password: str,
         db: str = "admin",
         collection: str = "myCol",
-        ssl_ca_certs: Optional[str] = None,
+        tls_ca_file: Optional[str] = None,
         ssl_certfile: str = None,
         attempts: int = 20,
     ):
 
-        options = with_ldap(ssl_certfile, ssl_ca_certs)
+        options = with_ldap(ssl_certfile, tls_ca_file)
         total_attempts = attempts
 
         while True:
             attempts -= 1
             try:
-                client = self._init_client(**options)
-                client.admin.authenticate(username, password, source="$external", mechanism="PLAIN")
-
+                client = self._init_client(
+                    **options, username=username, password=password, authSource="$external", authMechanism="PLAIN"
+                )
                 client[db][collection].insert_one({"data": "I need to exist!"})
 
                 return
@@ -358,8 +358,8 @@ class ReplicaSetTester(MongoTester):
         super().assert_connectivity(attempts=attempts, write_concern=write_concern, opts=opts)
 
         if self.replicas_count == 1:
-            # On 1 member replica-set, there won't be a "primary" and secondaries will be `set()`
-            assert self.client.primary is None
+            # On 1 member replica-set, the last member is considered primary and secondaries will be `set()`
+            assert self.client.is_primary
             assert len(self.client.secondaries) == 0
             return
 

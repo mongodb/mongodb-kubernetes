@@ -267,6 +267,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
+    @skip_if_local
     def test_proper_automation_config_version(self, config_version):
         config = self.get_automation_config()
         # We create 3 members of the replicaset here, so there will be 2 changes.
@@ -277,7 +278,6 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_replica_set_was_configured(self):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False).assert_connectivity()
 
-    @skip_if_local
     def test_replica_set_was_configured_with_srv(self):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, srv=True).assert_connectivity()
 

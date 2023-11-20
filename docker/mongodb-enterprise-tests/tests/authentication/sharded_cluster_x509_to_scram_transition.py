@@ -146,7 +146,7 @@ class TestCreateScramSha256User(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
             ssl=True,
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )
 
     def test_user_can_authenticate_with_correct_password(self, ca_path: str):
@@ -156,7 +156,7 @@ class TestCreateScramSha256User(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
             ssl=True,
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )
 
 

@@ -31,7 +31,8 @@ from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
-TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
+TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
+
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 
 
@@ -385,6 +386,7 @@ class TestBackupRestorePIT:
         For PIT restores FINISHED just means the job has been created and the agents will perform restore eventually"""
         print("\nWaiting until the db data is restored")
         retries = 120
+        last_error = None
         while retries > 0:
             try:
                 records = list(mdb_prev_test_collection.find())
@@ -392,8 +394,10 @@ class TestBackupRestorePIT:
 
                 records = list(mdb_latest_test_collection.find())
                 assert records == [TEST_DATA]
+
                 return
-            except AssertionError:
+            except AssertionError as e:
+                last_error = e
                 pass
             except ServerSelectionTimeoutError:
                 # The mongodb driver complains with `No replica set members
@@ -416,7 +420,7 @@ class TestBackupRestorePIT:
         print("\nExisting data in previous MDB: {}".format(list(mdb_prev_test_collection.find())))
         print("Existing data in latest MDB: {}".format(list(mdb_latest_test_collection.find())))
 
-        raise AssertionError("The data hasn't been restored in 2 minutes!")
+        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
 
 
 @mark.e2e_om_ops_manager_backup_restore_minio

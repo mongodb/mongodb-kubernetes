@@ -29,7 +29,8 @@ from tests.opsmanager.om_ops_manager_backup import (
 from pymongo.errors import ServerSelectionTimeoutError
 
 
-TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
+TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
+
 MONGODB_PORT = 30000
 
 S3_OPLOG_NAME = "s3-oplog"
@@ -273,12 +274,15 @@ class TestBackupForMongodb:
         """
         print("\nWaiting until the db data is restored")
         retries = 120
+        last_error = None
+
         while retries > 0:
             try:
                 records = list(mongodb_multi_one_collection.find())
                 assert records == [TEST_DATA]
                 return
-            except AssertionError:
+            except AssertionError as e:
+                last_error = e
                 pass
             except ServerSelectionTimeoutError:
                 # The mongodb driver complains with `No replica set members
@@ -300,7 +304,7 @@ class TestBackupForMongodb:
 
         print("\nExisting data in MDB: {}".format(list(mongodb_multi_one_collection.find())))
 
-        raise AssertionError("The data hasn't been restored in 2 minutes!")
+        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
 
 
 def time_to_millis(date_time) -> int:

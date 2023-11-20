@@ -19,8 +19,7 @@ from tests.opsmanager.om_ops_manager_backup import (
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
-TEST_DATA = {"name": "John", "address": "Highway 37", "age": 30}
-
+TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 
 MONGODB_CR_NAME = "mdb-latest"
