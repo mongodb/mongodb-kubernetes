@@ -561,10 +561,6 @@ def build_image_daily(
             if arch_set == {"arm64"}:
                 raise ValueError("Building for ARM64 only is not supported yet")
 
-            # Temporarily disabling multi arch building while we fix the runners
-            # TODO : remove
-            arch_set = {"amd64"}
-
             if version not in completed_versions:
                 # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
                 if (
@@ -591,17 +587,19 @@ def build_image_daily(
                         inventory="inventories/daily.yaml",
                     )
                     create_and_push_manifest(
-                        args["quay_registry"], args["release_version"]
+                        args["quay_registry"] + args["ubi_suffix"],
+                        args["release_version"],
                     )
                     create_and_push_manifest(
-                        args["quay_registry"],
+                        args["quay_registry"] + args["ubi_suffix"],
                         args["release_version"] + "-b" + args["build_id"],
                     )
                     create_and_push_manifest(
-                        args["ecr_registry_ubi"], args["release_version"]
+                        args["ecr_registry_ubi"] + args["ubi_suffix"],
+                        args["release_version"],
                     )
                     create_and_push_manifest(
-                        args["ecr_registry_ubi"],
+                        args["ecr_registry_ubi"] + args["ubi_suffix"],
                         args["release_version"] + "-b" + args["build_id"],
                     )
                 else:
