@@ -87,4 +87,4 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
         mdb_health_checker.assert_healthiness()
 
     def test_data_exists(self, mdb_test_collection):
-        assert mdb_test_collection.find().count() == 1
+        assert mdb_test_collection.estimated_document_count() == 1

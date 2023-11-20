@@ -180,7 +180,7 @@ def test_x509_user_connectivity(
             multi_cluster_issuer, namespace, central_cluster_client, path=cert_file.name
         )
         tester = mongodb_multi.tester()
-        tester.assert_x509_authentication(cert_file_name=cert_file.name, ssl_ca_certs=ca_path)
+        tester.assert_x509_authentication(cert_file_name=cert_file.name, tlsCAFile=ca_path)
 
 
 @mark.e2e_multi_cluster_tls_with_x509

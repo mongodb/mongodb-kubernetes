@@ -111,7 +111,7 @@ def test_user_can_authenticate_with_correct_password(ca_path: str):
         username="mms-user-1",
         ssl=True,
         auth_mechanism="SCRAM-SHA-256",
-        ssl_ca_certs=ca_path,
+        tlsCAFile=ca_path,
         attempts=120,
     )
 
@@ -124,7 +124,7 @@ def test_user_cannot_authenticate_with_incorrect_password(ca_path: str):
         username="mms-user-1",
         ssl=True,
         auth_mechanism="SCRAM-SHA-256",
-        ssl_ca_certs=ca_path,
+        tlsCAFile=ca_path,
     )
 
 
@@ -162,7 +162,7 @@ class TestX509CertCreationAndApproval(KubernetesTester):
     def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
         create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
-        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, ssl_ca_certs=ca_path)
+        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, tlsCAFile=ca_path)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
@@ -174,7 +174,7 @@ class TestCanStillAuthAsScramUsers(KubernetesTester):
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
             # As of today, user CRs don't have the status/phase fields. So there's no other way
             # to verify that they were created other than just spinning and checking.
             # See https://jira.mongodb.org/browse/CLOUDP-150729
@@ -189,5 +189,5 @@ class TestCanStillAuthAsScramUsers(KubernetesTester):
             username="mms-user-1",
             ssl=True,
             auth_mechanism="SCRAM-SHA-256",
-            ssl_ca_certs=ca_path,
+            tlsCAFile=ca_path,
         )

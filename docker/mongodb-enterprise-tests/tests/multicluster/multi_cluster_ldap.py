@@ -178,7 +178,7 @@ def test_ldap_user_created_and_can_authenticate(mongodb_multi: MongoDBMulti, use
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
         password=user_ldap.password,
-        ssl_ca_certs=ca_path,
+        tls_ca_file=ca_path,
         attempts=10,
     )
 
@@ -220,7 +220,7 @@ def test_new_ldap_user_can_authenticate_after_scaling(
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
         password=user_ldap.password,
-        ssl_ca_certs=ca_path,
+        tls_ca_file=ca_path,
         attempts=10,
     )
 

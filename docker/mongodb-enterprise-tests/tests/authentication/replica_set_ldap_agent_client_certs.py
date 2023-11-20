@@ -151,7 +151,7 @@ def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb
         password=ldap_user_mongodb.password,
         db="customDb",
         collection="customColl",
-        ssl_ca_certs=ca_path,
+        tls_ca_file=ca_path,
         attempts=10,
     )
 
@@ -182,7 +182,7 @@ def test_client_can_auth_with_client_certs_provided(
         password=ldap_user_mongodb.password,
         db="customDb",
         collection="customColl",
-        ssl_ca_certs=ca_path,
+        tls_ca_file=ca_path,
         ssl_certfile=client_cert_path,
         attempts=10,
     )
@@ -209,6 +209,6 @@ def test_client_can_auth_again_with_no_client_certs(replica_set: MongoDB, ldap_u
         password=ldap_user_mongodb.password,
         db="customDb",
         collection="customColl",
-        ssl_ca_certs=ca_path,
+        tls_ca_file=ca_path,
         attempts=10,
     )
