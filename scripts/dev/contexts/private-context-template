@@ -96,6 +96,11 @@ export e2e_cloud_qa_baseurl="$OM_HOST"
 export ENV_FILE="$workdir/.ops-manager-env"
 export NAMESPACE_FILE="$workdir/.namespace"
 
+# Environment variable needed for local development
+# Used in controllers/operator/mongodbopsmanager_controller.go
+# The file is created by scripts/dev/prepare_local_e2e_run.sh
+export OM_VERSION_MAPPING_PATH="$workdir/.generated/om_version_mapping.json"
+
 # TO ensure we don't release by accident via pipeline.py
 export skip_tags="release"
 
