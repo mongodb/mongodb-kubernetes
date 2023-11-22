@@ -78,6 +78,8 @@ spec:
     {{ end }}
     - name: OTEL_SERVICE_NAME
       value: evergreen-agent
+    - name: PYTEST_RUN_NAME
+      value: {{ .Values.taskName }}
     - name: TASK_ID
       value: {{ .Values.taskId }}
     - name: OM_HOST
