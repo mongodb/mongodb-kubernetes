@@ -103,9 +103,25 @@ class OMTester(object):
         if self.context.group_name:
             self.ensure_group_id()
 
+        # Those are saved here so we can access om at the end of the test run and retrieve diagnostic data easily.
+        if self.context.project_id:
+            if os.environ.get("OM_PROJECT_ID", ""):
+                os.environ["OM_PROJECT_ID"] = os.environ["OM_PROJECT_ID"] + "," + self.context.project_id
+            else:
+                os.environ["OM_PROJECT_ID"] = self.context.project_id
+        if self.context.public_key:
+            os.environ["OM_API_KEY"] = self.context.public_key
+        if self.context.public_key:
+            os.environ["OM_USER"] = self.context.user
+        if self.context.base_url:
+            os.environ["OM_HOST"] = self.context.base_url
+
     def ensure_group_id(self):
         if self.context.project_id is None:
             self.context.project_id = self.find_group_id()
+
+    def get_project_events(self):
+        return self.om_request("get", f"/groups/{self.context.project_id}/events")
 
     def create_restore_job_snapshot(self, snapshot_id: Optional[str] = None) -> str:
         """restores the mongodb cluster to some version using the snapshot. If 'snapshot_id' omitted then the
