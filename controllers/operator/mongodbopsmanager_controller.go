@@ -72,9 +72,8 @@ import (
 )
 
 const (
-	oldestSupportedOpsManagerVersion       = "5.0.0"
-	opsManagerToVersionMappingJsonFilePath = "/usr/local/om_version_mapping.json" // TODO: make that an envar to support local development
-	programmaticKeyVersion                 = "5.0.0"
+	oldestSupportedOpsManagerVersion = "5.0.0"
+	programmaticKeyVersion           = "5.0.0"
 )
 
 type S3ConfigGetter interface {
@@ -243,6 +242,8 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 
 // getMonitoringAgentVersion returns the minimum supported agent version for the given version of Ops Manager.
 func getMonitoringAgentVersion(opsManager *omv1.MongoDBOpsManager, readFile func(filename string) ([]byte, error)) (string, error) {
+	// For local development we use an environment variable to locate the mapping file
+	opsManagerToVersionMappingJsonFilePath := env.ReadOrDefault("OM_VERSION_MAPPING_PATH", "/usr/local/om_version_mapping.json")
 	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
 	if err != nil {
 		return "", xerrors.Errorf("failed extracting semver version from Ops Manager version %s: %w", opsManager.Spec.Version, err)
