@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -29,6 +30,7 @@ from kubetester.http import get_retriable_https_session
 from kubetester.kubetester import KubernetesTester, running_locally
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb_multi import MultiClusterClient
+from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from tests.multicluster import prepare_multi_cluster_namespaces
 
@@ -1201,3 +1203,21 @@ def create_appdb_certs(
         create_mongodb_tls_certs(issuer, namespace, appdb_name, appdb_cert_name)
 
     return cert_prefix
+
+
+def pytest_sessionfinish(session, exitstatus):
+
+    project_id = os.environ.get("OM_PROJECT_ID", "")
+    if project_id:
+        base_url = os.environ.get("OM_HOST")
+        user = os.environ.get("OM_USER")
+        key = os.environ.get("OM_API_KEY")
+        ids = project_id.split(",")
+        for project_id in ids:
+            try:
+                tester = OMTester(OMContext(base_url=base_url, public_key=key, project_id=project_id, user=user))
+                ev = tester.get_project_events().json()["results"]
+                with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
+                    json.dump(ev, f, ensure_ascii=False, indent=4)
+            except Exception as e:
+                continue

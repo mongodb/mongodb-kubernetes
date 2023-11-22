@@ -40,6 +40,8 @@ spec:
   volumes:
     - name: results
       emptyDir: { }
+    - name: diagnostics
+      emptyDir: { }
   {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
       secret:
@@ -57,6 +59,8 @@ spec:
     volumeMounts:
       - name: results
         mountPath: /tmp/results
+      - name: diagnostics
+        mountPath: /tmp/diagnostics
   - name: mongodb-enterprise-operator-tests
     env:
     # OTEL env vars can either be used to construct custom spans or are used by pytest opentelemetry dynamic instrumentation
@@ -159,8 +163,10 @@ spec:
     {{ end }}
     imagePullPolicy: Always
     volumeMounts:
-      - mountPath: /tmp/results
-        name: results
+      - name: results
+        mountPath: /tmp/results
+      - name: diagnostics
+        mountPath: /tmp/diagnostics
     {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume

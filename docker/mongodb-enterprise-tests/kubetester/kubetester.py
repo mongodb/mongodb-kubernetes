@@ -346,6 +346,12 @@ class KubernetesTester(object):
 
             KubernetesTester.group_id = group["id"]
 
+            # Those are saved here so we can access om at the end of the test run and retrieve diagnostic data easily.
+            if os.environ.get("OM_PROJECT_ID", ""):
+                os.environ["OM_PROJECT_ID"] = os.environ["OM_PROJECT_ID"] + "," + KubernetesTester.group_id
+            else:
+                os.environ["OM_PROJECT_ID"] = KubernetesTester.group_id
+
         return KubernetesTester.group_id
 
     @classmethod
