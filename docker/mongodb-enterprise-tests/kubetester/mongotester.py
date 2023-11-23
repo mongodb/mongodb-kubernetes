@@ -91,7 +91,7 @@ class MongoTester:
         return options
 
     def _init_client(self, **kwargs):
-        return pymongo.MongoClient(self.cnx_string, serverSelectionTimeoutMs=120000, **kwargs)
+        return pymongo.MongoClient(self.cnx_string, serverSelectionTimeoutMs=300000, **kwargs)
 
     def assert_connectivity(
         self,
