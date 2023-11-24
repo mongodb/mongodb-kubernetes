@@ -197,8 +197,13 @@ class TestBackupRestorePIT:
         mdb_prev_project.create_restore_job_pit(pit_millis)
         mdb_latest_project.create_restore_job_pit(pit_millis)
 
-        # Note, that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
-        # right away
+    def test_mdbs_ready(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        # Note: that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
+        # right away.
+        # But the agent might still do work on the cluster, so we need to wait for that to happen.
+        time.sleep(5)
+        mdb_latest.assert_reaches_phase(Phase.Running)
+        mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_data_got_restored(self, mdb_prev_test_collection, mdb_latest_test_collection):
         """The data in the db has been restored to the initial state. Note, that this happens eventually - so
@@ -262,6 +267,14 @@ class TestBackupRestoreFromSnapshot:
 
         restore_latest_id = mdb_latest_project.create_restore_job_snapshot()
         mdb_latest_project.wait_until_restore_job_is_ready(restore_latest_id)
+
+    def test_mdbs_ready(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        # Note: that we are not waiting for the restore jobs to get finished as PIT restore jobs get FINISHED status
+        # right away.
+        # But the agent might still do work on the cluster, so we need to wait for that to happen.
+        time.sleep(5)
+        mdb_latest.assert_reaches_phase(Phase.Running)
+        mdb_prev.assert_reaches_phase(Phase.Running)
 
     def test_data_got_restored(self, mdb_prev_test_collection, mdb_latest_test_collection):
         """The data in the db has been restored to the initial"""
