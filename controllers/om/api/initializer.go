@@ -19,7 +19,7 @@ import (
 type Initializer interface {
 	// TryCreateUser makes the call to Ops Manager to create the first admin user. Returns the public API key or an
 	// error if the user already exists for example
-	TryCreateUser(omUrl string, omVersion string, user User) (OpsManagerKeyPair, error)
+	TryCreateUser(omUrl string, omVersion string, user User, ca *string) (OpsManagerKeyPair, error)
 }
 
 // DefaultInitializer is the "production" implementation of 'Initializer'. Seems we don't need to keep any state
@@ -61,16 +61,14 @@ type OpsManagerKeyPair struct {
 //
 // If this endpoint is called once again with a different `username` the user
 // will be created but with no `GLOBAL_ADMIN` role.
-func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user User) (OpsManagerKeyPair, error) {
+// More here: https://www.mongodb.com/docs/ops-manager/current/reference/api/user-create-first/
+func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user User, ca *string) (OpsManagerKeyPair, error) {
 	buffer, err := serializeToBuffer(user)
 	if err != nil {
 		return OpsManagerKeyPair{}, err
 	}
 
-	// As of now, there is no HTTPS context that we pass to the operator, so we'll skip
-	// the HTTPS verification, because this OM instance was just created by the operator itself,
-	// and we should trust it.
-	client, err := NewHTTPClient(OptionSkipVerify)
+	client, err := CreateOMHttpClient(ca, nil, nil)
 	if err != nil {
 		return OpsManagerKeyPair{}, err
 	}

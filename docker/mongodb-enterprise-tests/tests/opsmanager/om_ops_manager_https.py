@@ -132,14 +132,21 @@ def test_replica_set_over_non_https_ops_manager(replicaset0: MongoDB):
 
 @mark.e2e_om_ops_manager_https_enabled
 def test_enable_https_on_opsmanager(
-    ops_manager: MongoDBOpsManager, issuer_ca_configmap: str, ops_manager_certs: str, custom_version: Optional[str]
+    ops_manager: MongoDBOpsManager,
+    issuer_ca_configmap: str,
+    ops_manager_certs: str,
+    custom_version: Optional[str],
+    appdb_certs: str,
 ):
     """Ops Manager is restarted with HTTPS enabled."""
     ops_manager["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {"ca": issuer_ca_configmap},
     }
-
+    ops_manager["spec"]["applicationDatabase"]["security"] = {
+        "certsSecretPrefix": appdb_certs,
+        "tls": {"ca": issuer_ca_configmap},
+    }
     # this enables download verification for om with https
     # probably need to be done above and if only test replicaset1 since that one already has tls setup or test below
     #  custom ca setup

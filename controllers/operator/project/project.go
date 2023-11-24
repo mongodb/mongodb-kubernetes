@@ -39,6 +39,7 @@ func ReadConfigAndCredentials(cmGetter configmap.Getter, secretGetter secrets.Se
 }
 
 /*
+ReadOrCreateProject
 Communication with groups is tricky.
 In connection ConfigMap user must provide the project name and the id of organization.
 The only way to find out if the project exists already is to check if its
@@ -72,7 +73,7 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 		// The "zero" value of bool is "False", hence this default.
 		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
 
-		// The CA certificate passed to the OM client needs to be a actual certificate,
+		// The CA certificate passed to the OM client needs to be an actual certificate,
 		// and not a location in disk, because each "project" will have its own CA cert.
 		CACertificate: config.SSLMMSCAConfigMapContents,
 	}

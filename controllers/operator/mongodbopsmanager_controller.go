@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/utils/pointer"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/constants"
 
 	"golang.org/x/xerrors"
@@ -896,8 +898,8 @@ func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 // Note the exception handling logic - if the controller fails to save the public API key secret - it cannot fix this
 // manually (the first OM user can be created only once) - so the resource goes to Failed state and shows the message
 // asking the user to fix this manually.
-// Theoretically the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
-// allow the db to get recreated but seems this is a quite radical operation.
+// Theoretically, the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
+// allow the db to get recreated, but this is a quite radical operation.
 func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
@@ -934,8 +936,20 @@ func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsMana
 	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
 	_, err = r.ReadSecret(adminKeySecretName, operatorVaultPath)
 
+	var ca *string
+	if opsManager.IsTLSEnabled() {
+		log.Debug("TLS is enabled, creating the first user with the mms-ca.crt")
+		opsManagerCA := opsManager.Spec.GetOpsManagerCA()
+		cm, err := r.client.GetConfigMap(kube.ObjectKey(opsManager.Namespace, opsManagerCA))
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to retrieve om ca certificate to create the initial user: %w", err)).WithRetry(30), nil
+		}
+		ca = pointer.String(cm.Data["mms-ca.crt"])
+	}
+
 	if secrets.SecretNotExist(err) {
-		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), opsManager.Spec.Version, newUser)
+
+		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), opsManager.Spec.Version, newUser, ca)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
 			// by modifying the credentials secret
@@ -1006,7 +1020,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsMana
 		return workflow.Failed(err), nil
 	}
 
-	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey)
+	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey, ca)
 	return workflow.OK(), admin
 }
 
