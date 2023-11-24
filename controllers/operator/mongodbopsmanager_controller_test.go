@@ -9,6 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+
+	"k8s.io/utils/pointer"
+
 	"github.com/stretchr/testify/require"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -116,6 +120,8 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	addOMTLSResources(client, "om-tls-secret")
 	addAppDBTLSResources(client, testOm.Spec.AppDB.GetTlsCertificatesSecretName())
 	addKMIPTestResources(client, testOm, "test-mdb", "test-prefix")
+	addOmCACm(t, testOm, reconciler)
+
 	configureBackupResources(client, testOm)
 
 	checkOMReconciliationSuccessful(t, reconciler, testOm)
@@ -242,6 +248,33 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 
 	existingSecretData, _ := secret.ReadStringData(client, kube.ObjectKey(OperatorNamespace, APIKeySecretName))
 	assert.Equal(t, expectedSecretData, existingSecretData)
+}
+
+func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+		SecretRef: omv1.TLSSecretRef{
+			Name: "om-tls-secret",
+		},
+		CA: "custom-ca",
+	}).Build()
+	reconciler, _, initializer := defaultTestOmReconciler(t, testOm, nil)
+	initializer.expectedCaContent = pointer.String("abc")
+
+	addOmCACm(t, testOm, reconciler)
+
+	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
+
+	assert.Equal(t, workflow.OK(), reconcileStatus)
+}
+
+func addOmCACm(t *testing.T, testOm *omv1.MongoDBOpsManager, reconciler *OpsManagerReconciler) {
+	cm := configmap.Builder().
+		SetName(testOm.Spec.GetOpsManagerCA()).
+		SetNamespace(testOm.Namespace).
+		SetData(map[string]string{"mms-ca.crt": "abc"}).
+		SetOwnerReferences(kube.BaseOwnerReference(testOm)).
+		Build()
+	assert.NoError(t, reconciler.client.CreateConfigMap(cm))
 }
 
 // TestOpsManagerReconciler_prepareOpsManagerTwoCalls checks that second call to 'prepareOpsManager' doesn't call
@@ -987,7 +1020,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, g
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := newOpsManagerReconciler(manager, globalMemberClustersMap, om.NewEmptyMockedOmConnection, initializer, func(baseUrl, user, publicApiKey string) api.OpsManagerAdmin {
+	reconciler := newOpsManagerReconciler(manager, globalMemberClustersMap, om.NewEmptyMockedOmConnection, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey).(*api.MockedOmAdmin)
 		}
@@ -1011,17 +1044,20 @@ func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 }
 
 type MockedInitializer struct {
-	currentUsers     []api.User
-	expectedAPIError *apierror.Error
-	expectedOmURL    string
-	t                *testing.T
-	numberOfCalls    int
+	currentUsers      []api.User
+	expectedAPIError  *apierror.Error
+	expectedOmURL     string
+	expectedCaContent *string
+	t                 *testing.T
+	numberOfCalls     int
 }
 
-func (o *MockedInitializer) TryCreateUser(omUrl string, _ string, user api.User) (api.OpsManagerKeyPair, error) {
+func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
 	o.numberOfCalls++
 	assert.Equal(o.t, o.expectedOmURL, omUrl)
-
+	if o.expectedCaContent != nil {
+		assert.Equal(o.t, *o.expectedCaContent, *ca)
+	}
 	if o.expectedAPIError != nil {
 		return api.OpsManagerKeyPair{}, o.expectedAPIError
 	}

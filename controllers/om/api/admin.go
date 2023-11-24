@@ -123,20 +123,21 @@ type OpsManagerAdmin interface {
 
 // AdminProvider is a function which returns an instance of OpsManagerAdmin interface initialized with connection parameters.
 // The parameters can be moved to a separate struct when they grow (e.g. tls is added)
-type AdminProvider func(baseUrl, user, publicApiKey string) OpsManagerAdmin
+type AdminProvider func(baseUrl, user, publicApiKey string, ca *string) OpsManagerAdmin
 
 // DefaultOmAdmin is the default (production) implementation of OpsManagerAdmin interface
 type DefaultOmAdmin struct {
 	BaseURL      string
 	User         string
 	PublicAPIKey string
+	CA           *string
 }
 
 var _ OpsManagerAdmin = &DefaultOmAdmin{}
 var _ OpsManagerAdmin = &MockedOmAdmin{}
 
-func NewOmAdmin(baseUrl, user, publicApiKey string) OpsManagerAdmin {
-	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PublicAPIKey: publicApiKey}
+func NewOmAdmin(baseUrl, user, publicApiKey string, ca *string) OpsManagerAdmin {
+	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PublicAPIKey: publicApiKey, CA: ca}
 }
 
 func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error) {
@@ -385,17 +386,13 @@ func (a *DefaultOmAdmin) post(path string, v interface{}, params ...interface{})
 	return a.httpVerb("POST", path, v, params...)
 }
 
-//func (a *DefaultOmAdmin) patch(path string, v interface{}, params ...interface{}) ([]byte, error) {
-//	return a.httpVerb("PATCH", path, v, params...)
-//}
-
 func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 	_, _, err := a.httpVerb("DELETE", path, nil, params...)
 	return err
 }
 
 func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
-	client, err := NewHTTPClient(OptionDigestAuth(a.User, a.PublicAPIKey), OptionSkipVerify)
+	client, err := CreateOMHttpClient(a.CA, &a.User, &a.PublicAPIKey)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
@@ -404,4 +401,22 @@ func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...
 	path = fmt.Sprintf(path, params...)
 
 	return client.Request(method, a.BaseURL, path, v)
+}
+
+// CreateOMHttpClient creates the om http client with auth. The client will add digest if the provided creds exist.
+func CreateOMHttpClient(ca *string, user *string, key *string) (*Client, error) {
+	var opts []func(*Client) error
+
+	if ca != nil {
+		opts = append(opts, OptionCAValidate(*ca))
+	}
+	if user != nil && key != nil {
+		opts = append(opts, OptionDigestAuth(*user, *key))
+	}
+
+	client, err := NewHTTPClient(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
