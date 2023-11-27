@@ -7,6 +7,8 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 
 from kubetester.kubetester import fixture as yaml_fixture
+from tests.opsmanager.conftest import ensure_ent_version
+
 
 # This test is intended for manual run only.
 #
@@ -41,7 +43,7 @@ def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> Mo
     resource = MongoDB.from_yaml(
         find_fixture("replica-set-override-agent-launcher-script.yaml"), namespace=namespace
     ).configure(ops_manager, "replica-set")
-    resource["spec"]["version"] = custom_mdb_version + "-ent"
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["logLevel"] = "INFO"
     resource["spec"]["additionalMongodConfig"] = {
         "auditLog": {

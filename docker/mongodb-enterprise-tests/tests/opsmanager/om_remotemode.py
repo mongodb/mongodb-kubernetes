@@ -14,6 +14,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 from tests.conftest import is_multi_cluster
+from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
 
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
@@ -113,7 +114,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
     ).configure(ops_manager, "my-replica-set")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     yield resource.create()
 
 
@@ -124,7 +125,7 @@ def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_v
         namespace=namespace,
         name="the-replica-set-ent",
     ).configure(ops_manager, "my-other-replica-set")
-    resource["spec"]["version"] = custom_mdb_version + "-ent"
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     yield resource.create()
 
 

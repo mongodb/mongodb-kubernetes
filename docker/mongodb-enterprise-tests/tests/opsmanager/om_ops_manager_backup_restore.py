@@ -72,7 +72,7 @@ def mdb_latest(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: st
         name="mdb-latest",
     ).configure(ops_manager, "mdbLatestProject")
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
-    resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
     try_load(resource)
 
@@ -86,7 +86,7 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
         namespace=namespace,
         name="mdb-previous",
     ).configure(ops_manager, "mdbPreviousProject")
-    resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
+    resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource.configure_backup(mode="enabled")
     try_load(resource)
 

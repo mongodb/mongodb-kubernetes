@@ -204,7 +204,7 @@ def mdb_latest(
         name=FIRST_PROJECT_RS_NAME,
     ).configure(ops_manager, "mdbLatestProject")
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
-    resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
     resource.configure_custom_tls(issuer_ca_configmap, first_project_certs)
     return create_or_update(resource)
@@ -223,7 +223,7 @@ def mdb_prev(
         namespace=namespace,
         name=SECOND_PROJECT_RS_NAME,
     ).configure(ops_manager, "mdbPreviousProject")
-    resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
+    resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource.configure_backup(mode="enabled")
     resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
     return create_or_update(resource)

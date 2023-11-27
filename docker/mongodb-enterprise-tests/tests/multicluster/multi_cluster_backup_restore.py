@@ -143,7 +143,7 @@ def oplog_replica_set(
     resource.configure(ops_manager, "development")
 
     resource["spec"]["opsManager"]["configMapRef"]["name"] = OPLOG_RS_NAME + "-config"
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
@@ -175,7 +175,7 @@ def blockstore_replica_set(
 
     resource.configure(ops_manager, "blockstore")
 
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     yield create_or_update(resource)
 

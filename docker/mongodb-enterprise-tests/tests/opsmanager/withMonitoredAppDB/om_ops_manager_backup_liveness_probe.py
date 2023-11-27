@@ -66,7 +66,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
 
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     try_load(resource)
 
