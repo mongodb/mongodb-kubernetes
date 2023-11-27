@@ -71,13 +71,14 @@ class MongoTester:
         ca_path: Optional[str] = None,
     ):
         self.default_opts = with_tls(use_ssl, ca_path)
+        self.default_opts["serverSelectionTimeoutMs"] = "120000"
         self.cnx_string = connection_string
         self.client = None
 
     @property
     def client(self):
         if self._client is None:
-            self._client = self._init_client()
+            self._client = self._init_client(**self.default_opts)
         return self._client
 
     @client.setter
@@ -91,7 +92,7 @@ class MongoTester:
         return options
 
     def _init_client(self, **kwargs):
-        return pymongo.MongoClient(self.cnx_string, serverSelectionTimeoutMs=300000, **kwargs)
+        return pymongo.MongoClient(self.cnx_string, **kwargs)
 
     def assert_connectivity(
         self,
@@ -128,6 +129,10 @@ class MongoTester:
 
     def assert_no_connection(self, opts: Optional[List[Dict[str, str]]] = None):
         try:
+            if opts:
+                opts.append({"serverSelectionTimeoutMs": "30000"})
+            else:
+                opts = [{"serverSelectionTimeoutMs": "30000"}]
             self.assert_connectivity(opts=opts)
             fail()
         except ServerSelectionTimeoutError:

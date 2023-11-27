@@ -1,11 +1,10 @@
-import json
-
-from kubetester.certs import create_mongodb_tls_certs, SetProperties
-from kubetester.mongodb import MongoDB, Phase
-
-from kubetester.kubetester import skip_if_local, KubernetesTester
-from kubetester.kubetester import fixture as _fixture
 from pytest import mark, fixture
+
+from kubetester import try_load, create_or_update
+from kubetester.certs import create_mongodb_tls_certs, SetProperties
+from kubetester.kubetester import fixture as _fixture
+from kubetester.kubetester import skip_if_local, KubernetesTester
+from kubetester.mongodb import MongoDB, Phase
 
 MDB_RESOURCE = "sharded-cluster-custom-certs"
 SUBJECT = {"organizations": ["MDB Tests"], "organizationalUnits": ["Servers"]}
@@ -56,11 +55,14 @@ def sharded_cluster(
         },
         "certsSecretPrefix": "prefix",
     }
-    return mdb.create()
+
+    try_load(mdb)
+    return mdb
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_sharded_cluster_with_prefix_gets_to_running_state(sharded_cluster: MongoDB):
+    create_or_update(sharded_cluster)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -92,10 +94,9 @@ def test_disable_tls(sharded_cluster: MongoDB):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 @mark.xfail(reason="Disabling security.tls.enabled does not disable TLS when security.tls.secretRef.prefix is set")
-@skip_if_local
 def test_sharded_cluster_has_connectivity_without_tls(sharded_cluster: MongoDB):
     tester = sharded_cluster.tester(use_ssl=False)
-    tester.assert_connectivity()
+    tester.assert_connectivity(opts=[{"serverSelectionTimeoutMs": 30000}])
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
