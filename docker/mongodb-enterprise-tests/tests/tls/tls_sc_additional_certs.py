@@ -32,7 +32,9 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def sc(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-sc-additional-domains.yaml"), namespace=namespace)
+    res = MongoDB.from_yaml(
+        load_fixture("test-tls-sc-additional-domains.yaml"), namespace=namespace
+    )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
 
@@ -48,13 +50,17 @@ class TestShardedClustertWithAdditionalCertDomains(KubernetesTester):
         for i in range(2):
             host = f"{MDB_RESOURCE_NAME}-mongos-{i}.{MDB_RESOURCE_NAME}-svc.{self.namespace}.svc"
             assert any(
-                re.match(rf"{MDB_RESOURCE_NAME}-mongos-{i}\.additional-cert-test\.com", san)
+                re.match(
+                    rf"{MDB_RESOURCE_NAME}-mongos-{i}\.additional-cert-test\.com", san
+                )
                 for san in self.get_mongo_server_sans(host)
             )
 
     @skip_if_local
     def test_can_still_connect(self, ca_path: str):
-        tester = ShardedClusterTester(MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2)
+        tester = ShardedClusterTester(
+            MDB_RESOURCE_NAME, ssl=True, ca_path=ca_path, mongos_count=2
+        )
         tester.assert_connectivity()
 
 

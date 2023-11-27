@@ -21,7 +21,9 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace)
+    res = MongoDB.from_yaml(
+        load_fixture("test-tls-base-rs-require-ssl.yaml"), namespace=namespace
+    )
 
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()

@@ -32,9 +32,13 @@ def mongodb_multi_unmarshalled(
     namespace: str,
     member_cluster_names,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
+    )
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     return resource
 
@@ -163,12 +167,16 @@ def test_create_mongodb_multi_with_ldap(mongodb_multi: MongoDBMulti):
 def test_create_ldap_user(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser):
     user_ldap.assert_reaches_phase(Phase.Updated)
     ac = AutomationConfigTester(KubernetesTester.get_automation_config())
-    ac.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False)
+    ac.assert_authentication_mechanism_enabled(
+        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
+    )
     ac.assert_expected_users(1)
 
 
 @mark.e2e_multi_cluster_with_ldap_custom_roles
-def test_ldap_user_can_write_to_database(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
+def test_ldap_user_can_write_to_database(
+    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
+):
     tester = mongodb_multi.tester()
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
@@ -181,8 +189,12 @@ def test_ldap_user_can_write_to_database(mongodb_multi: MongoDBMulti, user_ldap:
 
 
 @mark.e2e_multi_cluster_with_ldap_custom_roles
-@mark.xfail(reason="The user should not be able to write to a database/collection it is not authorized to write on")
-def test_ldap_user_can_write_to_other_collection(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
+@mark.xfail(
+    reason="The user should not be able to write to a database/collection it is not authorized to write on"
+)
+def test_ldap_user_can_write_to_other_collection(
+    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
+):
     tester = mongodb_multi.tester()
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
@@ -195,8 +207,12 @@ def test_ldap_user_can_write_to_other_collection(mongodb_multi: MongoDBMulti, us
 
 
 @mark.e2e_multi_cluster_with_ldap_custom_roles
-@mark.xfail(reason="The user should not be able to write to a database/collection it is not authorized to write on")
-def test_ldap_user_can_write_to_other_database(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
+@mark.xfail(
+    reason="The user should not be able to write to a database/collection it is not authorized to write on"
+)
+def test_ldap_user_can_write_to_other_database(
+    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
+):
     tester = mongodb_multi.tester()
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],

@@ -13,20 +13,31 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 MONGO_URI_VOLUME_MOUNT_NAME = "mongodb-uri"
 MONGO_URI_VOLUME_MOUNT_PATH = "/mongodb-ops-manager/.mongodb-mms-connection-string"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_secure_config.yaml"), namespace=namespace)
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
+    resource = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_secure_config.yaml"), namespace=namespace
+    )
 
     if try_load(resource):
         return resource
 
-    create_or_update_secret(namespace, "my-password", {"password": "password"}, api_client=get_central_cluster_client())
+    create_or_update_secret(
+        namespace,
+        "my-password",
+        {"password": "password"},
+        api_client=get_central_cluster_client(),
+    )
 
     if is_multi_cluster():
         enable_appdb_multi_cluster_deployment(resource)
@@ -82,7 +93,9 @@ def test_appdb_monitoring_configured(ops_manager: MongoDBOpsManager):
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
-def test_backing_dbs_created(oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
+def test_backing_dbs_created(
+    oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB
+):
     create_or_update(oplog_replica_set)
     create_or_update(blockstore_replica_set)
 
@@ -128,7 +141,9 @@ def test_connection_string_is_configured_securely(ops_manager: MongoDBOpsManager
     om_container = sts.spec.template.spec.containers[0]
     volume_mounts: list[client.V1VolumeMount] = om_container.volume_mounts
 
-    connection_string_volume_mount = [vm for vm in volume_mounts if vm.name == MONGO_URI_VOLUME_MOUNT_NAME][0]
+    connection_string_volume_mount = [
+        vm for vm in volume_mounts if vm.name == MONGO_URI_VOLUME_MOUNT_NAME
+    ][0]
     assert connection_string_volume_mount.mount_path == MONGO_URI_VOLUME_MOUNT_PATH
 
 
@@ -164,7 +179,9 @@ def test_no_unnecessary_rolling_upgrades_happen(
 
     backup_sts = ops_manager.read_backup_statefulset()
     old_backup_generation = backup_sts.metadata.generation
-    old_backup_hash = backup_sts.spec.template.metadata.annotations["connectionStringHash"]
+    old_backup_hash = backup_sts.spec.template.metadata.annotations[
+        "connectionStringHash"
+    ]
 
     assert old_backup_hash == old_hash
 
@@ -176,7 +193,9 @@ def test_no_unnecessary_rolling_upgrades_happen(
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     sts = ops_manager.read_statefulset()
-    assert sts.metadata.generation == old_generation, "no change should have happened to the Ops Manager stateful set"
+    assert (
+        sts.metadata.generation == old_generation
+    ), "no change should have happened to the Ops Manager stateful set"
     assert (
         sts.spec.template.metadata.annotations["connectionStringHash"] == old_hash
     ), "connection string hash should have remained the same"
@@ -186,12 +205,15 @@ def test_no_unnecessary_rolling_upgrades_happen(
         backup_sts.metadata.generation == old_backup_generation
     ), "no change should have happened to the backup stateful set"
     assert (
-        backup_sts.spec.template.metadata.annotations["connectionStringHash"] == old_backup_hash
+        backup_sts.spec.template.metadata.annotations["connectionStringHash"]
+        == old_backup_hash
     ), "connection string hash should have remained the same"
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
-def test_connection_string_secret_was_updated(skip_if_om5: None, ops_manager: MongoDBOpsManager):
+def test_connection_string_secret_was_updated(
+    skip_if_om5: None, ops_manager: MongoDBOpsManager
+):
     connection_string = ops_manager.read_appdb_connection_url()
 
     assert "new-password" in connection_string

@@ -9,13 +9,16 @@ from kubetester.mongodb_user import MongoDBUser, generic_user, Role
 
 
 @fixture(scope="module")
-def operator_installation_config(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+def operator_installation_config(
+    operator_installation_config: Dict[str, str]
+) -> Dict[str, str]:
     """
     This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in reasonable time,
     we override the Recovery back off to 10 seconds only. This way it immediately kicks in.
     """
     operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+        operator_installation_config["customEnvVars"]
+        + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
     )
     return operator_installation_config
 
@@ -30,10 +33,14 @@ def replica_set(
     This function sets up ReplicaSet resource for testing. The testing procedure includes CLOUDP-189433, that requires
     putting the resource into "Pending" state and the automatically recovering it.
     """
-    resource = MongoDB.from_yaml(find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        find_fixture("ldap/ldap-replica-set.yaml"), namespace=namespace
+    )
 
     secret_name = "bind-query-password"
-    create_or_update_secret(namespace, secret_name, {"password": openldap_tls.admin_password})
+    create_or_update_secret(
+        namespace, secret_name, {"password": openldap_tls.admin_password}
+    )
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": [openldap_tls.servers],
@@ -48,7 +55,9 @@ def replica_set(
 
 
 @fixture(scope="module")
-def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user_tls: LDAPUser) -> MongoDBUser:
+def ldap_user_mongodb(
+    replica_set: MongoDB, namespace: str, ldap_mongodb_user_tls: LDAPUser
+) -> MongoDBUser:
     """Returns a list of MongoDBUsers (already created) and their corresponding passwords."""
     user = generic_user(
         namespace,
@@ -101,15 +110,21 @@ def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()
-    ac.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False)
+    ac.assert_authentication_mechanism_enabled(
+        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
+    )
     ac.assert_expected_users(1)
 
 
 @mark.e2e_replica_set_ldap_tls
-def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
+def test_new_ldap_users_can_authenticate(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
     tester = replica_set.tester()
 
-    tester.assert_ldap_authentication(ldap_user_mongodb["spec"]["username"], ldap_user_mongodb.password, attempts=10)
+    tester.assert_ldap_authentication(
+        ldap_user_mongodb["spec"]["username"], ldap_user_mongodb.password, attempts=10
+    )
 
 
 @mark.e2e_replica_set_ldap_tls

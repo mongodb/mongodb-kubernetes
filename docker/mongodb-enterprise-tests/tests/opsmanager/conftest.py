@@ -19,7 +19,10 @@ MINIO_TENANT = "minio-tenant"
 def pytest_runtest_setup(item):
     """This allows to automatically install the default Operator before running any test"""
     if is_multi_cluster():
-        if item.fixturenames not in ("multi_cluster_operator_with_monitored_appdb", "multi_cluster_operator"):
+        if item.fixturenames not in (
+            "multi_cluster_operator_with_monitored_appdb",
+            "multi_cluster_operator",
+        ):
             print("\nAdding operator installation fixture: multi_cluster_operator")
             item.fixturenames.insert(0, "multi_cluster_operator_with_monitored_appdb")
     elif item.fixturenames not in [
@@ -86,7 +89,13 @@ def mino_operator_install(
 
     if helm_args is None:
         helm_args = {}
-    helm_args.update({"namespace": namespace, "fullnameOverride": operator_name, "nameOverride": operator_name})
+    helm_args.update(
+        {
+            "namespace": namespace,
+            "fullnameOverride": operator_name,
+            "nameOverride": operator_name,
+        }
+    )
 
     # check if the pod exists, if not do a helm upgrade
     operator_pod = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
@@ -110,8 +119,16 @@ def mino_operator_install(
     else:
         print(f"Minio operator already installed, skipping helm installation!")
 
-    get_pod_when_ready(namespace, f"app.kubernetes.io/instance={operator_name}", api_client=cluster_client)
-    get_pod_when_ready(namespace, f"app.kubernetes.io/instance=minio-operator-console", api_client=cluster_client)
+    get_pod_when_ready(
+        namespace,
+        f"app.kubernetes.io/instance={operator_name}",
+        api_client=cluster_client,
+    )
+    get_pod_when_ready(
+        namespace,
+        f"app.kubernetes.io/instance=minio-operator-console",
+        api_client=cluster_client,
+    )
 
 
 def mino_tenant_install(
@@ -126,7 +143,9 @@ def mino_tenant_install(
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     # check if the minio pod exists, if not do a helm upgrade
-    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(namespace, label_selector=f"app=minio")
+    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
+        namespace, label_selector=f"app=minio"
+    )
     if not pods.items:
         print(f"Performing helm upgrade of minio-tenant")
 

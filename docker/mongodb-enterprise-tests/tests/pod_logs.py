@@ -23,7 +23,9 @@ def get_structured_json_pod_logs(
     namespace: str, pod_name: str, api_client: kubernetes.client.ApiClient
 ) -> dict[str, list[str]]:
     """Read logs from pod_name and groups the lines by logType."""
-    pod_logs_str = KubernetesTester.read_pod_logs(namespace, pod_name, api_client=api_client)
+    pod_logs_str = KubernetesTester.read_pod_logs(
+        namespace, pod_name, api_client=api_client
+    )
     log_lines = parse_pod_logs(pod_logs_str)
 
     log_contents_by_type = {}
@@ -74,7 +76,9 @@ def assert_log_types_in_structured_json_pod_log(
 
     unwanted_log_types = pod_logs.keys() - expected_log_types
     missing_log_types = expected_log_types - pod_logs.keys()
-    assert len(unwanted_log_types) == 0, f"pod {namespace}/{pod_name} contains unwanted log types: {unwanted_log_types}"
+    assert (
+        len(unwanted_log_types) == 0
+    ), f"pod {namespace}/{pod_name} contains unwanted log types: {unwanted_log_types}"
     assert (
         len(missing_log_types) == 0
     ), f"pod {namespace}/{pod_name} doesn't contain some log types: {missing_log_types}"

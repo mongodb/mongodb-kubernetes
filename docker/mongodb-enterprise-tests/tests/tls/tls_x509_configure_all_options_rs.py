@@ -23,7 +23,9 @@ MDB_RESOURCE = "test-x509-all-options-rs"
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    create_x509_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
+    create_x509_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
     secret_name = f"{MDB_RESOURCE}-cert"
     data = read_secret(namespace, secret_name)
     secret_type = "kubernetes.io/tls"
@@ -36,8 +38,12 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace)
+def mdb(
+    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
+) -> MongoDB:
+    res = MongoDB.from_yaml(
+        load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace
+    )
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return create_or_update(res)
 

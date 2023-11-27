@@ -11,7 +11,9 @@ from dateutil.parser import parse
 
 
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 OM_CONF_PATH_DIR = "mongodb-ops-manager/conf/mms.conf"
 APPDB_LOG_DIR = "/data"
@@ -20,9 +22,13 @@ JAVA_DAEMON_OPTS = "JAVA_DAEMON_OPTS"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created."""
-    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace)
+    om = MongoDBOpsManager.from_yaml(
+        yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace
+    )
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om["spec"]["applicationDatabase"]["agent"] = {

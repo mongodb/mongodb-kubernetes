@@ -54,7 +54,9 @@ USER_PASSWORD = "my-password"
 
 @fixture(scope="module")
 def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-split-horizon.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi-split-horizon.yaml"), MDB_RESOURCE, namespace
+    )
     return resource
 
 
@@ -115,7 +117,9 @@ def test_deploy_mongodb_multi_with_tls(
 
 
 @mark.e2e_multi_cluster_split_horizon
-def test_create_node_ports(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+def test_create_node_ports(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
     for mcc in member_cluster_clients:
         with open(
             yaml_fixture(f"split-horizon-node-ports/split-horizon-node-port.yaml"),

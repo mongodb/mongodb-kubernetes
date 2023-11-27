@@ -8,11 +8,15 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 
 @fixture(scope="module")
-def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def opsmanager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
@@ -42,7 +46,9 @@ def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
 
 
 @mark.e2e_om_external_connectivity
-def test_set_external_connectivity_load_balancer_with_default_port(opsmanager: MongoDBOpsManager):
+def test_set_external_connectivity_load_balancer_with_default_port(
+    opsmanager: MongoDBOpsManager,
+):
     ext_connectivity = {
         "type": "LoadBalancer",
         "loadBalancerIP": "172.18.255.211",
@@ -67,7 +73,9 @@ def test_set_external_connectivity_load_balancer_with_default_port(opsmanager: M
     assert external is not None
     assert external.spec.type == "LoadBalancer"
     assert len(external.spec.ports) == 1
-    assert external.spec.ports[0].port == 8080  # if not specified it will be the default port
+    assert (
+        external.spec.ports[0].port == 8080
+    )  # if not specified it will be the default port
     assert external.spec.load_balancer_ip == "172.18.255.211"
     assert external.spec.external_traffic_policy == "Local"
 

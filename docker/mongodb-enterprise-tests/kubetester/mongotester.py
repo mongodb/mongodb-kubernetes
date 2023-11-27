@@ -27,10 +27,14 @@ def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, 
     return options
 
 
-def with_scram(username: str, password: str, auth_mechanism: str = "SCRAM-SHA-256") -> Dict[str, str]:
+def with_scram(
+    username: str, password: str, auth_mechanism: str = "SCRAM-SHA-256"
+) -> Dict[str, str]:
     valid_mechanisms = {"SCRAM-SHA-256", "SCRAM-SHA-1"}
     if auth_mechanism not in valid_mechanisms:
-        raise ValueError(f"auth_mechanism must be one of {valid_mechanisms}, but was {auth_mechanism}.")
+        raise ValueError(
+            f"auth_mechanism must be one of {valid_mechanisms}, but was {auth_mechanism}."
+        )
 
     return {
         "authMechanism": auth_mechanism,
@@ -51,7 +55,9 @@ def with_x509(cert_file_name: str, ca_path: Optional[str] = None) -> Dict[str, s
     return options
 
 
-def with_ldap(ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = None) -> Dict[str, str]:
+def with_ldap(
+    ssl_certfile: Optional[str] = None, tls_ca_file: Optional[str] = None
+) -> Dict[str, str]:
     options = {}
     if tls_ca_file is not None:
         options.update(with_tls(True, tls_ca_file))
@@ -140,12 +146,17 @@ class MongoTester:
 
     def assert_version(self, expected_version: str):
         # version field does not contain -ent suffix in MongoDB
-        assert self.client.admin.command("buildInfo")["version"] == expected_version.rstrip("-ent")
+        assert self.client.admin.command("buildInfo")[
+            "version"
+        ] == expected_version.rstrip("-ent")
         if expected_version.endswith("-ent"):
             self.assert_is_enterprise()
 
     def assert_data_size(self, expected_count, test_collection=TEST_COLLECTION):
-        assert self.client[TEST_DB][test_collection].estimated_document_count() == expected_count
+        assert (
+            self.client[TEST_DB][test_collection].estimated_document_count()
+            == expected_count
+        )
 
     def assert_is_enterprise(self):
         assert "enterprise" in self.client.admin.command("buildInfo")["modules"]
@@ -174,7 +185,9 @@ class MongoTester:
                 return
             except OperationFailure as e:
                 if i == 0:
-                    fail(msg=f"unable to authenticate after {attempts} attempts with error: {e}")
+                    fail(
+                        msg=f"unable to authenticate after {attempts} attempts with error: {e}"
+                    )
                 time.sleep(5)
 
     def assert_scram_sha_authentication_fails(
@@ -197,7 +210,9 @@ class MongoTester:
             except OperationFailure:
                 return
             time.sleep(5)
-        fail(f"was still able to authenticate with username={username} password={password} after {retries} attempts")
+        fail(
+            f"was still able to authenticate with username={username} password={password} after {retries} attempts"
+        )
 
     def _authenticate_with_scram(
         self,
@@ -219,12 +234,16 @@ class MongoTester:
         # authentication doesn't actually happen until we interact with a database
         self.client["admin"]["myCol"].insert_one({})
 
-    def assert_x509_authentication(self, cert_file_name: str, attempts: int = 20, **kwargs):
+    def assert_x509_authentication(
+        self, cert_file_name: str, attempts: int = 20, **kwargs
+    ):
         assert attempts > 0
 
         options = self._merge_options(
             [
-                with_x509(cert_file_name, kwargs.get("tlsCAFile", kubetester.SSL_CA_CERT)),
+                with_x509(
+                    cert_file_name, kwargs.get("tlsCAFile", kubetester.SSL_CA_CERT)
+                ),
             ]
         )
 
@@ -258,7 +277,11 @@ class MongoTester:
             attempts -= 1
             try:
                 client = self._init_client(
-                    **options, username=username, password=password, authSource="$external", authMechanism="PLAIN"
+                    **options,
+                    username=username,
+                    password=password,
+                    authSource="$external",
+                    authMechanism="PLAIN",
                 )
                 client[db][collection].insert_one({"data": "I need to exist!"})
 
@@ -360,7 +383,9 @@ class ReplicaSetTester(MongoTester):
         opts: Optional[List[Dict[str, str]]] = None,
     ):
         """For replica sets in addition to is_master() we need to make sure all replicas are up"""
-        super().assert_connectivity(attempts=attempts, write_concern=write_concern, opts=opts)
+        super().assert_connectivity(
+            attempts=attempts, write_concern=write_concern, opts=opts
+        )
 
         if self.replicas_count == 1:
             # On 1 member replica-set, the last member is considered primary and secondaries will be `set()`
@@ -371,7 +396,8 @@ class ReplicaSetTester(MongoTester):
         check_times = wait_for // check_every
 
         while (
-            self.client.primary is None or len(self.client.secondaries) < self.replicas_count - 1
+            self.client.primary is None
+            or len(self.client.secondaries) < self.replicas_count - 1
         ) and check_times >= 0:
             time.sleep(check_every)
             check_times -= 1
@@ -391,7 +417,9 @@ class MultiReplicaSetTester(MongoTester):
         external: bool = False,
     ):
         super().__init__(
-            build_mongodb_multi_connection_uri(namespace, service_names, port, external=external),
+            build_mongodb_multi_connection_uri(
+                namespace, service_names, port, external=external
+            ),
             use_ssl=ssl,
             ca_path=ca_path,
         )
@@ -425,11 +453,15 @@ class ShardedClusterTester(MongoTester):
         )
         super().__init__(self.cnx_string, ssl, ca_path)
 
-    def shard_collection(self, shards_pattern, shards_count, key, test_collection=TEST_COLLECTION):
+    def shard_collection(
+        self, shards_pattern, shards_count, key, test_collection=TEST_COLLECTION
+    ):
         """enables sharding and creates zones to make sure data is spread over shards.
         Assumes that the documents have field 'key' with value in [0,10] range"""
         for i in range(shards_count):
-            self.client.admin.command("addShardToZone", shards_pattern.format(i), zone="zone-{}".format(i))
+            self.client.admin.command(
+                "addShardToZone", shards_pattern.format(i), zone="zone-{}".format(i)
+            )
 
         for i in range(shards_count):
             self.client.admin.command(
@@ -441,14 +473,18 @@ class ShardedClusterTester(MongoTester):
             )
 
         self.client.admin.command("enableSharding", TEST_DB)
-        self.client.admin.command("shardCollection", db_namespace(test_collection), key={key: 1})
+        self.client.admin.command(
+            "shardCollection", db_namespace(test_collection), key={key: 1}
+        )
 
     def prepare_for_shard_removal(self, shards_pattern, shards_count):
         """We need to map all the shards to all the zones to let shard be removed (otherwise the balancer gets
         stuck as it cannot move chunks from shards being removed)"""
         for i in range(shards_count):
             for j in range(shards_count):
-                self.client.admin.command("addShardToZone", shards_pattern.format(i), zone="zone-{}".format(j))
+                self.client.admin.command(
+                    "addShardToZone", shards_pattern.format(i), zone="zone-{}".format(j)
+                )
 
     def assert_number_of_shards(self, expected_count):
         assert len(self.client.admin.command("listShards")["shards"]) == expected_count
@@ -491,7 +527,9 @@ class BackgroundHealthChecker(threading.Thread):
                 print(f"Error in {self.__class__.__name__}: {e})")
                 self.last_exception = e
                 consecutive_failure = consecutive_failure + 1
-                self.max_consecutive_failure = max(self.max_consecutive_failure, consecutive_failure)
+                self.max_consecutive_failure = max(
+                    self.max_consecutive_failure, consecutive_failure
+                )
                 self.exception_number = self.exception_number + 1
             time.sleep(self.wait_sec)
 
@@ -559,21 +597,34 @@ def build_mongodb_connection_uri(
         servicename = "{}-svc".format(mdb_resource)
 
     if external_domain:
-        return build_mongodb_uri(build_list_of_hosts_with_external_domain(mdb_resource, members, external_domain, port))
+        return build_mongodb_uri(
+            build_list_of_hosts_with_external_domain(
+                mdb_resource, members, external_domain, port
+            )
+        )
     if srv:
         return build_mongodb_uri(build_host_srv(servicename, namespace), srv)
     else:
-        return build_mongodb_uri(build_list_of_hosts(mdb_resource, namespace, members, servicename, port))
+        return build_mongodb_uri(
+            build_list_of_hosts(mdb_resource, namespace, members, servicename, port)
+        )
 
 
 def build_mongodb_multi_connection_uri(
     namespace: str, service_names: List[str], port: str, external: bool = False
 ) -> str:
-    return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port, external=external))
+    return build_mongodb_uri(
+        build_list_of_multi_hosts(namespace, service_names, port, external=external)
+    )
 
 
-def build_list_of_hosts(mdb_resource: str, namespace: str, members: int, servicename: str, port: str) -> List[str]:
-    return [build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename, port) for idx in range(members)]
+def build_list_of_hosts(
+    mdb_resource: str, namespace: str, members: int, servicename: str, port: str
+) -> List[str]:
+    return [
+        build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename, port)
+        for idx in range(members)
+    ]
 
 
 def build_list_of_hosts_with_external_domain(
@@ -582,10 +633,15 @@ def build_list_of_hosts_with_external_domain(
     return [f"{mdb_resource}-{idx}.{external_domain}:{port}" for idx in range(members)]
 
 
-def build_list_of_multi_hosts(namespace: str, service_names: List[str], port, external: bool = False) -> List[str]:
+def build_list_of_multi_hosts(
+    namespace: str, service_names: List[str], port, external: bool = False
+) -> List[str]:
     if external:
         return [f"{service_name}:{port}" for service_name in service_names]
-    return [build_host_service_fqdn(namespace, service_name, port) for service_name in service_names]
+    return [
+        build_host_service_fqdn(namespace, service_name, port)
+        for service_name in service_names
+    ]
 
 
 def build_host_service_fqdn(namespace: str, servicename: str, port) -> str:
@@ -599,7 +655,9 @@ def build_host_fqdn(hostname: str, namespace: str, servicename: str, port) -> st
 
 
 def build_host_srv(servicename: str, namespace: str) -> str:
-    srv_host = "{servicename}.{namespace}.svc.cluster.local".format(servicename=servicename, namespace=namespace)
+    srv_host = "{servicename}.{namespace}.svc.cluster.local".format(
+        servicename=servicename, namespace=namespace
+    )
     return srv_host
 
 
@@ -638,7 +696,11 @@ def upload_random_data(
     if generation_function is None:
         generation_function = generate_single_json
 
-    logging.info("task: {}. Inserting {} fake records to {}.{}".format(task_name, count, TEST_DB, TEST_COLLECTION))
+    logging.info(
+        "task: {}. Inserting {} fake records to {}.{}".format(
+            task_name, count, TEST_DB, TEST_COLLECTION
+        )
+    )
 
     target = client[TEST_DB][TEST_COLLECTION]
     buf = []
@@ -654,4 +716,6 @@ def upload_random_data(
     if len(buf) > 0:
         target.insert_many(buf)
 
-    logging.info("task: {}. Task finished, {} documents inserted. ".format(task_name, count))
+    logging.info(
+        "task: {}. Task finished, {} documents inserted. ".format(task_name, count)
+    )

@@ -26,9 +26,13 @@ def mongodb_multi_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
+    )
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -57,7 +61,9 @@ def server_certs(
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
+def mongodb_multi(
+    mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
+) -> MongoDBMulti:
     # remove the last element, we are only starting with 2 clusters we will scale up the 3rd one later.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     return mongodb_multi_unmarshalled.create()
@@ -96,7 +102,9 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster
-def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+def test_scale_mongodb_multi(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
     mongodb_multi.load()
     mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[2].cluster_name}

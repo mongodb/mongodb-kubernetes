@@ -42,11 +42,7 @@ function black_formatting() {
     pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt
   fi
 
-  # Black formatting of every python file that was changed
-  for file in $(echo "$git_last_changed" | grep '\.py$'); do
-    black -q "$file"
-    git add "$file"
-  done
+  black .
 }
 
 function update_values_yaml_files() {

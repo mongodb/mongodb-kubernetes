@@ -52,7 +52,8 @@ def test_validate_unique_cluster_name(
     )
 
     with pytest.raises(
-        ApiException, match=r"Multiple clusters with the same name \(kind-e2e-cluster-2\) are not allowed"
+        ApiException,
+        match=r"Multiple clusters with the same name \(kind-e2e-cluster-2\) are not allowed",
     ):
         create_or_update(ops_manager)
 
@@ -64,7 +65,10 @@ def test_non_empty_clusterspec_list(
     ops_manager.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = []
 
-    with pytest.raises(ApiException, match=r"ClusterSpecList empty is not allowed\, please define atleast one cluster"):
+    with pytest.raises(
+        ApiException,
+        match=r"ClusterSpecList empty is not allowed\, please define atleast one cluster",
+    ):
         create_or_update(ops_manager)
 
 
@@ -91,5 +95,8 @@ def test_empty_cluster_spec_list_single_cluster(
     ops_manager.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     ops_manager["spec"]["applicationDatabase"]["topology"] = "SingleCluster"
 
-    with pytest.raises(ApiException, match=r"Single cluster AppDB deployment should have empty clusterSpecList"):
+    with pytest.raises(
+        ApiException,
+        match=r"Single cluster AppDB deployment should have empty clusterSpecList",
+    ):
         create_or_update(ops_manager)

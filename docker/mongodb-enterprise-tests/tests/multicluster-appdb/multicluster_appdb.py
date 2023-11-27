@@ -41,7 +41,10 @@ def ops_manager_unmarshalled(
         "clusterSpecList": cluster_spec_list(appdb_member_cluster_names, [2, 3]),
         "version": custom_appdb_version,
         "agent": {"logLevel": "DEBUG"},
-        "security": {"certsSecretPrefix": CERT_PREFIX, "tls": {"ca": multi_cluster_issuer_ca_configmap}},
+        "security": {
+            "certsSecretPrefix": CERT_PREFIX,
+            "tls": {"ca": multi_cluster_issuer_ca_configmap},
+        },
     }
 
     return resource
@@ -72,7 +75,9 @@ def ops_manager(
 
 
 @mark.e2e_multi_cluster_appdb
-def test_patch_central_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
+def test_patch_central_namespace(
+    namespace: str, central_cluster_client: kubernetes.client.ApiClient
+):
     corev1 = kubernetes.client.CoreV1Api(api_client=central_cluster_client)
     ns = corev1.read_namespace(namespace)
     ns.metadata.labels["istio-injection"] = "enabled"
@@ -87,7 +92,9 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_multi_cluster_appdb
-def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_scale_up_one_cluster(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         appdb_member_cluster_names, [4, 3]
@@ -97,7 +104,9 @@ def test_scale_up_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clust
 
 
 @mark.e2e_multi_cluster_appdb
-def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_scale_down_one_cluster(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         appdb_member_cluster_names, [4, 1]
@@ -107,7 +116,9 @@ def test_scale_down_one_cluster(ops_manager: MongoDBOpsManager, appdb_member_clu
 
 
 @mark.e2e_multi_cluster_appdb
-def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_scale_up_two_clusters(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         appdb_member_cluster_names, [5, 2]
@@ -117,7 +128,9 @@ def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_clus
 
 
 @mark.e2e_multi_cluster_appdb
-def test_scale_down_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_scale_down_two_clusters(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         appdb_member_cluster_names, [2, 1]
@@ -127,27 +140,39 @@ def test_scale_down_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_cl
 
 
 @mark.e2e_multi_cluster_appdb
-def test_add_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_add_cluster_to_cluster_spec(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 2, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+        cluster_names, [2, 2, 1]
+    )
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_multi_cluster_appdb
-def test_remove_cluster_from_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_remove_cluster_from_cluster_spec(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names[1:]
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+        cluster_names, [2, 1]
+    )
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_multi_cluster_appdb
-def test_readd_cluster_to_cluster_spec(ops_manager: MongoDBOpsManager, appdb_member_cluster_names):
+def test_readd_cluster_to_cluster_spec(
+    ops_manager: MongoDBOpsManager, appdb_member_cluster_names
+):
     ops_manager.load()
     cluster_names = ["kind-e2e-cluster-1"] + appdb_member_cluster_names
-    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(cluster_names, [2, 2, 1])
+    ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
+        cluster_names, [2, 2, 1]
+    )
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

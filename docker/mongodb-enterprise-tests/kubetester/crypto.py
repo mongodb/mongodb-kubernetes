@@ -13,7 +13,9 @@ from typing import List, Optional
 
 
 def generate_csr(namespace: str, host: str, servicename: str):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
 
     csr = (
         x509.CertificateSigningRequestBuilder()

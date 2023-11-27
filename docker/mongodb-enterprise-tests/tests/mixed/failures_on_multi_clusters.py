@@ -14,7 +14,9 @@ def replica_set(namespace, custom_mdb_version: str):
 
 @fixture(scope="class")
 def replica_set_single(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-single.yaml"), namespace=namespace
+    )
     resource.set_version(custom_mdb_version)
     yield resource.create()
 
@@ -23,7 +25,9 @@ def replica_set_single(namespace, custom_mdb_version: str):
 
 @fixture(scope="class")
 def sharded_cluster(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster.yaml"), namespace=namespace
+    )
     resource.set_version(custom_mdb_version)
     yield resource.create()
 
@@ -32,7 +36,9 @@ def sharded_cluster(namespace, custom_mdb_version: str):
 
 @fixture(scope="class")
 def sharded_cluster_single(namespace, custom_mdb_version: str):
-    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace
+    )
     resource.set_version(custom_mdb_version)
     yield resource.create()
 
@@ -89,7 +95,9 @@ class TestNoTwoClustersCanBeCreatedOnTheSameProject:
         assert "warnings" not in sharded_cluster_single["status"]
 
     # pylint: disable=unused-argument
-    def test_sharded_cluster_automation_config_is_correct(self, sharded_cluster, sharded_cluster_single):
+    def test_sharded_cluster_automation_config_is_correct(
+        self, sharded_cluster, sharded_cluster_single
+    ):
         config = KubernetesTester.get_automation_config()
 
         for process in config["processes"]:
@@ -119,7 +127,9 @@ class TestNoTwoDifferentTypeOfResourceCanBeCreatedOnTheSameProject:
         assert "warnings" not in status
 
     # pylint: disable=unused-argument
-    def test_automation_config_contains_one_cluster(self, replica_set_single, sharded_cluster_single):
+    def test_automation_config_contains_one_cluster(
+        self, replica_set_single, sharded_cluster_single
+    ):
         config = KubernetesTester.get_automation_config()
 
         assert len(config["processes"]) == 1

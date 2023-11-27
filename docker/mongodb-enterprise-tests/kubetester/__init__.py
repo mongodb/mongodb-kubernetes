@@ -30,7 +30,9 @@ def create_secret(
     api_client: Optional[client.ApiClient] = None,
 ) -> str:
     """Creates a Secret with `name` in `namespace`. String contents are passed as the `data` parameter."""
-    secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data, type=type)
+    secret = client.V1Secret(
+        metadata=client.V1ObjectMeta(name=name), string_data=data, type=type
+    )
 
     client.CoreV1Api(api_client=api_client).create_namespaced_secret(namespace, secret)
 
@@ -61,10 +63,14 @@ def update_secret(
 ):
     """Updates a secret in a given namespace with the given name and data—handles base64 encoding."""
     secret = client.V1Secret(metadata=client.V1ObjectMeta(name=name), string_data=data)
-    client.CoreV1Api(api_client=api_client).patch_namespaced_secret(name, namespace, secret)
+    client.CoreV1Api(api_client=api_client).patch_namespaced_secret(
+        name, namespace, secret
+    )
 
 
-def delete_secret(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
+def delete_secret(
+    namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
+):
     client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
 
 
@@ -82,12 +88,18 @@ def create_or_update_service(
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     """Creates a service with `name` in `namespace`"""
-    service = client.V1Service(metadata=client.V1ObjectMeta(name=name, namespace=namespace), spec=spec)
+    service = client.V1Service(
+        metadata=client.V1ObjectMeta(name=name, namespace=namespace), spec=spec
+    )
     try:
-        client.CoreV1Api(api_client=api_client).create_namespaced_service(namespace=namespace, body=service)
+        client.CoreV1Api(api_client=api_client).create_namespaced_service(
+            namespace=namespace, body=service
+        )
     except kubernetes.client.ApiException as e:
         if e.status == 409:
-            client.CoreV1Api(api_client=api_client).patch_namespaced_service(name, namespace, body=service)
+            client.CoreV1Api(api_client=api_client).patch_namespaced_service(
+                name, namespace, body=service
+            )
         else:
             raise e
 
@@ -105,7 +117,9 @@ def get_service(
     :return None if the service does not exist
     """
     try:
-        return client.CoreV1Api(api_client=api_client).read_namespaced_service(name, namespace)
+        return client.CoreV1Api(api_client=api_client).read_namespaced_service(
+            name, namespace
+        )
     except kubernetes.client.ApiException as e:
         if e.status == 404:
             return None
@@ -115,7 +129,9 @@ def get_service(
 
 def delete_pvc(namespace: str, name: str):
     """Deletes a persistent volument claim(pvc) with `name` in `namespace`"""
-    client.CoreV1Api().delete_namespaced_persistent_volume_claim(namespace=namespace, name=name)
+    client.CoreV1Api().delete_namespaced_persistent_volume_claim(
+        namespace=namespace, name=name
+    )
 
 
 def create_object_from_dict(data, namespace: str) -> List:
@@ -123,8 +139,14 @@ def create_object_from_dict(data, namespace: str) -> List:
     return utils.create_from_dict(k8s_client=k8s_client, data=data, namespace=namespace)
 
 
-def read_configmap(namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> Dict[str, str]:
-    return client.CoreV1Api(api_client=api_client).read_namespaced_config_map(name, namespace).data
+def read_configmap(
+    namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+) -> Dict[str, str]:
+    return (
+        client.CoreV1Api(api_client=api_client)
+        .read_namespaced_config_map(name, namespace)
+        .data
+    )
 
 
 def create_configmap(
@@ -134,7 +156,9 @@ def create_configmap(
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
-    client.CoreV1Api(api_client=api_client).create_namespaced_config_map(namespace, configmap)
+    client.CoreV1Api(api_client=api_client).create_namespaced_config_map(
+        namespace, configmap
+    )
 
 
 def update_configmap(
@@ -144,7 +168,9 @@ def update_configmap(
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     configmap = client.V1ConfigMap(metadata=client.V1ObjectMeta(name=name), data=data)
-    client.CoreV1Api(api_client=api_client).replace_namespaced_config_map(name, namespace, configmap)
+    client.CoreV1Api(api_client=api_client).replace_namespaced_config_map(
+        name, namespace, configmap
+    )
 
 
 def create_or_update_configmap(
@@ -175,7 +201,9 @@ def create_service(
 
     service = client.V1Service(
         metadata=client.V1ObjectMeta(name=name, namespace=namespace),
-        spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip, selector=selector),
+        spec=client.V1ServiceSpec(
+            ports=ports, cluster_ip=cluster_ip, selector=selector
+        ),
     )
     client.CoreV1Api().create_namespaced_service(namespace, service)
 
@@ -214,7 +242,9 @@ def read_service(
     name: str,
     api_client: Optional[client.ApiClient] = None,
 ) -> client.V1Service:
-    return client.CoreV1Api(api_client=api_client).read_namespaced_service(name, namespace)
+    return client.CoreV1Api(api_client=api_client).read_namespaced_service(
+        name, namespace
+    )
 
 
 def read_secret(
@@ -222,10 +252,16 @@ def read_secret(
     name: str,
     api_client: Optional[client.ApiClient] = None,
 ) -> Dict[str, str]:
-    return decode_secret(client.CoreV1Api(api_client=api_client).read_namespaced_secret(name, namespace).data)
+    return decode_secret(
+        client.CoreV1Api(api_client=api_client)
+        .read_namespaced_secret(name, namespace)
+        .data
+    )
 
 
-def delete_pod(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
+def delete_pod(
+    namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
+):
     client.CoreV1Api(api_client=api_client).delete_namespaced_pod(name, namespace)
 
 
@@ -246,7 +282,9 @@ def create_or_update_namespace(
         client.CoreV1Api(api_client=api_client).create_namespace(namespace_resource)
     except kubernetes.client.ApiException as e:
         if e.status == 409:
-            client.CoreV1Api(api_client=api_client).patch_namespace(namespace, namespace_resource)
+            client.CoreV1Api(api_client=api_client).patch_namespace(
+                namespace, namespace_resource
+            )
 
 
 def delete_namespace(name: str):
@@ -274,10 +312,14 @@ def get_statefulset(
     name: str,
     api_client: Optional[client.ApiClient] = None,
 ) -> client.V1StatefulSet:
-    return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(name, namespace)
+    return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(
+        name, namespace
+    )
 
 
-def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[client.ApiClient]):
+def statefulset_is_deleted(
+    namespace: str, name: str, api_client: Optional[client.ApiClient]
+):
     try:
         get_statefulset(namespace, name, api_client=api_client)
         return False
@@ -296,9 +338,13 @@ def delete_cluster_role(name: str, api_client: Optional[client.ApiClient] = None
             raise e
 
 
-def delete_cluster_role_binding(name: str, api_client: Optional[client.ApiClient] = None):
+def delete_cluster_role_binding(
+    name: str, api_client: Optional[client.ApiClient] = None
+):
     try:
-        client.RbacAuthorizationV1Api(api_client=api_client).delete_cluster_role_binding(name)
+        client.RbacAuthorizationV1Api(
+            api_client=api_client
+        ).delete_cluster_role_binding(name)
     except client.rest.ApiException as e:
         if e.status != 404:
             raise e
@@ -321,7 +367,9 @@ def get_pod_when_running(
         time.sleep(3)
 
         try:
-            pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector)
+            pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
+                namespace, label_selector=label_selector
+            )
             try:
                 pod = pods.items[0]
             except IndexError:
@@ -349,13 +397,17 @@ def get_pod_when_ready(
     cnt = 0
 
     while True and cnt < default_retry:
-        print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
+        print(
+            f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}"
+        )
 
         if cnt > 0:
             time.sleep(1)
         cnt += 1
         try:
-            pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector)
+            pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
+                namespace, label_selector=label_selector
+            )
 
             if len(pods.items) == 0:
                 continue
@@ -388,9 +440,13 @@ def is_pod_ready(
     if it does not exist or there is any other kind of error.
     This function is intended to check if installing third party components is needed.
     """
-    print(f"Checking if pod is ready: namespace={namespace}, label_selector={label_selector}")
+    print(
+        f"Checking if pod is ready: namespace={namespace}, label_selector={label_selector}"
+    )
     try:
-        pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector)
+        pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(
+            namespace, label_selector=label_selector
+        )
 
         if len(pods.items) == 0:
             return None
@@ -451,7 +507,9 @@ def create_or_update(resource: CustomObject) -> CustomObject:
         while tries < 10:
             if tries > 0:  # The first try we don't need to do client-side merge apply
                 # do a client-side-apply
-                new_back_obj_to_apply = copy.deepcopy(resource.backing_obj)  # resource and changes we want to apply
+                new_back_obj_to_apply = copy.deepcopy(
+                    resource.backing_obj
+                )  # resource and changes we want to apply
 
                 resource.load()  # resource from the server overwrites resource.backing_obj
 
@@ -463,9 +521,13 @@ def create_or_update(resource: CustomObject) -> CustomObject:
                 # we want to apply has them. But that is highly unlikely, and we can add that code in case that happens.
                 resource["spec"] = new_back_obj_to_apply["spec"]
                 if "metadata" in resource and "annotations" in resource["metadata"]:
-                    resource["metadata"]["annotations"].update(new_back_obj_to_apply["metadata"]["annotations"])
+                    resource["metadata"]["annotations"].update(
+                        new_back_obj_to_apply["metadata"]["annotations"]
+                    )
                 if "metadata" in resource and "labels" in resource["metadata"]:
-                    resource["metadata"]["labels"].update(new_back_obj_to_apply["metadata"]["labels"])
+                    resource["metadata"]["labels"].update(
+                        new_back_obj_to_apply["metadata"]["labels"]
+                    )
             try:
                 resource.update()
                 break
@@ -479,7 +541,9 @@ def create_or_update(resource: CustomObject) -> CustomObject:
                 )
                 tries += 1
                 if tries == 10:
-                    raise Exception("Tried client side merge 10 times and did not succeed")
+                    raise Exception(
+                        "Tried client side merge 10 times and did not succeed"
+                    )
 
     return resource
 

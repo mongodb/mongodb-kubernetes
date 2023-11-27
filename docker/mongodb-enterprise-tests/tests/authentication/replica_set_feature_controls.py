@@ -71,7 +71,9 @@ def test_authentication_enabled_is_owned_by_operator(replicaset: MongoDB):
     Authentication has been enabled on the Operator. Authentication is still
     owned by the operator so feature controls should be kept the same.
     """
-    replicaset["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    replicaset["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
     replicaset.update()
 
     replicaset.assert_reaches_phase(Phase.Running, timeout=500)
