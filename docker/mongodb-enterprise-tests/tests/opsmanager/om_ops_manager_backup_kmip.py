@@ -92,7 +92,7 @@ def mdb_latest(
         namespace=namespace,
         name=MONGODB_CR_NAME,
     ).configure(ops_manager, "mdbLatestProject")
-    resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
     return resource.create()
 

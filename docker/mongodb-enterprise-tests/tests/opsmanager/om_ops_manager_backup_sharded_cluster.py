@@ -60,7 +60,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     #  TODO: Remove when CLOUDP-60443 is fixed
     # This test will update oplog to have SCRAM enabled
@@ -79,7 +79,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
         namespace=namespace,
         name=S3_RS_NAME,
     ).configure(ops_manager, "s3metadata")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     create_or_update(resource)
     return resource
@@ -92,7 +92,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     create_or_update(resource)
     return resource
 
@@ -254,7 +254,7 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="mdb-four-two",
         ).configure(ops_manager, "firstProject")
-        resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+        resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="disabled")
 
         try_load(resource)
@@ -267,7 +267,7 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="mdb-four-zero",
         ).configure(ops_manager, "secondProject")
-        resource["spec"]["version"] = ensure_ent_version(custom_mdb_prev_version)
+        resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="disabled")
 
         try_load(resource)
