@@ -176,7 +176,7 @@ def mdb_sharded(
     resource = MongoDB.from_yaml(
         yaml_fixture("olm_sharded_cluster_for_om.yaml"), namespace=namespace, name="mdb-sharded"
     ).configure(ops_manager, "mdb-sharded")
-    resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+    resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["security"] = {
         "tls": {
             "ca": issuer_ca_configmap,
@@ -195,7 +195,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     resource = MongoDB.from_yaml(
         yaml_fixture("olm_replica_set_for_om.yaml"), namespace=namespace, name="my-mongodb-oplog"
     ).configure(ops_manager, "oplog")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     return create_or_update(resource)
 
 
@@ -204,7 +204,7 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("olm_replica_set_for_om.yaml"), namespace=namespace, name="my-mongodb-s3"
     ).configure(ops_manager, "s3metadata")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     return create_or_update(resource)
 
 
@@ -213,7 +213,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
     resource = MongoDB.from_yaml(
         yaml_fixture("olm_replica_set_for_om.yaml"), namespace=namespace, name="my-mongodb-blockstore"
     ).configure(ops_manager, "blockstore")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     return create_or_update(resource)
 
 

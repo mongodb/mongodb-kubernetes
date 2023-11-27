@@ -56,7 +56,7 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
         ops_manager, "replicaset0"
     )
 
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     try_load(resource)
     return resource
@@ -71,7 +71,7 @@ def replicaset1(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
 
     # NOTE: If running a test using a version different from 6.0.5 for OM6 means we will need to
     # also download the respective signature (tgz.sig) as seen in om_https_enabled.yaml
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     try_load(resource)
     return resource

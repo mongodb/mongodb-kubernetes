@@ -27,7 +27,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
         namespace=namespace,
         name="mdb",
     ).configure(ops_manager, "mdb")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     create_or_update(resource)
     return resource

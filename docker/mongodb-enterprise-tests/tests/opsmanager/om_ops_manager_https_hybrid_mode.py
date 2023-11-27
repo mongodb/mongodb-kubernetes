@@ -78,7 +78,7 @@ def replicaset0(
     resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
         ops_manager, "replicaset0"
     )
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)
     return resource.create()
 

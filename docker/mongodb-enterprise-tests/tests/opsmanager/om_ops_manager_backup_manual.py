@@ -129,7 +129,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         namespace=namespace,
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
 
     resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
@@ -154,7 +154,7 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         namespace=namespace,
         name=BLOCKSTORE_RS_NAME,
     ).configure(ops_manager, "blockstore")
-    resource["spec"]["version"] = custom_mdb_version
+    resource.set_version(custom_mdb_version)
     return resource.create()
 
 
@@ -309,7 +309,7 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="rs-fixed",
         ).configure(ops_manager, "firstProject")
-        resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+        resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["podSpec"] = {"podTemplate": {"spec": {}}}
         resource["spec"]["podSpec"]["podTemplate"]["spec"]["containers"] = [
@@ -340,7 +340,7 @@ class TestBackupForMongodb:
             namespace=namespace,
             name="rs-not-fixed",
         ).configure(ops_manager, "secondProject")
-        resource["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+        resource.set_version(ensure_ent_version(custom_mdb_version))
 
         resource["spec"]["podSpec"] = {"podTemplate": {"spec": {}}}
         resource["spec"]["podSpec"]["podTemplate"]["spec"]["containers"] = [
