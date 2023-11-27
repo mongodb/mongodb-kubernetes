@@ -2,7 +2,11 @@ import pymongo
 from pytest import fixture, mark
 from kubetester.kubetester import KubernetesTester
 
-from kubetester.mongotester import ReplicaSetTester, MongoDBBackgroundTester, MongoTester
+from kubetester.mongotester import (
+    ReplicaSetTester,
+    MongoDBBackgroundTester,
+    MongoTester,
+)
 
 TEST_DATA = {"foo": "bar"}
 TEST_DB = "testdb"
@@ -19,7 +23,10 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongod_tester,
         allowed_sequential_failures=1,
-        health_function_params={"attempts": 1, "write_concern": pymongo.WriteConcern(w="majority")},
+        health_function_params={
+            "attempts": 1,
+            "write_concern": pymongo.WriteConcern(w="majority"),
+        },
     )
 
 

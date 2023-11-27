@@ -23,11 +23,15 @@ class TestShardedClusterCreation(KubernetesTester):
         assert sts0
 
     def test_config_sts(self):
-        config = self.appsv1.read_namespaced_stateful_set("sh001-base-config", self.namespace)
+        config = self.appsv1.read_namespaced_stateful_set(
+            "sh001-base-config", self.namespace
+        )
         assert config
 
     def test_mongos_sts(self):
-        mongos = self.appsv1.read_namespaced_stateful_set("sh001-base-mongos", self.namespace)
+        mongos = self.appsv1.read_namespaced_stateful_set(
+            "sh001-base-mongos", self.namespace
+        )
         assert mongos
 
     def test_mongod_sharded_cluster_service(self):
@@ -47,7 +51,9 @@ class TestShardedClusterCreation(KubernetesTester):
         assert len(mv) == 8
 
         for process in config["processes"]:
-            assert any(agent for agent in mv if agent["hostname"] == process["hostname"])
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
 
     def test_backup_versions(self):
         """Verifies that backup agent is configured for each process in the deployment"""
@@ -56,7 +62,9 @@ class TestShardedClusterCreation(KubernetesTester):
         assert len(mv) == 8
 
         for process in config["processes"]:
-            assert any(agent for agent in mv if agent["hostname"] == process["hostname"])
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
 
 
 @pytest.mark.e2e_sharded_cluster
@@ -73,7 +81,12 @@ class TestShardedClusterUpdate(KubernetesTester):
     """
 
     def test_shard1_was_configured(self):
-        hosts = ["sh001-base-1-{}.sh001-base-sh.{}.svc.cluster.local:27017".format(i, self.namespace) for i in range(3)]
+        hosts = [
+            "sh001-base-1-{}.sh001-base-sh.{}.svc.cluster.local:27017".format(
+                i, self.namespace
+            )
+            for i in range(3)
+        ]
 
         primary, secondaries = self.wait_for_rs_is_ready(hosts)
         assert primary is not None
@@ -86,7 +99,9 @@ class TestShardedClusterUpdate(KubernetesTester):
         assert len(mv) == 11
 
         for process in config["processes"]:
-            assert any(agent for agent in mv if agent["hostname"] == process["hostname"])
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
 
     def test_backup_versions(self):
         """Verifies that backup agent is configured for each process in the deployment"""
@@ -95,7 +110,9 @@ class TestShardedClusterUpdate(KubernetesTester):
         assert len(mv) == 11
 
         for process in config["processes"]:
-            assert any(agent for agent in mv if agent["hostname"] == process["hostname"])
+            assert any(
+                agent for agent in mv if agent["hostname"] == process["hostname"]
+            )
 
 
 @pytest.mark.e2e_sharded_cluster

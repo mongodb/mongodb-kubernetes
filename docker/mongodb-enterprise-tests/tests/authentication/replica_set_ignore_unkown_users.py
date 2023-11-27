@@ -9,7 +9,9 @@ from kubetester.mongodb import MongoDB, Phase
 def replica_set(
     namespace: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        find_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace
+    )
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
 

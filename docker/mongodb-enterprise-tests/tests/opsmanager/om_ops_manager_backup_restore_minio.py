@@ -21,7 +21,11 @@ from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 
 from tests.conftest import is_multi_cluster, create_appdb_certs
-from tests.opsmanager.conftest import ensure_ent_version, mino_operator_install, mino_tenant_install
+from tests.opsmanager.conftest import (
+    ensure_ent_version,
+    mino_operator_install,
+    mino_tenant_install,
+)
 from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
 )
@@ -29,7 +33,9 @@ from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
     FIRST_PROJECT_RS_NAME,
     SECOND_PROJECT_RS_NAME,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
@@ -43,13 +49,17 @@ def appdb_certs(namespace: str, issuer: str) -> str:
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str, tenant_domains: List[str]):
-    return create_ops_manager_tls_certs(issuer, namespace, "om-backup", additional_domains=tenant_domains)
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-backup", additional_domains=tenant_domains
+    )
 
 
 # In the helm-chart we hard-code the server secret which contains the secrets for the clients.
 # To make it work, we generate these from our existing tls secret and copy them over.
 @fixture(scope="module")
-def copy_manager_certs_for_minio(namespace: str, ops_manager_certs: str, tenant_name: str) -> str:
+def copy_manager_certs_for_minio(
+    namespace: str, ops_manager_certs: str, tenant_name: str
+) -> str:
     create_or_update_namespace(tenant_name)
 
     data = read_secret(namespace, ops_manager_certs)
@@ -58,7 +68,12 @@ def copy_manager_certs_for_minio(namespace: str, ops_manager_certs: str, tenant_
     new_data = dict()
     new_data["tls.crt"] = crt
     new_data["tls.key"] = key
-    return create_or_update_secret(namespace=tenant_name, type="kubernetes.io/tls", name="tls-ssl-minio", data=new_data)
+    return create_or_update_secret(
+        namespace=tenant_name,
+        type="kubernetes.io/tls",
+        name="tls-ssl-minio",
+        data=new_data,
+    )
 
 
 @fixture(scope="module")
@@ -179,7 +194,9 @@ def ops_manager(
     ]
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_bucket_endpoint
 
-    resource["spec"]["security"] = {"tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}}
+    resource["spec"]["security"] = {
+        "tls": {"ca": issuer_ca_configmap, "secretRef": {"name": ops_manager_certs}}
+    }
     resource["spec"]["applicationDatabase"]["security"] = {
         "tls": {"ca": issuer_ca_configmap, "secretRef": {"prefix": appdb_certs}}
     }
@@ -300,7 +317,9 @@ class TestOpsManagerCreation:
                 "pathStyleAccessEnabled": True,
                 "s3BucketEndpoint": s3_bucket_endpoint,
                 "s3BucketName": oplog_s3_bucket_name,
-                "customCertificateSecretRefs": [{"name": ops_manager_certs, "key": "tls.crt"}],
+                "customCertificateSecretRefs": [
+                    {"name": ops_manager_certs, "key": "tls.crt"}
+                ],
             }
         ]
 
@@ -315,8 +334,12 @@ class TestOpsManagerCreation:
         self, ops_manager: MongoDBOpsManager, issuer_ca_plus: str, namespace: str
     ):
         projects = [
-            ops_manager.get_or_create_mongodb_connection_config_map(FIRST_PROJECT_RS_NAME, "firstProject"),
-            ops_manager.get_or_create_mongodb_connection_config_map(SECOND_PROJECT_RS_NAME, "secondProject"),
+            ops_manager.get_or_create_mongodb_connection_config_map(
+                FIRST_PROJECT_RS_NAME, "firstProject"
+            ),
+            ops_manager.get_or_create_mongodb_connection_config_map(
+                SECOND_PROJECT_RS_NAME, "secondProject"
+            ),
         ]
 
         data = {
@@ -344,7 +367,9 @@ class TestBackupForMongodb:
         mdb_prev_test_collection.insert_one(TEST_DATA)
         mdb_latest_test_collection.insert_one(TEST_DATA)
 
-    def test_mdbs_backed_up(self, mdb_prev_project: OMTester, mdb_latest_project: OMTester):
+    def test_mdbs_backed_up(
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+    ):
         # wait until a first snapshot is ready for both
         mdb_prev_project.wait_until_backup_snapshots_are_ready(expected_count=1)
         mdb_latest_project.wait_until_backup_snapshots_are_ready(expected_count=1)
@@ -354,7 +379,9 @@ class TestBackupForMongodb:
 class TestBackupRestorePIT:
     """This part checks the work of PIT restore."""
 
-    def test_mdbs_change_data(self, mdb_prev_test_collection, mdb_latest_test_collection):
+    def test_mdbs_change_data(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
         """Changes the MDB documents to check that restore rollbacks this change later.
         Note, that we need to wait for some time to ensure the PIT timestamp gets to the range
         [snapshot_created <= PIT <= changes_applied]"""
@@ -365,13 +392,19 @@ class TestBackupRestorePIT:
         mdb_prev_test_collection.insert_one({"foo": "bar"})
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
-    def test_mdbs_pit_restore(self, mdb_prev_project: OMTester, mdb_latest_project: OMTester):
+    def test_mdbs_pit_restore(
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+    ):
         now_millis = time_to_millis(datetime.datetime.now())
         print("\nCurrent time (millis): {}".format(now_millis))
 
         pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
-        print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
+        print(
+            "Restoring back to the moment 15 seconds ago (millis): {}".format(
+                pit_millis
+            )
+        )
 
         mdb_prev_project.create_restore_job_pit(pit_millis)
         mdb_latest_project.create_restore_job_pit(pit_millis)
@@ -384,7 +417,9 @@ class TestBackupRestorePIT:
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
 
-    def test_data_got_restored(self, mdb_prev_test_collection, mdb_latest_test_collection):
+    def test_data_got_restored(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
         """The data in the db has been restored to the initial state. Note, that this happens eventually - so
         we need to loop for some time (usually takes 20 seconds max). This is different from restoring from a
         specific snapshot (see the previous class) where the FINISHED restore job means the data has been restored.
@@ -422,17 +457,29 @@ class TestBackupRestorePIT:
             retries -= 1
             time.sleep(1)
 
-        print("\nExisting data in previous MDB: {}".format(list(mdb_prev_test_collection.find())))
-        print("Existing data in latest MDB: {}".format(list(mdb_latest_test_collection.find())))
+        print(
+            "\nExisting data in previous MDB: {}".format(
+                list(mdb_prev_test_collection.find())
+            )
+        )
+        print(
+            "Existing data in latest MDB: {}".format(
+                list(mdb_latest_test_collection.find())
+            )
+        )
 
-        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
+        raise AssertionError(
+            f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}"
+        )
 
 
 @mark.e2e_om_ops_manager_backup_restore_minio
 class TestBackupRestoreFromSnapshot:
     """This part tests the restore to the snapshot built once the backup has been enabled."""
 
-    def test_mdbs_change_data(self, mdb_prev_test_collection, mdb_latest_test_collection):
+    def test_mdbs_change_data(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
         """Changes the MDB documents to check that restore rollbacks this change later"""
         mdb_prev_test_collection.delete_many({})
         mdb_prev_test_collection.insert_one({"foo": "bar"})
@@ -440,7 +487,9 @@ class TestBackupRestoreFromSnapshot:
         mdb_latest_test_collection.delete_many({})
         mdb_latest_test_collection.insert_one({"foo": "bar"})
 
-    def test_mdbs_automated_restore(self, mdb_prev_project: OMTester, mdb_latest_project: OMTester):
+    def test_mdbs_automated_restore(
+        self, mdb_prev_project: OMTester, mdb_latest_project: OMTester
+    ):
         restore_prev_id = mdb_prev_project.create_restore_job_snapshot()
         mdb_prev_project.wait_until_restore_job_is_ready(restore_prev_id)
 
@@ -455,7 +504,9 @@ class TestBackupRestoreFromSnapshot:
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
 
-    def test_data_got_restored(self, mdb_prev_test_collection, mdb_latest_test_collection):
+    def test_data_got_restored(
+        self, mdb_prev_test_collection, mdb_latest_test_collection
+    ):
         """The data in the db has been restored to the initial"""
         records = list(mdb_prev_test_collection.find())
         assert records == [TEST_DATA]

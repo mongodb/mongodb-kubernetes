@@ -4,7 +4,13 @@ from kubeobject import CustomObject
 from pytest import fixture
 
 import kubetester
-from kubetester import create_or_update, MongoDB, try_load, get_default_storage_class, create_or_update_secret
+from kubetester import (
+    create_or_update,
+    MongoDB,
+    try_load,
+    get_default_storage_class,
+    create_or_update_secret,
+)
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
 from kubetester.kubetester import (
@@ -88,7 +94,9 @@ def test_install_stable_operator_version(
     subscription: CustomObject,
 ):
     create_or_update(subscription)
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
+    wait_for_operator_ready(
+        namespace, f"mongodb-enterprise.v{current_operator_version}"
+    )
 
 
 # install resources on the latest released version of the operator
@@ -121,7 +129,9 @@ def test_create_om(
 
     try_load(ops_manager)
     ops_manager["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-    ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
+    ops_manager["spec"]["backup"]["headDB"][
+        "storageClass"
+    ] = get_default_storage_class()
     ops_manager["spec"]["backup"]["members"] = 2
 
     ops_manager.set_version(custom_version)
@@ -141,7 +151,11 @@ def wait_for_om_healthy_response(ops_manager: MongoDBOpsManager):
         else:
             return False, f"Got unhealthy status_code={status_code}: {status_response}"
 
-    run_periodically(wait_for_om_healthy_response_fn, timeout=300, msg=f"OM returning healthy response")
+    run_periodically(
+        wait_for_om_healthy_response_fn,
+        timeout=300,
+        msg=f"OM returning healthy response",
+    )
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -171,10 +185,16 @@ def mdb_sharded_certs(issuer: str, namespace: str):
 
 @fixture
 def mdb_sharded(
-    ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str, issuer_ca_configmap: str, mdb_sharded_certs
+    ops_manager: MongoDBOpsManager,
+    namespace,
+    custom_mdb_version: str,
+    issuer_ca_configmap: str,
+    mdb_sharded_certs,
 ):
     resource = MongoDB.from_yaml(
-        yaml_fixture("olm_sharded_cluster_for_om.yaml"), namespace=namespace, name="mdb-sharded"
+        yaml_fixture("olm_sharded_cluster_for_om.yaml"),
+        namespace=namespace,
+        name="mdb-sharded",
     ).configure(ops_manager, "mdb-sharded")
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["security"] = {
@@ -193,7 +213,9 @@ def mdb_sharded(
 @fixture(scope="module")
 def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("olm_replica_set_for_om.yaml"), namespace=namespace, name="my-mongodb-oplog"
+        yaml_fixture("olm_replica_set_for_om.yaml"),
+        namespace=namespace,
+        name="my-mongodb-oplog",
     ).configure(ops_manager, "oplog")
     resource.set_version(custom_mdb_version)
     return create_or_update(resource)
@@ -202,7 +224,9 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
 @fixture(scope="module")
 def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("olm_replica_set_for_om.yaml"), namespace=namespace, name="my-mongodb-s3"
+        yaml_fixture("olm_replica_set_for_om.yaml"),
+        namespace=namespace,
+        name="my-mongodb-s3",
     ).configure(ops_manager, "s3metadata")
     resource.set_version(custom_mdb_version)
     return create_or_update(resource)
@@ -211,7 +235,9 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
 @fixture(scope="module")
 def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        yaml_fixture("olm_replica_set_for_om.yaml"), namespace=namespace, name="my-mongodb-blockstore"
+        yaml_fixture("olm_replica_set_for_om.yaml"),
+        namespace=namespace,
+        name="my-mongodb-blockstore",
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
     return create_or_update(resource)
@@ -220,21 +246,33 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 @fixture(scope="module")
 def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     return create_secret_and_user(
-        namespace, "blockstore-user", blockstore_replica_set.name, "blockstore-user-password-secret", "Passw0rd."
+        namespace,
+        "blockstore-user",
+        blockstore_replica_set.name,
+        "blockstore-user-password-secret",
+        "Passw0rd.",
     )
 
 
 @fixture(scope="module")
 def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     return create_secret_and_user(
-        namespace, "oplog-user", oplog_replica_set.name, "oplog-user-password-secret", "Passw0rd."
+        namespace,
+        "oplog-user",
+        oplog_replica_set.name,
+        "oplog-user-password-secret",
+        "Passw0rd.",
     )
 
 
 def create_secret_and_user(
     namespace: str, name: str, replica_set_name: str, secret_name: str, password: str
 ) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("olm_scram_sha_user_backing_db.yaml"), namespace=namespace, name=name)
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("olm_scram_sha_user_backing_db.yaml"),
+        namespace=namespace,
+        name=name,
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = replica_set_name
     resource["spec"]["passwordSecretKeyRef"]["name"] = secret_name
     create_or_update_secret(namespace, secret_name, {"password": password})
@@ -258,10 +296,18 @@ def test_resources_created(
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_set_backup_users(ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser, blockstore_user: MongoDBUser):
+def test_set_backup_users(
+    ops_manager: MongoDBOpsManager,
+    oplog_user: MongoDBUser,
+    blockstore_user: MongoDBUser,
+):
     ops_manager.load()
-    ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
-    ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
+    ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
+        "name": oplog_user.name
+    }
+    ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
+        "name": blockstore_user.name
+    }
     ops_manager.update()
 
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
@@ -304,7 +350,10 @@ def test_resources_in_running_state_before_upgrade(
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
 def test_operator_upgrade_to_fast(
-    namespace: str, version_id: str, catalog_source: CustomObject, subscription: CustomObject
+    namespace: str,
+    version_id: str,
+    catalog_source: CustomObject,
+    subscription: CustomObject,
 ):
     current_operator_version = get_current_operator_version(namespace)
     incremented_operator_version = increment_patch_version(current_operator_version)
@@ -314,7 +363,9 @@ def test_operator_upgrade_to_fast(
     def update_subscription() -> bool:
         try:
             subscription.load()
-            subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
+            subscription["spec"][
+                "channel"
+            ] = "fast"  # fast channel contains operator build from the current branch
             subscription.update()
             return True
         except kubernetes.client.ApiException as e:
@@ -325,11 +376,15 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
+    wait_for_operator_ready(
+        namespace, f"mongodb-enterprise.v{incremented_operator_version}"
+    )
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_one_resources_not_in_running_state(ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB):
+def test_one_resources_not_in_running_state(
+    ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB
+):
     # Wait for the first resource to become reconciling after operator upgrade.
     # Only then wait for all to not get a false positive when all resources are ready,
     # because the upgraded operator haven't started reconciling

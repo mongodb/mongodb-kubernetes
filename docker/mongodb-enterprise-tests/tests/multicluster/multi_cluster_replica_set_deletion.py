@@ -14,13 +14,19 @@ from tests.multicluster.conftest import cluster_spec_list
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str, member_cluster_names: list[str]
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
+    )
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     return create_or_update(resource)
 

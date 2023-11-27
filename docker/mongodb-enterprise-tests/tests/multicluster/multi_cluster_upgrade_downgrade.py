@@ -22,8 +22,12 @@ def mongodb_multi(
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
 
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDBM_RESOURCE, namespace)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), MDBM_RESOURCE, namespace
+    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource["spec"]["version"] = "4.4.11-ent"
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
@@ -36,7 +40,10 @@ def mdb_health_checker(mongodb_multi: MongoDBMulti) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongodb_multi.tester(),
         allowed_sequential_failures=1,
-        health_function_params={"attempts": 1, "write_concern": pymongo.WriteConcern(w="majority")},
+        health_function_params={
+            "attempts": 1,
+            "write_concern": pymongo.WriteConcern(w="majority"),
+        },
     )
 
 
@@ -93,5 +100,7 @@ def test_downgraded_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_upgrade_downgrade
-def test_mdb_healthy_throughout_change_version(mdb_health_checker: MongoDBBackgroundTester):
+def test_mdb_healthy_throughout_change_version(
+    mdb_health_checker: MongoDBBackgroundTester,
+):
     mdb_health_checker.assert_healthiness()

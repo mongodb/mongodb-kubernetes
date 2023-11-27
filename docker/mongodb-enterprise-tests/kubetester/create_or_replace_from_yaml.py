@@ -15,12 +15,16 @@ patch on each individual object.
 """
 
 
-def create_or_replace_from_yaml(k8s_client: ApiClient, yaml_file: str, namespace: str = "default", **kwargs):
+def create_or_replace_from_yaml(
+    k8s_client: ApiClient, yaml_file: str, namespace: str = "default", **kwargs
+):
     with open(path.abspath(yaml_file)) as f:
         yml_document_all = yaml.safe_load_all(f)
         # Load all documents from a single YAML file
         for yml_document in yml_document_all:
-            create_or_patch_from_dict(k8s_client, yml_document, namespace=namespace, **kwargs)
+            create_or_patch_from_dict(
+                k8s_client, yml_document, namespace=namespace, **kwargs
+            )
 
 
 def create_or_patch_from_dict(k8s_client, yml_document, namespace="default", **kwargs):
@@ -35,15 +39,23 @@ def create_or_patch_from_dict(k8s_client, yml_document, namespace="default", **k
             if kind != "":
                 yml_object["apiVersion"] = yml_document["apiVersion"]
                 yml_object["kind"] = kind
-                create_or_replace_from_yaml_single_item(k8s_client, yml_object, namespace, **kwargs)
+                create_or_replace_from_yaml_single_item(
+                    k8s_client, yml_object, namespace, **kwargs
+                )
     else:
         # Try to create the object or patch if it already exists
-        create_or_replace_from_yaml_single_item(k8s_client, yml_document, namespace, **kwargs)
+        create_or_replace_from_yaml_single_item(
+            k8s_client, yml_document, namespace, **kwargs
+        )
 
 
-def create_or_replace_from_yaml_single_item(k8s_client, yml_object, namespace="default", **kwargs):
+def create_or_replace_from_yaml_single_item(
+    k8s_client, yml_object, namespace="default", **kwargs
+):
     try:
-        create_from_yaml_single_item(k8s_client, yml_object, verbose=False, namespace=namespace, **kwargs)
+        create_from_yaml_single_item(
+            k8s_client, yml_object, verbose=False, namespace=namespace, **kwargs
+        )
     except client.rest.ApiException:
         patch_from_yaml_single_item(k8s_client, yml_object, namespace, **kwargs)
     except ValueError:
@@ -80,7 +92,9 @@ def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **k
         # "Invalid value: \"\": may not be specified when `value` is not empty","field":"spec.template.spec.containers[0].env[1].valueFrom"
         # (https://github.com/kubernetes/kubernetes/issues/46861) if "kubectl apply" was used initially to create the object
         # This is safe though if the object was created using python API
-        getattr(k8s_api, url_path.format(kind))(body=yml_object, namespace=namespace, name=name, **kwargs)
+        getattr(k8s_api, url_path.format(kind))(
+            body=yml_object, namespace=namespace, name=name, **kwargs
+        )
     else:
         # "patch" endpoints require to specify 'name' attribute
         getattr(k8s_api, url_path.format(kind))(body=yml_object, name=name, **kwargs)

@@ -11,11 +11,15 @@ def pytest_runtest_setup(item):
     """This allows to automatically install the Operator and enable AppDB monitoring before running any test"""
     if is_multi_cluster():
         if "multi_cluster_operator_with_monitored_appdb" not in item.fixturenames:
-            print("\nAdding operator installation fixture: multi_cluster_operator_with_monitored_appdb")
+            print(
+                "\nAdding operator installation fixture: multi_cluster_operator_with_monitored_appdb"
+            )
             item.fixturenames.insert(0, "multi_cluster_operator_with_monitored_appdb")
     else:
         if "operator_with_monitored_appdb" not in item.fixturenames:
-            print("\nAdding operator installation fixture: operator_with_monitored_appdb")
+            print(
+                "\nAdding operator installation fixture: operator_with_monitored_appdb"
+            )
             item.fixturenames.insert(0, "operator_with_monitored_appdb")
 
 
@@ -29,4 +33,6 @@ def enable_appdb_multi_cluster_deployment(resource: MongoDBOpsManager):
     resource["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         get_appdb_member_cluster_names(), [1, 2]
     )
-    resource.api = kubernetes.client.CustomObjectsApi(api_client=get_central_cluster_client())
+    resource.api = kubernetes.client.CustomObjectsApi(
+        api_client=get_central_cluster_client()
+    )

@@ -62,7 +62,9 @@ def replica_set(
     vault_namespace: str,
     vault_name: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set.yaml"), MDB_RESOURCE, namespace
+    )
     resource.set_version(custom_mdb_version)
     resource["spec"]["security"] = {
         "tls": {"enabled": True, "ca": issuer_ca_configmap},
@@ -97,11 +99,15 @@ def replica_set(
 
 @fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
-    return create_x509_agent_tls_certs(issuer, namespace, MDB_RESOURCE, secret_backend="Vault")
+    return create_x509_agent_tls_certs(
+        issuer, namespace, MDB_RESOURCE, secret_backend="Vault"
+    )
 
 
 @fixture(scope="module")
-def server_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: str) -> str:
+def server_certs(
+    vault_namespace: str, vault_name: str, namespace: str, issuer: str
+) -> str:
     create_x509_mongodb_tls_certs(
         issuer,
         namespace,
@@ -113,7 +119,9 @@ def server_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: 
 
 
 @fixture(scope="module")
-def clusterfile_certs(vault_namespace: str, vault_name: str, namespace: str, issuer: str) -> str:
+def clusterfile_certs(
+    vault_namespace: str, vault_name: str, namespace: str, issuer: str
+) -> str:
     create_x509_mongodb_tls_certs(
         issuer,
         namespace,
@@ -146,7 +154,9 @@ def sharded_cluster(
     vault_namespace: str,
     vault_name: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("sharded-cluster.yaml"), namespace=namespace
+    )
     resource["spec"]["cloudManager"]["configMapRef"]["name"] = sharded_cluster_configmap
 
     # Password stored in Prometheus
@@ -174,7 +184,9 @@ def sharded_cluster(
 
 @fixture(scope="module")
 def mongodb_user(namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("mongodb-user.yaml"), "vault-replica-set-scram-user", namespace)
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("mongodb-user.yaml"), "vault-replica-set-scram-user", namespace
+    )
 
     resource["spec"]["username"] = USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {
@@ -243,7 +255,9 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
 
     cmd = ["env"]
 
-    response = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
+    response = run_command_in_vault(
+        vault_namespace, vault_name, cmd, expected_message=[]
+    )
 
     response = response.split("\n")
     for line in response:
@@ -295,7 +309,9 @@ def test_vault_config_map_exists(namespace: str):
 
 
 @mark.e2e_vault_setup
-def test_store_om_credentials_in_vault(vault_namespace: str, vault_name: str, namespace: str):
+def test_store_om_credentials_in_vault(
+    vault_namespace: str, vault_name: str, namespace: str
+):
     credentials = read_secret(namespace, "my-credentials")
     store_secret_in_vault(
         vault_namespace,
@@ -310,7 +326,9 @@ def test_store_om_credentials_in_vault(vault_namespace: str, vault_name: str, na
         "get",
         f"secret/mongodbenterprise/operator/{namespace}/my-credentials",
     ]
-    run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=["publicApiKey"])
+    run_command_in_vault(
+        vault_namespace, vault_name, cmd, expected_message=["publicApiKey"]
+    )
     delete_secret(namespace, "my-credentials")
 
 
@@ -360,7 +378,9 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_vault_setup
-def test_rotate_agent_certs(replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str):
+def test_rotate_agent_certs(
+    replica_set: MongoDB, vault_namespace: str, vault_name: str, namespace: str
+):
     replica_set.load()
     old_version = replica_set["metadata"]["annotations"]["agent-certs"]
     cmd = [
@@ -423,7 +443,9 @@ def test_sharded_mdb_created(sharded_cluster: MongoDB):
 
 
 @mark.e2e_vault_setup
-def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
+    sharded_cluster: MongoDB, namespace: str
+):
     auth = ("prom-user", "prom-password")
     name = sharded_cluster.name
 
@@ -446,7 +468,9 @@ def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: 
 
 
 @mark.e2e_vault_setup
-def test_create_mongodb_user(mongodb_user: MongoDBUser, vault_name: str, vault_namespace: str, namespace: str):
+def test_create_mongodb_user(
+    mongodb_user: MongoDBUser, vault_name: str, vault_namespace: str, namespace: str
+):
     data = {"password": USER_PASSWORD}
     store_secret_in_vault(
         vault_namespace,

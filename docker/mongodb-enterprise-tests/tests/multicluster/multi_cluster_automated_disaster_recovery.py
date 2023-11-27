@@ -5,7 +5,11 @@ import kubernetes
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.kubetester import KubernetesTester, run_periodically, fixture as yaml_fixture
+from kubetester.kubetester import (
+    KubernetesTester,
+    run_periodically,
+    fixture as yaml_fixture,
+)
 from kubernetes import client
 from kubeobject import CustomObject
 
@@ -23,9 +27,13 @@ def mongodb_multi(
     namespace: str,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
+    )
     resource["spec"]["persistent"] = False
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
@@ -33,7 +41,9 @@ def mongodb_multi(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_label_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
+def test_label_namespace(
+    namespace: str, central_cluster_client: kubernetes.client.ApiClient
+):
     api = client.CoreV1Api(api_client=central_cluster_client)
 
     labels = {"istio-injection": "enabled"}
@@ -69,9 +79,13 @@ def test_update_service_entry_block_failed_cluster_traffic(
     member_cluster_names: List[str],
 ):
     healthy_cluster_names = [
-        cluster_name for cluster_name in member_cluster_names if cluster_name != FAILED_MEMBER_CLUSTER_NAME
+        cluster_name
+        for cluster_name in member_cluster_names
+        if cluster_name != FAILED_MEMBER_CLUSTER_NAME
     ]
-    service_entries = create_service_entries_objects(namespace, central_cluster_client, healthy_cluster_names)
+    service_entries = create_service_entries_objects(
+        namespace, central_cluster_client, healthy_cluster_names
+    )
     for service_entry in service_entries:
         print(f"service_entry={service_entries}")
         service_entry.update()
@@ -86,7 +100,9 @@ def test_mongodb_multi_leaves_running_state(
 
 
 @mark.e2e_multi_cluster_disaster_recovery
-def test_delete_database_statefulset_in_failed_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: list[str]):
+def test_delete_database_statefulset_in_failed_cluster(
+    mongodb_multi: MongoDBMulti, member_cluster_names: list[str]
+):
     failed_cluster_idx = member_cluster_names.index(FAILED_MEMBER_CLUSTER_NAME)
     sts_name = f"{mongodb_multi.name}-{failed_cluster_idx}"
     try:
@@ -102,7 +118,9 @@ def test_delete_database_statefulset_in_failed_cluster(mongodb_multi: MongoDBMul
 
     run_periodically(
         lambda: statefulset_is_deleted(
-            mongodb_multi.namespace, sts_name, api_client=get_member_cluster_api_client(FAILED_MEMBER_CLUSTER_NAME)
+            mongodb_multi.namespace,
+            sts_name,
+            api_client=get_member_cluster_api_client(FAILED_MEMBER_CLUSTER_NAME),
         ),
         timeout=120,
     )

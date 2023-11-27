@@ -58,7 +58,11 @@ class WaitForConditions:
             return
 
         for condition in self["status"]["conditions"]:
-            if condition["reason"] == self.Reason and condition["status"] == "True" and condition["type"] == "Ready":
+            if (
+                condition["reason"] == self.Reason
+                and condition["status"] == "True"
+                and condition["type"] == "Ready"
+            ):
                 return True
 
     def block_until_ready(self):
@@ -70,7 +74,9 @@ class Certificate(CertificateType, WaitForConditions):
     Reason = "Ready"
 
 
-IssuerType = CustomObject.define("Issuer", kind="Issuer", plural="issuers", group="cert-manager.io", version="v1")
+IssuerType = CustomObject.define(
+    "Issuer", kind="Issuer", plural="issuers", group="cert-manager.io", version="v1"
+)
 ClusterIssuerType = CustomObject.define(
     "ClusterIssuer",
     kind="ClusterIssuer",
@@ -154,7 +160,9 @@ def generate_cert(
     if secret_backend == "Vault":
         path = "secret/mongodbenterprise/"
         if vault_subpath is None:
-            raise ValueError("When secret backend is Vault, a subpath must be specified")
+            raise ValueError(
+                "When secret backend is Vault, a subpath must be specified"
+            )
         path += f"{vault_subpath}/{namespace}/{secret_name}"
 
         data = read_secret(namespace, secret_name)
@@ -188,11 +196,13 @@ def create_tls_certs(
     if spec is None:
         spec = dict()
 
-    pod_fqdn_fstring = "{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local".format(
-        resource_name=resource_name,
-        service_name=service_name,
-        namespace=namespace,
-        index="{}",
+    pod_fqdn_fstring = (
+        "{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local".format(
+            resource_name=resource_name,
+            service_name=service_name,
+            namespace=namespace,
+            index="{}",
+        )
     )
 
     pod_dns = []
@@ -256,7 +266,9 @@ def create_ops_manager_tls_certs(
     )
 
 
-def create_vault_certs(namespace: str, issuer: str, vault_namespace: str, vault_name: str, secret_name: str):
+def create_vault_certs(
+    namespace: str, issuer: str, vault_namespace: str, vault_name: str, secret_name: str
+):
     cert = Certificate(namespace=namespace, name=secret_name)
 
     cert["spec"] = {
@@ -333,9 +345,13 @@ def multi_cluster_service_fqdns(
 
     for n in range(replicas):
         if external_domain is None:
-            service_fqdns.append(f"{resource_name}-{cluster_index}-{n}-svc.{namespace}.svc.cluster.local")
+            service_fqdns.append(
+                f"{resource_name}-{cluster_index}-{n}-svc.{namespace}.svc.cluster.local"
+            )
         else:
-            service_fqdns.append(f"{resource_name}-{cluster_index}-{n}.{external_domain}")
+            service_fqdns.append(
+                f"{resource_name}-{cluster_index}-{n}.{external_domain}"
+            )
 
     return service_fqdns
 
@@ -346,7 +362,9 @@ def multi_cluster_external_service_fqdns(
     service_fqdns = []
 
     for n in range(replicas):
-        service_fqdns.append(f"{resource_name}-{cluster_index}-{n}-svc-external.{namespace}.svc.cluster.local")
+        service_fqdns.append(
+            f"{resource_name}-{cluster_index}-{n}-svc-external.{namespace}.svc.cluster.local"
+        )
 
     return service_fqdns
 
@@ -365,7 +383,9 @@ def create_multi_cluster_tls_certs(
     spec: Optional[dict] = None,
 ) -> str:
     if service_fqdns is None:
-        service_fqdns = [f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"]
+        service_fqdns = [
+            f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"
+        ]
 
         for client in member_clients:
             cluster_spec = mongodb_multi.get_item_spec(client.cluster_name)
@@ -602,7 +622,11 @@ def create_agent_tls_certs(
     }
     spec["dnsNames"] = agents
     spec["commonName"] = "mms-automation-agent"
-    secret_name = "agent-certs" if secret_prefix is None else f"{secret_prefix}-{name}-agent-certs"
+    secret_name = (
+        "agent-certs"
+        if secret_prefix is None
+        else f"{secret_prefix}-{name}-agent-certs"
+    )
     secret = generate_cert(
         namespace=namespace,
         pod=[],
@@ -640,7 +664,9 @@ def create_sharded_cluster_certs(
             additional_domains_for_shard = []
             for domain in additional_domains:
                 for j in range(mongos_per_shard):
-                    additional_domains_for_shard.append(f"{resource_name}-{i}-{j}.{domain}")
+                    additional_domains_for_shard.append(
+                        f"{resource_name}-{i}-{j}.{domain}"
+                    )
 
         secret_name = f"{resource_name}-{i}-cert"
         if secret_prefix is not None:
@@ -672,7 +698,9 @@ def create_sharded_cluster_certs(
         additional_domains_for_config = []
         for domain in additional_domains:
             for j in range(config_servers):
-                additional_domains_for_config.append(f"{resource_name}-config-{j}.{domain}")
+                additional_domains_for_config.append(
+                    f"{resource_name}-config-{j}.{domain}"
+                )
 
     secret_name = f"{resource_name}-config-cert"
     if secret_prefix is not None:
@@ -704,7 +732,9 @@ def create_sharded_cluster_certs(
         additional_domains_for_mongos = []
         for domain in additional_domains:
             for j in range(mongos):
-                additional_domains_for_mongos.append(f"{resource_name}-mongos-{j}.{domain}")
+                additional_domains_for_mongos.append(
+                    f"{resource_name}-mongos-{j}.{domain}"
+                )
 
     secret_name = f"{resource_name}-mongos-cert"
     if secret_prefix is not None:
@@ -733,7 +763,9 @@ def create_sharded_cluster_certs(
         )
 
 
-def create_x509_agent_tls_certs(issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None) -> str:
+def create_x509_agent_tls_certs(
+    issuer: str, namespace: str, name: str, secret_backend: Optional[str] = None
+) -> str:
     spec = get_agent_x509_subject(namespace)
     return generate_cert(
         namespace=namespace,
@@ -758,7 +790,9 @@ def approve_certificate(name: str) -> None:
     )
 
     body.status.conditions = [conditions]
-    client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(name, body)
+    client.CertificatesV1beta1Api().replace_certificate_signing_request_approval(
+        name, body
+    )
 
 
 def create_x509_user_cert(issuer: str, namespace: str, path: str):
@@ -811,7 +845,9 @@ def create_multi_cluster_x509_user_cert(
         f.flush()
 
 
-def yield_existing_csrs(csr_names: List[str], timeout: int = 300) -> Generator[str, None, None]:
+def yield_existing_csrs(
+    csr_names: List[str], timeout: int = 300
+) -> Generator[str, None, None]:
     """Returns certificate names as they start appearing in the Kubernetes API."""
     csr_names = csr_names.copy()
     total_csrs = len(csr_names)

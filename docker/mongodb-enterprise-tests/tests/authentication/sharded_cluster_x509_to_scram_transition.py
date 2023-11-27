@@ -40,7 +40,9 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def sharded_cluster(
+    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         load_fixture("sharded-cluster-x509-to-scram-256.yaml"),
         namespace=namespace,
@@ -72,7 +74,9 @@ def test_enable_scram_and_x509(sharded_cluster: MongoDB):
 def test_x509_is_still_configured():
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
     tester.assert_authentication_mechanism_enabled("MONGODB-X509")
-    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
+    tester.assert_authentication_mechanism_enabled(
+        "SCRAM-SHA-256", active_auth_mechanism=False
+    )
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
 
 
@@ -85,7 +89,9 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1500)
 
     def test_assert_connectivity(self, ca_path: str):
-        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
+        ShardedClusterTester(
+            MDB_RESOURCE, 1, ssl=True, ca_path=ca_path
+        ).assert_connectivity()
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
@@ -101,12 +107,16 @@ class TestCanEnableScramSha256:
         sharded_cluster["spec"]["security"]["authentication"]["modes"] = [
             "SCRAM",
         ]
-        sharded_cluster["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
+        sharded_cluster["spec"]["security"]["authentication"]["agents"][
+            "mode"
+        ] = "SCRAM"
         sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_assert_connectivity(self, ca_path: str):
-        ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity(attempts=25)
+        ShardedClusterTester(
+            MDB_RESOURCE, 1, ssl=True, ca_path=ca_path
+        ).assert_connectivity(attempts=25)
 
     def test_ops_manager_state_updated_correctly(self):
         tester = AutomationConfigTester(KubernetesTester.get_automation_config())
@@ -129,7 +139,9 @@ class TestCreateScramSha256User(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
+        print(
+            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
+        )
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,

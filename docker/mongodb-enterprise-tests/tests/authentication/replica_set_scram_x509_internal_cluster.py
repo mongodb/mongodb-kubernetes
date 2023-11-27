@@ -16,11 +16,15 @@ MDB_RESOURCE = "my-replica-set"
 
 @fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    create_x509_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
+    create_x509_mongodb_tls_certs(
+        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
+    )
     secret_name = f"{MDB_RESOURCE}-cert"
     data = read_secret(namespace, secret_name)
     secret_type = "kubernetes.io/tls"
-    create_or_update_secret(namespace, f"{MDB_RESOURCE}-clusterfile", data, type=secret_type)
+    create_or_update_secret(
+        namespace, f"{MDB_RESOURCE}-clusterfile", data, type=secret_type
+    )
 
 
 @fixture(scope="module")
@@ -29,7 +33,9 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def mdb(
+    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
+) -> MongoDB:
     res = MongoDB.from_yaml(
         load_fixture("replica-set-scram-sha-256-x509-internal-cluster.yaml"),
         namespace=namespace,

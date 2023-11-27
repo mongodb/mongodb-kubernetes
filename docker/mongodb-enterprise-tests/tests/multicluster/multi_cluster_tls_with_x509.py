@@ -29,8 +29,12 @@ CLUSTER_BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-clusterfile"
 
 @fixture(scope="module")
 def mongodb_multi_unmarshalled(namespace: str, member_cluster_names) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
+    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     return resource
 
@@ -108,8 +112,12 @@ def mongodb_multi(
 
 
 @fixture(scope="module")
-def mongodb_x509_user(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(yaml_fixture("mongodb-x509-user.yaml"), "multi-replica-set-x509-user", namespace)
+def mongodb_x509_user(
+    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("mongodb-x509-user.yaml"), "multi-replica-set-x509-user", namespace
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
@@ -134,7 +142,9 @@ def test_rotate_cert_and_assert_mdb_running(
     mongodb_multi: MongoDBMulti,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace, BUNDLE_SECRET_NAME)
+    assert_certificate_rotation(
+        central_cluster_client, mongodb_multi, namespace, BUNDLE_SECRET_NAME
+    )
 
 
 @mark.e2e_multi_cluster_tls_with_x509
@@ -180,7 +190,9 @@ def test_x509_user_connectivity(
             multi_cluster_issuer, namespace, central_cluster_client, path=cert_file.name
         )
         tester = mongodb_multi.tester()
-        tester.assert_x509_authentication(cert_file_name=cert_file.name, tlsCAFile=ca_path)
+        tester.assert_x509_authentication(
+            cert_file_name=cert_file.name, tlsCAFile=ca_path
+        )
 
 
 @mark.e2e_multi_cluster_tls_with_x509
@@ -212,13 +224,19 @@ def test_rotate_certfile_and_assert_mdb_running(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace, CLUSTER_BUNDLE_SECRET_NAME)
+    assert_certificate_rotation(
+        central_cluster_client, mongodb_multi, namespace, CLUSTER_BUNDLE_SECRET_NAME
+    )
 
 
-def assert_certificate_rotation(central_cluster_client, mongodb_multi, namespace, certificate_name):
+def assert_certificate_rotation(
+    central_cluster_client, mongodb_multi, namespace, certificate_name
+):
     cert = Certificate(name=certificate_name, namespace=namespace)
     cert.api = kubernetes.client.CustomObjectsApi(api_client=central_cluster_client)
     cert.load()
-    cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
+    cert["spec"]["dnsNames"].append(
+        "foo"
+    )  # Append DNS to cert to rotate the certificate
     cert.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)

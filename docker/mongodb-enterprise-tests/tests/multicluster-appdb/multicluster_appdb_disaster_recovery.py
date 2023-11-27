@@ -4,7 +4,14 @@ import kubernetes
 import kubernetes.client
 from pytest import fixture, mark
 
-from kubetester import create_or_update, try_load, read_configmap, update_configmap, delete_statefulset, get_statefulset
+from kubetester import (
+    create_or_update,
+    try_load,
+    read_configmap,
+    update_configmap,
+    delete_statefulset,
+    get_statefulset,
+)
 from kubetester.kubetester import fixture as yaml_fixture, run_periodically
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -39,10 +46,15 @@ def ops_manager(
     resource["spec"]["backup"] = {"enabled": False}
     resource["spec"]["applicationDatabase"] = {
         "topology": "MultiCluster",
-        "clusterSpecList": cluster_spec_list(["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME], [3, 2]),
+        "clusterSpecList": cluster_spec_list(
+            ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME], [3, 2]
+        ),
         "version": custom_appdb_version,
         "agent": {"logLevel": "DEBUG"},
-        "security": {"certsSecretPrefix": "prefix", "tls": {"ca": multi_cluster_issuer_ca_configmap}},
+        "security": {
+            "certsSecretPrefix": "prefix",
+            "tls": {"ca": multi_cluster_issuer_ca_configmap},
+        },
     }
 
     return resource
@@ -65,7 +77,9 @@ def appdb_certs_secret(
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_patch_central_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
+def test_patch_central_namespace(
+    namespace: str, central_cluster_client: kubernetes.client.ApiClient
+):
     corev1 = kubernetes.client.CoreV1Api(api_client=central_cluster_client)
     ns = corev1.read_namespace(namespace)
     ns.metadata.labels["istio-injection"] = "enabled"
@@ -82,17 +96,23 @@ def config_version():
 
 @mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb_disaster_recovery
-def test_create_om(ops_manager: MongoDBOpsManager, appdb_certs_secret: str, config_version):
+def test_create_om(
+    ops_manager: MongoDBOpsManager, appdb_certs_secret: str, config_version
+):
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
-    config_version.version = ops_manager.get_automation_config_tester().automation_config["version"]
+    config_version.version = (
+        ops_manager.get_automation_config_tester().automation_config["version"]
+    )
 
 
 @mark.usefixtures("multi_cluster_operator")
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_create_om_majority_down(ops_manager: MongoDBOpsManager, appdb_certs_secret: str, config_version):
+def test_create_om_majority_down(
+    ops_manager: MongoDBOpsManager, appdb_certs_secret: str, config_version
+):
     # failed cluster has majority members
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
         ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME], [2, 3]
@@ -102,7 +122,9 @@ def test_create_om_majority_down(ops_manager: MongoDBOpsManager, appdb_certs_sec
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
-    config_version.version = ops_manager.get_automation_config_tester().automation_config["version"]
+    config_version.version = (
+        ops_manager.get_automation_config_tester().automation_config["version"]
+    )
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
@@ -111,7 +133,9 @@ def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
     namespace, central_cluster_client: kubernetes.client.ApiClient
 ):
     member_list_cm = read_configmap(
-        namespace, "mongodb-enterprise-operator-member-list", api_client=central_cluster_client
+        namespace,
+        "mongodb-enterprise-operator-member-list",
+        api_client=central_cluster_client,
     )
     # this if is only for allowing re-running the test locally
     # without it the test function could be executed only once until the map is populated again by running prepare-local-e2e run again
@@ -120,7 +144,10 @@ def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
 
     # this will trigger operators restart as it panics on changing the configmap
     update_configmap(
-        namespace, "mongodb-enterprise-operator-member-list", member_list_cm, api_client=central_cluster_client
+        namespace,
+        "mongodb-enterprise-operator-member-list",
+        member_list_cm,
+        api_client=central_cluster_client,
     )
 
 
@@ -135,7 +162,10 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
         # this is only for testing unavailability of the OM application, it's not testing losing OM cluster
         # we don't delete here any additional resources (secrets, configmaps) that are required for a proper OM recovery testing
         delete_statefulset(
-            ops_manager.namespace, ops_manager.name, propagation_policy="Background", api_client=central_cluster_client
+            ops_manager.namespace,
+            ops_manager.name,
+            propagation_policy="Background",
+            api_client=central_cluster_client,
         )
     except kubernetes.client.ApiException as e:
         if e.status != 404:
@@ -153,7 +183,9 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
         if e.status != 404:
             raise e
 
-    def statefulset_is_deleted(namespace: str, name: str, api_client=Optional[kubernetes.client.ApiClient]):
+    def statefulset_is_deleted(
+        namespace: str, name: str, api_client=Optional[kubernetes.client.ApiClient]
+    ):
         try:
             get_statefulset(namespace, name, api_client=api_client)
             return False
@@ -165,13 +197,17 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
 
     run_periodically(
         lambda: statefulset_is_deleted(
-            ops_manager.namespace, ops_manager.name, api_client=get_member_cluster_api_client(OM_MEMBER_CLUSTER_NAME)
+            ops_manager.namespace,
+            ops_manager.name,
+            api_client=get_member_cluster_api_client(OM_MEMBER_CLUSTER_NAME),
         ),
         timeout=120,
     )
     run_periodically(
         lambda: statefulset_is_deleted(
-            ops_manager.namespace, appdb_sts_name, api_client=get_member_cluster_api_client(FAILED_MEMBER_CLUSTER_NAME)
+            ops_manager.namespace,
+            appdb_sts_name,
+            api_client=get_member_cluster_api_client(FAILED_MEMBER_CLUSTER_NAME),
         ),
         timeout=120,
     )
@@ -179,60 +215,84 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_appdb_is_stable_and_om_is_recreated(ops_manager: MongoDBOpsManager, config_version):
+def test_appdb_is_stable_and_om_is_recreated(
+    ops_manager: MongoDBOpsManager, config_version
+):
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
     # there shouldn't be any automation config version change when one of the clusters is lost and OM is recreated
-    current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
+    current_ac_version = ops_manager.get_automation_config_tester().automation_config[
+        "version"
+    ]
     assert current_ac_version == config_version.version
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 def test_add_appdb_member_to_om_cluster(ops_manager: MongoDBOpsManager, config_version):
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
-        ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME], [3, 2, 1]
+        ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME],
+        [3, 2, 1],
     )
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
     # there should be exactly one automation config version change when we add new member
-    current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
+    current_ac_version = ops_manager.get_automation_config_tester().automation_config[
+        "version"
+    ]
     assert current_ac_version == config_version.version + 1
 
-    replica_set_members = ops_manager.get_automation_config_tester().get_replica_set_members(f"{ops_manager.name}-db")
+    replica_set_members = (
+        ops_manager.get_automation_config_tester().get_replica_set_members(
+            f"{ops_manager.name}-db"
+        )
+    )
     assert len(replica_set_members) == 3 + 2 + 1
 
     config_version.version = current_ac_version
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_add_appdb_member_to_om_cluster_force_reconfig(ops_manager: MongoDBOpsManager, config_version):
+def test_add_appdb_member_to_om_cluster_force_reconfig(
+    ops_manager: MongoDBOpsManager, config_version
+):
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
-        ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME], [3, 2, 1]
+        ["kind-e2e-cluster-2", FAILED_MEMBER_CLUSTER_NAME, OM_MEMBER_CLUSTER_NAME],
+        [3, 2, 1],
     )
     create_or_update(ops_manager)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=1200)
 
     ops_manager.reload()
-    ops_manager["metadata"]["annotations"].update({"mongodb.com/v1.forceReconfigure": "true"})
+    ops_manager["metadata"]["annotations"].update(
+        {"mongodb.com/v1.forceReconfigure": "true"}
+    )
     create_or_update(ops_manager)
 
     # This can potentially take quite a bit of time. AppDB needs to go up and sync with OM (which will be crashlooping)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=2400)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
-    replica_set_members = ops_manager.get_automation_config_tester().get_replica_set_members(f"{ops_manager.name}-db")
+    replica_set_members = (
+        ops_manager.get_automation_config_tester().get_replica_set_members(
+            f"{ops_manager.name}-db"
+        )
+    )
     assert len(replica_set_members) == 3 + 2 + 1
 
-    config_version.version = ops_manager.get_automation_config_tester().automation_config["version"]
+    config_version.version = (
+        ops_manager.get_automation_config_tester().automation_config["version"]
+    )
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_remove_failed_member_cluster_has_been_scaled_down(ops_manager: MongoDBOpsManager, config_version):
+def test_remove_failed_member_cluster_has_been_scaled_down(
+    ops_manager: MongoDBOpsManager, config_version
+):
     # we remove failed member cluster
     # thanks to previous spec stored in the config map, the operator recognizes we need to scale its 2 processes one by one
     ops_manager["spec"]["applicationDatabase"]["clusterSpecList"] = cluster_spec_list(
@@ -242,8 +302,14 @@ def test_remove_failed_member_cluster_has_been_scaled_down(ops_manager: MongoDBO
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
-    current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
+    current_ac_version = ops_manager.get_automation_config_tester().automation_config[
+        "version"
+    ]
     assert current_ac_version == config_version.version + 2  # two scale downs
 
-    replica_set_members = ops_manager.get_automation_config_tester().get_replica_set_members(f"{ops_manager.name}-db")
+    replica_set_members = (
+        ops_manager.get_automation_config_tester().get_replica_set_members(
+            f"{ops_manager.name}-db"
+        )
+    )
     assert len(replica_set_members) == 3 + 1

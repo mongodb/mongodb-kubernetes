@@ -8,12 +8,18 @@ from kubetester.mongodb import MongoDB, Phase
 
 from kubetester.kubetester import KubernetesTester
 from tests.opsmanager.conftest import ensure_ent_version
-from tests.pod_logs import get_all_default_log_types, assert_log_types_in_structured_json_pod_log, get_all_log_types
+from tests.pod_logs import (
+    get_all_default_log_types,
+    assert_log_types_in_structured_json_pod_log,
+    get_all_log_types,
+)
 
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("replica-set-basic.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        find_fixture("replica-set-basic.yaml"), namespace=namespace
+    )
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
@@ -34,7 +40,9 @@ def test_log_types_with_default_automation_log_file(replica_set: MongoDB):
 @mark.e2e_replica_set_agent_flags
 def test_set_custom_log_file(replica_set: MongoDB):
     replica_set.load()
-    replica_set["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
+    replica_set["spec"]["agent"] = {
+        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
+    }
     create_or_update(replica_set)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)

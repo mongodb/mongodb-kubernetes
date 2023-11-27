@@ -27,10 +27,14 @@ def mongodb_multi(
     )
 
     print(resource)
-    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 

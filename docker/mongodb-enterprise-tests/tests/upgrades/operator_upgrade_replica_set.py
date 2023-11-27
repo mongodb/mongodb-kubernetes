@@ -14,7 +14,9 @@ CERT_PREFIX = "prefix"
 
 @fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
-    return create_mongodb_tls_certs(issuer, namespace, RS_NAME, "{}-{}-cert".format(CERT_PREFIX, RS_NAME))
+    return create_mongodb_tls_certs(
+        issuer, namespace, RS_NAME, "{}-{}-cert".format(CERT_PREFIX, RS_NAME)
+    )
 
 
 @fixture(scope="module")
@@ -62,7 +64,9 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "rs-user-password"
     resource["spec"]["username"] = "rs-user"
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),

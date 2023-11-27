@@ -52,9 +52,13 @@ def mongodb_multi_a(
     mdba_ns: str,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns
+    )
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     create_or_update(resource)
@@ -67,9 +71,13 @@ def mongodb_multi_b(
     mdbb_ns: str,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns
+    )
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     create_or_update(resource)
     return resource
@@ -115,7 +123,9 @@ def install_operator(
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_label_operator_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
+def test_label_operator_namespace(
+    namespace: str, central_cluster_client: kubernetes.client.ApiClient
+):
     api = client.CoreV1Api(api_client=central_cluster_client)
 
     labels = {"istio-injection": "enabled"}
@@ -135,7 +145,9 @@ def test_create_namespaces(
     evergreen_task_id: str,
     multi_cluster_operator_installation_config: Dict[str, str],
 ):
-    image_pull_secret_name = multi_cluster_operator_installation_config["registry.imagePullSecrets"]
+    image_pull_secret_name = multi_cluster_operator_installation_config[
+        "registry.imagePullSecrets"
+    ]
     image_pull_secret_data = read_secret(namespace, image_pull_secret_name)
 
     create_namespace(
@@ -220,20 +232,32 @@ def test_copy_configmap_and_secret_across_ns(
     mdba_ns: str,
     mdbb_ns: str,
 ):
-    data = KubernetesTester.read_configmap(namespace, "my-project", api_client=central_cluster_client)
+    data = KubernetesTester.read_configmap(
+        namespace, "my-project", api_client=central_cluster_client
+    )
     data["projectName"] = mdba_ns
-    create_or_update_configmap(mdba_ns, "my-project", data, api_client=central_cluster_client)
+    create_or_update_configmap(
+        mdba_ns, "my-project", data, api_client=central_cluster_client
+    )
 
     data["projectName"] = mdbb_ns
-    create_or_update_configmap(mdbb_ns, "my-project", data, api_client=central_cluster_client)
+    create_or_update_configmap(
+        mdbb_ns, "my-project", data, api_client=central_cluster_client
+    )
 
     data = read_secret(namespace, "my-credentials", api_client=central_cluster_client)
-    create_or_update_secret(mdba_ns, "my-credentials", data, api_client=central_cluster_client)
-    create_or_update_secret(mdbb_ns, "my-credentials", data, api_client=central_cluster_client)
+    create_or_update_secret(
+        mdba_ns, "my-credentials", data, api_client=central_cluster_client
+    )
+    create_or_update_secret(
+        mdbb_ns, "my-credentials", data, api_client=central_cluster_client
+    )
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_create_mongodb_multi_nsa_nsb(mongodb_multi_a: MongoDBMulti, mongodb_multi_b: MongoDBMulti):
+def test_create_mongodb_multi_nsa_nsb(
+    mongodb_multi_a: MongoDBMulti, mongodb_multi_b: MongoDBMulti
+):
     mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=1500)
     mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=1500)
 
@@ -246,10 +270,14 @@ def test_update_service_entry_block_failed_cluster_traffic(
 ):
     # TODO: add a way to simulate local operator connection cut-off
     healthy_cluster_names = [
-        cluster_name for cluster_name in member_cluster_names if cluster_name != FAILED_MEMBER_CLUSTER_NAME
+        cluster_name
+        for cluster_name in member_cluster_names
+        if cluster_name != FAILED_MEMBER_CLUSTER_NAME
     ]
 
-    service_entries = create_service_entries_objects(namespace, central_cluster_client, healthy_cluster_names)
+    service_entries = create_service_entries_objects(
+        namespace, central_cluster_client, healthy_cluster_names
+    )
     for service_entry in service_entries:
         print(f"service_entry={service_entries}")
         service_entry.update()
@@ -288,13 +316,17 @@ def test_delete_database_statefulsets_in_failed_cluster(
 
     run_periodically(
         lambda: statefulset_is_deleted(
-            mdba_ns, sts_a_name, api_client=member_cluster_clients[failed_cluster_idx].api_client
+            mdba_ns,
+            sts_a_name,
+            api_client=member_cluster_clients[failed_cluster_idx].api_client,
         ),
         timeout=120,
     )
     run_periodically(
         lambda: statefulset_is_deleted(
-            mdbb_ns, sts_b_name, api_client=member_cluster_clients[failed_cluster_idx].api_client
+            mdbb_ns,
+            sts_b_name,
+            api_client=member_cluster_clients[failed_cluster_idx].api_client,
         ),
         timeout=120,
     )
@@ -320,7 +352,9 @@ def test_recover_operator_remove_cluster(
     mdbb_ns: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, namespace, True)
+    return_code = run_multi_cluster_recovery_tool(
+        member_cluster_names[:-1], namespace, namespace, True
+    )
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,

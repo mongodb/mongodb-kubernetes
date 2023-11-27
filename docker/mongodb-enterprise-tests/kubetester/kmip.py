@@ -58,7 +58,9 @@ class KMIPDeployment(object):
             selector=self.labels,
         )
 
-        self._create_kmip_config_map(self.namespace, "kmip-config", self._default_configuration())
+        self._create_kmip_config_map(
+            self.namespace, "kmip-config", self._default_configuration()
+        )
 
         create_statefulset(
             self.namespace,
@@ -163,7 +165,9 @@ class KMIPDeployment(object):
             "database_path": "/data/db/pykmip.db",
         }
 
-    def _create_kmip_config_map(self, namespace: str, name: str, config_dict: Dict) -> None:
+    def _create_kmip_config_map(
+        self, namespace: str, name: str, config_dict: Dict
+    ) -> None:
         """
         _create_configuration_config_map converts a dictionary of options into the server.conf
         file that the kmip server uses to start.

@@ -6,11 +6,15 @@ from kubetester.mongodb import Phase, MongoDB
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
@@ -21,7 +25,9 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
 
 @fixture(scope="module")
-def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
@@ -95,7 +101,9 @@ def test_authentication_enabled_is_owned_by_operator(replica_set: MongoDB):
     Authentication has been enabled on the Operator. Authentication is still
     owned by the operator so feature controls should be kept the same.
     """
-    replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    replica_set["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)

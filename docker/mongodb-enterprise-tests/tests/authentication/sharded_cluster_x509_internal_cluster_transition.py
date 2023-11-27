@@ -31,7 +31,9 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def sc(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def sc(
+    namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("sharded-cluster-x509-internal-cluster-auth-transition.yaml"),
         namespace=namespace,

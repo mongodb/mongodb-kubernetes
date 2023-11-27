@@ -10,11 +10,15 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace
     )
@@ -30,7 +34,9 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
 
 @fixture(scope="module")
-def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(
+    ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
@@ -51,13 +57,18 @@ class TestOpsManagerCreation:
 
         # pod template has volume mount request
         assert ("/mongodb-ops-manager/mongodb-releases", "mongodb-versions") in (
-            (mount.mount_path, mount.name) for mount in statefulset.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name)
+            for mount in statefulset.spec.template.spec.containers[0].volume_mounts
         )
 
     def test_pvcs(self, ops_manager: MongoDBOpsManager):
 
         for pod in ops_manager.read_om_pods():
-            claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
+            claims = [
+                volume
+                for volume in pod.spec.volumes
+                if getattr(volume, "persistent_volume_claim")
+            ]
             assert len(claims) == 1
 
             KubernetesTester.check_single_pvc(
@@ -74,7 +85,9 @@ class TestOpsManagerCreation:
         # distros for local mode - so just wait until the agents don't reach goal state
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
-    def test_add_mongodb_distros(self, ops_manager: MongoDBOpsManager, custom_mdb_version: str):
+    def test_add_mongodb_distros(
+        self, ops_manager: MongoDBOpsManager, custom_mdb_version: str
+    ):
         ops_manager.download_mongodb_binaries(custom_mdb_version)
 
     def test_replica_set_reaches_running_phase(self, replica_set: MongoDB):
@@ -83,7 +96,9 @@ class TestOpsManagerCreation:
         # so we are ignoring errors during this wait
         replica_set.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
 
-    def test_client_can_connect_to_mongodb(self, replica_set: MongoDB, custom_mdb_version: str):
+    def test_client_can_connect_to_mongodb(
+        self, replica_set: MongoDB, custom_mdb_version: str
+    ):
         replica_set.assert_connectivity()
         replica_set.tester().assert_version(custom_mdb_version)
 

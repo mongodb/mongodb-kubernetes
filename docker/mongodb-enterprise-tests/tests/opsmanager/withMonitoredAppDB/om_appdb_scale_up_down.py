@@ -19,7 +19,9 @@ from tests.conftest import is_multi_cluster
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: Optional[str], custom_appdb_version: str
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scale_up_down.yaml"), namespace=namespace
     )

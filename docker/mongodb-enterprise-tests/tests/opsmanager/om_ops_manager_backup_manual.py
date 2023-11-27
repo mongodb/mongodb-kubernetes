@@ -8,7 +8,11 @@ This is a companion test for docs/investigation/pod-is-killed-while-agent-restor
 
 from typing import Optional, Dict
 
-from kubetester import get_default_storage_class, create_or_update_secret, create_or_update
+from kubetester import (
+    get_default_storage_class,
+    create_or_update_secret,
+    create_or_update,
+)
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import (
     fixture as yaml_fixture,
@@ -22,7 +26,9 @@ from pytest import mark, fixture
 
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -131,7 +137,9 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     ).configure(ops_manager, "development")
     resource.set_version(custom_mdb_version)
 
-    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
 
     return resource.create()
 
@@ -161,10 +169,14 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 @fixture(scope="module")
 def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     """Creates a password secret and then the user referencing it"""
-    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -188,7 +200,9 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -224,14 +238,18 @@ class TestOpsManagerCreation:
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset()
-            return stateful_set.status.ready_replicas == 1 and stateful_set.status.current_replicas == 1
+            return (
+                stateful_set.status.ready_replicas == 1
+                and stateful_set.status.current_replicas == 1
+            )
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
         stateful_set = ops_manager.read_backup_statefulset()
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name)
+            for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
         )
 
     def test_om(self, ops_manager: MongoDBOpsManager):
@@ -263,7 +281,9 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
+            "name": oplog_user.name
+        }
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
@@ -281,16 +301,22 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB):
         """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
         the order of operations (scram first, MongoDBUser - next) is important"""
-        blockstore_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+        blockstore_replica_set["spec"]["security"] = {
+            "authentication": {"enabled": True, "modes": ["SCRAM"]}
+        }
         blockstore_replica_set.update()
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_blockstore_user_was_added_to_om(self, blockstore_user: MongoDBUser):
         blockstore_user.assert_reaches_phase(Phase.Updated)
 
-    def test_configure_blockstore_user(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
+    def test_configure_blockstore_user(
+        self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser
+    ):
         ops_manager.reload()
-        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
+        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
+            "name": blockstore_user.name
+        }
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
@@ -303,7 +329,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
 @mark.e2e_om_ops_manager_backup_manual
 class TestBackupForMongodb:
     @fixture(scope="class")
-    def mdb_latest(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
+    def mdb_latest(
+        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
+    ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
@@ -334,7 +362,9 @@ class TestBackupForMongodb:
         return resource.create()
 
     @fixture(scope="class")
-    def mdb_non_fixed(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
+    def mdb_non_fixed(
+        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
+    ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,

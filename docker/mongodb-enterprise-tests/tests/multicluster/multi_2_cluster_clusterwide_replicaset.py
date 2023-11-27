@@ -74,9 +74,13 @@ def mongodb_multi_a_unmarshalled(
     mdba_ns: str,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns
+    )
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1]
+    )
     return resource
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -90,8 +94,12 @@ def mongodb_multi_b_unmarshalled(
     mdbb_ns: str,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdbb_ns
+    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1]
+    )
 
     return resource
 
@@ -191,7 +199,9 @@ def mongodb_multi_b(
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
-def test_create_kube_config_file(cluster_clients: Dict, member_cluster_names: List[str]):
+def test_create_kube_config_file(
+    cluster_clients: Dict, member_cluster_names: List[str]
+):
     clients = cluster_clients
 
     assert len(clients) == 2
@@ -209,8 +219,12 @@ def test_create_namespaces(
     evergreen_task_id: str,
     multi_cluster_operator_installation_config: Dict[str, str],
 ):
-    image_pull_secret_name = multi_cluster_operator_installation_config["registry.imagePullSecrets"]
-    image_pull_secret_data = read_secret(namespace, image_pull_secret_name, api_client=central_cluster_client)
+    image_pull_secret_name = multi_cluster_operator_installation_config[
+        "registry.imagePullSecrets"
+    ]
+    image_pull_secret_data = read_secret(
+        namespace, image_pull_secret_name, api_client=central_cluster_client
+    )
 
     create_namespace(
         central_cluster_client,
@@ -271,14 +285,22 @@ def test_copy_configmap_and_secret_across_ns(
 ):
     data = read_configmap(namespace, "my-project", api_client=central_cluster_client)
     data["projectName"] = mdba_ns
-    create_or_update_configmap(mdba_ns, "my-project", data, api_client=central_cluster_client)
+    create_or_update_configmap(
+        mdba_ns, "my-project", data, api_client=central_cluster_client
+    )
 
     data["projectName"] = mdbb_ns
-    create_or_update_configmap(mdbb_ns, "my-project", data, api_client=central_cluster_client)
+    create_or_update_configmap(
+        mdbb_ns, "my-project", data, api_client=central_cluster_client
+    )
 
     data = read_secret(namespace, "my-credentials", api_client=central_cluster_client)
-    create_or_update_secret(mdba_ns, "my-credentials", data, api_client=central_cluster_client)
-    create_or_update_secret(mdbb_ns, "my-credentials", data, api_client=central_cluster_client)
+    create_or_update_secret(
+        mdba_ns, "my-credentials", data, api_client=central_cluster_client
+    )
+    create_or_update_secret(
+        mdbb_ns, "my-credentials", data, api_client=central_cluster_client
+    )
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide

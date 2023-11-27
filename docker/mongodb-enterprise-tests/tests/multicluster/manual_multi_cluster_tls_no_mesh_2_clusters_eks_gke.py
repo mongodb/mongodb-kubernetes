@@ -38,11 +38,17 @@ def cert_additional_domains() -> list[str]:
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+def mongodb_multi_unmarshalled(
+    namespace: str, member_cluster_names: List[str]
+) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
+    )
     resource["spec"]["persistent"] = False
     # These domains map 1:1 to the CoreDNS file. Please be mindful when updating them.
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1]
+    )
 
     resource["spec"]["externalAccess"] = {}
     resource["spec"]["clusterSpecList"][0]["externalAccess"] = {
@@ -106,7 +112,9 @@ def mongodb_multi(
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
-    mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(
+        central_cluster_client
+    )
 
     return create_or_update(mongodb_multi_unmarshalled)
 

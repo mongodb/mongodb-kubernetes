@@ -5,7 +5,11 @@ import pytest
 from kubernetes import client
 from pytest import fixture
 
-from kubetester import assert_pod_container_security_context, assert_pod_security_context, create_or_update
+from kubetester import (
+    assert_pod_container_security_context,
+    assert_pod_security_context,
+    create_or_update,
+)
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -27,7 +31,9 @@ def _get_group_id(envs) -> str:
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "my-replica-set", namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set.yaml"), "my-replica-set", namespace
+    )
     resource.set_version(custom_mdb_version)
 
     # Setting podSpec shortcut values here to test they are still
@@ -177,12 +183,16 @@ class TestReplicaSetCreation(KubernetesTester):
             assert_pod_container_security_context(pod.spec.containers[0], managed)
 
     @skip_if_local
-    def test_security_context_operator(self, operator_installation_config: Dict[str, str]):
+    def test_security_context_operator(
+        self, operator_installation_config: Dict[str, str]
+    ):
         # todo there should be a better way to find the pods for deployment
         response = self.corev1.list_namespaced_pod(self.namespace)
-        operator_pod = [pod for pod in response.items if pod.metadata.name.startswith("mongodb-enterprise-operator-")][
-            0
-        ]
+        operator_pod = [
+            pod
+            for pod in response.items
+            if pod.metadata.name.startswith("mongodb-enterprise-operator-")
+        ][0]
         security_context = operator_pod.spec.security_context
         if operator_installation_config["managedSecurityContext"] == "false":
             assert security_context.run_as_user == 2000
@@ -216,13 +226,20 @@ class TestReplicaSetCreation(KubernetesTester):
             assert p["processType"] == "mongod"
             assert p["version"] == custom_mdb_version
             assert p["authSchemaVersion"] == 5
-            assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
-            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(name, self.namespace)
+            assert p["featureCompatibilityVersion"] == fcv_from_version(
+                custom_mdb_version
+            )
+            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                name, self.namespace
+            )
             assert p["args2_6"]["net"]["port"] == 27017
             assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
-            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+            assert (
+                p["args2_6"]["systemLog"]["path"]
+                == "/var/log/mongodb-mms-automation/mongodb.log"
+            )
             assert p["logRotate"]["sizeThresholdMB"] == 1000
             assert p["logRotate"]["timeThresholdHrs"] == 24
 
@@ -251,7 +268,11 @@ class TestReplicaSetCreation(KubernetesTester):
             # baseUrl is not present in Cloud Manager response
             if "baseUrl" in mv[i]:
                 assert mv[i]["baseUrl"] is None
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(i, self.namespace)
+            hostname = (
+                "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                    i, self.namespace
+                )
+            )
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
@@ -263,7 +284,11 @@ class TestReplicaSetCreation(KubernetesTester):
 
         # Backup agent is installed on all hosts
         for i in range(0, 3):
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(i, self.namespace)
+            hostname = (
+                "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                    i, self.namespace
+                )
+            )
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
@@ -392,13 +417,20 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert p["processType"] == "mongod"
             assert p["version"] == custom_mdb_version
             assert p["authSchemaVersion"] == 5
-            assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
-            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(name, self.namespace)
+            assert p["featureCompatibilityVersion"] == fcv_from_version(
+                custom_mdb_version
+            )
+            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                name, self.namespace
+            )
             assert p["args2_6"]["net"]["port"] == 27017
             assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
-            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+            assert (
+                p["args2_6"]["systemLog"]["path"]
+                == "/var/log/mongodb-mms-automation/mongodb.log"
+            )
             assert p["logRotate"]["sizeThresholdMB"] == 1000
             assert p["logRotate"]["timeThresholdHrs"] == 24
 
@@ -426,7 +458,11 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for i in range(0, 5):
             if "baseUrl" in mv[i]:
                 assert mv[i]["baseUrl"] is None
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(i, self.namespace)
+            hostname = (
+                "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(
+                    i, self.namespace
+                )
+            )
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
@@ -492,7 +528,10 @@ def assert_container_env_vars(namespace: str, pod_name: str):
     for envvar in c0.env:
         if envvar.name == "AGENT_API_KEY":
             assert envvar.value is None, "cannot configure value and value_from"
-            assert envvar.value_from.secret_key_ref.name == f"{_get_group_id(c0.env)}-group-secret"
+            assert (
+                envvar.value_from.secret_key_ref.name
+                == f"{_get_group_id(c0.env)}-group-secret"
+            )
             assert envvar.value_from.secret_key_ref.key == "agentApiKey"
             continue
 

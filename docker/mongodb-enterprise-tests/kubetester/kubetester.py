@@ -33,12 +33,21 @@ SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
 MAX_TAG_LEN = 32
 
-DEPRECATION_WARNING = "This feature has been DEPRECATED and should only be used in testing environments."
-AGENT_WARNING = "The Operator is generating TLS x509 certificates for agent authentication. " + DEPRECATION_WARNING
-MEMBER_AUTH_WARNING = (
-    "The Operator is generating TLS x509 certificates for internal cluster authentication. " + DEPRECATION_WARNING
+DEPRECATION_WARNING = (
+    "This feature has been DEPRECATED and should only be used in testing environments."
 )
-SERVER_WARNING = "The Operator is generating TLS certificates for server authentication. " + DEPRECATION_WARNING
+AGENT_WARNING = (
+    "The Operator is generating TLS x509 certificates for agent authentication. "
+    + DEPRECATION_WARNING
+)
+MEMBER_AUTH_WARNING = (
+    "The Operator is generating TLS x509 certificates for internal cluster authentication. "
+    + DEPRECATION_WARNING
+)
+SERVER_WARNING = (
+    "The Operator is generating TLS certificates for server authentication. "
+    + DEPRECATION_WARNING
+)
 
 plural_map = {
     "MongoDB": "mongodb",
@@ -52,7 +61,9 @@ def running_locally():
     return os.getenv("POD_NAME", "local") == "local"
 
 
-skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
+skip_if_local = pytest.mark.skipif(
+    running_locally(), reason="Only run in Kubernetes cluster"
+)
 # time to sleep between retries
 SLEEP_TIME = 2
 # no timeout (loop forever)
@@ -146,7 +157,9 @@ class KubernetesTester(object):
         return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
 
     @classmethod
-    def read_configmap(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> Dict[str, str]:
+    def read_configmap(
+        cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+    ) -> Dict[str, str]:
         corev1 = cls.clients("corev1")
         if api_client is not None:
             corev1 = client.CoreV1Api(api_client=api_client)
@@ -159,8 +172,12 @@ class KubernetesTester(object):
         return cls.clients("corev1").read_namespaced_pod(name, namespace)
 
     @classmethod
-    def read_pod_logs(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> str:
-        return cls.clients("corev1", api_client=api_client).read_namespaced_pod_log(name=name, namespace=namespace)
+    def read_pod_logs(
+        cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+    ) -> str:
+        return cls.clients("corev1", api_client=api_client).read_namespaced_pod_log(
+            name=name, namespace=namespace
+        )
 
     @classmethod
     def read_operator_pod(cls, namespace: str) -> Dict[str, str]:
@@ -168,9 +185,13 @@ class KubernetesTester(object):
         return cls.read_pod_labels(namespace, label_selector).items[0]
 
     @classmethod
-    def read_pod_labels(cls, namespace: str, label_selector: Optional[str] = None) -> Dict[str, str]:
+    def read_pod_labels(
+        cls, namespace: str, label_selector: Optional[str] = None
+    ) -> Dict[str, str]:
         """Reads a Pod by labels."""
-        return cls.clients("corev1").list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+        return cls.clients("corev1").list_namespaced_pod(
+            namespace=namespace, label_selector=label_selector
+        )
 
     @classmethod
     def update_configmap(
@@ -182,15 +203,21 @@ class KubernetesTester(object):
     ):
         """Updates a ConfigMap in a given namespace with the given name and data—handles base64 encoding."""
         configmap = cls.clients("client", api_client=api_client).V1ConfigMap(
-            metadata=cls.clients("client", api_client=api_client).V1ObjectMeta(name=name),
+            metadata=cls.clients("client", api_client=api_client).V1ObjectMeta(
+                name=name
+            ),
             data=data,
         )
         cls.clients("corev1").patch_namespaced_config_map(name, namespace, configmap)
 
     @classmethod
-    def delete_configmap(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None):
+    def delete_configmap(
+        cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+    ):
         """Delete a ConfigMap in a given namespace with the given name."""
-        cls.clients("corev1", api_client=api_client).delete_namespaced_config_map(name, namespace)
+        cls.clients("corev1", api_client=api_client).delete_namespaced_config_map(
+            name, namespace
+        )
 
     @classmethod
     def delete_service(cls, namespace: str, name: str):
@@ -200,7 +227,9 @@ class KubernetesTester(object):
     @classmethod
     def create_namespace(cls, namespace_name):
         """Create a namespace with the given name."""
-        namespace = cls.clients("client").V1Namespace(metadata=cls.clients("client").V1ObjectMeta(name=namespace_name))
+        namespace = cls.clients("client").V1Namespace(
+            metadata=cls.clients("client").V1ObjectMeta(name=namespace_name)
+        )
         cls.clients("corev1").create_namespace(namespace)
 
     @classmethod
@@ -214,7 +243,9 @@ class KubernetesTester(object):
 
     @classmethod
     def create_deployment(cls, namespace: str, body: Dict):
-        cls.clients("appsv1").create_namespaced_deployment(body=body, namespace=namespace)
+        cls.clients("appsv1").create_namespaced_deployment(
+            body=body, namespace=namespace
+        )
 
     @classmethod
     def create_service(
@@ -223,14 +254,20 @@ class KubernetesTester(object):
         body: Dict,
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
-        cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
+        cls.clients("corev1", api_client=api_client).create_namespaced_service(
+            body=body, namespace=namespace
+        )
 
     @classmethod
-    def create_or_update_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):
+    def create_or_update_pvc(
+        cls, namespace: str, body: Dict, storage_class_name: str = "gp2"
+    ):
         if storage_class_name is not None:
             body["spec"]["storageClassName"] = storage_class_name
         try:
-            cls.clients("corev1").create_namespaced_persistent_volume_claim(body=body, namespace=namespace)
+            cls.clients("corev1").create_namespaced_persistent_volume_claim(
+                body=body, namespace=namespace
+            )
         except client.rest.ApiException as e:
             if e.status == 409:
                 cls.clients("corev1").patch_namespaced_persistent_volume_claim(
@@ -239,12 +276,16 @@ class KubernetesTester(object):
 
     @classmethod
     def delete_pvc(cls, namespace: str, name: str):
-        cls.clients("corev1").delete_namespaced_persistent_volume_claim(name, namespace=namespace)
+        cls.clients("corev1").delete_namespaced_persistent_volume_claim(
+            name, namespace=namespace
+        )
 
     @classmethod
     def delete_namespace(cls, name):
         """Delete the specified namespace."""
-        cls.clients("corev1").delete_namespace(name, body=cls.clients("client").V1DeleteOptions())
+        cls.clients("corev1").delete_namespace(
+            name, body=cls.clients("client").V1DeleteOptions()
+        )
 
     @classmethod
     def delete_deployment(cls, namespace: str, name):
@@ -348,7 +389,9 @@ class KubernetesTester(object):
 
             # Those are saved here so we can access om at the end of the test run and retrieve diagnostic data easily.
             if os.environ.get("OM_PROJECT_ID", ""):
-                os.environ["OM_PROJECT_ID"] = os.environ["OM_PROJECT_ID"] + "," + KubernetesTester.group_id
+                os.environ["OM_PROJECT_ID"] = (
+                    os.environ["OM_PROJECT_ID"] + "," + KubernetesTester.group_id
+                )
             else:
                 os.environ["OM_PROJECT_ID"] = KubernetesTester.group_id
 
@@ -413,7 +456,9 @@ class KubernetesTester(object):
 
     @staticmethod
     def create_mongodb_from_file(namespace, file_path):
-        name, kind = KubernetesTester.create_custom_resource_from_file(namespace, file_path)
+        name, kind = KubernetesTester.create_custom_resource_from_file(
+            namespace, file_path
+        )
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
@@ -425,8 +470,12 @@ class KubernetesTester(object):
         return KubernetesTester.create_custom_resource_from_object(namespace, resource)
 
     @staticmethod
-    def create_mongodb_from_object(namespace, resource, exception_reason=None, patch=None):
-        name, kind = KubernetesTester.create_custom_resource_from_object(namespace, resource, exception_reason, patch)
+    def create_mongodb_from_object(
+        namespace, resource, exception_reason=None, patch=None
+    ):
+        name, kind = KubernetesTester.create_custom_resource_from_object(
+            namespace, resource, exception_reason, patch
+        )
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
@@ -453,16 +502,24 @@ class KubernetesTester(object):
             print("Skipping creation as 'SKIP_EXECUTION' env variable is not empty")
             return
 
-        print("Creating resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
+        print(
+            "Creating resource {} {} {}".format(
+                kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""
+            )
+        )
 
         # TODO move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
-            KubernetesTester.clients("customv1", api_client=api_client).create_namespaced_custom_object(
+            KubernetesTester.clients(
+                "customv1", api_client=api_client
+            ).create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
             )
         except ApiException as e:
             if e.status == 409:
-                KubernetesTester.clients("customv1", api_client=api_client).patch_namespaced_custom_object(
+                KubernetesTester.clients(
+                    "customv1", api_client=api_client
+                ).patch_namespaced_custom_object(
                     group, version, namespace, plural(kind), name, resource
                 )
             else:
@@ -480,13 +537,20 @@ class KubernetesTester(object):
                         if reason is not None:
                             field = exception_reason.split()[0]
                             for cause in body_json["details"]["causes"]:
-                                if cause["reason"] == reason and cause["field"] == field:
+                                if (
+                                    cause["reason"] == reason
+                                    and cause["field"] == field
+                                ):
                                     return None, None
 
                 if exception_reason:
-                    assert e.reason == exception_reason or exception_reason in e.body, "Real exception is: {}".format(e)
+                    assert (
+                        e.reason == exception_reason or exception_reason in e.body
+                    ), "Real exception is: {}".format(e)
                     print(
-                        '"{}" exception raised while creating the resource - this is expected!'.format(exception_reason)
+                        '"{}" exception raised while creating the resource - this is expected!'.format(
+                            exception_reason
+                        )
                     )
                     return None, None
 
@@ -495,9 +559,15 @@ class KubernetesTester(object):
 
         else:
             if exception_reason:
-                raise AssertionError("Expected ApiException, but create operation succeeded!")
+                raise AssertionError(
+                    "Expected ApiException, but create operation succeeded!"
+                )
 
-        print("Created resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
+        print(
+            "Created resource {} {} {}".format(
+                kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""
+            )
+        )
         return name, kind
 
     @staticmethod
@@ -545,9 +615,17 @@ class KubernetesTester(object):
                 group, version, namespace, plural(kind), name, resource
             )
         except Exception:
-            print("Failed to update a resource ({}): \n {}".format(sys.exc_info()[0], resource))
+            print(
+                "Failed to update a resource ({}): \n {}".format(
+                    sys.exc_info()[0], resource
+                )
+            )
             raise
-        print("Updated resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
+        print(
+            "Updated resource {} {} {}".format(
+                kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""
+            )
+        )
 
     @staticmethod
     def delete(section, namespace):
@@ -560,14 +638,18 @@ class KubernetesTester(object):
             resource = loaded_yaml
         else:
             # remove the element by name in the case of a list of elements
-            resource = [res for res in loaded_yaml if res["metadata"]["name"] == delete_name][0]
+            resource = [
+                res for res in loaded_yaml if res["metadata"]["name"] == delete_name
+            ][0]
 
         name, kind, group, version, _ = get_crd_meta(resource)
 
         KubernetesTester.delete_custom_resource(namespace, name, kind, group, version)
 
     @staticmethod
-    def delete_custom_resource(namespace, name, kind, group="mongodb.com", version="v1"):
+    def delete_custom_resource(
+        namespace, name, kind, group="mongodb.com", version="v1"
+    ):
         print("Deleting resource {} {}".format(kind, name))
 
         KubernetesTester.namespace = namespace
@@ -587,7 +669,9 @@ class KubernetesTester(object):
         pass
 
     @staticmethod
-    def get_namespaced_custom_object(namespace, name, kind, group="mongodb.com", version="v1"):
+    def get_namespaced_custom_object(
+        namespace, name, kind, group="mongodb.com", version="v1"
+    ):
         return KubernetesTester.clients("customv1").get_namespaced_custom_object(
             group, version, namespace, plural(kind), name
         )
@@ -673,7 +757,10 @@ class KubernetesTester(object):
         resource = KubernetesTester.get_namespaced_custom_object(namespace, name, kind)
         if "status" not in resource:
             return False
-        if resource["metadata"]["generation"] != resource["status"]["observedGeneration"]:
+        if (
+            resource["metadata"]["generation"]
+            != resource["status"]["observedGeneration"]
+        ):
             # If generations don't match - we're observing a previous state and the Operator
             # hasn't managed to take action yet.
             return False
@@ -715,12 +802,18 @@ class KubernetesTester(object):
         type_, name, attribute, expected_value = parse_condition_str(condition)
 
         if type_ not in ["sts", "statefulset"]:
-            raise NotImplementedError("Only StatefulSets can be tested with condition strings for now")
+            raise NotImplementedError(
+                "Only StatefulSets can be tested with condition strings for now"
+            )
 
-        return cls.wait_for_condition_stateful_set(cls.get_namespace(), name, attribute, expected_value)
+        return cls.wait_for_condition_stateful_set(
+            cls.get_namespace(), name, attribute, expected_value
+        )
 
     @classmethod
-    def wait_for_condition_stateful_set(cls, namespace, name, attribute, expected_value):
+    def wait_for_condition_stateful_set(
+        cls, namespace, name, attribute, expected_value
+    ):
         appsv1 = KubernetesTester.clients("appsv1")
         namespace = KubernetesTester.get_namespace()
         ready_to_go = False
@@ -752,14 +845,18 @@ class KubernetesTester(object):
         Creates the group with specified name and organization id in Ops Manager, returns its ID
         """
         url = build_om_groups_endpoint(KubernetesTester.get_om_base_url())
-        response = KubernetesTester.om_request("post", url, {"name": group_name, "orgId": org_id})
+        response = KubernetesTester.om_request(
+            "post", url, {"name": group_name, "orgId": org_id}
+        )
 
         return response.json()["id"]
 
     @staticmethod
     def ensure_group(org_id, group_name):
         try:
-            return KubernetesTester.get_om_group_id(group_name=group_name, org_id=org_id)
+            return KubernetesTester.get_om_group_id(
+                group_name=group_name, org_id=org_id
+            )
         except:
             return KubernetesTester.create_group(org_id, group_name)
 
@@ -778,7 +875,11 @@ class KubernetesTester(object):
             org_id = [org_id]
 
         if len(org_id) != 1:
-            raise Exception('{} organizations with name "{}" found instead of 1!'.format(len(org_id), group_name))
+            raise Exception(
+                '{} organizations with name "{}" found instead of 1!'.format(
+                    len(org_id), group_name
+                )
+            )
 
         group_ids = KubernetesTester.find_groups_in_organization(org_id[0], group_name)
         if len(group_ids) != 1:
@@ -831,7 +932,9 @@ class KubernetesTester(object):
             json = KubernetesTester.om_request("get", url).json()
 
             # Add organization id if its name is the searched one
-            ids.extend([org["id"] for org in json["results"] if org["name"] == org_name])
+            ids.extend(
+                [org["id"] for org in json["results"] if org["name"] == org_name]
+            )
 
             if not any(link["rel"] == "next" for link in json["links"]):
                 break
@@ -852,7 +955,9 @@ class KubernetesTester(object):
         """
         :return: the first page of groups  (100 items for OM 4.0 and 500 for OM 4.1)
         """
-        url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, 1)
+        url = build_om_groups_in_org_endpoint(
+            KubernetesTester.get_om_base_url(), org_id, 1
+        )
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
@@ -868,17 +973,27 @@ class KubernetesTester(object):
         max_pages = 200
         ids = []
         for i in range(1, max_pages):
-            url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, i)
+            url = build_om_groups_in_org_endpoint(
+                KubernetesTester.get_om_base_url(), org_id, i
+            )
             json = KubernetesTester.om_request("get", url).json()
             # Add group id if its name is the searched one
-            ids.extend([group["id"] for group in json["results"] if group["name"] == group_name])
+            ids.extend(
+                [
+                    group["id"]
+                    for group in json["results"]
+                    if group["name"] == group_name
+                ]
+            )
 
             if not any(link["rel"] == "next" for link in json["links"]):
                 break
 
         if len(ids) == 0:
             print(
-                "Group name {} not found in organization with id {} (in {} pages)".format(group_name, org_id, max_pages)
+                "Group name {} not found in organization with id {} (in {} pages)".format(
+                    group_name, org_id, max_pages
+                )
             )
 
         return ids
@@ -888,7 +1003,9 @@ class KubernetesTester(object):
         if group_id is None:
             group_id = KubernetesTester.get_om_group_id()
 
-        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        url = build_automation_config_endpoint(
+            KubernetesTester.get_om_base_url(), group_id
+        )
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
@@ -897,14 +1014,18 @@ class KubernetesTester(object):
     def get_monitoring_config(group_id=None):
         if group_id is None:
             group_id = KubernetesTester.get_om_group_id()
-        url = build_monitoring_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        url = build_monitoring_config_endpoint(
+            KubernetesTester.get_om_base_url(), group_id
+        )
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
 
     @staticmethod
     def put_automation_config(config):
-        url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id())
+        url = build_automation_config_endpoint(
+            KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id()
+        )
         response = KubernetesTester.om_request("put", url, config)
 
         return response
@@ -913,14 +1034,18 @@ class KubernetesTester(object):
     def put_monitoring_config(config, group_id=None):
         if group_id is None:
             group_id = KubernetesTester.get_om_group_id()
-        url = build_monitoring_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        url = build_monitoring_config_endpoint(
+            KubernetesTester.get_om_base_url(), group_id
+        )
         response = KubernetesTester.om_request("put", url, config)
 
         return response
 
     @staticmethod
     def get_hosts():
-        url = build_hosts_endpoint(KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id())
+        url = build_hosts_endpoint(
+            KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id()
+        )
         response = KubernetesTester.om_request("get", url)
 
         return response.json()
@@ -928,9 +1053,13 @@ class KubernetesTester(object):
     @staticmethod
     def om_request(method, endpoint, json_object=None):
         headers = {"Content-Type": "application/json"}
-        auth = build_auth(KubernetesTester.get_om_user(), KubernetesTester.get_om_api_key())
+        auth = build_auth(
+            KubernetesTester.get_om_user(), KubernetesTester.get_om_api_key()
+        )
 
-        response = requests.request(method, endpoint, auth=auth, headers=headers, json=json_object)
+        response = requests.request(
+            method, endpoint, auth=auth, headers=headers, json=json_object
+        )
 
         if response.status_code >= 300:
             raise Exception(
@@ -960,12 +1089,20 @@ class KubernetesTester(object):
         """Checks that OM state is cleaned: Automation config is empty, monitoring hosts are removed"""
 
         config = KubernetesTester.get_automation_config()
-        assert len(config["replicaSets"]) == 0, "ReplicaSets not empty: {}".format(config["replicaSets"])
-        assert len(config["sharding"]) == 0, "Sharding not empty: {}".format(config["sharding"])
-        assert len(config["processes"]) == 0, "Processes not empty: {}".format(config["processes"])
+        assert len(config["replicaSets"]) == 0, "ReplicaSets not empty: {}".format(
+            config["replicaSets"]
+        )
+        assert len(config["sharding"]) == 0, "Sharding not empty: {}".format(
+            config["sharding"]
+        )
+        assert len(config["processes"]) == 0, "Processes not empty: {}".format(
+            config["processes"]
+        )
 
         hosts = KubernetesTester.get_hosts()
-        assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(len(hosts["results"]))
+        assert len(hosts["results"]) == 0, "Hosts not empty: ({} hosts left)".format(
+            len(hosts["results"])
+        )
 
     @staticmethod
     def is_om_state_cleaned():
@@ -992,7 +1129,11 @@ class KubernetesTester(object):
         )
 
         # Then we check that the resource was removed in Ops Manager if specified
-        return deleted_in_k8 if not check_om_state else (deleted_in_k8 and KubernetesTester.is_om_state_cleaned())
+        return (
+            deleted_in_k8
+            if not check_om_state
+            else (deleted_in_k8 and KubernetesTester.is_om_state_cleaned())
+        )
 
     @staticmethod
     def mongo_resource_deleted_no_om():
@@ -1223,7 +1364,9 @@ class KubernetesTester(object):
 
         check_times = wait_for / check_every
 
-        while (client.primary is None or len(client.secondaries) < len(hosts) - 1) and check_times >= 0:
+        while (
+            client.primary is None or len(client.secondaries) < len(hosts) - 1
+        ) and check_times >= 0:
             time.sleep(check_every)
             check_times -= 1
 
@@ -1234,7 +1377,9 @@ class KubernetesTester(object):
         options = {}
         if ssl:
             options = {"ssl": True, "tlsCAFile": SSL_CA_CERT}
-        client = pymongo.MongoClient(mongodburi, **options, serverSelectionTimeoutMs=300000)
+        client = pymongo.MongoClient(
+            mongodburi, **options, serverSelectionTimeoutMs=300000
+        )
 
         # The ismaster command is cheap and does not require auth.
         client.admin.command("ismaster")
@@ -1257,7 +1402,9 @@ class KubernetesTester(object):
         assert volume.name == expected_name
         assert volume.persistent_volume_claim.claim_name == expected_claim_name
 
-        pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(expected_claim_name, namespace)
+        pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(
+            expected_claim_name, namespace
+        )
         assert pvc.status.phase == "Bound"
         assert pvc.spec.resources.requests["storage"] == expected_size
 
@@ -1280,7 +1427,9 @@ class KubernetesTester(object):
         Return all of the subject alternative names for a given Kubernetes
         certificate signing request.
         """
-        csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(csr_name)
+        csr = client.CertificatesV1beta1Api().read_certificate_signing_request_status(
+            csr_name
+        )
         base64_csr_request = csr.spec.request
         csr_pem_string = b64decode(base64_csr_request)
         csr = x509.load_pem_x509_csr(csr_pem_string, default_backend())
@@ -1393,7 +1542,9 @@ def run_periodically(fn, *args, **kwargs):
             fn_condition = fn_result[0]
             fn_condition_msg = fn_result[1]
         else:
-            raise Exception("Invalid fn return type. Fn have to return either bool or a tuple[bool, str].")
+            raise Exception(
+                "Invalid fn return type. Fn have to return either bool or a tuple[bool, str]."
+            )
 
         if fn_condition:
             print(
@@ -1403,12 +1554,16 @@ def run_periodically(fn, *args, **kwargs):
             )
             return True
         if msg is not None:
-            condition_msg = f": {fn_condition_msg}" if fn_condition_msg is not None else ""
+            condition_msg = (
+                f": {fn_condition_msg}" if fn_condition_msg is not None else ""
+            )
             print(f"waiting for {msg}{condition_msg}...")
         time.sleep(sleep_time)
 
     raise AssertionError(
-        "Timed out executing {} after {} seconds".format(callable_name, (current_milliseconds() - start_time) / 1000)
+        "Timed out executing {} after {} seconds".format(
+            callable_name, (current_milliseconds() - start_time) / 1000
+        )
     )
 
 
@@ -1445,7 +1600,9 @@ def build_om_org_endpoint(base_url):
 
 
 def build_om_org_list_endpoint(base_url: string, page_num: int):
-    return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(base_url, page_num)
+    return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(
+        base_url, page_num
+    )
 
 
 def build_om_org_list_by_name_endpoint(base_url: string, name: string):
@@ -1457,10 +1614,14 @@ def build_om_one_org_endpoint(base_url, org_id):
 
 
 def build_om_groups_in_org_endpoint(base_url, org_id, page_num):
-    return "{}/api/public/v1.0/orgs/{}/groups?itemsPerPage=500&pageNum={}".format(base_url, org_id, page_num)
+    return "{}/api/public/v1.0/orgs/{}/groups?itemsPerPage=500&pageNum={}".format(
+        base_url, org_id, page_num
+    )
 
 
-def build_om_groups_in_org_by_name_endpoint(base_url: string, org_id: string, name: string):
+def build_om_groups_in_org_by_name_endpoint(
+    base_url: string, org_id: string, name: string
+):
     return "{}/api/public/v1.0/orgs/{}/groups?name={}".format(base_url, org_id, name)
 
 
@@ -1469,7 +1630,9 @@ def build_automation_config_endpoint(base_url, group_id):
 
 
 def build_monitoring_config_endpoint(base_url, group_id):
-    return "{}/api/public/v1.0/groups/{}/automationConfig/monitoringAgentConfig".format(base_url, group_id)
+    return "{}/api/public/v1.0/groups/{}/automationConfig/monitoringAgentConfig".format(
+        base_url, group_id
+    )
 
 
 def build_hosts_endpoint(base_url, group_id):
@@ -1501,7 +1664,9 @@ def fixture(filename):
         full_path = os.path.join(dirs, filename)
         if os.path.exists(full_path) and os.path.isfile(full_path):
             if found is not None:
-                warnings.warn("Fixtures with the same name were found: {}".format(full_path))
+                warnings.warn(
+                    "Fixtures with the same name were found: {}".format(full_path)
+                )
             found = full_path
 
     if found is None:
@@ -1522,7 +1687,9 @@ def build_list_of_hosts(
         servicename = "{}-svc".format(mdb_resource)
 
     return [
-        build_host_fqdn(hostname(mdb_resource, idx), namespace, servicename, clustername, port)
+        build_host_fqdn(
+            hostname(mdb_resource, idx), namespace, servicename, clustername, port
+        )
         for idx in range(members)
     ]
 
@@ -1543,7 +1710,9 @@ def build_host_fqdn(
     )
 
 
-def build_svc_fqdn(service: str, namespace: str, clustername: str = "cluster.local") -> str:
+def build_svc_fqdn(
+    service: str, namespace: str, clustername: str = "cluster.local"
+) -> str:
     return "{}.{}.svc.{}".format(service, namespace, clustername)
 
 
@@ -1585,7 +1754,9 @@ def create_testing_namespace(
     if istio_label:
         labels.update({"istio-injection": "enabled"})
 
-    annotations = {"evg/task": f"https://evergreen.mongodb.com/task/{evergreen_task_id}"}
+    annotations = {
+        "evg/task": f"https://evergreen.mongodb.com/task/{evergreen_task_id}"
+    }
 
     from kubetester import create_or_update_namespace
 
