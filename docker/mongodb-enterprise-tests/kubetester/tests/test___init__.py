@@ -10,7 +10,13 @@ class TestCreateOrUpdate(unittest.TestCase):
     def test_create_or_update_is_not_bound(self):
         api_client = MagicMock()
         custom_object = CustomObject(
-            api_client=api_client, name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1"
+            api_client=api_client,
+            name="mock",
+            namespace="mock",
+            plural="mock",
+            kind="mock",
+            group="mock",
+            version="v1",
         )
         custom_object.bound = False
         custom_object.create = MagicMock()
@@ -22,7 +28,13 @@ class TestCreateOrUpdate(unittest.TestCase):
     def test_create_or_update_is_not_bound_exists_update(self):
         api_client = MagicMock()
         custom_object = CustomObject(
-            api_client=api_client, name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1"
+            api_client=api_client,
+            name="mock",
+            namespace="mock",
+            plural="mock",
+            kind="mock",
+            group="mock",
+            version="v1",
         )
         custom_object.bound = False
         custom_object.create = MagicMock()
@@ -37,7 +49,13 @@ class TestCreateOrUpdate(unittest.TestCase):
     def test_create_or_update_is_bound_update(self):
         api_client = MagicMock()
         custom_object = CustomObject(
-            api_client=api_client, name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1"
+            api_client=api_client,
+            name="mock",
+            namespace="mock",
+            plural="mock",
+            kind="mock",
+            group="mock",
+            version="v1",
         )
         custom_object.bound = True
         custom_object.update = MagicMock()
@@ -92,10 +110,22 @@ class TestCreateOrUpdate(unittest.TestCase):
     def test_create_or_update_is_bound_update_409_few_times(self):
         api_client = MagicMock()
         object_to_api_server = CustomObject(
-            api_client=api_client, name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1"
+            api_client=api_client,
+            name="mock",
+            namespace="mock",
+            plural="mock",
+            kind="mock",
+            group="mock",
+            version="v1",
         )
         object_from_api_server = CustomObject(
-            api_client=api_client, name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1"
+            api_client=api_client,
+            name="mock",
+            namespace="mock",
+            plural="mock",
+            kind="mock",
+            group="mock",
+            version="v1",
         )
 
         object_to_api_server["spec"] = {"override": "test"}
@@ -107,7 +137,9 @@ class TestCreateOrUpdate(unittest.TestCase):
         object_to_api_server.bound = True
         object_to_api_server.update = MagicMock()
         object_to_api_server.api.get_namespaced_custom_object = MagicMock()
-        object_to_api_server.api.get_namespaced_custom_object.return_value = object_from_api_server
+        object_to_api_server.api.get_namespaced_custom_object.return_value = (
+            object_from_api_server
+        )
 
         exception_count = 0
 

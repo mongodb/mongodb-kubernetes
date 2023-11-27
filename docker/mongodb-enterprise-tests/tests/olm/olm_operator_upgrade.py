@@ -44,10 +44,16 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     create_or_update(subscription)
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
+    wait_for_operator_ready(
+        namespace, f"mongodb-enterprise.v{current_operator_version}"
+    )
 
     subscription.load()
-    subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
+    subscription["spec"][
+        "channel"
+    ] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
+    wait_for_operator_ready(
+        namespace, f"mongodb-enterprise.v{incremented_operator_version}"
+    )

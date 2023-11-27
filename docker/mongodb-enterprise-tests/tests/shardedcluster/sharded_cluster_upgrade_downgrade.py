@@ -2,7 +2,11 @@ import pymongo
 from pytest import fixture, mark
 
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongotester import ShardedClusterTester, MongoTester, MongoDBBackgroundTester
+from kubetester.mongotester import (
+    ShardedClusterTester,
+    MongoTester,
+    MongoDBBackgroundTester,
+)
 
 
 @fixture(scope="module")
@@ -16,7 +20,10 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
         mongod_tester,
         # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
         allowed_sequential_failures=2,
-        health_function_params={"attempts": 1, "write_concern": pymongo.WriteConcern(w="majority")},
+        health_function_params={
+            "attempts": 1,
+            "write_concern": pymongo.WriteConcern(w="majority"),
+        },
     )
 
 

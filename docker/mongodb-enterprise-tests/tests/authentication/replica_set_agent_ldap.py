@@ -13,13 +13,17 @@ PASSWORD = "my-password"
 
 @fixture(scope="module")
 def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
-    resource = MongoDB.from_yaml(find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace)
+    resource = MongoDB.from_yaml(
+        find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace
+    )
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
 
     ac_secret_name = "automation-config-password"
-    create_secret(namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."})
+    create_secret(
+        namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."}
+    )
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": [openldap.servers],
@@ -40,7 +44,9 @@ def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
 
 
 @fixture(scope="module")
-def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser) -> MongoDBUser:
+def ldap_user_mongodb(
+    replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser
+) -> MongoDBUser:
     """Returns a list of MongoDBUsers (already created) and their corresponding passwords."""
     user = generic_user(
         namespace,
@@ -66,7 +72,9 @@ def test_replica_set(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
+def test_new_ldap_users_can_authenticate(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(
@@ -98,7 +106,9 @@ def test_scale_replica_test(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_auth
-def test_new_ldap_users_can_authenticate_after_scaling(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
+def test_new_ldap_users_can_authenticate_after_scaling(
+    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
+):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(

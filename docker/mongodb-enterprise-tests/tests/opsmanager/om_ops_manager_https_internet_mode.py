@@ -9,7 +9,9 @@ from kubetester.kubetester import KubernetesTester, fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import is_multi_cluster, create_appdb_certs
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 
 @fixture(scope="module")
@@ -19,7 +21,9 @@ def appdb_certs(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
-    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert")
+    return create_ops_manager_tls_certs(
+        issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert"
+    )
 
 
 @fixture(scope="module")
@@ -31,7 +35,9 @@ def ops_manager(
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
-    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
+        _fixture("om_https_enabled.yaml"), namespace=namespace
+    )
     om.set_version(custom_version)
 
     # do not use local mode
@@ -61,9 +67,9 @@ def ops_manager(
 
 @fixture(scope="module")
 def replicaset0(ops_manager: MongoDBOpsManager, namespace: str):
-    resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset0", namespace=namespace).configure(
-        ops_manager, "replicaset0"
-    )
+    resource = MongoDB.from_yaml(
+        _fixture("replica-set.yaml"), name="replicaset0", namespace=namespace
+    ).configure(ops_manager, "replicaset0")
     resource["spec"]["version"] = "4.0.20"
 
     return resource.create()
@@ -71,9 +77,9 @@ def replicaset0(ops_manager: MongoDBOpsManager, namespace: str):
 
 @fixture(scope="module")
 def replicaset1(ops_manager: MongoDBOpsManager, namespace: str):
-    resource = MongoDB.from_yaml(_fixture("replica-set.yaml"), name="replicaset1", namespace=namespace).configure(
-        ops_manager, "replicaset1"
-    )
+    resource = MongoDB.from_yaml(
+        _fixture("replica-set.yaml"), name="replicaset1", namespace=namespace
+    ).configure(ops_manager, "replicaset1")
     resource["spec"]["version"] = "4.2.8"
 
     return resource.create()
@@ -96,8 +102,12 @@ def test_project_is_configured_with_custom_ca(
     issuer_ca_plus: str,
 ):
     """Both projects are configured with the new HTTPS enabled Ops Manager."""
-    project1 = ops_manager.get_or_create_mongodb_connection_config_map("replicaset0", "replicaset0")
-    project2 = ops_manager.get_or_create_mongodb_connection_config_map("replicaset1", "replicaset1")
+    project1 = ops_manager.get_or_create_mongodb_connection_config_map(
+        "replicaset0", "replicaset0"
+    )
+    project2 = ops_manager.get_or_create_mongodb_connection_config_map(
+        "replicaset1", "replicaset1"
+    )
 
     data = {
         "sslMMSCAConfigMap": issuer_ca_plus,
@@ -111,7 +121,9 @@ def test_project_is_configured_with_custom_ca(
 
 
 @mark.e2e_om_ops_manager_https_enabled_internet_mode
-def test_mongodb_replicaset_over_https_ops_manager(replicaset0: MongoDB, replicaset1: MongoDB):
+def test_mongodb_replicaset_over_https_ops_manager(
+    replicaset0: MongoDB, replicaset1: MongoDB
+):
     """Both replicasets get to running state and are reachable."""
 
     replicaset0.assert_reaches_phase(Phase.Running, timeout=360)

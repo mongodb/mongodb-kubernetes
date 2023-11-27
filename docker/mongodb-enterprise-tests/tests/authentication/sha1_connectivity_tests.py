@@ -59,7 +59,9 @@ class SHA1ConnectivityTests:
     # CreateMongoDBUser
 
     def test_create_secret(self):
-        print(f"creating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME} ")
+        print(
+            f"creating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME} "
+        )
 
         create_or_update_secret(
             KubernetesTester.get_namespace(),
@@ -94,14 +96,18 @@ class SHA1ConnectivityTests:
         tester.assert_user_has_roles(self.USER_NAME, expected_roles)
         tester.assert_expected_users(1)
 
-    def test_user_cannot_authenticate_with_incorrect_password(self, mongo_tester: MongoTester):
+    def test_user_cannot_authenticate_with_incorrect_password(
+        self, mongo_tester: MongoTester
+    ):
         mongo_tester.assert_scram_sha_authentication_fails(
             password="invalid-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-1",
         )
 
-    def test_user_can_authenticate_with_correct_password(self, mongo_tester: MongoTester):
+    def test_user_can_authenticate_with_correct_password(
+        self, mongo_tester: MongoTester
+    ):
         mongo_tester.assert_scram_sha_authentication(
             password="my-password",
             username="mms-user-1",
@@ -112,7 +118,9 @@ class SHA1ConnectivityTests:
     # CanChangePassword
 
     def test_update_secret(self, mdb: MongoDB):
-        print(f"updating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME}")
+        print(
+            f"updating password for MongoDBUser {self.USER_NAME} in secret/{self.PASSWORD_SECRET_NAME}"
+        )
         KubernetesTester.update_secret(
             KubernetesTester.get_namespace(),
             self.PASSWORD_SECRET_NAME,
@@ -127,14 +135,18 @@ class SHA1ConnectivityTests:
             attempts=20,
         )
 
-    def test_user_cannot_authenticate_with_old_password(self, mongo_tester: MongoTester):
+    def test_user_cannot_authenticate_with_old_password(
+        self, mongo_tester: MongoTester
+    ):
         mongo_tester.assert_scram_sha_authentication_fails(
             password="my-password",
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-1",
         )
 
-    def test_authentication_is_disabled_once_resource_is_deleted(namespace: str, mdb: MongoDB):
+    def test_authentication_is_disabled_once_resource_is_deleted(
+        namespace: str, mdb: MongoDB
+    ):
         mdb.delete()
 
         def resource_is_deleted() -> bool:

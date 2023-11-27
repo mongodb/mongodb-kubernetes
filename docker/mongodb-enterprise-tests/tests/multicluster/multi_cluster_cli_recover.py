@@ -34,9 +34,13 @@ def mongodb_multi_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
+    )
     # ensure certs are created for the members during scale up
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -64,7 +68,9 @@ def server_certs(
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
+def mongodb_multi(
+    mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
+) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
     create_or_update(mongodb_multi_unmarshalled)
     return mongodb_multi_unmarshalled
@@ -76,7 +82,9 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
+    run_kube_config_creation_tool(
+        member_cluster_names[:-1], namespace, namespace, member_cluster_names
+    )
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.assert_is_running()
@@ -93,7 +101,9 @@ def test_recover_operator_add_cluster(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names, namespace, namespace)
+    return_code = run_multi_cluster_recovery_tool(
+        member_cluster_names, namespace, namespace
+    )
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
@@ -105,10 +115,14 @@ def test_recover_operator_add_cluster(
 
 
 @pytest.mark.e2e_multi_cluster_recover
-def test_mongodb_multi_recovers_adding_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
+def test_mongodb_multi_recovers_adding_cluster(
+    mongodb_multi: MongoDBMulti, member_cluster_names: List[str]
+):
     mongodb_multi.load()
 
-    mongodb_multi["spec"]["clusterSpecList"].append({"clusterName": member_cluster_names[-1], "members": 2})
+    mongodb_multi["spec"]["clusterSpecList"].append(
+        {"clusterName": member_cluster_names[-1], "members": 2}
+    )
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -119,7 +133,9 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[1:], namespace, namespace)
+    return_code = run_multi_cluster_recovery_tool(
+        member_cluster_names[1:], namespace, namespace
+    )
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
@@ -131,7 +147,9 @@ def test_recover_operator_remove_cluster(
 
 
 @pytest.mark.e2e_multi_cluster_recover
-def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
+def test_mongodb_multi_recovers_removing_cluster(
+    mongodb_multi: MongoDBMulti, member_cluster_names: List[str]
+):
     last_transition_time = mongodb_multi.get_status_last_transition_time()
     mongodb_multi.load()
 

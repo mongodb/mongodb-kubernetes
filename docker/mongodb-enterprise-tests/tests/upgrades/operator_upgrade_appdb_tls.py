@@ -33,7 +33,9 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
     )
-    resource["spec"]["applicationDatabase"]["security"]["certsSecretPrefix"] = CERT_PREFIX
+    resource["spec"]["applicationDatabase"]["security"][
+        "certsSecretPrefix"
+    ] = CERT_PREFIX
 
     return resource.create()
 

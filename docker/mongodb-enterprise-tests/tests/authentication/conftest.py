@@ -48,10 +48,14 @@ def openldap_install(
 
     if helm_args is None:
         helm_args = {}
-    helm_args.update({"namespace": namespace, "fullnameOverride": name, "nameOverride": name})
+    helm_args.update(
+        {"namespace": namespace, "fullnameOverride": name, "nameOverride": name}
+    )
 
     # check if the openldap pod exists, if not do a helm upgrade
-    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(namespace, label_selector=f"app={name}")
+    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
+        namespace, label_selector=f"app={name}"
+    )
     if not pods.items:
         print(f"performing helm upgrade of openldap")
 
@@ -138,7 +142,9 @@ def ldap_mongodb_user_tls(openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
 
 
 @fixture(scope="module")
-def ldap_mongodb_x509_agent_user(openldap: OpenLDAP, namespace: str, ca_path: str) -> LDAPUser:
+def ldap_mongodb_x509_agent_user(
+    openldap: OpenLDAP, namespace: str, ca_path: str
+) -> LDAPUser:
     organization_name = "cluster.local-agent"
     user = LDAPUser(
         AUTOMATION_AGENT_NAME,
@@ -147,7 +153,9 @@ def ldap_mongodb_x509_agent_user(openldap: OpenLDAP, namespace: str, ca_path: st
 
     ensure_organization(openldap, organization_name, ca_path=ca_path)
 
-    ensure_organizational_unit(openldap, namespace, o=organization_name, ca_path=ca_path)
+    ensure_organizational_unit(
+        openldap, namespace, o=organization_name, ca_path=ca_path
+    )
     create_user(openldap, user, ou=namespace, o=organization_name)
 
     ensure_group(
@@ -176,7 +184,9 @@ def ldap_mongodb_agent_user(openldap: OpenLDAP) -> LDAPUser:
     create_user(openldap, user, ou="groups")
 
     ensure_group(openldap, cn="agents", ou="groups")
-    add_user_to_group(openldap, user=AUTOMATION_AGENT_NAME, group_cn="agents", ou="groups")
+    add_user_to_group(
+        openldap, user=AUTOMATION_AGENT_NAME, group_cn="agents", ou="groups"
+    )
 
     return user
 
@@ -189,7 +199,9 @@ def secondary_ldap_mongodb_agent_user(secondary_openldap: OpenLDAP) -> LDAPUser:
     create_user(secondary_openldap, user, ou="groups")
 
     ensure_group(secondary_openldap, cn="agents", ou="groups")
-    add_user_to_group(secondary_openldap, user=AUTOMATION_AGENT_NAME, group_cn="agents", ou="groups")
+    add_user_to_group(
+        secondary_openldap, user=AUTOMATION_AGENT_NAME, group_cn="agents", ou="groups"
+    )
 
     return user
 
@@ -239,5 +251,7 @@ def ldap_url(
     return "{}://{}:{}".format(proto, host, port)
 
 
-def ldap_admin_password(namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> str:
+def ldap_admin_password(
+    namespace: str, name: str, api_client: Optional[client.ApiClient] = None
+) -> str:
     return read_secret(namespace, name, api_client=api_client)["LDAP_ADMIN_PASSWORD"]

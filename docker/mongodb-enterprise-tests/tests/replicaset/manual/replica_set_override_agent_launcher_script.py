@@ -21,7 +21,9 @@ from tests.opsmanager.conftest import ensure_ent_version
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> MongoDBOpsManager:
+def ops_manager(
+    namespace: str, custom_version: str, custom_appdb_version
+) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
     )
@@ -41,7 +43,8 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> Mo
 @fixture(scope="function")
 def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
-        find_fixture("replica-set-override-agent-launcher-script.yaml"), namespace=namespace
+        find_fixture("replica-set-override-agent-launcher-script.yaml"),
+        namespace=namespace,
     ).configure(ops_manager, "replica-set")
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["logLevel"] = "INFO"
@@ -53,17 +56,23 @@ def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> Mo
         },
     }
     resource["spec"]["agent"] = {
-        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileWithoutExt"}
+        "startupOptions": {
+            "logFile": "/var/log/mongodb-mms-automation/customLogFileWithoutExt"
+        }
     }
 
     return resource
 
 
 def test_replica_set(replica_set: MongoDB):
-    with open("../mongodb-enterprise-init-database/content/agent-launcher.sh", "rb") as f:
+    with open(
+        "../mongodb-enterprise-init-database/content/agent-launcher.sh", "rb"
+    ) as f:
         agent_launcher = base64.b64encode(f.read()).decode("utf-8")
 
-    with open("../mongodb-enterprise-init-database/content/agent-launcher-lib.sh", "rb") as f:
+    with open(
+        "../mongodb-enterprise-init-database/content/agent-launcher-lib.sh", "rb"
+    ) as f:
         agent_launcher_lib = base64.b64encode(f.read()).decode("utf-8")
 
     command = f"""
@@ -71,7 +80,9 @@ echo -n "{agent_launcher}" | base64 -d > /opt/scripts/agent-launcher.sh
 echo -n "{agent_launcher_lib}" | base64 -d > /opt/scripts/agent-launcher-lib.sh
     """
 
-    replica_set["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"][0]["args"] = ["-c", command]
+    replica_set["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"][0][
+        "args"
+    ] = ["-c", command]
 
     create_or_update(replica_set)
 

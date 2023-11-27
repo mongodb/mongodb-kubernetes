@@ -44,7 +44,9 @@ def s3_bucket_oplog(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
-    create_aws_secret(aws_s3_client, S3_OPLOG_NAME + "-secret", namespace, central_cluster_client)
+    create_aws_secret(
+        aws_s3_client, S3_OPLOG_NAME + "-secret", namespace, central_cluster_client
+    )
     yield from create_s3_bucket(aws_s3_client)
 
 
@@ -54,7 +56,9 @@ def s3_bucket_blockstore(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
-    create_aws_secret(aws_s3_client, S3_BLOCKSTORE_NAME + "-secret", namespace, central_cluster_client)
+    create_aws_secret(
+        aws_s3_client, S3_BLOCKSTORE_NAME + "-secret", namespace, central_cluster_client
+    )
     yield from create_s3_bucket(aws_s3_client)
 
 
@@ -63,7 +67,9 @@ def appdb_member_cluster_names() -> list[str]:
     return ["kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 
 
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
+def create_project_config_map(
+    om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca
+):
     name = f"{mdb_name}-config"
     data = {
         "baseUrl": om.om_status().get_url(),
@@ -86,7 +92,9 @@ def multi_cluster_s3_replica_set(
         yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace
     ).configure(ops_manager, "s3metadata", api_client=central_cluster_client)
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        appdb_member_cluster_names, [1, 2]
+    )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     yield create_or_update(resource)
 
@@ -120,15 +128,23 @@ def ops_manager(
 
     # configure S3 Blockstore
     resource["spec"]["backup"]["s3Stores"][0]["name"] = S3_BLOCKSTORE_NAME
-    resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = S3_BLOCKSTORE_NAME + "-secret"
-    resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
+    resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = (
+        S3_BLOCKSTORE_NAME + "-secret"
+    )
+    resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(
+        AWS_REGION
+    )
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket_blockstore
     resource["spec"]["backup"]["s3Stores"][0]["s3RegionOverride"] = AWS_REGION
 
     # configure S3 Oplog
     resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = S3_OPLOG_NAME
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = S3_OPLOG_NAME + "-secret"
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
+    resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = (
+        S3_OPLOG_NAME + "-secret"
+    )
+    resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(
+        AWS_REGION
+    )
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3RegionOverride"] = AWS_REGION
 
@@ -157,9 +173,15 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
-    def test_om_is_running(self, ops_manager: MongoDBOpsManager, central_cluster_client: kubernetes.client.ApiClient):
+    def test_om_is_running(
+        self,
+        ops_manager: MongoDBOpsManager,
+        central_cluster_client: kubernetes.client.ApiClient,
+    ):
         # at this point AppDB is used as the "metadatastore"
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000, ignore_errors=True)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running, timeout=1000, ignore_errors=True
+        )
         om_tester = ops_manager.get_om_tester(api_client=central_cluster_client)
         om_tester.assert_healthiness()
 
@@ -172,19 +194,31 @@ class TestOpsManagerCreation:
 
         # configure metadatastore in om, use dedicate MDB instead of AppDB
         ops_manager.load()
-        ops_manager["spec"]["backup"]["s3Stores"][0]["mongodbResourceRef"] = {"name": multi_cluster_s3_replica_set.name}
+        ops_manager["spec"]["backup"]["s3Stores"][0]["mongodbResourceRef"] = {
+            "name": multi_cluster_s3_replica_set.name
+        }
         ops_manager["spec"]["backup"]["s3OpLogStores"][0]["mongodbResourceRef"] = {
             "name": multi_cluster_s3_replica_set.name
         }
         ops_manager.update()
 
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=10000)
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000, ignore_errors=True)
+        ops_manager.backup_status().assert_reaches_phase(
+            Phase.Running, timeout=1000, ignore_errors=True
+        )
 
-    def test_om_s3_stores(self, ops_manager: MongoDBOpsManager, central_cluster_client: kubernetes.client.ApiClient):
+    def test_om_s3_stores(
+        self,
+        ops_manager: MongoDBOpsManager,
+        central_cluster_client: kubernetes.client.ApiClient,
+    ):
         om_tester = ops_manager.get_om_tester(api_client=central_cluster_client)
-        om_tester.assert_s3_stores([{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}])
-        om_tester.assert_oplog_s3_stores([{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}])
+        om_tester.assert_s3_stores(
+            [{"id": S3_BLOCKSTORE_NAME, "s3RegionOverride": AWS_REGION}]
+        )
+        om_tester.assert_oplog_s3_stores(
+            [{"id": S3_OPLOG_NAME, "s3RegionOverride": AWS_REGION}]
+        )
 
 
 @mark.e2e_multi_cluster_appdb_s3_based_backup_restore
@@ -219,12 +253,18 @@ class TestBackupForMongodb:
             "multi-replica-set-one",
             namespace
             # the project configmap should be created in the central cluster.
-        ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
+        ).configure(
+            ops_manager, f"{namespace}-project-one", api_client=central_cluster_client
+        )
 
-        resource["spec"]["clusterSpecList"] = cluster_spec_list(appdb_member_cluster_names, [1, 2])
+        resource["spec"]["clusterSpecList"] = cluster_spec_list(
+            appdb_member_cluster_names, [1, 2]
+        )
 
         # creating a cluster with backup should work with custom ports
-        resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
+        resource["spec"].update(
+            {"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}}
+        )
 
         resource.configure_backup(mode="enabled")
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -233,7 +273,9 @@ class TestBackupForMongodb:
 
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
         # we might fail connection in the beginning since we set a custom dns in coredns
-        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
+        mongodb_multi_one.assert_reaches_phase(
+            Phase.Running, ignore_errors=True, timeout=600
+        )
 
     @skip_if_local
     def test_add_test_data(self, mongodb_multi_one_collection):
@@ -262,7 +304,11 @@ class TestBackupForMongodb:
 
         pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
-        print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
+        print(
+            "Restoring back to the moment 15 seconds ago (millis): {}".format(
+                pit_millis
+            )
+        )
 
         project_one.create_restore_job_pit(pit_millis)
 
@@ -302,9 +348,15 @@ class TestBackupForMongodb:
             retries -= 1
             time.sleep(1)
 
-        print("\nExisting data in MDB: {}".format(list(mongodb_multi_one_collection.find())))
+        print(
+            "\nExisting data in MDB: {}".format(
+                list(mongodb_multi_one_collection.find())
+            )
+        )
 
-        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
+        raise AssertionError(
+            f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}"
+        )
 
 
 def time_to_millis(date_time) -> int:

@@ -55,7 +55,9 @@ def multi_cluster_ldap_issuer(
 
 
 @fixture(scope="module")
-def multicluster_openldap_cert(member_cluster_clients: List[MultiClusterClient], multi_cluster_ldap_issuer: str) -> str:
+def multicluster_openldap_cert(
+    member_cluster_clients: List[MultiClusterClient], multi_cluster_ldap_issuer: str
+) -> str:
     """Returns a new secret to be used to enable TLS on LDAP."""
 
     member_cluster_one = member_cluster_clients[0]
@@ -118,7 +120,9 @@ def ldap_mongodb_user(multicluster_openldap_tls: OpenLDAP, ca_path: str) -> LDAP
 
 
 @fixture(scope="module")
-def ldap_mongodb_users(multicluster_openldap_tls: OpenLDAP, ca_path: str) -> List[LDAPUser]:
+def ldap_mongodb_users(
+    multicluster_openldap_tls: OpenLDAP, ca_path: str
+) -> List[LDAPUser]:
     user_list = [LDAPUser("mdb0", LDAP_PASSWORD)]
     for user in user_list:
         create_user(multicluster_openldap_tls, user, ou="groups", ca_path=ca_path)
@@ -126,7 +130,9 @@ def ldap_mongodb_users(multicluster_openldap_tls: OpenLDAP, ca_path: str) -> Lis
 
 
 @fixture(scope="module")
-def ldap_mongodb_agent_user(multicluster_openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
+def ldap_mongodb_agent_user(
+    multicluster_openldap_tls: OpenLDAP, ca_path: str
+) -> LDAPUser:
     user = LDAPUser(AUTOMATION_AGENT_NAME, LDAP_PASSWORD)
 
     ensure_organizational_unit(multicluster_openldap_tls, "groups", ca_path=ca_path)
@@ -151,11 +157,15 @@ def service_entries(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
 ) -> List[CustomObject]:
-    return create_service_entries_objects(namespace, central_cluster_client, member_cluster_names)
+    return create_service_entries_objects(
+        namespace, central_cluster_client, member_cluster_names
+    )
 
 
 @fixture(scope="module")
-def test_patch_central_namespace(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> str:
+def test_patch_central_namespace(
+    namespace: str, central_cluster_client: kubernetes.client.ApiClient
+) -> str:
     corev1 = kubernetes.client.CoreV1Api(api_client=central_cluster_client)
     ns = corev1.read_namespace(namespace)
     ns.metadata.labels["istio-injection"] = "enabled"
@@ -197,9 +207,14 @@ def create_service_entries_objects(
         api_client=central_cluster_client,
     )
 
-    api_servers = get_api_servers_from_test_pod_kubeconfig(namespace, member_cluster_names)
+    api_servers = get_api_servers_from_test_pod_kubeconfig(
+        namespace, member_cluster_names
+    )
 
-    host_parse_results = [urllib.parse.urlparse(api_servers[member_cluster]) for member_cluster in member_cluster_names]
+    host_parse_results = [
+        urllib.parse.urlparse(api_servers[member_cluster])
+        for member_cluster in member_cluster_names
+    ]
 
     hosts = set(["cloud-qa.mongodb.com"])
     addresses = set()
@@ -251,9 +266,14 @@ def cluster_spec_list(
     member_configs: List[Dict] = None,
 ):
     if member_configs is None:
-        return [{"clusterName": name, "members": members} for (name, members) in zip(member_cluster_names, members)]
+        return [
+            {"clusterName": name, "members": members}
+            for (name, members) in zip(member_cluster_names, members)
+        ]
     else:
         return [
             {"clusterName": name, "members": members, "memberConfig": memberConfig}
-            for (name, members, memberConfig) in zip(member_cluster_names, members, member_configs)
+            for (name, members, memberConfig) in zip(
+                member_cluster_names, members, member_configs
+            )
         ]

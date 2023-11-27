@@ -17,8 +17,12 @@ CLUSTER_TO_DELETE = "member-3a"
 # this test is intended to run locally, using telepresence. Make sure to configure the cluster_context to api-server mapping
 # in the "cluster_host_mapping" fixture before running it. It is intented to be run locally with the command: make e2e-telepresence test=e2e_multi_cluster_dr local=true
 @pytest.fixture(scope="module")
-def mongodb_multi(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-dr.yaml"), "multi-replica-set", namespace)
+def mongodb_multi(
+    central_cluster_client: kubernetes.client.ApiClient, namespace: str
+) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi-dr.yaml"), "multi-replica-set", namespace
+    )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     # return resource.load()

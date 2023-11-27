@@ -84,7 +84,9 @@ class BackupSnapshotScheduleTests:
 
         try:
             mdb.get_om_tester().api_read_backup_snapshot_schedule()
-            assert False, "exception about missing backup configuration should be raised"
+            assert (
+                False
+            ), "exception about missing backup configuration should be raised"
         except Exception:
             pass
 
@@ -140,7 +142,9 @@ class BackupSnapshotScheduleTests:
         expected_snapshot_schedule = dict(prev_snapshot_schedule)
         expected_snapshot_schedule["fullIncrementalDayOfWeek"] = "THURSDAY"
 
-        self.assert_snapshot_schedule_in_ops_manager(mdb.get_om_tester(), expected_snapshot_schedule)
+        self.assert_snapshot_schedule_in_ops_manager(
+            mdb.get_om_tester(), expected_snapshot_schedule
+        )
 
     def test_check_all_fields_are_set(self, mdb: MongoDB):
         self.update_and_assert_snapshot_schedule(
@@ -190,7 +194,9 @@ class BackupSnapshotScheduleTests:
         mdb.assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     @staticmethod
-    def assert_snapshot_schedule_in_ops_manager(om_tester: OMTester, expected_snapshot_schedule: Dict):
+    def assert_snapshot_schedule_in_ops_manager(
+        om_tester: OMTester, expected_snapshot_schedule: Dict
+    ):
         snapshot_schedule = om_tester.api_read_backup_snapshot_schedule()
 
         for k, v in expected_snapshot_schedule.items():
@@ -200,4 +206,6 @@ class BackupSnapshotScheduleTests:
     @staticmethod
     def update_and_assert_snapshot_schedule(mdb: MongoDB, snapshot_schedule: Dict):
         BackupSnapshotScheduleTests.update_snapshot_schedule(mdb, snapshot_schedule)
-        BackupSnapshotScheduleTests.assert_snapshot_schedule_in_ops_manager(mdb.get_om_tester(), snapshot_schedule)
+        BackupSnapshotScheduleTests.assert_snapshot_schedule_in_ops_manager(
+            mdb.get_om_tester(), snapshot_schedule
+        )

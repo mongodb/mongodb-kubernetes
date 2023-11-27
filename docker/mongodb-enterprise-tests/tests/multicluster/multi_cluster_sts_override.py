@@ -13,7 +13,9 @@ from kubetester.operator import Operator
 
 @pytest.fixture(scope="module")
 def mongodb_multi(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str, member_cluster_names: list[str]
+    central_cluster_client: kubernetes.client.ApiClient,
+    namespace: str,
+    member_cluster_names: list[str],
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(
         yaml_fixture("mongodb-multi-sts-override.yaml"),
@@ -36,7 +38,9 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_sts_override
-def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+def test_statefulset_overrides(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
 
     # assert sts.podspec override in cluster1
@@ -57,7 +61,9 @@ def test_access_modes_pvc(
     member_cluster_clients: List[MultiClusterClient],
     namespace: str,
 ):
-    pvc = client.CoreV1Api(api_client=member_cluster_clients[0].api_client).read_namespaced_persistent_volume_claim(
+    pvc = client.CoreV1Api(
+        api_client=member_cluster_clients[0].api_client
+    ).read_namespaced_persistent_volume_claim(
         f"data-{mongodb_multi.name}-{0}-{0}", namespace
     )
 

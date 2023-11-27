@@ -32,7 +32,9 @@ def mongodb_multi(
         namespace,
     )
     resource["spec"]["persistent"] = False
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     additional_mongod_config = {
         "systemLog": {"logAppend": True, "verbosity": 4},
@@ -50,7 +52,9 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str):
+def test_create_kube_config_file(
+    cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str
+):
     clients = cluster_clients
 
     assert len(clients) == 4
@@ -95,7 +99,9 @@ def test_pvc_not_created(
     namespace: str,
 ):
     with pytest.raises(kubernetes.client.exceptions.ApiException) as e:
-        client.CoreV1Api(api_client=member_cluster_clients[0].api_client).read_namespaced_persistent_volume_claim(
+        client.CoreV1Api(
+            api_client=member_cluster_clients[0].api_client
+        ).read_namespaced_persistent_volume_claim(
             f"data-{mongodb_multi.name}-{0}-{0}", namespace
         )
         assert e.value.reason == "Not Found"
@@ -109,7 +115,9 @@ def test_replica_set_is_reachable(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+def test_statefulset_overrides(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     # assert sts.podspec override in cluster1
     cluster_one_client = member_cluster_clients[0]
@@ -119,29 +127,39 @@ def test_statefulset_overrides(mongodb_multi: MongoDBMulti, member_cluster_clien
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_headless_service_creation(
-    mongodb_multi: MongoDBMulti, namespace: str, member_cluster_clients: List[MultiClusterClient]
+    mongodb_multi: MongoDBMulti,
+    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
 ):
     headless_services = mongodb_multi.read_headless_services(member_cluster_clients)
 
     cluster_one_client = member_cluster_clients[0]
     cluster_one_svc = headless_services[cluster_one_client.cluster_name]
-    ep_one = client.CoreV1Api(api_client=cluster_one_client.api_client).read_namespaced_endpoints(
-        cluster_one_svc.metadata.name, namespace
+    ep_one = client.CoreV1Api(
+        api_client=cluster_one_client.api_client
+    ).read_namespaced_endpoints(cluster_one_svc.metadata.name, namespace)
+    assert (
+        len(ep_one.subsets[0].addresses)
+        == mongodb_multi.get_item_spec(cluster_one_client.cluster_name)["members"]
     )
-    assert len(ep_one.subsets[0].addresses) == mongodb_multi.get_item_spec(cluster_one_client.cluster_name)["members"]
 
     cluster_two_client = member_cluster_clients[1]
     cluster_two_svc = headless_services[cluster_two_client.cluster_name]
-    ep_two = client.CoreV1Api(api_client=cluster_two_client.api_client).read_namespaced_endpoints(
-        cluster_two_svc.metadata.name, namespace
+    ep_two = client.CoreV1Api(
+        api_client=cluster_two_client.api_client
+    ).read_namespaced_endpoints(cluster_two_svc.metadata.name, namespace)
+    assert (
+        len(ep_two.subsets[0].addresses)
+        == mongodb_multi.get_item_spec(cluster_two_client.cluster_name)["members"]
     )
-    assert len(ep_two.subsets[0].addresses) == mongodb_multi.get_item_spec(cluster_two_client.cluster_name)["members"]
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_mongodb_options(mongodb_multi: MongoDBMulti):
     automation_config_tester = mongodb_multi.get_automation_config_tester()
-    for process in automation_config_tester.get_replica_set_processes(mongodb_multi.name):
+    for process in automation_config_tester.get_replica_set_processes(
+        mongodb_multi.name
+    ):
         assert process["args2_6"]["systemLog"]["verbosity"] == 4
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
@@ -149,9 +167,13 @@ def test_mongodb_options(mongodb_multi: MongoDBMulti):
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_client: kubernetes.client.ApiClient):
+def test_update_additional_options(
+    mongodb_multi: MongoDBMulti, central_cluster_client: kubernetes.client.ApiClient
+):
     mongodb_multi["spec"]["additionalMongodConfig"]["systemLog"]["verbosity"] = 2
-    mongodb_multi["spec"]["additionalMongodConfig"]["net"]["maxIncomingConnections"] = 100
+    mongodb_multi["spec"]["additionalMongodConfig"]["net"][
+        "maxIncomingConnections"
+    ] = 100
     # update uses json merge+patch which means that deleting keys is done by setting them to None
     mongodb_multi["spec"]["additionalMongodConfig"]["operationProfiling"] = None
 
@@ -163,7 +185,9 @@ def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_mongodb_options_were_updated(mongodb_multi: MongoDBMulti):
     automation_config_tester = mongodb_multi.get_automation_config_tester()
-    for process in automation_config_tester.get_replica_set_processes(mongodb_multi.name):
+    for process in automation_config_tester.get_replica_set_processes(
+        mongodb_multi.name
+    ):
         assert process["args2_6"]["systemLog"]["verbosity"] == 2
         assert process["args2_6"]["systemLog"]["logAppend"]
         assert process["args2_6"]["net"]["maxIncomingConnections"] == 100
@@ -195,7 +219,9 @@ def test_delete_member_cluster_sts(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
-def test_cleanup_on_mdbm_delete(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
+def test_cleanup_on_mdbm_delete(
+    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
+):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
@@ -204,7 +230,9 @@ def test_cleanup_on_mdbm_delete(mongodb_multi: MongoDBMulti, member_cluster_clie
 
     def check_sts_not_exist():
         try:
-            client.AppsV1Api(api_client=cluster_one_client.api_client).read_namespaced_stateful_set(
+            client.AppsV1Api(
+                api_client=cluster_one_client.api_client
+            ).read_namespaced_stateful_set(
                 cluster_one_sts.metadata.name, cluster_one_sts.metadata.namespace
             )
         except ApiException as e:

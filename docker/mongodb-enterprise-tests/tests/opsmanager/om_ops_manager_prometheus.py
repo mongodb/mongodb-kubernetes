@@ -1,7 +1,12 @@
 import time
 
 from kubernetes import client
-from kubetester import MongoDB, create_or_update_secret, random_k8s_name, create_or_update
+from kubetester import (
+    MongoDB,
+    create_or_update_secret,
+    random_k8s_name,
+    create_or_update,
+)
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import fixture as yaml_fixture
@@ -10,7 +15,9 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 
 def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
@@ -43,7 +50,9 @@ def ops_manager(
     resource.allow_mdb_rc_versions()
     resource["spec"]["replicas"] = 1
 
-    create_or_update_secret(namespace, "appdb-prom-secret", {"password": "prom-password"})
+    create_or_update_secret(
+        namespace, "appdb-prom-secret", {"password": "prom-password"}
+    )
 
     prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name + "-db")
     resource["spec"]["applicationDatabase"]["prometheus"] = {
@@ -62,14 +71,18 @@ def ops_manager(
 
 
 @fixture(scope="module")
-def sharded_cluster(ops_manager: MongoDBOpsManager, namespace: str, issuer: str) -> MongoDB:
+def sharded_cluster(
+    ops_manager: MongoDBOpsManager, namespace: str, issuer: str
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster.yaml"),
         namespace=namespace,
     )
     prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
 
-    create_or_update_secret(namespace, "cluster-secret", {"password": "cluster-prom-password"})
+    create_or_update_secret(
+        namespace, "cluster-secret", {"password": "cluster-prom-password"}
+    )
 
     resource["spec"]["prometheus"] = {
         "username": "prom-user",
@@ -97,7 +110,9 @@ def replica_set(
 
     create_or_update_secret(namespace, "rs-secret", {"password": "prom-password"})
 
-    resource = generic_replicaset(namespace, "5.0.6", "replica-set-with-prom", ops_manager)
+    resource = generic_replicaset(
+        namespace, "5.0.6", "replica-set-with-prom", ops_manager
+    )
 
     prom_cert_secret = certs_for_prometheus(issuer, namespace, resource.name)
     resource["spec"]["prometheus"] = {
@@ -146,7 +161,9 @@ def test_prometheus_can_change_credentials(replica_set: MongoDB):
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_prometheus_endpoint_works_on_every_pod_with_changed_username(replica_set: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod_with_changed_username(
+    replica_set: MongoDB, namespace: str
+):
     members = replica_set["spec"]["members"]
     name = replica_set.name
 
@@ -163,7 +180,9 @@ def test_create_sharded_cluster(sharded_cluster: MongoDB):
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: MongoDB, namespace: str):
+def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(
+    sharded_cluster: MongoDB, namespace: str
+):
     """
     Checks that all of the Prometheus endpoints that we expect are up and listening.
     """
@@ -191,7 +210,9 @@ def test_prometheus_endpoint_works_on_every_pod_on_the_cluster(sharded_cluster: 
 
 
 @mark.e2e_om_ops_manager_prometheus
-def test_sharded_cluster_service_has_been_updated_with_prometheus_port(replica_set: MongoDB, sharded_cluster: MongoDB):
+def test_sharded_cluster_service_has_been_updated_with_prometheus_port(
+    replica_set: MongoDB, sharded_cluster: MongoDB
+):
     # Check that the service that belong to the Replica Set has the
     # the default Prometheus port.
     assert_mongodb_prometheus_port_exist(
@@ -232,7 +253,9 @@ def test_prometheus_endpoint_works_on_every_pod_on_appdb(ops_manager: MongoDB):
 
 
 def assert_mongodb_prometheus_port_exist(service_name: str, namespace: str, port: int):
-    services = client.CoreV1Api().read_namespaced_service(name=service_name, namespace=namespace)
+    services = client.CoreV1Api().read_namespaced_service(
+        name=service_name, namespace=namespace
+    )
     assert len(services.spec.ports) == 2
     ports = ((p.name, p.port) for p in services.spec.ports)
 

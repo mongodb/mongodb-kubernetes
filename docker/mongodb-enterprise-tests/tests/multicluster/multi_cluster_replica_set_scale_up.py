@@ -26,8 +26,12 @@ def mongodb_multi_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: List[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
+    resource = MongoDBMulti.from_yaml(
+        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
+    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(
+        member_cluster_names, [2, 1, 2]
+    )
 
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
@@ -57,7 +61,9 @@ def server_certs(
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
+def mongodb_multi(
+    mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
+) -> MongoDBMulti:
     # we have created certs for all 5 members, but want to start at only 3.
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][0]["members"] = 1
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"][1]["members"] = 1

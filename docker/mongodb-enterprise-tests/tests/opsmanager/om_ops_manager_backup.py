@@ -26,7 +26,9 @@ from pytest import mark, fixture
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.conftest import ensure_ent_version
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
@@ -85,7 +87,12 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
 
-def create_aws_secret(aws_s3_client, secret_name: str, namespace: str, api_client: Optional[client.ApiClient] = None):
+def create_aws_secret(
+    aws_s3_client,
+    secret_name: str,
+    namespace: str,
+    api_client: Optional[client.ApiClient] = None,
+):
     create_or_update_secret(
         namespace,
         secret_name,
@@ -115,7 +122,9 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
             aws_s3_client.delete_s3_bucket(bucket_name)
     except Exception as e:
         if running_locally():
-            print(f"Local run: skipping creating bucket {bucket_name} because it already exists.")
+            print(
+                f"Local run: skipping creating bucket {bucket_name} because it already exists."
+            )
             yield bucket_name
         else:
             raise e
@@ -149,7 +158,9 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
     # This test will update oplog to have SCRAM enabled
     # Currently this results in OM failure when enabling backup for a project, backup seems to do some caching resulting in the
     # mongoURI not being updated unless pod is killed. This is documented in CLOUDP-60443, once resolved this skip & comment can be deleted
-    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
 
     yield create_or_update(resource)
 
@@ -180,10 +191,14 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
 @fixture(scope="module")
 def blockstore_user(namespace, blockstore_replica_set: MongoDB) -> MongoDBUser:
     """Creates a password secret and then the user referencing it"""
-    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -207,7 +222,9 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -242,7 +259,9 @@ class TestOpsManagerCreation:
         """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
 
         ops_manager["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-        ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
+        ops_manager["spec"]["backup"]["headDB"][
+            "storageClass"
+        ] = get_default_storage_class()
         ops_manager["spec"]["backup"]["members"] = 2
 
         ops_manager.set_version(custom_version)
@@ -263,14 +282,18 @@ class TestOpsManagerCreation:
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset()
-            return stateful_set.status.ready_replicas == 2 and stateful_set.status.current_replicas == 2
+            return (
+                stateful_set.status.ready_replicas == 2
+                and stateful_set.status.current_replicas == 2
+            )
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
         stateful_set = ops_manager.read_backup_statefulset()
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name)
+            for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
         )
 
     def test_daemon_pvc(self, ops_manager: MongoDBOpsManager, namespace: str):
@@ -278,7 +301,11 @@ class TestOpsManagerCreation:
         pods = ops_manager.read_backup_pods()
         idx = 0
         for pod in pods:
-            claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
+            claims = [
+                volume
+                for volume in pod.spec.volumes
+                if getattr(volume, "persistent_volume_claim")
+            ]
             assert len(claims) == 1
             claims.sort(key=attrgetter("name"))
 
@@ -301,7 +328,9 @@ class TestOpsManagerCreation:
         # services on it. Let's make sure we only count those that we care of.
         # For now we allow this test to fail, because it is too broad to be significant
         # and it is easy to break it.
-        backup_services = [s for s in services if s.metadata.name.startswith("om-backup")]
+        backup_services = [
+            s for s in services if s.metadata.name.startswith("om-backup")
+        ]
 
         assert len(backup_services) >= 3
 
@@ -362,7 +391,9 @@ class TestBackupDatabasesAdded:
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
         oplog_replica_set.load()
-        oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+        oplog_replica_set["spec"]["security"] = {
+            "authentication": {"enabled": True, "modes": ["SCRAM"]}
+        }
         create_or_update(oplog_replica_set)
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -376,7 +407,9 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
+            "name": oplog_user.name
+        }
         create_or_update(ops_manager)
 
         ops_manager.backup_status().assert_reaches_phase(
@@ -405,7 +438,9 @@ class TestBackupDatabasesAdded:
         for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
-        om_tester.assert_block_stores([new_om_data_store(blockstore_replica_set, "blockStore1")])
+        om_tester.assert_block_stores(
+            [new_om_data_store(blockstore_replica_set, "blockStore1")]
+        )
         # oplog store has authentication enabled
         om_tester.assert_oplog_stores(
             [
@@ -417,7 +452,9 @@ class TestBackupDatabasesAdded:
                 )
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores(
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
+        )
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
         """There have been an update to the OM spec - all observed generations are expected to be updated"""
@@ -445,7 +482,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
     def test_scramsha_enabled_for_blockstore(self, blockstore_replica_set: MongoDB):
         """Enables SCRAM for the blockstore replica set. Note that until CLOUDP-67736 is fixed
         the order of operations (scram first, MongoDBUser - next) is important"""
-        blockstore_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+        blockstore_replica_set["spec"]["security"] = {
+            "authentication": {"enabled": True, "modes": ["SCRAM"]}
+        }
         create_or_update(blockstore_replica_set)
 
         # timeout of 600 is required when enabling SCRAM in mdb5.0.0
@@ -464,7 +503,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, blockstore_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
+        ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
+            "name": blockstore_user.name
+        }
         create_or_update(ops_manager)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
@@ -514,7 +555,9 @@ class TestOpsManagerWatchesBlockStoreUpdates:
                 )
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores(
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
+        )
 
 
 @mark.e2e_om_ops_manager_backup
@@ -523,7 +566,9 @@ class TestBackupForMongodb:
     Both latest and the one before the latest are tested (as the backup process for them may differ significantly)"""
 
     @fixture(scope="class")
-    def mdb_latest(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
+    def mdb_latest(
+        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
+    ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
@@ -536,7 +581,9 @@ class TestBackupForMongodb:
         return resource
 
     @fixture(scope="class")
-    def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
+    def mdb_prev(
+        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str
+    ):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
@@ -575,7 +622,9 @@ class TestBackupForMongodb:
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
 
-    def test_can_transition_from_started_to_stopped(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+    def test_can_transition_from_started_to_stopped(
+        self, mdb_latest: MongoDB, mdb_prev: MongoDB
+    ):
         # a direction transition from enabled to disabled is a single
         # step for the operator
         mdb_prev.assert_backup_reaches_status("STARTED", timeout=100)
@@ -583,7 +632,9 @@ class TestBackupForMongodb:
         create_or_update(mdb_prev)
         mdb_prev.assert_backup_reaches_status("STOPPED", timeout=600)
 
-    def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+    def test_can_transition_from_started_to_terminated_0(
+        self, mdb_latest: MongoDB, mdb_prev: MongoDB
+    ):
         # a direct transition from enabled to terminated is not possible
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
         mdb_latest.assert_backup_reaches_status("STARTED", timeout=100)
@@ -591,7 +642,9 @@ class TestBackupForMongodb:
         create_or_update(mdb_latest)
         mdb_latest.assert_backup_reaches_status("TERMINATING", timeout=600)
 
-    def test_backup_terminated_for_deleted_resource(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+    def test_backup_terminated_for_deleted_resource(
+        self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB
+    ):
         # re-enable backup
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = True
@@ -615,11 +668,15 @@ class TestBackupForMongodb:
         # assert backup is deactivated
         om_tester_second.wait_until_backup_deactivated()
 
-    def test_hosts_were_removed(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+    def test_hosts_were_removed(
+        self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB
+    ):
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
         om_tester_second.wait_until_hosts_are_empty()
 
-    def test_deploy_same_mdb_again_with_orphaned_backup(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+    def test_deploy_same_mdb_again_with_orphaned_backup(
+        self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB
+    ):
         mdb_prev.configure_backup(mode="enabled")
         mdb_prev["spec"]["backup"]["autoTerminateOnDeletion"] = False
         # we need to make sure to use a clean resource since we might have loaded it
@@ -644,7 +701,9 @@ class TestBackupForMongodb:
         # assert backup is orphaned
         om_tester_second.wait_until_backup_running()
 
-    def test_hosts_were_not_removed(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+    def test_hosts_were_not_removed(
+        self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB
+    ):
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
         om_tester_second.wait_until_hosts_are_not_empty()
 
@@ -681,7 +740,9 @@ class TestAssignmentLabels:
         return create_or_update(resource)
 
     @fixture(scope="class")
-    def mdb_assignment_labels_om_tester(self, ops_manager: MongoDBOpsManager, project_name: str) -> OMTester:
+    def mdb_assignment_labels_om_tester(
+        self, ops_manager: MongoDBOpsManager, project_name: str
+    ) -> OMTester:
         ops_manager.load()
         return ops_manager.get_om_tester(project_name=project_name)
 
@@ -703,11 +764,19 @@ class TestAssignmentLabels:
     def test_assignment_labels_in_om(self, mdb_assignment_labels_om_tester: OMTester):
         # Those labels are set on the Ops Manager CR level
         mdb_assignment_labels_om_tester.api_read_backup_configs()
-        mdb_assignment_labels_om_tester.assert_s3_stores([{"id": "s3Store1", "labels": ["test"]}])
-        mdb_assignment_labels_om_tester.assert_oplog_stores([{"id": "oplog1", "labels": ["test"]}])
-        mdb_assignment_labels_om_tester.assert_block_stores([{"id": "blockStore1", "labels": ["test"]}])
+        mdb_assignment_labels_om_tester.assert_s3_stores(
+            [{"id": "s3Store1", "labels": ["test"]}]
+        )
+        mdb_assignment_labels_om_tester.assert_oplog_stores(
+            [{"id": "oplog1", "labels": ["test"]}]
+        )
+        mdb_assignment_labels_om_tester.assert_block_stores(
+            [{"id": "blockStore1", "labels": ["test"]}]
+        )
         # This one is set on the MongoDB CR level
-        assert mdb_assignment_labels_om_tester.api_backup_group()["labelFilter"] == ["test"]
+        assert mdb_assignment_labels_om_tester.api_backup_group()["labelFilter"] == [
+            "test"
+        ]
 
 
 @mark.e2e_om_ops_manager_backup
@@ -741,7 +810,9 @@ class TestBackupConfigurationAdditionDeletion:
                 new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores(
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
+        )
 
     def test_oplog_store_is_deleted_correctly(
         self,
@@ -772,7 +843,9 @@ class TestBackupConfigurationAdditionDeletion:
                 )
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores(
+            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
+        )
         om_tester.assert_block_stores(
             [
                 new_om_data_store(

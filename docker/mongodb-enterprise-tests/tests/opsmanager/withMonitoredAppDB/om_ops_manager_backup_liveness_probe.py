@@ -21,7 +21,9 @@ from tests.opsmanager.om_ops_manager_backup import (
     S3_SECRET_NAME,
     create_s3_bucket,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import enable_appdb_multi_cluster_deployment
+from tests.opsmanager.withMonitoredAppDB.conftest import (
+    enable_appdb_multi_cluster_deployment,
+)
 
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
@@ -148,7 +150,12 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
     )
 
     # ensure the pod has not yet been restarted.
-    assert MongoDBOpsManager.get_backup_daemon_container_status(backup_daemon_pod).restart_count == 0
+    assert (
+        MongoDBOpsManager.get_backup_daemon_container_status(
+            backup_daemon_pod
+        ).restart_count
+        == 0
+    )
 
     # get the process id of the Backup Daemon.
     cmd = ["/opt/scripts/backup-daemon-liveness-probe.sh"]
@@ -176,8 +183,13 @@ def test_backup_daemon_pod_restarts_when_process_is_killed(
 
     def backup_daemon_container_has_restarted():
         try:
-            pod = corev1_client.read_namespaced_pod(ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace)
-            return MongoDBOpsManager.get_backup_daemon_container_status(pod).restart_count > 0
+            pod = corev1_client.read_namespaced_pod(
+                ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
+            )
+            return (
+                MongoDBOpsManager.get_backup_daemon_container_status(pod).restart_count
+                > 0
+            )
         except Exception as e:
             print("Error reading pod state: " + str(e))
             return False
@@ -191,7 +203,9 @@ def test_backup_daemon_reaches_ready_state(ops_manager: MongoDBOpsManager):
 
     def backup_daemon_is_ready():
         try:
-            pod = corev1_client.read_namespaced_pod(ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace)
+            pod = corev1_client.read_namespaced_pod(
+                ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
+            )
             return MongoDBOpsManager.get_backup_daemon_container_status(pod).ready
         except Exception as e:
             print("Error checking if pod is ready: " + str(e))

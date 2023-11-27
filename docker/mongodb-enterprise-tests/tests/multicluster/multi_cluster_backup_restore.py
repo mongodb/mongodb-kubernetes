@@ -58,12 +58,17 @@ def ops_manager_certs(
         # because our central cluster is not part of the mesh, but we can access the pods via external IPs.
         # Since we are using TLS we need a certificate for a hostname, an IP does not work, hence
         #  f"om-backup.{namespace}.interconnected" -> IP setup below
-        additional_domains=["fastdl.mongodb.org", f"om-backup.{namespace}.interconnected"],
+        additional_domains=[
+            "fastdl.mongodb.org",
+            f"om-backup.{namespace}.interconnected",
+        ],
         api_client=central_cluster_client,
     )
 
 
-def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca):
+def create_project_config_map(
+    om: MongoDBOpsManager, mdb_name, project_name, client, custom_ca
+):
     name = f"{mdb_name}-config"
     data = {
         "baseUrl": om.om_status().get_url(),
@@ -145,7 +150,9 @@ def oplog_replica_set(
     resource["spec"]["opsManager"]["configMapRef"]["name"] = OPLOG_RS_NAME + "-config"
     resource.set_version(custom_mdb_version)
 
-    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    resource["spec"]["security"] = {
+        "authentication": {"enabled": True, "modes": ["SCRAM"]}
+    }
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     yield create_or_update(resource)
@@ -187,10 +194,14 @@ def blockstore_user(
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> MongoDBUser:
     """Creates a password secret and then the user referencing it"""
-    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace)
+    resource = MongoDBUser.from_yaml(
+        yaml_fixture("scram-sha-user-backing-db.yaml"), namespace=namespace
+    )
     resource["spec"]["mongodbResourceRef"]["name"] = blockstore_replica_set.name
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -220,7 +231,9 @@ def oplog_user(
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
+    print(
+        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
+    )
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -252,7 +265,9 @@ class TestOpsManagerCreation:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
+        ops_manager["spec"]["backup"]["headDB"][
+            "storageClass"
+        ] = get_default_storage_class()
         ops_manager["spec"]["backup"]["members"] = 1
 
         create_or_update(ops_manager)
@@ -270,14 +285,18 @@ class TestOpsManagerCreation:
     ):
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset(central_cluster_client)
-            return stateful_set.status.ready_replicas == 1 and stateful_set.status.current_replicas == 1
+            return (
+                stateful_set.status.ready_replicas == 1
+                and stateful_set.status.current_replicas == 1
+            )
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
         stateful_set = ops_manager.read_backup_statefulset(central_cluster_client)
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name)
+            for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
         )
 
     def test_backup_daemon_services_created(
@@ -286,9 +305,15 @@ class TestOpsManagerCreation:
         central_cluster_client: kubernetes.client.ApiClient,
     ):
         """Backup creates two additional services for queryable backup"""
-        services = client.CoreV1Api(api_client=central_cluster_client).list_namespaced_service(namespace).items
+        services = (
+            client.CoreV1Api(api_client=central_cluster_client)
+            .list_namespaced_service(namespace)
+            .items
+        )
 
-        backup_services = [s for s in services if s.metadata.name.startswith("om-backup")]
+        backup_services = [
+            s for s in services if s.metadata.name.startswith("om-backup")
+        ]
 
         assert len(backup_services) >= 3
 
@@ -320,7 +345,9 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
+            "name": oplog_user.name
+        }
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
@@ -342,7 +369,9 @@ class TestBackupForMongodb:
         The base_url makes OM accessible from member clusters via a special interconnected dns address.
         This address only works for member clusters.
         """
-        interconnected_field = f"https://om-backup.{ops_manager.namespace}.interconnected"
+        interconnected_field = (
+            f"https://om-backup.{ops_manager.namespace}.interconnected"
+        )
         new_address = f"{interconnected_field}:8443"
 
         return new_address
@@ -381,7 +410,9 @@ class TestBackupForMongodb:
             "multi-replica-set-one",
             namespace
             # the project configmap should be created in the central cluster.
-        ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
+        ).configure(
+            ops_manager, f"{namespace}-project-one", api_client=central_cluster_client
+        )
 
         resource["spec"]["clusterSpecList"] = [
             {"clusterName": member_cluster_names[0], "members": 2},
@@ -390,7 +421,9 @@ class TestBackupForMongodb:
         ]
 
         # creating a cluster with backup should work with custom ports
-        resource["spec"].update({"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}})
+        resource["spec"].update(
+            {"additionalMongodConfig": {"net": {"port": MONGODB_PORT}}}
+        )
 
         resource.configure_backup(mode="enabled")
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -398,7 +431,9 @@ class TestBackupForMongodb:
         data = KubernetesTester.read_configmap(
             namespace, "multi-replica-set-one-config", api_client=central_cluster_client
         )
-        KubernetesTester.delete_configmap(namespace, "multi-replica-set-one-config", api_client=central_cluster_client)
+        KubernetesTester.delete_configmap(
+            namespace, "multi-replica-set-one-config", api_client=central_cluster_client
+        )
         data["baseUrl"] = base_url
         data["sslMMSCAConfigMap"] = multi_cluster_issuer_ca_configmap
         create_or_update_configmap(
@@ -422,7 +457,9 @@ class TestBackupForMongodb:
         """
         ops_manager.load()
         external_svc_name = ops_manager.external_svc_name()
-        svc = read_service(ops_manager.namespace, external_svc_name, api_client=central_cluster_client)
+        svc = read_service(
+            ops_manager.namespace, external_svc_name, api_client=central_cluster_client
+        )
         # we have no hostName, but the ip is resolvable.
         ip = svc.status.load_balancer.ingress[0].ip
 
@@ -452,7 +489,9 @@ class TestBackupForMongodb:
     @mark.e2e_multi_cluster_backup_restore
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
         # we might fail connection in the beginning since we set a custom dns in coredns
-        mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
+        mongodb_multi_one.assert_reaches_phase(
+            Phase.Running, ignore_errors=True, timeout=600
+        )
 
     @skip_if_local
     @mark.e2e_multi_cluster_backup_restore
@@ -485,7 +524,11 @@ class TestBackupForMongodb:
 
         pit_datetme = datetime.datetime.now() - datetime.timedelta(seconds=15)
         pit_millis = time_to_millis(pit_datetme)
-        print("Restoring back to the moment 15 seconds ago (millis): {}".format(pit_millis))
+        print(
+            "Restoring back to the moment 15 seconds ago (millis): {}".format(
+                pit_millis
+            )
+        )
 
         project_one.create_restore_job_pit(pit_millis)
 
@@ -527,9 +570,15 @@ class TestBackupForMongodb:
             retries -= 1
             time.sleep(1)
 
-        print("\nExisting data in MDB: {}".format(list(mongodb_multi_one_collection.find())))
+        print(
+            "\nExisting data in MDB: {}".format(
+                list(mongodb_multi_one_collection.find())
+            )
+        )
 
-        raise AssertionError(f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}")
+        raise AssertionError(
+            f"The data hasn't been restored in 2 minutes! Last assertion error was: {last_error}"
+        )
 
 
 def time_to_millis(date_time) -> int:
