@@ -7,7 +7,7 @@ Jinja2==2.11.3
 pytest==6.2.3
 pyyaml==5.4.1
 ruamel.yaml==0.17.4
-gitpython==3.1.35
+gitpython==3.1.37
 pymongo==3.11.3
 dnspython==2.1.0
 MarkupSafe==2.0.1
