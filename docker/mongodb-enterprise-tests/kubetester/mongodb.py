@@ -92,6 +92,8 @@ class MongoDB(CustomObject, MongoDBCommon):
             # Enabling authentication is a lengthy process where the agents might not reach READY in time.
             # That can cause a failure and a restart of the reconcile.
             "Failed to enable Authentication",
+            # Sometimes agents need longer to register with OM.
+            "some agents failed to register or the Operator",
         )
         return self.wait_for(
             lambda s: in_desired_state(
