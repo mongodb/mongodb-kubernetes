@@ -9,8 +9,8 @@ github.com/evanphx/json-patch,v5.6.0,https://github.com/evanphx/json-patch/blob/
 github.com/evanphx/json-patch/v5,v5.6.0,https://github.com/evanphx/json-patch/blob/v5.6.0/v5/LICENSE,BSD-3-Clause
 github.com/fsnotify/fsnotify,v1.6.0,https://github.com/fsnotify/fsnotify/blob/v1.6.0/LICENSE,BSD-3-Clause
 github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,MIT
-github.com/go-jose/go-jose/v3,v3.0.0,https://github.com/go-jose/go-jose/blob/v3.0.0/LICENSE,Apache-2.0
-github.com/go-jose/go-jose/v3/json,v3.0.0,https://github.com/go-jose/go-jose/blob/v3.0.0/json/LICENSE,BSD-3-Clause
+github.com/go-jose/go-jose/v3,v3.0.1,https://github.com/go-jose/go-jose/blob/v3.0.1/LICENSE,Apache-2.0
+github.com/go-jose/go-jose/v3/json,v3.0.1,https://github.com/go-jose/go-jose/blob/v3.0.1/json/LICENSE,BSD-3-Clause
 github.com/go-logr/logr,v1.2.4,https://github.com/go-logr/logr/blob/v1.2.4/LICENSE,Apache-2.0
 github.com/go-openapi/jsonpointer,v0.19.5,https://github.com/go-openapi/jsonpointer/blob/v0.19.5/LICENSE,Apache-2.0
 github.com/go-openapi/jsonreference,v0.20.0,https://github.com/go-openapi/jsonreference/blob/v0.20.0/LICENSE,Apache-2.0
