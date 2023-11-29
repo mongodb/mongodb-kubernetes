@@ -11,13 +11,17 @@ from requests.auth import HTTPDigestAuth
 
 ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
 
-APIKEY_OWNER = "e2e_cloud_qa_apikey_owner"
 BASE_URL = "e2e_cloud_qa_baseurl"
 ENV_FILE = "ENV_FILE"
 NAMESPACE_FILE = "NAMESPACE_FILE"
 OPS_MANAGER_VERSION = "ops_manager_version"
-ORG_ID = "e2e_cloud_qa_orgid_owner"
-USER_OWNER = "e2e_cloud_qa_user_owner"
+APIKEY_OWNERS = ["e2e_cloud_qa_apikey_owner", "e2e_cloud_qa_apikey_owner_2"]
+ORG_IDS = ["e2e_cloud_qa_orgid_owner", "e2e_cloud_qa_orgid_owner_2"]
+USER_OWNERS = ["e2e_cloud_qa_user_owner", "e2e_cloud_qa_user_owner_2"]
+
+APIKEY_OWNER = APIKEY_OWNERS[0]
+ORG_ID = ORG_IDS[0]
+USER_OWNER = USER_OWNERS[0]
 
 REQUIRED_ENV_VARIABLES = (
     APIKEY_OWNER,
@@ -413,6 +417,7 @@ def check_env_variables() -> bool:
 
 
 def main() -> int:
+    global ORG_ID, USER_OWNER, APIKEY_OWNER
     if not check_env_variables():
         print("Please define all required env variables")
         return 1
@@ -434,8 +439,14 @@ def main() -> int:
         print("Configuring Cloud QA")
         configure()
     elif sys.argv[1] == "delete_all":
-        print("Removing all project and api key from Cloud QA which are older than X")
-        unconfigure_all()
+        for i, _ in enumerate(ORG_IDS):
+            ORG_ID = ORG_IDS[i]
+            USER_OWNER = USER_OWNERS[i]
+            APIKEY_OWNER = APIKEY_OWNERS[i]
+            print(
+                f"Removing all project and api key from Cloud QA which are older than X for {ORG_ID}"
+            )
+            unconfigure_all()
     else:
         return argv_error()
     return 0
