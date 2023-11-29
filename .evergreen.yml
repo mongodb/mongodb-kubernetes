@@ -161,6 +161,7 @@ functions:
         - image_name
         - skip_tags
         - distro
+        - is_patch
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name}
 
