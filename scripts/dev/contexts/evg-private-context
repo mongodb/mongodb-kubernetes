@@ -96,3 +96,7 @@ export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint}"
 # This is given by an expansion from evg
 export TASK_NAME="${task_name:-"unknown"}"
 export task_name="${TASK_NAME}"
+
+# var used in pipeline.py to determine if we're running on EVG host
+# used to discern between local pipeline image build and the build in pipeline
+export RUNNING_IN_EVG="true"

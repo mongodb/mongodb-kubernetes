@@ -40,8 +40,8 @@ class BuildConfiguration:
     base_repository: str
     namespace: str
 
-    include_tags: Optional[List[str]]
-    skip_tags: Optional[List[str]]
+    include_tags: list[str]
+    skip_tags: list[str]
 
     builder: str = "docker"
     parallel: bool = False
@@ -59,10 +59,10 @@ class BuildConfiguration:
 
         return args
 
-    def get_skip_tags(self) -> Optional[Dict[str, str]]:
+    def get_skip_tags(self) -> list[str]:
         return make_list_of_str(self.skip_tags)
 
-    def get_include_tags(self) -> Optional[Dict[str, str]]:
+    def get_include_tags(self) -> list[str]:
         return make_list_of_str(self.include_tags)
 
 
@@ -79,21 +79,34 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
 def operator_build_configuration(
     builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None
 ) -> BuildConfiguration:
+
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
         base_repository=os.environ["BASE_REPO_URL"],
         namespace=os.environ.get("namespace", DEFAULT_NAMESPACE),
-        skip_tags=os.environ.get("skip_tags"),
-        include_tags=os.environ.get("include_tags"),
+        skip_tags=make_list_of_str(os.environ.get("skip_tags")),
+        include_tags=make_list_of_str(os.environ.get("include_tags")),
         builder=builder,
         parallel=parallel,
         debug=debug,
         architecture=architecture,
     )
 
-    print(f"Context: {bc}")
+    print(f"is_running_in_patch: {is_running_in_patch()}")
+    print(f"is_running_in_evg_pipeline: {is_running_in_evg_pipeline()}")
+    if is_running_in_patch() or not is_running_in_evg_pipeline():
+        print(
+            f"Running build not in evg pipeline (is_running_in_evg_pipeline={is_running_in_evg_pipeline()}) "
+            f"or in pipeline but not from master (is_running_in_patch={is_running_in_patch()}). "
+            "Adding 'master' tag to skip to prevent publishing to the latest dev image."
+        )
+        bc.skip_tags.append("master")
 
     return bc
+
+
+def is_running_in_evg_pipeline():
+    return os.getenv("RUNNING_IN_EVG", "") == "true"
 
 
 class MissingEnvironmentVariable(Exception):
@@ -107,7 +120,7 @@ def should_pin_at() -> Optional[Tuple[str, str]]:
     """
     # We need to return something so `partition` does not raise
     # AttributeError
-    is_patch = os.environ.get("IS_PATCH", True)
+    is_patch = is_running_in_patch()
 
     try:
         pinned = os.environ["pin_tag_at"]
@@ -122,6 +135,11 @@ def should_pin_at() -> Optional[Tuple[str, str]]:
 
     hour, _, minute = pinned.partition(":")
     return hour, minute
+
+
+def is_running_in_patch():
+    is_patch = os.environ.get("is_patch")
+    return is_patch is not None and is_patch.lower() == "true"
 
 
 def build_id() -> str:
