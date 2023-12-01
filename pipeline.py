@@ -553,12 +553,13 @@ def build_image_daily(
         )
         completed_versions = set()
         for version in supported_versions:
+            version_without_rc = semver.finalize_version(version)
             if (
                 min_version is not None
                 and max_version is not None
                 and (
-                    semver.compare(version, min_version) < 0
-                    or semver.compare(version, max_version) >= 0
+                    semver.compare(version_without_rc, min_version) < 0
+                    or semver.compare(version_without_rc, max_version) >= 0
                 )
             ):
                 continue
