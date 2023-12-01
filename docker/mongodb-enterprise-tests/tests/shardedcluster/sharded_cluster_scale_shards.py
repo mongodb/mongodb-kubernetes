@@ -1,7 +1,7 @@
 import pytest
+from kubernetes import client
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
-from kubernetes import client
 
 
 @pytest.mark.e2e_sharded_cluster_scale_shards
@@ -51,9 +51,7 @@ class TestShardedClusterScaleDownShards(KubernetesTester):
 
     def test_statefulset_for_shard_removed(self):
         with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set(
-                "sh001-scale-down-shards-1", self.namespace
-            )
+            self.appsv1.read_namespaced_stateful_set("sh001-scale-down-shards-1", self.namespace)
 
 
 @pytest.mark.e2e_sharded_cluster_scale_shards
@@ -76,9 +74,4 @@ class TestShardedClusterScaleUpShards(KubernetesTester):
         mongod_tester.assert_data_size(50_000)
 
     def test_statefulset_for_shard_added(self):
-        assert (
-            self.appsv1.read_namespaced_stateful_set(
-                "sh001-scale-down-shards-1", self.namespace
-            )
-            is not None
-        )
+        assert self.appsv1.read_namespaced_stateful_set("sh001-scale-down-shards-1", self.namespace) is not None

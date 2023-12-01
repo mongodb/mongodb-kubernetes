@@ -6,18 +6,19 @@
 # https://docs.google.com/document/d/12Y5h7XDFedcgpSIWRxMgcjZClL6kZdIwdxPRotkuKck/edit#
 # -----------------------------------------------------------
 
-from typing import Optional, Dict
+from typing import Dict, Optional
+
+from kubernetes import client
 from kubetester import (
+    create_configmap,
     create_secret,
-    read_secret,
-    read_configmap,
     create_service,
     create_statefulset,
-    create_configmap,
+    read_configmap,
+    read_secret,
 )
-from kubetester.kubetester import KubernetesTester
 from kubetester.certs import create_tls_certs
-from kubernetes import client
+from kubetester.kubetester import KubernetesTester
 
 
 class KMIPDeployment(object):
@@ -58,9 +59,7 @@ class KMIPDeployment(object):
             selector=self.labels,
         )
 
-        self._create_kmip_config_map(
-            self.namespace, "kmip-config", self._default_configuration()
-        )
+        self._create_kmip_config_map(self.namespace, "kmip-config", self._default_configuration())
 
         create_statefulset(
             self.namespace,
@@ -165,9 +164,7 @@ class KMIPDeployment(object):
             "database_path": "/data/db/pykmip.db",
         }
 
-    def _create_kmip_config_map(
-        self, namespace: str, name: str, config_dict: Dict
-    ) -> None:
+    def _create_kmip_config_map(self, namespace: str, name: str, config_dict: Dict) -> None:
         """
         _create_configuration_config_map converts a dictionary of options into the server.conf
         file that the kmip server uses to start.

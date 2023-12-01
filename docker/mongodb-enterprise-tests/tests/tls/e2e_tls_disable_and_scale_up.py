@@ -1,16 +1,14 @@
 import pytest
-from kubetester.kubetester import fixture as load_fixture
-from kubetester.certs import Certificate, ISSUER_CA_NAME, create_mongodb_tls_certs
-from kubetester.mongodb import MongoDB, Phase
 from kubetester import create_secret, read_secret
+from kubetester.certs import ISSUER_CA_NAME, Certificate, create_mongodb_tls_certs
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
     resource_name = "test-tls-base-rs"
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, resource_name, "test-tls-base-rs-cert"
-    )
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, resource_name, "test-tls-base-rs-cert")
 
 
 @pytest.fixture(scope="module")

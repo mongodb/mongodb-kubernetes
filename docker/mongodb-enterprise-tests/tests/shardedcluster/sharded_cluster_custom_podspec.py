@@ -1,5 +1,6 @@
 from kubetester.custom_podspec import assert_stateful_set_podspec
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
@@ -21,9 +22,7 @@ SHARD0_TOPLOGY_KEY = "shardoverride"
 
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("sharded-cluster-custom-podspec.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-custom-podspec.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     return resource.create()
 
@@ -36,18 +35,10 @@ def test_replica_set_reaches_running_phase(sharded_cluster):
 @mark.e2e_sharded_cluster_custom_podspec
 def test_stateful_sets_spec_updated(sharded_cluster, namespace):
     appsv1 = KubernetesTester.clients("appsv1")
-    config_sts = appsv1.read_namespaced_stateful_set(
-        f"{sharded_cluster.name}-config", namespace
-    )
-    mongos_sts = appsv1.read_namespaced_stateful_set(
-        f"{sharded_cluster.name}-mongos", namespace
-    )
-    shard0_sts = appsv1.read_namespaced_stateful_set(
-        f"{sharded_cluster.name}-0", namespace
-    )
-    shard_sts = appsv1.read_namespaced_stateful_set(
-        f"{sharded_cluster.name}-1", namespace
-    )
+    config_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-config", namespace)
+    mongos_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-mongos", namespace)
+    shard0_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-0", namespace)
+    shard_sts = appsv1.read_namespaced_stateful_set(f"{sharded_cluster.name}-1", namespace)
 
     assert_stateful_set_podspec(
         config_sts.spec.template.spec,

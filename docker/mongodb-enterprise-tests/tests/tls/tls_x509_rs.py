@@ -1,24 +1,22 @@
 import pytest
-from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.omtester import get_rs_cert_names
-
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
     create_agent_tls_certs,
+    create_mongodb_tls_certs,
 )
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongotester import ReplicaSetTester
+from kubetester.omtester import get_rs_cert_names
 
 MDB_RESOURCE = "test-x509-rs"
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
 
 
 @pytest.fixture(scope="module")
@@ -27,9 +25,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def mdb(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()

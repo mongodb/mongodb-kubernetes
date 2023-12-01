@@ -1,5 +1,4 @@
 import pytest
-
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
 
@@ -10,10 +9,7 @@ mdb_resources = {
 
 
 def cert_names(namespace, members=3):
-    return [
-        "{}-{}.{}".format(mdb_resources["ssl_enabled"], i, namespace)
-        for i in range(members)
-    ]
+    return ["{}-{}.{}".format(mdb_resources["ssl_enabled"], i, namespace) for i in range(members)]
 
 
 @pytest.mark.e2e_tls_multiple_different_ssl_configs
@@ -37,10 +33,7 @@ class TestMultipleCreation(KubernetesTester):
         mdb = self.customv1.get_namespaced_custom_object(
             "mongodb.com", "v1", self.namespace, "mongodb", mdb_resources["ssl_enabled"]
         )
-        assert (
-            mdb["status"]["message"]
-            == "Not all certificates have been approved by Kubernetes CA"
-        )
+        assert mdb["status"]["message"] == "Not all certificates have been approved by Kubernetes CA"
 
         mdb = self.customv1.get_namespaced_custom_object(
             "mongodb.com",

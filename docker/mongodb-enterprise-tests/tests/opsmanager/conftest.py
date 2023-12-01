@@ -2,14 +2,13 @@
 
 import os
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from kubernetes import client
-from pytest import fixture, skip
-
 from kubetester import get_pod_when_ready
 from kubetester.helm import helm_install_from_chart
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, skip
 from tests.conftest import is_multi_cluster
 
 MINIO_OPERATOR = "minio-operator"
@@ -143,9 +142,7 @@ def mino_tenant_install(
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     # check if the minio pod exists, if not do a helm upgrade
-    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
-        namespace, label_selector=f"app=minio"
-    )
+    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(namespace, label_selector=f"app=minio")
     if not pods.items:
         print(f"Performing helm upgrade of minio-tenant")
 

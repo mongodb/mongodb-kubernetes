@@ -3,10 +3,9 @@ import argparse
 import json
 import logging
 import os
-import sys
 import subprocess
-
-from typing import List, Dict, Tuple
+import sys
+from typing import Dict, List, Tuple
 
 import requests
 
@@ -151,18 +150,14 @@ def get_available_versions_for_image(image: str):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--image", help="image to run preflight checks on", type=str, required=True
-    )
+    parser.add_argument("--image", help="image to run preflight checks on", type=str, required=True)
     parser.add_argument(
         "--submit",
         help="submit image for certification (true|false)",
         type=str,
         required=True,
     )
-    parser.add_argument(
-        "--version", help="specific version to check", type=str, default=None
-    )
+    parser.add_argument("--version", help="specific version to check", type=str, default=None)
     args = parser.parse_args()
     available_versions = get_available_versions_for_image(args.image)
     supported_versions = get_supported_version_for_image(args.image)

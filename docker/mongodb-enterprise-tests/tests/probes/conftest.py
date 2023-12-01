@@ -8,8 +8,5 @@ def pytest_runtest_setup(item):
     but instead it will rely on the currently installed operator. This is handy to
     run local tests."""
     default_operator_name = default_operator.__name__
-    if (
-        default_operator_name not in item.fixturenames
-        and "no_operator" not in item.fixturenames
-    ):
+    if default_operator_name not in item.fixturenames and "no_operator" not in item.fixturenames:
         item.fixturenames.insert(0, default_operator_name)

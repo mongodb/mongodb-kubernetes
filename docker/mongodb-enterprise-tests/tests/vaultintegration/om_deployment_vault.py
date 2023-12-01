@@ -1,22 +1,25 @@
-from kubetester.opsmanager import MongoDBOpsManager
-from typing import Optional
-from pytest import fixture, mark
-import pytest
 import time
-from kubetester.operator import Operator
-from . import run_command_in_vault, store_secret_in_vault, assert_secret_in_vault
+from typing import Optional
+
+import pytest
+from kubernetes import client
+from kubernetes.client.rest import ApiException
 from kubetester import (
-    get_statefulset,
+    create_configmap,
     create_secret,
     delete_secret,
-    create_configmap,
+    get_statefulset,
     read_secret,
 )
-from kubetester.certs import create_ops_manager_tls_certs, create_mongodb_tls_certs
-from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase, get_pods
-from kubernetes.client.rest import ApiException
-from kubernetes import client
+from kubetester.operator import Operator
+from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
+
+from . import assert_secret_in_vault, run_command_in_vault, store_secret_in_vault
 
 OPERATOR_NAME = "mongodb-enterprise-operator"
 APPDB_SA_NAME = "mongodb-enterprise-appdb"
@@ -58,9 +61,7 @@ def ops_manager(
     issuer_ca_configmap: str,
     ops_manager_certs: str,
 ) -> MongoDBOpsManager:
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
-    )
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace)
     om["spec"]["security"] = {
         "tls": {"ca": issuer_ca_configmap},
         "certsSecretPrefix": "prefix",
@@ -127,9 +128,7 @@ def test_enable_kubernetes_auth(vault_name: str, vault_namespace: str):
     token = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
     cmd = ["env"]
 
-    response = run_command_in_vault(
-        vault_namespace, vault_name, cmd, expected_message=[]
-    )
+    response = run_command_in_vault(vault_namespace, vault_name, cmd, expected_message=[])
 
     response = response.split("\n")
     for line in response:
@@ -168,15 +167,11 @@ def test_enable_vault_role_for_operator_pod(
 
 
 @mark.e2e_vault_setup_om
-def test_put_admin_credentials_to_vault(
-    namespace: str, vault_namespace: str, vault_name: str
-):
+def test_put_admin_credentials_to_vault(namespace: str, vault_namespace: str, vault_name: str):
     admin_credentials_secret_name = "ops-manager-admin-secret"
     # read the -admin-secret from namespace and store in vault
     data = read_secret(namespace, admin_credentials_secret_name)
-    path = (
-        f"secret/mongodbenterprise/operator/{namespace}/{admin_credentials_secret_name}"
-    )
+    path = f"secret/mongodbenterprise/operator/{namespace}/{admin_credentials_secret_name}"
     store_secret_in_vault(vault_namespace, vault_name, data, path)
     delete_secret(namespace, admin_credentials_secret_name)
 
@@ -266,25 +261,19 @@ def test_om_created(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_vault_setup_om
-def test_no_admin_key_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_admin_key_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{namespace}-{ops_manager.name}-admin-key")
 
 
 @mark.e2e_vault_setup_om
-def test_no_gen_key_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_gen_key_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-gen-key")
 
 
 @mark.e2e_vault_setup_om
-def test_appdb_reached_running_and_pod_count(
-    ops_manager: MongoDBOpsManager, namespace: str
-):
+def test_appdb_reached_running_and_pod_count(ops_manager: MongoDBOpsManager, namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
     # check AppDB has 4 containers(+1 because of vault-agent)
     for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
@@ -293,57 +282,43 @@ def test_appdb_reached_running_and_pod_count(
 
 
 @mark.e2e_vault_setup_om
-def test_no_appdb_connection_string_secret(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_appdb_connection_string_secret(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-connection-string")
 
 
 @mark.e2e_vault_setup_om
-def test_no_db_agent_password_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_db_agent_password_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-agent-password")
 
 
 @mark.e2e_vault_setup_om
-def test_no_db_scram_password_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_db_scram_password_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-om-user-scram-credentials")
 
 
 @mark.e2e_vault_setup_om
-def test_no_om_password_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_om_password_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-om-password")
 
 
 @mark.e2e_vault_setup_om
-def test_no_db_keyfile_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_db_keyfile_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-keyfile")
 
 
 @mark.e2e_vault_setup_om
-def test_no_db_automation_config_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_db_automation_config_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-config")
 
 
 @mark.e2e_vault_setup_om
-def test_no_db_monitoring_automation_config_secret_in_kubernetes(
-    namespace: str, ops_manager: MongoDBOpsManager
-):
+def test_no_db_monitoring_automation_config_secret_in_kubernetes(namespace: str, ops_manager: MongoDBOpsManager):
     with pytest.raises(ApiException):
         read_secret(namespace, f"{ops_manager.name}-db-monitoring-config")
 

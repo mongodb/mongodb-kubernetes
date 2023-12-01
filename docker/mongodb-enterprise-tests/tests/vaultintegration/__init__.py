@@ -1,4 +1,5 @@
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
+
 from kubetester.kubetester import KubernetesTester
 
 
@@ -36,9 +37,7 @@ def vault_namespace_name() -> str:
     return "vault"
 
 
-def store_secret_in_vault(
-    vault_namespace: str, vault_name: str, secretData: Dict[str, str], path: str
-):
+def store_secret_in_vault(vault_namespace: str, vault_name: str, secretData: Dict[str, str], path: str):
     cmd = ["vault", "kv", "put", path]
 
     for k, v in secretData.items():
@@ -52,9 +51,7 @@ def store_secret_in_vault(
     )
 
 
-def assert_secret_in_vault(
-    vault_namespace: str, vault_name: str, path: str, expected_message: List[str]
-):
+def assert_secret_in_vault(vault_namespace: str, vault_name: str, path: str, expected_message: List[str]):
     cmd = [
         "vault",
         "kv",

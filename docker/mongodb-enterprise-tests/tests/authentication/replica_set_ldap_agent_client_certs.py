@@ -1,19 +1,17 @@
 import tempfile
 
-from pytest import mark, fixture
-
 from kubetester import (
+    create_or_update,
     create_secret,
-    read_secret,
     delete_secret,
     find_fixture,
-    create_or_update,
+    read_secret,
 )
-
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, generate_cert
+from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongodb_user import MongoDBUser, generic_user, Role
-from kubetester.ldap import OpenLDAP, LDAPUser
-from kubetester.certs import generate_cert, create_mongodb_tls_certs, ISSUER_CA_NAME
+from kubetester.mongodb_user import MongoDBUser, Role, generic_user
+from pytest import fixture, mark
 
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
@@ -90,17 +88,13 @@ def replica_set(
     agent_client_cert: str,
     namespace: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
 
     ac_secret_name = "automation-config-password"
-    create_secret(
-        namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."}
-    )
+    create_secret(namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."})
 
     resource["spec"]["security"]["tls"] = {
         "enabled": True,
@@ -127,9 +121,7 @@ def replica_set(
 
 
 @fixture(scope="module")
-def ldap_user_mongodb(
-    replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser
-) -> MongoDBUser:
+def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser) -> MongoDBUser:
     """Returns a list of MongoDBUsers (already created) and their corresponding passwords."""
     user = generic_user(
         namespace,
@@ -155,9 +147,7 @@ def test_replica_set(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_client_certs
-def test_new_ldap_users_can_authenticate(
-    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str
-):
+def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(
@@ -173,9 +163,7 @@ def test_new_ldap_users_can_authenticate(
 @mark.e2e_replica_set_ldap_agent_client_certs
 def test_client_requires_certs(replica_set: MongoDB):
     replica_set.load()
-    replica_set["spec"]["security"]["authentication"][
-        "requireClientTLSAuthentication"
-    ] = True
+    replica_set["spec"]["security"]["authentication"]["requireClientTLSAuthentication"] = True
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -207,9 +195,7 @@ def test_client_can_auth_with_client_certs_provided(
 @mark.e2e_replica_set_ldap_agent_client_certs
 def test_client_certs_made_optional(replica_set: MongoDB):
     replica_set.load()
-    replica_set["spec"]["security"]["authentication"][
-        "requireClientTLSAuthentication"
-    ] = False
+    replica_set["spec"]["security"]["authentication"]["requireClientTLSAuthentication"] = False
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -219,9 +205,7 @@ def test_client_certs_made_optional(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_ldap_agent_client_certs
-def test_client_can_auth_again_with_no_client_certs(
-    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str
-):
+def test_client_can_auth_again_with_no_client_certs(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(

@@ -36,12 +36,15 @@ function generate_standalone_yaml() {
   cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} >public/mongodb-enterprise-openshift.yaml
 }
 
-function black_formatting() {
+function python_formatting() {
   # installing Black
   if ! command -v "black" >/dev/null ; then
     pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt
   fi
 
+  echo "formatting isort"
+  isort .
+  echo "formatting black"
   black .
 }
 
@@ -76,7 +79,7 @@ function pre_commit() {
   # The values files are used for generating the standalone yaml
   generate_standalone_yaml
   # Run black on python files that have changed
-  black_formatting
+  python_formatting
 
   source scripts/evergreen/lint_code.sh
 

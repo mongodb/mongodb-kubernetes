@@ -1,8 +1,6 @@
 import pytest
-
 import yaml
 from kubernetes.client import V1Secret
-
 from kubetester.kubetester import KubernetesTester, fixture
 
 
@@ -18,9 +16,7 @@ class TestShardedClusterRecoversBadOmConfiguration(KubernetesTester):
     @classmethod
     def setup_env(cls):
         secret = V1Secret(string_data={"publicApiKey": "wrongKey"})
-        cls.clients("corev1").patch_namespaced_secret(
-            "my-credentials", cls.get_namespace(), secret
-        )
+        cls.clients("corev1").patch_namespaced_secret("my-credentials", cls.get_namespace(), secret)
 
         resource = yaml.safe_load(open(fixture("sharded-cluster-single.yaml")))
 
@@ -33,8 +29,6 @@ class TestShardedClusterRecoversBadOmConfiguration(KubernetesTester):
 
     def test_recovery(self):
         secret = V1Secret(string_data={"publicApiKey": self.get_om_api_key()})
-        self.clients("corev1").patch_namespaced_secret(
-            "my-credentials", self.get_namespace(), secret
-        )
+        self.clients("corev1").patch_namespaced_secret("my-credentials", self.get_namespace(), secret)
 
         KubernetesTester.wait_until("in_running_state")

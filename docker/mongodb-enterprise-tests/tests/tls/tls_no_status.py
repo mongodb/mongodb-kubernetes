@@ -1,5 +1,4 @@
 import pytest
-
 from kubetester.kubetester import KubernetesTester
 
 MDB_RESOURCE = "test-no-tls-no-status"
@@ -16,9 +15,7 @@ class TestStandaloneWithNoTLS(KubernetesTester):
     """
 
     def test_mdb_resource_status_is_correct(self):
-        mdb = self.customv1.get_namespaced_custom_object(
-            "mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE
-        )
+        mdb = self.customv1.get_namespaced_custom_object("mongodb.com", "v1", self.namespace, "mongodb", MDB_RESOURCE)
 
         assert mdb["status"]["phase"] == "Running"
         assert "additionalMongodConfig" not in mdb["spec"]

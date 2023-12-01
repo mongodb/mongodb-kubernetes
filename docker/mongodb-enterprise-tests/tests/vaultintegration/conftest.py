@@ -1,13 +1,14 @@
+import time
+
+from kubernetes import client
+from kubernetes.client.rest import ApiException
+from kubetester import get_pod_when_ready, get_pod_when_running
+from kubetester.certs import create_vault_certs
+from kubetester.helm import helm_install_from_chart
+from kubetester.kubetester import KubernetesTester
 from pytest import fixture
 
-from kubetester.helm import helm_install_from_chart
-from kubetester import get_pod_when_ready, get_pod_when_running
-from kubetester.kubetester import KubernetesTester
-from kubetester.certs import create_vault_certs
-import time
-from . import vault_sts_name, vault_namespace_name, run_command_in_vault
-from kubernetes.client.rest import ApiException
-from kubernetes import client
+from . import run_command_in_vault, vault_namespace_name, vault_sts_name
 
 
 @fixture(scope="module")
@@ -50,9 +51,7 @@ def vault(namespace: str, version="v0.17.1", name="vault") -> str:
 
 
 @fixture(scope="module")
-def vault_tls(
-    namespace: str, issuer: str, vault_namespace: str, version="v0.17.1", name="vault"
-) -> str:
+def vault_tls(namespace: str, issuer: str, vault_namespace: str, version="v0.17.1", name="vault") -> str:
 
     try:
         KubernetesTester.create_namespace(vault_namespace)
@@ -105,9 +104,7 @@ def perform_vault_initialization(namespace: str, name: str):
 
     run_command_in_vault(name, name, ["mkdir", "-p", "/vault/data"], [])
 
-    response = run_command_in_vault(
-        name, name, ["vault", "operator", "init"], ["Unseal"]
-    )
+    response = run_command_in_vault(name, name, ["vault", "operator", "init"], ["Unseal"])
 
     response = response.split("\n")
     unseal_keys = []
@@ -115,16 +112,12 @@ def perform_vault_initialization(namespace: str, name: str):
         unseal_keys.append(response[i].split(": ")[1])
 
     for i in range(3):
-        run_command_in_vault(
-            name, name, ["vault", "operator", "unseal", unseal_keys[i]], []
-        )
+        run_command_in_vault(name, name, ["vault", "operator", "unseal", unseal_keys[i]], [])
 
     token = response[6].split(": ")[1]
     run_command_in_vault(name, name, ["vault", "login", token])
 
-    run_command_in_vault(
-        name, name, ["vault", "secrets", "enable", "-path=secret/", "kv-v2"]
-    )
+    run_command_in_vault(name, name, ["vault", "secrets", "enable", "-path=secret/", "kv-v2"])
 
 
 @fixture(scope="module")

@@ -1,15 +1,15 @@
 from typing import Dict, List
-import kubernetes
-from pytest import mark, fixture
 
+import kubernetes
+from kubernetes import client
 from kubetester import create_or_update
+from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-from kubernetes import client
-
+from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -27,14 +27,10 @@ def mongodb_multi(
     )
 
     print(resource)
-    resource["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     resource["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 

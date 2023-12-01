@@ -1,29 +1,30 @@
+import time
 from typing import List, Optional
-from pytest import mark, fixture
 
 import kubernetes
-import time
+from kubeobject import CustomObject
+from kubernetes import client
 from kubetester import (
     create_or_update,
     delete_statefulset,
-    statefulset_is_deleted,
     get_statefulset,
     read_configmap,
+    statefulset_is_deleted,
     update_configmap,
 )
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture, run_periodically
-from kubernetes import client
-from kubeobject import CustomObject
-
+from pytest import fixture, mark
 from tests.conftest import (
+    MULTI_CLUSTER_OPERATOR_NAME,
     get_member_cluster_api_client,
     run_multi_cluster_recovery_tool,
-    MULTI_CLUSTER_OPERATOR_NAME,
 )
-from .conftest import create_service_entries_objects, cluster_spec_list
+
+from .conftest import cluster_spec_list, create_service_entries_objects
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
 RESOURCE_NAME = "multi-replica-set"
@@ -35,13 +36,9 @@ def mongodb_multi(
     namespace: str,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
     resource["spec"]["persistent"] = False
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource.api = client.CustomObjectsApi(central_cluster_client)
 
     return resource
@@ -83,9 +80,7 @@ def test_update_service_entry_block_failed_cluster_traffic(
     member_cluster_names: List[str],
 ):
     healthy_cluster_names = [
-        cluster_name
-        for cluster_name in member_cluster_names
-        if cluster_name != FAILED_MEMBER_CLUSTER_NAME
+        cluster_name for cluster_name in member_cluster_names if cluster_name != FAILED_MEMBER_CLUSTER_NAME
     ]
     service_entries = create_service_entries_objects(
         namespace,
@@ -141,9 +136,7 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(
-        member_cluster_names[:-1], namespace, namespace
-    )
+    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, namespace)
     assert return_code == 0
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
@@ -155,9 +148,7 @@ def test_recover_operator_remove_cluster(
 
 
 @mark.e2e_multi_cluster_recover_network_partition
-def test_mongodb_multi_recovers_removing_cluster(
-    mongodb_multi: MongoDBMulti, member_cluster_names: List[str]
-):
+def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, member_cluster_names: List[str]):
     mongodb_multi.load()
 
     mongodb_multi["metadata"]["annotations"]["failedClusters"] = None

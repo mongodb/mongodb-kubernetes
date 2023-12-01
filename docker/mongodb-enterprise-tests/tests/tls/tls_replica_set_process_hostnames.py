@@ -11,20 +11,11 @@
 from typing import List
 
 import pytest
-from pytest import fixture
-
-from kubetester import (
-    create_or_update,
-    try_load,
-)
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
-)
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-)
+from kubetester import create_or_update, try_load
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture
 from tests.conftest import (
     default_external_domain,
     external_domain_fqdns,
@@ -43,9 +34,7 @@ def replica_set_members() -> int:
 
 
 @pytest.fixture(scope="module")
-def server_certs(
-    issuer: str, namespace: str, replica_set_members: int, replica_set_name: str
-):
+def server_certs(issuer: str, namespace: str, replica_set_members: int, replica_set_name: str):
     """
     Issues certificate containing only custom_service_fqdns in SANs
     """
@@ -67,9 +56,7 @@ def replica_set(
     server_certs: str,
     issuer_ca_configmap: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("test-tls-base-rs.yaml"), replica_set_name, namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("test-tls-base-rs.yaml"), replica_set_name, namespace)
     try_load(resource)
 
     resource["spec"]["members"] = replica_set_members
@@ -105,13 +92,9 @@ def test_replica_set_in_running_state(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_process_hostnames
 def test_automation_config_contains_external_domains_in_hostnames(replica_set: MongoDB):
-    processes = replica_set.get_automation_config_tester().get_replica_set_processes(
-        replica_set.name
-    )
+    processes = replica_set.get_automation_config_tester().get_replica_set_processes(replica_set.name)
     hostnames = [process["hostname"] for process in processes]
-    assert hostnames == external_domain_fqdns(
-        replica_set.name, replica_set.get_members()
-    )
+    assert hostnames == external_domain_fqdns(replica_set.name, replica_set.get_members())
 
 
 @pytest.mark.e2e_replica_set_tls_process_hostnames

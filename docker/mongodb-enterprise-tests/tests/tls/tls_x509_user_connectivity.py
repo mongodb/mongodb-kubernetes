@@ -1,17 +1,17 @@
-import pytest
-from kubetester.kubetester import KubernetesTester, fixture as _fixture
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.automation_config_tester import AutomationConfigTester
+import tempfile
 
+import pytest
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
     create_agent_tls_certs,
+    create_mongodb_tls_certs,
     create_x509_user_cert,
 )
-import tempfile
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB, Phase
-
+from kubetester.mongotester import ReplicaSetTester
 
 MDB_RESOURCE = "test-x509-rs"
 X509_AGENT_SUBJECT = "CN=automation,OU={namespace},O=cert-manager"
@@ -24,9 +24,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str) -> str:
-    return create_mongodb_tls_certs(
-        issuer, namespace, MDB_RESOURCE, MDB_RESOURCE + "-cert"
-    )
+    return create_mongodb_tls_certs(issuer, namespace, MDB_RESOURCE, MDB_RESOURCE + "-cert")
 
 
 @pytest.fixture(scope="module")
@@ -82,14 +80,10 @@ class TestX509CertCreationAndApproval(KubernetesTester):
         super().setup_method()
         self.cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
 
-    def test_create_user_and_authenticate(
-        self, issuer: str, namespace: str, ca_path: str
-    ):
+    def test_create_user_and_authenticate(self, issuer: str, namespace: str, ca_path: str):
         create_x509_user_cert(issuer, namespace, path=self.cert_file.name)
         tester = ReplicaSetTester(MDB_RESOURCE, 3)
-        tester.assert_x509_authentication(
-            cert_file_name=self.cert_file.name, tlsCAFile=ca_path
-        )
+        tester.assert_x509_authentication(cert_file_name=self.cert_file.name, tlsCAFile=ca_path)
 
     def teardown(self):
         self.cert_file.close()

@@ -2,15 +2,10 @@ from typing import List
 
 import pytest
 import yaml
-
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
-)
-
+from kubetester.mongodb import MongoDB, Phase
 
 # This test will set up an environment which will configure a resource with split horizon enabled.
 
@@ -81,9 +76,7 @@ def mdb(
     worker_node_hostname: str,
     node_ports: List[int],
 ) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace
-    )
+    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     res["spec"]["connectivity"]["replicaSetHorizons"] = [
         {"test-horizon": f"{worker_node_hostname}:{node_ports[0]}"},
@@ -107,13 +100,9 @@ def test_create_node_ports(mdb: MongoDB, node_ports: List[int]):
             "r",
         ) as f:
             service_body = yaml.safe_load(f.read())
-            service_body["metadata"][
-                "name"
-            ] = f"{mdb.name}-external-access-svc-external-{i}"
+            service_body["metadata"]["name"] = f"{mdb.name}-external-access-svc-external-{i}"
             service_body["spec"]["ports"][0]["nodePort"] = node_ports[i]
-            service_body["spec"]["selector"][
-                "statefulset.kubernetes.io/pod-name"
-            ] = f"{mdb.name}-{i}"
+            service_body["spec"]["selector"]["statefulset.kubernetes.io/pod-name"] = f"{mdb.name}-{i}"
 
             KubernetesTester.create_service(
                 mdb.namespace,

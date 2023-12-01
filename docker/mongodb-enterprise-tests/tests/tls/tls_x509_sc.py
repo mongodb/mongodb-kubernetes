@@ -1,18 +1,18 @@
-import pytest
+from typing import Dict, List
 
+import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.mongotester import ShardedClusterTester
-from kubetester.mongodb import MongoDB, Phase
-from kubetester.kubetester import fixture as load_fixture
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
-    create_x509_agent_tls_certs,
     create_sharded_cluster_certs,
+    create_x509_agent_tls_certs,
 )
-
-from typing import Dict, List
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongotester import ShardedClusterTester
 
 MDB_RESOURCE_NAME = "test-x509-sc"
 
@@ -35,9 +35,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def sharded_cluster(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-x509-sc.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()

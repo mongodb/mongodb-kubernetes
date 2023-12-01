@@ -1,16 +1,14 @@
 import pytest
-from pytest import fixture
-
-from kubetester import create_or_update
-from kubetester import find_fixture
+from kubetester import create_or_update, find_fixture
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
-    create_x509_agent_tls_certs,
-    create_sharded_cluster_certs,
     Certificate,
+    create_sharded_cluster_certs,
+    create_x509_agent_tls_certs,
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture
 
 MDB_RESOURCE_NAME = "test-x509-all-options-sc"
 
@@ -35,9 +33,7 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def sharded_cluster(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("test-x509-all-options-sc.yaml"),
         namespace=namespace,
@@ -58,9 +54,7 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
         ac_tester.assert_expected_users(0)
 
     def test_rotate_shard_certfile(self, sharded_cluster: MongoDB, namespace: str):
-        assert_certificate_rotation(
-            sharded_cluster, namespace, "{}-0-clusterfile".format(MDB_RESOURCE_NAME)
-        )
+        assert_certificate_rotation(sharded_cluster, namespace, "{}-0-clusterfile".format(MDB_RESOURCE_NAME))
 
     def test_rotate_config_certfile(self, sharded_cluster: MongoDB, namespace: str):
         assert_certificate_rotation(
@@ -80,8 +74,6 @@ class TestShardedClusterEnableAllOptions(KubernetesTester):
 def assert_certificate_rotation(sharded_cluster, namespace, certificate_name):
     cert = Certificate(name=certificate_name, namespace=namespace)
     cert.load()
-    cert["spec"]["dnsNames"].append(
-        "foo"
-    )  # Append DNS to cert to rotate the certificate
+    cert["spec"]["dnsNames"].append("foo")  # Append DNS to cert to rotate the certificate
     cert.update()
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)

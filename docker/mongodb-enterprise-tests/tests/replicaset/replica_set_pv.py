@@ -1,8 +1,8 @@
-import pytest
 import time
 
-from kubetester.kubetester import KubernetesTester
+import pytest
 from kubernetes import client
+from kubetester.kubetester import KubernetesTester
 
 
 @pytest.mark.e2e_replica_set_pv
@@ -63,14 +63,10 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         bound_pvc_names = []
         for podname in self._get_pods("rs001-pv-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            bound_pvc_names.append(
-                pod.spec.volumes[0].persistent_volume_claim.claim_name
-            )
+            bound_pvc_names.append(pod.spec.volumes[0].persistent_volume_claim.claim_name)
 
         for pvc_name in bound_pvc_names:
-            pvc_status = self.corev1.read_namespaced_persistent_volume_claim_status(
-                pvc_name, self.namespace
-            )
+            pvc_status = self.corev1.read_namespaced_persistent_volume_claim_status(pvc_name, self.namespace)
             assert pvc_status.status.phase == "Bound"
 
     def test_om_processes(self):
@@ -86,17 +82,12 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p0["version"] == "4.4.0"
         assert p0["authSchemaVersion"] == 5
         assert p0["featureCompatibilityVersion"] == "4.4"
-        assert p0["hostname"] == "rs001-pv-0.rs001-pv-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
+        assert p0["hostname"] == "rs001-pv-0.rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
         assert p0["args2_6"]["net"]["port"] == 27017
         assert p0["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p0["args2_6"]["storage"]["dbPath"] == "/data"
         assert p0["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p0["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
+        assert p0["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
         assert p0["logRotate"]["sizeThresholdMB"] == 1000
         assert p0["logRotate"]["timeThresholdHrs"] == 24
 
@@ -106,17 +97,12 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p1["version"] == "4.4.0"
         assert p1["authSchemaVersion"] == 5
         assert p1["featureCompatibilityVersion"] == "4.4"
-        assert p1["hostname"] == "rs001-pv-1.rs001-pv-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
+        assert p1["hostname"] == "rs001-pv-1.rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
         assert p1["args2_6"]["net"]["port"] == 27017
         assert p1["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p1["args2_6"]["storage"]["dbPath"] == "/data"
         assert p1["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p1["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
+        assert p1["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
         assert p1["logRotate"]["sizeThresholdMB"] == 1000
         assert p1["logRotate"]["timeThresholdHrs"] == 24
 
@@ -126,28 +112,18 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         assert p2["version"] == "4.4.0"
         assert p2["authSchemaVersion"] == 5
         assert p2["featureCompatibilityVersion"] == "4.4"
-        assert p2["hostname"] == "rs001-pv-2.rs001-pv-svc.{}.svc.cluster.local".format(
-            self.namespace
-        )
+        assert p2["hostname"] == "rs001-pv-2.rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
         assert p2["args2_6"]["net"]["port"] == 27017
         assert p2["args2_6"]["replication"]["replSetName"] == "rs001-pv"
         assert p2["args2_6"]["storage"]["dbPath"] == "/data"
         assert p2["args2_6"]["systemLog"]["destination"] == "file"
-        assert (
-            p2["args2_6"]["systemLog"]["path"]
-            == "/var/log/mongodb-mms-automation/mongodb.log"
-        )
+        assert p2["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
         assert p2["logRotate"]["sizeThresholdMB"] == 1000
         assert p2["logRotate"]["timeThresholdHrs"] == 24
 
     def test_replica_set_was_configured(self):
         "Should connect to one of the mongods and check the replica set was correctly configured."
-        hosts = [
-            "rs001-pv-{}.rs001-pv-svc.{}.svc.cluster.local:27017".format(
-                i, self.namespace
-            )
-            for i in range(3)
-        ]
+        hosts = ["rs001-pv-{}.rs001-pv-svc.{}.svc.cluster.local:27017".format(i, self.namespace) for i in range(3)]
 
         primary, secondaries = self.wait_for_rs_is_ready(hosts)
 

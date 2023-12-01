@@ -1,8 +1,6 @@
 import pytest
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    KubernetesTester,
-)
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser
 from pytest import fixture
@@ -16,13 +14,9 @@ USER_PASSWORD = "my-password"
 @fixture(scope="module")
 def scram_user(namespace) -> MongoDBUser:
     """Creates a password secret and then the user referencing it"""
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("scram-sha-user.yaml"), namespace=namespace
-    )
+    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user.yaml"), namespace=namespace)
 
-    print(
-        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
-    )
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
     KubernetesTester.create_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -58,9 +52,7 @@ def test_user_pending(scram_user: MongoDBUser):
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first
 def test_replica_set_auth_enabled(replica_set: MongoDB):
-    replica_set["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 

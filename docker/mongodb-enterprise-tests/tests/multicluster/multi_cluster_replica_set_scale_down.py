@@ -2,17 +2,14 @@ from typing import List
 
 import kubernetes
 import pytest
-
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    skip_if_local,
-)
 from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
@@ -26,13 +23,9 @@ def mongodb_multi_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
     # start at one member in each cluster
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
@@ -62,9 +55,7 @@ def server_certs(
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi(
-    mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
-) -> MongoDBMulti:
+def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     return mongodb_multi_unmarshalled.create()
 
 

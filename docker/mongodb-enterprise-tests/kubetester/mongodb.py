@@ -8,13 +8,13 @@ from typing import Dict, List, Optional, Tuple
 
 from kubeobject import CustomObject
 from kubernetes import client
-
 from kubetester.kubetester import (
     KubernetesTester,
     build_host_fqdn,
     ensure_nested_objects,
 )
 from kubetester.omtester import OMContext, OMTester
+
 from .mongotester import (
     MongoTester,
     ReplicaSetTester,
@@ -47,11 +47,7 @@ class MongoDBCommon:
             time.sleep(wait)
 
         if should_raise:
-            raise Exception(
-                "Timeout ({}) reached while waiting for {}".format(
-                    initial_timeout, self
-                )
-            )
+            raise Exception("Timeout ({}) reached while waiting for {}".format(initial_timeout, self))
 
     def get_generation(self) -> int:
         return self.backing_obj["metadata"]["generation"]
@@ -74,9 +70,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         self.wait_for(transition_changed, timeout)
 
-    def assert_reaches_phase(
-        self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False
-    ):
+    def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         intermediate_events = (
             "haven't reached READY",
             "Some agents failed to register",
@@ -115,9 +109,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         happens during the time we call this method. If there is not a lot of work, then the phase can already finished
         transitioning during the modification call before calling this method.
         """
-        return self.wait_for(
-            lambda s: s.get_status_phase() != phase, timeout, should_raise=True
-        )
+        return self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
 
     def assert_backup_reaches_status(self, expected_status: str, timeout: int = 600):
         def reaches_backup_status(mdb: MongoDB) -> bool:
@@ -128,16 +120,11 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         self.wait_for(reaches_backup_status, timeout=timeout)
 
-    def assert_status_resource_not_ready(
-        self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0
-    ):
+    def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
         """Checks the element in 'resources_not_ready' field by index 'idx'"""
         assert self.get_status_resources_not_ready()[idx]["kind"] == kind
         assert self.get_status_resources_not_ready()[idx]["name"] == name
-        assert (
-            re.search(msg_regexp, self.get_status_resources_not_ready()[idx]["message"])
-            is not None
-        )
+        assert re.search(msg_regexp, self.get_status_resources_not_ready()[idx]["message"]) is not None
 
     @property
     def type(self) -> str:
@@ -151,9 +138,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     ) -> MongoTester:
         """Returns a Tester instance for this type of deployment."""
         if self.type == "ReplicaSet" and "clusterSpecList" in self["spec"]:
-            raise ValueError(
-                "A MongoDB class is being used to represent a MongoDBMulti instance!"
-            )
+            raise ValueError("A MongoDB class is being used to represent a MongoDBMulti instance!")
 
         if self.type == "ReplicaSet":
             return ReplicaSetTester(
@@ -186,9 +171,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def assert_connectivity(self, ca_path: Optional[str] = None):
         return self.tester(ca_path=ca_path).assert_connectivity()
 
-    def assert_connectivity_from_connection_string(
-        self, cnx_string: str, tls: bool, ca_path: Optional[str] = None
-    ):
+    def assert_connectivity_from_connection_string(self, cnx_string: str, tls: bool, ca_path: Optional[str] = None):
         """
         Tries to connect to a database using a connection string only.
         """
@@ -211,16 +194,12 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         ensure_nested_objects(self, ["spec", "opsManager", "configMapRef"])
 
-        self["spec"]["opsManager"]["configMapRef"][
-            "name"
-        ] = om.get_or_create_mongodb_connection_config_map(
+        self["spec"]["opsManager"]["configMapRef"]["name"] = om.get_or_create_mongodb_connection_config_map(
             self.name, project_name, self.namespace, api_client=api_client
         )
         # Note that if the MongoDB object is created in a different namespace than the Operator
         # then the secret needs to be copied there manually
-        self["spec"]["credentials"] = om.api_key_secret(
-            self.namespace, api_client=api_client
-        )
+        self["spec"]["credentials"] = om.api_key_secret(self.namespace, api_client=api_client)
         return self
 
     def configure_backup(self, mode: str = "enabled") -> MongoDB:
@@ -253,16 +232,12 @@ class MongoDB(CustomObject, MongoDBCommon):
         ]
 
     def read_statefulset(self) -> client.V1StatefulSet:
-        return client.AppsV1Api().read_namespaced_stateful_set(
-            self.name, self.namespace
-        )
+        return client.AppsV1Api().read_namespaced_stateful_set(self.name, self.namespace)
 
     def read_configmap(self) -> Dict[str, str]:
         return KubernetesTester.read_configmap(self.namespace, self.config_map_name)
 
-    def mongo_uri(
-        self, user_name: Optional[str] = None, password: Optional[str] = None
-    ) -> str:
+    def mongo_uri(self, user_name: Optional[str] = None, password: Optional[str] = None) -> str:
         """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'"""
         proto = "mongodb://"
         auth = ""
@@ -286,9 +261,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         if self.is_tls_enabled():
             params["ssl"] = "true"
 
-        query_params = [
-            "{}={}".format(key, params[key]) for key in sorted(params.keys())
-        ]
+        query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)
         return proto + auth + hosts + "/?" + joined_params
 
@@ -372,9 +345,7 @@ class MongoDB(CustomObject, MongoDBCommon):
     def get_om_tester(self) -> OMTester:
         """Returns the OMTester instance based on MongoDB connectivity parameters"""
         config_map = self.read_configmap()
-        secret = KubernetesTester.read_secret(
-            self.namespace, self["spec"]["credentials"]
-        )
+        secret = KubernetesTester.read_secret(self.namespace, self["spec"]["credentials"])
         return OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
 
     def get_automation_config_tester(self, **kwargs):
@@ -394,9 +365,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         return self.name + "-config"
 
     def shards_statefulsets_names(self) -> List[str]:
-        return [
-            "{}-{}".format(self.name, i) for i in range(1, self["spec"]["shardCount"])
-        ]
+        return ["{}-{}".format(self.name, i) for i in range(1, self["spec"]["shardCount"])]
 
     class Types:
         REPLICA_SET = "ReplicaSet"
@@ -427,31 +396,21 @@ def in_desired_state(
         # We shouldn't check the status further if the Operator hasn't started working on the new spec yet
         return False
 
-    if (
-        current_state == Phase.Failed
-        and not desired_state == Phase.Failed
-        and not ignore_errors
-    ):
+    if current_state == Phase.Failed and not desired_state == Phase.Failed and not ignore_errors:
         found = False
         for event in intermediate_events:
             if event in current_message:
                 found = True
 
         if not found:
-            raise AssertionError(
-                f'Got into Failed phase while waiting for Running! ("{current_message}")'
-            )
+            raise AssertionError(f'Got into Failed phase while waiting for Running! ("{current_message}")')
 
     is_in_desired_state = current_state == desired_state
     if msg_regexp is not None:
         print("msg_regexp: " + str(msg_regexp))
         print("type: " + str(type(msg_regexp)))
         regexp = re.compile(msg_regexp)
-        is_in_desired_state = (
-            is_in_desired_state
-            and current_message is not None
-            and regexp.match(current_message)
-        )
+        is_in_desired_state = is_in_desired_state and current_message is not None and regexp.match(current_message)
 
     return is_in_desired_state
 

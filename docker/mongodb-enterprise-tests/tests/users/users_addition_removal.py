@@ -1,43 +1,35 @@
 import pytest
-
 from cryptography import x509
-from cryptography.x509.oid import NameOID
 from cryptography.hazmat.backends import default_backend
-
-from kubetester.mongodb import MongoDB, Phase
+from cryptography.x509.oid import NameOID
 from kubetester import find_fixture
-from kubetester.kubetester import KubernetesTester, fixture as load_fixture
 from kubetester.certs import (
-    Certificate,
     ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
+    Certificate,
     create_agent_tls_certs,
+    create_mongodb_tls_certs,
 )
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
 
 MDB_RESOURCE = "test-x509-rs"
 NUM_AGENTS = 2
 
 
 def get_subjects(start, end):
-    return [
-        f"CN=mms-user-{i},OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-        for i in range(start, end)
-    ]
+    return [f"CN=mms-user-{i},OU=cloud,O=MongoDB,L=New York,ST=New York,C=US" for i in range(start, end)]
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
 
 
 def get_names_from_certificate_attributes(cert):
     names = {}
     subject = cert.subject
-    names["OU"] = subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)[
-        0
-    ].value
+    names["OU"] = subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)[0].value
     names["CN"] = subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
 
     return names
@@ -49,9 +41,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def mdb(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("test-x509-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
@@ -92,9 +82,7 @@ class TestMultipleUsersAreAdded(KubernetesTester):
 
     def test_users_are_added_to_automation_config(self):
         ac = KubernetesTester.get_automation_config()
-        existing_users = sorted(
-            ac["auth"]["usersWanted"], key=lambda user: user["user"]
-        )
+        existing_users = sorted(ac["auth"]["usersWanted"], key=lambda user: user["user"])
         expected_users = sorted(get_subjects(1, 7))
         existing_subjects = [u["user"] for u in ac["auth"]["usersWanted"]]
 
@@ -119,13 +107,9 @@ class TestTheCorrectUserIsDeleted(KubernetesTester):
     def test_deleted_user_is_gone(self):
         ac = KubernetesTester.get_automation_config()
         users = ac["auth"]["usersWanted"]
-        assert "CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US" not in [
-            user["user"] for user in users
-        ]
+        assert "CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US" not in [user["user"] for user in users]
 
 
 def get_user_pkix_names(ac, agent_name: str) -> str:
-    subject = [u["user"] for u in ac["auth"]["usersWanted"] if agent_name in u["user"]][
-        0
-    ]
+    subject = [u["user"] for u in ac["auth"]["usersWanted"] if agent_name in u["user"]][0]
     return dict(name.split("=") for name in subject.split(","))

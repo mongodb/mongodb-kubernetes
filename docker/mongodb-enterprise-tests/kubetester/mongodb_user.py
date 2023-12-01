@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import Optional, List
+
 from dataclasses import dataclass
+from typing import List, Optional
 
 from kubeobject import CustomObject
-from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, in_desired_state
 from kubetester import random_k8s_name
+from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, in_desired_state
 
 
 class MongoDBUser(CustomObject, MongoDBCommon):
@@ -22,9 +23,7 @@ class MongoDBUser(CustomObject, MongoDBCommon):
     def password(self):
         return self._password
 
-    def assert_reaches_phase(
-        self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False
-    ):
+    def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         return self.wait_for(
             lambda s: in_desired_state(
                 current_state=self.get_status_phase(),

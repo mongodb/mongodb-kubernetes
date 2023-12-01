@@ -96,10 +96,7 @@ def helm_install_from_chart(
         process_run_and_check(args, capture_output=True)
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8")
-        if (
-            "release: already exists" in stderr
-            or "Error: UPGRADE FAILED: another operation" in stderr
-        ):
+        if "release: already exists" in stderr or "Error: UPGRADE FAILED: another operation" in stderr:
             logging.info(f"Helm chart '{chart}' already installed in cluster.")
         else:
             raise
@@ -160,9 +157,7 @@ def helm_uninstall(name):
     process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
 
 
-def _create_helm_args(
-    helm_args: Dict[str, str], helm_options: Optional[List[str]] = None
-) -> List[str]:
+def _create_helm_args(helm_args: Dict[str, str], helm_options: Optional[List[str]] = None) -> List[str]:
     command_args = []
     for key, value in helm_args.items():
         command_args.append("--set")

@@ -1,7 +1,8 @@
-import boto3
-from kubetester.kubetester import get_env_var_or_fail
-from botocore.exceptions import ClientError
 from time import sleep
+
+import boto3
+from botocore.exceptions import ClientError
+from kubetester.kubetester import get_env_var_or_fail
 
 
 class AwsS3Client:
@@ -32,9 +33,7 @@ class AwsS3Client:
             attempts -= 1
             sleep(5)
 
-    def upload_file(
-        self, file_path: str, bucket: str, object_name: str, public_read: bool = False
-    ):
+    def upload_file(self, file_path: str, bucket: str, object_name: str, public_read: bool = False):
         """Upload a file to an S3 bucket.
 
         Args:
