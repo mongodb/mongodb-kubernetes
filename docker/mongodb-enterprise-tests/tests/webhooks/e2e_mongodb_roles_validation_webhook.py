@@ -1,16 +1,14 @@
 import pytest
-from pytest import fixture
 from kubernetes import client
+from kubernetes.client.rest import ApiException
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
-from kubernetes.client.rest import ApiException
+from pytest import fixture
 
 
 @fixture(scope="function")
 def mdb(namespace: str) -> str:
-    return MongoDB.from_yaml(
-        yaml_fixture("role-validation-base.yaml"), namespace=namespace
-    )
+    return MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), namespace=namespace)
 
 
 # Basic testing for invalid empty values
@@ -211,9 +209,7 @@ def test_invalid_privilege_for_mongodb_less_than_four_two(mdb: str):
         {
             "role": "role",
             "db": "admin",
-            "privileges": [
-                {"actions": ["dropConnections"], "resource": {"cluster": True}}
-            ],
+            "privileges": [{"actions": ["dropConnections"], "resource": {"cluster": True}}],
         }
     ]
     with pytest.raises(
@@ -229,9 +225,7 @@ def test_invalid_privilege_for_mongodb_less_than_three_six(mdb: str):
         {
             "role": "role",
             "db": "admin",
-            "privileges": [
-                {"actions": ["listSessions"], "resource": {"cluster": True}}
-            ],
+            "privileges": [{"actions": ["listSessions"], "resource": {"cluster": True}}],
         }
     ]
     mdb["spec"]["version"] = "3.5.0"

@@ -1,16 +1,16 @@
-from pytest import mark, fixture
 from typing import List
-from kubetester import read_secret
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+
 import kubernetes
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester import create_secret, read_secret
+from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import Phase
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_user import MongoDBUser
-from kubetester import create_secret
+from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -23,16 +23,10 @@ USER_PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(
-    namespace: str, member_cluster_names, custom_mdb_version: str
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names, custom_mdb_version: str) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(custom_mdb_version)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     return resource
 
 

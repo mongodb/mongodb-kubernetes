@@ -1,8 +1,7 @@
 import os
-
-import yaml
 from typing import Any
 
+import yaml
 from kubetester.kubetester import running_locally
 
 test_identifiers: dict = None

@@ -6,9 +6,10 @@ from kubernetes import client
 from kubetester import create_secret, read_secret
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from kubetester.kubetester import create_testing_namespace, running_locally
+from kubetester.kubetester import create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import generic_replicaset, MongoDB, Phase
+from kubetester.kubetester import running_locally
+from kubetester.mongodb import MongoDB, Phase, generic_replicaset
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
@@ -38,12 +39,8 @@ def unmanaged_namespace(evergreen_task_id: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(
-    ops_manager_namespace: str, custom_version: str, custom_appdb_version: str
-) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_basic.yaml"), namespace=ops_manager_namespace
-    )
+def ops_manager(ops_manager_namespace: str, custom_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
+    resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=ops_manager_namespace)
     resource["spec"]["backup"]["enabled"] = True
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
@@ -73,9 +70,7 @@ def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str) -> M
 
 @fixture(scope="module")
 def unmanaged_mdb(ops_manager: MongoDBOpsManager, unmanaged_namespace: str) -> MongoDB:
-    rs = generic_replicaset(
-        unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager
-    ).create()
+    rs = generic_replicaset(unmanaged_namespace, "5.0.0", "unmanaged-mdb", ops_manager).create()
 
     yield rs
 
@@ -106,15 +101,11 @@ def test_install_multi_namespace_operator(
 
 
 @pytest.mark.e2e_operator_clusterwide
-def test_configure_ops_manager_namespace(
-    ops_manager_namespace: str, operator_installation_config: Dict[str, str]
-):
+def test_configure_ops_manager_namespace(ops_manager_namespace: str, operator_installation_config: Dict[str, str]):
     """create a new namespace and configures all necessary service accounts there"""
     yaml_file = helm_template(
         helm_args={
-            "registry.imagePullSecrets": operator_installation_config[
-                "registry.imagePullSecrets"
-            ],
+            "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         },
         templates="templates/database-roles.yaml",
         helm_options=[f"--namespace {ops_manager_namespace}"],
@@ -132,20 +123,14 @@ def test_create_image_pull_secret_ops_manager_namespace(
     """We need to copy image pull secrets to om namespace"""
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     data = read_secret(namespace, secret_name)
-    create_secret(
-        ops_manager_namespace, secret_name, data, type="kubernetes.io/dockerconfigjson"
-    )
+    create_secret(ops_manager_namespace, secret_name, data, type="kubernetes.io/dockerconfigjson")
 
 
 @pytest.mark.e2e_operator_clusterwide
-def test_configure_mdb_namespace(
-    mdb_namespace: str, operator_installation_config: Dict[str, str]
-):
+def test_configure_mdb_namespace(mdb_namespace: str, operator_installation_config: Dict[str, str]):
     yaml_file = helm_template(
         helm_args={
-            "registry.imagePullSecrets": operator_installation_config[
-                "registry.imagePullSecrets"
-            ],
+            "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         },
         templates="templates/database-roles.yaml",
         helm_options=[f"--namespace {mdb_namespace}"],
@@ -160,9 +145,7 @@ def test_create_image_pull_secret_mdb_namespace(
 ):
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     data = read_secret(namespace, secret_name)
-    create_secret(
-        mdb_namespace, secret_name, data, type="kubernetes.io/dockerconfigjson"
-    )
+    create_secret(mdb_namespace, secret_name, data, type="kubernetes.io/dockerconfigjson")
 
 
 @pytest.mark.e2e_operator_clusterwide
@@ -177,22 +160,14 @@ def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
 
 @pytest.mark.e2e_operator_clusterwide
 @pytest.mark.e2e_operator_multi_namespaces
-def test_check_k8s_resources(
-    ops_manager: MongoDBOpsManager, ops_manager_namespace: str, namespace: str
-):
+def test_check_k8s_resources(ops_manager: MongoDBOpsManager, ops_manager_namespace: str, namespace: str):
     """Verifying that all the K8s resources were created in an ops manager namespace"""
     assert ops_manager.read_statefulset().metadata.namespace == ops_manager_namespace
-    assert (
-        ops_manager.read_backup_statefulset().metadata.namespace
-        == ops_manager_namespace
-    )
+    assert ops_manager.read_backup_statefulset().metadata.namespace == ops_manager_namespace
     # api key secret is created in the Operator namespace for better access control
     ops_manager.read_api_key_secret(namespace)
     assert ops_manager.read_gen_key_secret().metadata.namespace == ops_manager_namespace
-    assert (
-        ops_manager.read_appdb_generated_password_secret().metadata.namespace
-        == ops_manager_namespace
-    )
+    assert ops_manager.read_appdb_generated_password_secret().metadata.namespace == ops_manager_namespace
 
 
 @pytest.mark.e2e_operator_clusterwide

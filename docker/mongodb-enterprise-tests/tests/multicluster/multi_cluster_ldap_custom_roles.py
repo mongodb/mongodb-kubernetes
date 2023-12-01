@@ -1,22 +1,19 @@
 import os
-from pytest import mark, fixture
 from typing import List
 
 import kubernetes
+from kubetester import create_or_update, create_secret, get_pod_when_ready
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester import get_pod_when_ready, create_secret, create_or_update
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.ldap import (
-    OpenLDAP,
-    LDAPUser,
-    LDAP_AUTHENTICATION_MECHANISM,
-)
 from kubetester.helm import helm_install
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.mongodb_user import MongoDBUser, generic_user, Role
+from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.operator import Operator
-from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -32,13 +29,9 @@ def mongodb_multi_unmarshalled(
     namespace: str,
     member_cluster_names,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     return resource
 
@@ -167,16 +160,12 @@ def test_create_mongodb_multi_with_ldap(mongodb_multi: MongoDBMulti):
 def test_create_ldap_user(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser):
     user_ldap.assert_reaches_phase(Phase.Updated)
     ac = AutomationConfigTester(KubernetesTester.get_automation_config())
-    ac.assert_authentication_mechanism_enabled(
-        LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False
-    )
+    ac.assert_authentication_mechanism_enabled(LDAP_AUTHENTICATION_MECHANISM, active_auth_mechanism=False)
     ac.assert_expected_users(1)
 
 
 @mark.e2e_multi_cluster_with_ldap_custom_roles
-def test_ldap_user_can_write_to_database(
-    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
-):
+def test_ldap_user_can_write_to_database(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
@@ -189,12 +178,8 @@ def test_ldap_user_can_write_to_database(
 
 
 @mark.e2e_multi_cluster_with_ldap_custom_roles
-@mark.xfail(
-    reason="The user should not be able to write to a database/collection it is not authorized to write on"
-)
-def test_ldap_user_can_write_to_other_collection(
-    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
-):
+@mark.xfail(reason="The user should not be able to write to a database/collection it is not authorized to write on")
+def test_ldap_user_can_write_to_other_collection(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],
@@ -207,12 +192,8 @@ def test_ldap_user_can_write_to_other_collection(
 
 
 @mark.e2e_multi_cluster_with_ldap_custom_roles
-@mark.xfail(
-    reason="The user should not be able to write to a database/collection it is not authorized to write on"
-)
-def test_ldap_user_can_write_to_other_database(
-    mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str
-):
+@mark.xfail(reason="The user should not be able to write to a database/collection it is not authorized to write on")
+def test_ldap_user_can_write_to_other_database(mongodb_multi: MongoDBMulti, user_ldap: MongoDBUser, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_ldap_authentication(
         username=user_ldap["spec"]["username"],

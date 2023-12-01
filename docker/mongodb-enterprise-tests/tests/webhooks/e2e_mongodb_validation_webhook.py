@@ -1,14 +1,13 @@
-import yaml
 import pytest
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+import yaml
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 
 
 @pytest.mark.e2e_mongodb_validation_webhook
 class TestWebhookValidation(KubernetesTester):
     def test_horizons_tls_validation(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_horizons_tls.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_horizons_tls.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -16,9 +15,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_horizons_members(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_horizons_members.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_horizons_members.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -26,9 +23,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_x509_without_tls(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_x509_no_tls.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_x509_no_tls.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -36,9 +31,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_auth_without_modes(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_agent_auth_not_in_modes.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_agent_auth_not_in_modes.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -46,9 +39,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_agent_auth_enabled_with_no_modes(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_auth_no_modes.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_auth_no_modes.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -56,9 +47,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_ldap_auth_with_mongodb_community(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_ldap_community.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_ldap_community.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -66,9 +55,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_no_agent_auth_mode_with_multiple_modes_enabled(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_no_agent_mode.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_no_agent_mode.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -76,9 +63,7 @@ class TestWebhookValidation(KubernetesTester):
         )
 
     def test_ldap_auth_with_no_ldapgroupdn(self):
-        resource = yaml.safe_load(
-            open(yaml_fixture("invalid_replica_set_ldapauthz_no_ldapgroupdn.yaml"))
-        )
+        resource = yaml.safe_load(open(yaml_fixture("invalid_replica_set_ldapauthz_no_ldapgroupdn.yaml")))
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
@@ -115,9 +100,7 @@ class TestWebhookValidation(KubernetesTester):
             "number of members",
         )
 
-    def _assert_validates_without_webhook(
-        self, webhook_name: str, fixture: str, expected_msg: str
-    ):
+    def _assert_validates_without_webhook(self, webhook_name: str, fixture: str, expected_msg: str):
         webhook_api = self.client.AdmissionregistrationV1Api()
 
         # break the existing webhook

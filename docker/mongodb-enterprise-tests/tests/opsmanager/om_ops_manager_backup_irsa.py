@@ -1,24 +1,23 @@
-from operator import attrgetter
-from typing import Optional, Dict, Callable
 import subprocess
+from operator import attrgetter
+from typing import Callable, Dict, Optional
+
 from kubernetes import client
-from kubetester import get_default_storage_class, create_or_update
-from kubetester.awss3client import AwsS3Client, s3_endpoint
-from kubetester.kubetester import (
-    skip_if_local,
-    fixture as yaml_fixture,
-    KubernetesTester,
-)
-from kubetester.mongodb import Phase, MongoDB
-from kubetester.mongodb_user import MongoDBUser
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
+    create_or_update,
     create_or_update_secret,
+    get_default_storage_class,
 )
-from pytest import mark, fixture, skip
-
+from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark, skip
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import (
@@ -125,9 +124,7 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         name=OPLOG_RS_NAME,
     ).configure(ops_manager, "development")
     resource.set_version(custom_mdb_version)
-    resource["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
 
     yield resource.create()
 
@@ -155,9 +152,7 @@ def oplog_user(namespace, oplog_replica_set: MongoDB) -> MongoDBUser:
     resource["spec"]["passwordSecretKeyRef"]["name"] = "mms-user-2-password"
     resource["spec"]["username"] = "mms-user-2"
 
-    print(
-        f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} "
-    )
+    print(f"\nCreating password for MongoDBUser {resource.name} in secret/{resource.get_secret_name()} ")
     create_or_update_secret(
         KubernetesTester.get_namespace(),
         resource.get_secret_name(),
@@ -196,18 +191,14 @@ class TestOpsManagerCreation:
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
         def stateful_set_becomes_ready():
             stateful_set = ops_manager.read_backup_statefulset()
-            return (
-                stateful_set.status.ready_replicas == 1
-                and stateful_set.status.current_replicas == 1
-            )
+            return stateful_set.status.ready_replicas == 1 and stateful_set.status.current_replicas == 1
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
         stateful_set = ops_manager.read_backup_statefulset()
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name)
-            for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
         )
 
     def test_backup_daemon_services_created(self, namespace):
@@ -218,9 +209,7 @@ class TestOpsManagerCreation:
         # services on it. Let's make sure we only count those that we care of.
         # For now we allow this test to fail, because it is too broad to be significant
         # and it is easy to break it.
-        backup_services = [
-            s for s in services if s.metadata.name.startswith("om-backup")
-        ]
+        backup_services = [s for s in services if s.metadata.name.startswith("om-backup")]
 
         assert len(backup_services) >= 2
 
@@ -263,9 +252,7 @@ class TestBackupDatabasesAdded:
         oplog_user.assert_reaches_phase(Phase.Updated)
 
     def test_oplog_updated_scram_sha_enabled(self, oplog_replica_set: MongoDB):
-        oplog_replica_set["spec"]["security"] = {
-            "authentication": {"enabled": True, "modes": ["SCRAM"]}
-        }
+        oplog_replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -279,9 +266,7 @@ class TestBackupDatabasesAdded:
 
     def test_fix_om(self, ops_manager: MongoDBOpsManager, oplog_user: MongoDBUser):
         ops_manager.load()
-        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
-            "name": oplog_user.name
-        }
+        ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
         ops_manager.update()
 
         ops_manager.backup_status().assert_reaches_phase(
@@ -320,9 +305,7 @@ class TestBackupDatabasesAdded:
                 )
             ]
         )
-        om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
-        )
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
     def test_security_contexts_backup(
         self,
@@ -342,9 +325,7 @@ class TestBackupForMongodb:
     Both latest and the one before the latest are tested (as the backup process for them may differ significantly)"""
 
     @fixture(scope="class")
-    def mdb_latest(
-        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str
-    ):
+    def mdb_latest(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: str):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
@@ -355,9 +336,7 @@ class TestBackupForMongodb:
         return resource.create()
 
     @fixture(scope="class")
-    def mdb_prev(
-        self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str
-    ):
+    def mdb_prev(self, ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version: str):
         resource = MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=namespace,
@@ -389,9 +368,7 @@ class TestBackupForMongodb:
         om_tester_first.wait_until_backup_snapshots_are_ready(expected_count=1)
         om_tester_second.wait_until_backup_snapshots_are_ready(expected_count=1)
 
-    def test_can_transition_from_started_to_stopped(
-        self, mdb_latest: MongoDB, mdb_prev: MongoDB
-    ):
+    def test_can_transition_from_started_to_stopped(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         # a direction transition from enabled to disabled is a single
         # step for the operator
         mdb_prev.wait_for(reaches_backup_status("STARTED"), timeout=100)
@@ -399,9 +376,7 @@ class TestBackupForMongodb:
         mdb_prev.update()
         mdb_prev.wait_for(reaches_backup_status("STOPPED"), timeout=600)
 
-    def test_can_transition_from_started_to_terminated_0(
-        self, mdb_latest: MongoDB, mdb_prev: MongoDB
-    ):
+    def test_can_transition_from_started_to_terminated_0(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
         # a direct transition from enabled to terminated is not possible
         # the operator should handle the transition from STARTED -> STOPPED -> TERMINATING
         mdb_latest.wait_for(reaches_backup_status("STARTED"), timeout=100)
@@ -451,9 +426,7 @@ class TestBackupConfigurationAdditionDeletion:
                 new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
-        om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
-        )
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
     def test_oplog_store_is_deleted_correctly(
         self,
@@ -482,9 +455,7 @@ class TestBackupConfigurationAdditionDeletion:
                 )
             ]
         )
-        om_tester.assert_s3_stores(
-            [new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)]
-        )
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
 
     def test_error_on_s3store_removal(
         self,

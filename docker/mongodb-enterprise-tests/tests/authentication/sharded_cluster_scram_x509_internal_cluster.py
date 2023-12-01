@@ -1,15 +1,15 @@
-from kubetester.kubetester import KubernetesTester
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.omtester import get_sc_cert_names
-from pytest import mark, fixture
-from kubetester.mongodb import MongoDB, Phase
-from kubetester.kubetester import fixture as find_fixture
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    create_x509_mongodb_tls_certs,
-    create_x509_agent_tls_certs,
     create_sharded_cluster_certs,
+    create_x509_agent_tls_certs,
+    create_x509_mongodb_tls_certs,
 )
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as find_fixture
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.omtester import get_sc_cert_names
+from pytest import fixture, mark
 
 MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-256"
 
@@ -34,9 +34,7 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def sharded_cluster(
-    namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def sharded_cluster(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("sharded-cluster-scram-sha-256-x509-internal-cluster.yaml"),
         namespace=namespace,

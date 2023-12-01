@@ -7,9 +7,7 @@ from pytest import fixture
 
 @fixture(scope="module")
 def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("standalone.yaml"), "my-standalone", namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("standalone.yaml"), "my-standalone", namespace)
     resource.set_version(custom_mdb_version)
     resource.create()
 

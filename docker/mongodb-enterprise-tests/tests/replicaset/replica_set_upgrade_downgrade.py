@@ -1,12 +1,11 @@
 import pymongo
-from pytest import fixture, mark
 from kubetester.kubetester import KubernetesTester
-
 from kubetester.mongotester import (
-    ReplicaSetTester,
     MongoDBBackgroundTester,
     MongoTester,
+    ReplicaSetTester,
 )
+from pytest import fixture, mark
 
 TEST_DATA = {"foo": "bar"}
 TEST_DB = "testdb"

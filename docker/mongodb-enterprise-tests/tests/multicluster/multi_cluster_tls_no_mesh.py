@@ -2,14 +2,13 @@ from typing import List
 
 import kubernetes
 from kubernetes import client
-from pytest import mark, fixture
-
 from kubetester import create_or_update, get_service
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
+from pytest import fixture, mark
 from tests.conftest import update_coredns_hosts
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -20,17 +19,11 @@ BUNDLE_PEM_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert-pem"
 
 
 @fixture(scope="module")
-def mongodb_multi_unmarshalled(
-    namespace: str, member_cluster_names: List[str]
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
     resource["spec"]["persistent"] = False
     # These domains map 1:1 to the CoreDNS file. Please be mindful when updating them.
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 2, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 2, 2])
 
     resource["spec"]["externalAccess"] = {}
     resource["spec"]["clusterSpecList"][0]["externalAccess"] = {
@@ -135,9 +128,7 @@ def mongodb_multi(
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
-    mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(
-        central_cluster_client
-    )
+    mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     return create_or_update(mongodb_multi_unmarshalled)
 
@@ -231,9 +222,7 @@ def test_service_overrides(
 ):
     for cluster_idx, member_cluster_client in enumerate(member_cluster_clients):
         for pod_idx in range(0, 2):
-            external_service_name = (
-                f"{mongodb_multi.name}-{cluster_idx}-{pod_idx}-svc-external"
-            )
+            external_service_name = f"{mongodb_multi.name}-{cluster_idx}-{pod_idx}-svc-external"
             external_service = get_service(
                 namespace,
                 external_service_name,

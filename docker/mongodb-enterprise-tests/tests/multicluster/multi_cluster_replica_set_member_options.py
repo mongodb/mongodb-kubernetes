@@ -4,13 +4,10 @@ import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-
 from kubetester import create_or_update
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    skip_if_local,
-    KubernetesTester,
-)
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
@@ -78,9 +75,7 @@ def mongodb_multi(
             },
         ],
     ]
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2], member_options
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2], member_options)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     create_or_update(resource)
@@ -88,9 +83,7 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_member_options
-def test_create_kube_config_file(
-    cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str
-):
+def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str):
     clients = cluster_clients
 
     assert len(clients) == 4

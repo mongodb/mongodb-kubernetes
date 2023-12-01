@@ -1,19 +1,14 @@
-from pytest import mark, fixture
-
 from kubetester import find_fixture
-
-from kubetester.mongodb import MongoDB, Phase
-
 from kubetester.kubetester import KubernetesTester
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture, mark
 
 
 @fixture(scope="module")
 def standalone(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("standalone.yaml"), namespace=namespace)
 
-    resource["spec"]["agent"] = {
-        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
-    }
+    resource["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
 
     return resource.create()
 

@@ -1,27 +1,20 @@
 from typing import Optional
 
 import pytest
-
 from kubetester import create_or_update
-from kubetester.kubetester import (
-    skip_if_local,
-    fixture as yaml_fixture,
-)
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-
 from tests.conftest import is_multi_cluster
-
 
 # Important - you need to ensure that OM and Appdb images are build and pushed into your current docker registry before
 # running tests locally - use "make om-image" and "make appdb" to do this
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_scale_up_down.yaml"), namespace=namespace
     )

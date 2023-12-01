@@ -2,15 +2,14 @@ import os
 from typing import Optional
 
 import pymongo
-from pytest import fixture, mark
-
 from kubetester import create_or_update, create_or_update_secret
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from tests.conftest import is_multi_cluster, create_appdb_certs
+from pytest import fixture, mark
+from tests.conftest import create_appdb_certs, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
 )
@@ -44,9 +43,7 @@ def ops_manager(
     create_or_update_secret(namespace, "appdb-secret", {"password": "Hello-World!"})
 
     print("Creating OM object")
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace
-    )
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_appdb_monitoring_tls.yaml"), namespace=namespace)
     om.set_version(custom_version)
 
     # ensure the requests library will use this CA when communicating with Ops Manager
@@ -104,9 +101,7 @@ def test_new_database_is_monitored_after_restart(ops_manager: MongoDBOpsManager)
     # We want to retrieve measurements from "new_database" which will indicate
     # that the monitoring agents are working with the new credentials.
     KubernetesTester.wait_until(
-        build_monitoring_agent_test_func(
-            ops_manager, database_name=database_name, period="PT100M"
-        ),
+        build_monitoring_agent_test_func(ops_manager, database_name=database_name, period="PT100M"),
         timeout=120,
     )
 

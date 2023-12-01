@@ -1,16 +1,13 @@
 from typing import Optional
 
 import yaml
-from pytest import fixture, mark
-
-from kubetester import get_default_storage_class, create_or_update, try_load
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    skip_if_local,
-    KubernetesTester,
-)
-from kubetester.mongodb import Phase, MongoDB
+from kubetester import create_or_update, get_default_storage_class, try_load
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
@@ -23,15 +20,11 @@ VERSION_NOT_IN_OPS_MANAGER = "4.2.1"
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
         pvc_body = yaml.safe_load(f.read())
 
-    KubernetesTester.create_or_update_pvc(
-        namespace, body=pvc_body, storage_class_name=get_default_storage_class()
-    )
+    KubernetesTester.create_or_update_pvc(namespace, body=pvc_body, storage_class_name=get_default_storage_class())
 
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(

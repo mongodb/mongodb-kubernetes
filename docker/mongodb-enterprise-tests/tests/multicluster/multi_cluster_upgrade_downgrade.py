@@ -1,11 +1,8 @@
 import kubernetes
 import pymongo
 import pytest
-
 from kubetester import create_or_update, try_load
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-)
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongotester import MongoDBBackgroundTester
@@ -22,12 +19,8 @@ def mongodb_multi(
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
 
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDBM_RESOURCE, namespace
-    )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDBM_RESOURCE, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource["spec"]["version"] = "4.4.11-ent"
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 

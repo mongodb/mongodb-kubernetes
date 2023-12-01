@@ -5,17 +5,17 @@ don't intersect. Note that K8s objects are removed right after the delete call i
 serialization happens) so update operation doesn't succeed as internal locks don't affect
 K8s CR and dependent resources removal.
 """
-from kubetester.kubetester import fixture as yaml_fixture, run_periodically
+from time import sleep
+
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
-from time import sleep
 
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-single.yaml"), "my-replica-set", namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set-single.yaml"), "my-replica-set", namespace)
     resource.set_version(custom_mdb_version)
     resource.create()
 

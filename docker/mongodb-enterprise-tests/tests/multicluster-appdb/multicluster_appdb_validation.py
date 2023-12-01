@@ -1,12 +1,11 @@
 import kubernetes
 import kubernetes.client
-from pytest import fixture, mark
-
-from kubernetes.client.rest import ApiException
 import pytest
-from kubetester import try_load, create_or_update
+from kubernetes.client.rest import ApiException
+from kubetester import create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 

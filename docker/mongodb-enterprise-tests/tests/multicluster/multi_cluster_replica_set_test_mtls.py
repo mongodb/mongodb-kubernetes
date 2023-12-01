@@ -2,16 +2,12 @@ from typing import List
 
 import kubernetes
 import pytest
-
-from kubetester import wait_until, create_or_update
+from kubetester import create_or_update, wait_until
+from kubetester.kubetester import KubernetesTester, create_testing_namespace
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    create_testing_namespace,
-    KubernetesTester,
-)
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -21,13 +17,9 @@ def mongodb_multi(
     namespace: str,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -54,9 +46,7 @@ def test_create_mongo_pod_in_separate_namespace(
     cluster_1_client = member_cluster_clients[0]
 
     # create the namespace to deploy the
-    create_testing_namespace(
-        evergreen_task_id, f"{namespace}-mongo", api_client=cluster_1_client.api_client
-    )
+    create_testing_namespace(evergreen_task_id, f"{namespace}-mongo", api_client=cluster_1_client.api_client)
 
     corev1 = kubernetes.client.CoreV1Api(api_client=cluster_1_client.api_client)
 
@@ -146,9 +136,7 @@ def test_enable_istio_injection(
 
 
 @pytest.mark.e2e_multi_cluster_mtls_test
-def test_delete_existing_mongo_pod(
-    member_cluster_clients: List[MultiClusterClient], namespace: str
-):
+def test_delete_existing_mongo_pod(member_cluster_clients: List[MultiClusterClient], namespace: str):
     cluster_1_client = member_cluster_clients[0]
     corev1 = kubernetes.client.CoreV1Api(api_client=cluster_1_client.api_client)
     corev1.delete_namespaced_pod("mongo", f"{namespace}-mongo")
@@ -164,9 +152,7 @@ def test_delete_existing_mongo_pod(
 
 
 @pytest.mark.e2e_multi_cluster_mtls_test
-def test_create_pod_with_istio_sidecar(
-    member_cluster_clients: List[MultiClusterClient], namespace: str
-):
+def test_create_pod_with_istio_sidecar(member_cluster_clients: List[MultiClusterClient], namespace: str):
     cluster_1_client = member_cluster_clients[0]
     corev1 = kubernetes.client.CoreV1Api(api_client=cluster_1_client.api_client)
     # create a pod with mongo installed in a separate namespace that does not have istio configured.
@@ -193,9 +179,7 @@ def test_create_pod_with_istio_sidecar(
 
     def two_containers_are_present() -> bool:
         try:
-            pod: kubernetes.client.V1Pod = corev1.read_namespaced_pod(
-                "mongo", f"{namespace}-mongo"
-            )
+            pod: kubernetes.client.V1Pod = corev1.read_namespaced_pod("mongo", f"{namespace}-mongo")
             return len(pod.spec.containers) == 2 and pod.status.phase == "Running"
         except Exception:
             return False
@@ -225,10 +209,7 @@ def test_connectivity_succeeds_from_second_namespace(
             container="mongo",
             api_client=cluster_1_client.api_client,
         )
-        if (
-            "Error: network error while attempting to run command 'isMaster' on host"
-            in result
-        ):
+        if "Error: network error while attempting to run command 'isMaster' on host" in result:
             return False
 
         if f"getaddrinfo ENOTFOUND" in result:
@@ -237,10 +218,7 @@ def test_connectivity_succeeds_from_second_namespace(
         if "HostNotFound" in result:
             return False
 
-        if (
-            f"Connecting to:		mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local:27017"
-            not in result
-        ):
+        if f"Connecting to:		mongodb://{mongodb_multi.name}-0-0-svc.{namespace}.svc.cluster.local:27017" not in result:
             return False
 
         return True

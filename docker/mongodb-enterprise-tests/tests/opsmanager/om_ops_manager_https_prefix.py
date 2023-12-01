@@ -1,12 +1,11 @@
 from typing import Optional
 
-from pytest import fixture, mark
-
 from kubetester import create_or_update
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
@@ -15,9 +14,7 @@ from tests.opsmanager.withMonitoredAppDB.conftest import (
 
 @fixture(scope="module")
 def ops_manager_certs(namespace: str, issuer: str):
-    return create_ops_manager_tls_certs(
-        issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert"
-    )
+    return create_ops_manager_tls_certs(issuer, namespace, "om-with-https", secret_name="prefix-om-with-https-cert")
 
 
 @fixture(scope="module")
@@ -28,9 +25,7 @@ def ops_manager(
     custom_version: Optional[str],
     custom_appdb_version: str,
 ) -> MongoDBOpsManager:
-    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        _fixture("om_https_enabled.yaml"), namespace=namespace
-    )
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om["spec"]["security"] = {

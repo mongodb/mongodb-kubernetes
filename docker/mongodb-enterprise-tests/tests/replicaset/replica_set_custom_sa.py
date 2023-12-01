@@ -1,7 +1,8 @@
-from pytest import fixture, mark
 from kubetester import create_service_account, delete_service_account
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from pytest import fixture, mark
 
 
 @fixture(scope="module")
@@ -10,14 +11,10 @@ def create_custom_sa(namespace: str) -> str:
 
 
 @fixture(scope="module")
-def replica_set(
-    namespace: str, custom_mdb_version: str, create_custom_sa: str
-) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
-    resource["spec"]["podSpec"] = {
-        "podTemplate": {"spec": {"serviceAccountName": "test-sa"}}
-    }
+    resource["spec"]["podSpec"] = {"podTemplate": {"spec": {"serviceAccountName": "test-sa"}}}
     resource["spec"]["statefulSet"] = {"spec": {"serviceName": "rs-svc"}}
     resource.set_version(custom_mdb_version)
     yield resource.create()

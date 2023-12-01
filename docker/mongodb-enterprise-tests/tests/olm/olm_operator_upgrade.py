@@ -1,15 +1,14 @@
+import pytest
 from kubetester import create_or_update
 from tests.olm.olm_test_commons import (
-    get_current_operator_version,
-    increment_patch_version,
-    get_operator_group_resource,
-    get_catalog_source_resource,
     get_catalog_image,
+    get_catalog_source_resource,
+    get_current_operator_version,
+    get_operator_group_resource,
     get_subscription_custom_object,
+    increment_patch_version,
     wait_for_operator_ready,
 )
-import pytest
-
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
@@ -44,16 +43,10 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     create_or_update(subscription)
 
-    wait_for_operator_ready(
-        namespace, f"mongodb-enterprise.v{current_operator_version}"
-    )
+    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
 
     subscription.load()
-    subscription["spec"][
-        "channel"
-    ] = "fast"  # fast channel contains operator build from the current branch
+    subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
-    wait_for_operator_ready(
-        namespace, f"mongodb-enterprise.v{incremented_operator_version}"
-    )
+    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")

@@ -1,5 +1,4 @@
 import pytest
-
 from kubetester.kubetester import KubernetesTester
 
 
@@ -22,10 +21,7 @@ class TestReplicaSetBadStateCreation(KubernetesTester):
 
         # Messages about a wrong automationConfig changed from OM40 to OM42
         # This is the message emitted by the Operator
-        assert (
-            "Failed to create/update (Ops Manager reconciliation phase)"
-            in mrs["status"]["message"]
-        )
+        assert "Failed to create/update (Ops Manager reconciliation phase)" in mrs["status"]["message"]
 
 
 @pytest.mark.e2e_replica_set_recovery

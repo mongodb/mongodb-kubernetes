@@ -1,8 +1,8 @@
-import pytest
 import time
 
-from kubetester.kubetester import KubernetesTester
+import pytest
 from kubernetes import client
+from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
 
 
@@ -37,16 +37,12 @@ class TestShardedClusterCreation(KubernetesTester):
         self.check_sts_labels(sts0)
 
     def test_config_sts(self):
-        config = self.appsv1.read_namespaced_stateful_set(
-            "sh001-pv-config", self.namespace
-        )
+        config = self.appsv1.read_namespaced_stateful_set("sh001-pv-config", self.namespace)
         assert config
         self.check_sts_labels(config)
 
     def test_mongos_sts(self):
-        mongos = self.appsv1.read_namespaced_stateful_set(
-            "sh001-pv-mongos", self.namespace
-        )
+        mongos = self.appsv1.read_namespaced_stateful_set("sh001-pv-mongos", self.namespace)
         assert mongos
         self.check_sts_labels(mongos)
 
@@ -55,12 +51,7 @@ class TestShardedClusterCreation(KubernetesTester):
         assert svc0
 
     def test_shard0_was_configured(self):
-        hosts = [
-            "sh001-pv-0-{}.sh001-pv-sh.{}.svc.cluster.local:27017".format(
-                i, self.namespace
-            )
-            for i in range(3)
-        ]
+        hosts = ["sh001-pv-0-{}.sh001-pv-sh.{}.svc.cluster.local:27017".format(i, self.namespace) for i in range(3)]
 
         primary, secondaries = self.wait_for_rs_is_ready(hosts)
 
@@ -70,18 +61,14 @@ class TestShardedClusterCreation(KubernetesTester):
     def test_pvc_are_bound(self):
         pvc_shards = ["data-sh001-pv-0-{}".format(x) for x in range(3)]
         for pvc_name in pvc_shards:
-            pvc = self.corev1.read_namespaced_persistent_volume_claim(
-                pvc_name, self.namespace
-            )
+            pvc = self.corev1.read_namespaced_persistent_volume_claim(pvc_name, self.namespace)
             assert pvc.status.phase == "Bound"
             assert pvc.spec.resources.requests["storage"] == "1G"
             self.check_pvc_labels(pvc)
 
         pvc_config = ["data-sh001-pv-config-{}".format(x) for x in range(3)]
         for pvc_name in pvc_config:
-            pvc = self.corev1.read_namespaced_persistent_volume_claim(
-                pvc_name, self.namespace
-            )
+            pvc = self.corev1.read_namespaced_persistent_volume_claim(pvc_name, self.namespace)
             assert pvc.status.phase == "Bound"
             assert pvc.spec.resources.requests["storage"] == "1G"
             self.check_pvc_labels(pvc)

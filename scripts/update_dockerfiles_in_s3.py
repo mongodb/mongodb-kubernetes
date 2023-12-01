@@ -15,6 +15,7 @@ run the script:
 
 import os
 import subprocess
+
 from kubetester.awss3client import AwsS3Client
 
 
@@ -40,9 +41,7 @@ for root, _, files in os.walk(public_dir):
     for file_name in filter(lambda f: f == DOCKERFILE_NAME, files):
         file_path = os.path.join(root, file_name)
         object_name = file_path.replace(f"{public_dir}", S3_FOLDER, 1)
-        client.upload_file(
-            os.path.join(root, file_name), S3_BUCKET, object_name, S3_PUBLIC_READ
-        )
+        client.upload_file(os.path.join(root, file_name), S3_BUCKET, object_name, S3_PUBLIC_READ)
         print(f" > {object_name}")
 
 print("Done!")

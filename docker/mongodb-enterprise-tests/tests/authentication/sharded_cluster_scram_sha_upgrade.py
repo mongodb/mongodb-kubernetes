@@ -1,8 +1,7 @@
 import pytest
-
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
-from kubetester.automation_config_tester import AutomationConfigTester
 
 MDB_RESOURCE = "my-sharded-cluster-scram-sha-1"
 

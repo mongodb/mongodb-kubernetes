@@ -7,14 +7,12 @@ Also it creates a MongoDB referencing the OM.
 from typing import Optional
 
 from kubernetes import client
-
-from kubetester import try_load, create_or_update
+from kubetester import create_or_update, try_load
+from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from pytest import fixture, mark
-
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
@@ -22,9 +20,7 @@ from tests.opsmanager.withMonitoredAppDB.conftest import (
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_pod_spec.yaml"), namespace=namespace
@@ -44,9 +40,7 @@ def ops_manager(
 
 @mark.e2e_om_ops_manager_pod_spec
 class TestOpsManagerCreation:
-    def test_appdb_0_sts_agents_havent_reached_running_state(
-        self, ops_manager: MongoDBOpsManager
-    ):
+    def test_appdb_0_sts_agents_havent_reached_running_state(self, ops_manager: MongoDBOpsManager):
         create_or_update(ops_manager)
         ops_manager.appdb_status().assert_reaches_phase(
             Phase.Pending,
@@ -55,9 +49,7 @@ class TestOpsManagerCreation:
         )
 
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(
-            Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600
-        )
+        ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600)
 
     def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_status_resource_not_ready(
@@ -86,10 +78,7 @@ class TestOpsManagerCreation:
         appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.template.spec.containers) == 4
 
-        assert (
-            appdb_sts.spec.template.spec.service_account_name
-            == "mongodb-enterprise-appdb"
-        )
+        assert appdb_sts.spec.template.spec.service_account_name == "mongodb-enterprise-appdb"
 
         appdb_agent_container = appdb_sts.spec.template.spec.containers[2]
         assert appdb_agent_container.name == "mongodb-agent"
@@ -106,36 +95,26 @@ class TestOpsManagerCreation:
         appdb_sts = ops_manager.read_appdb_statefulset()
         assert len(appdb_sts.spec.volume_claim_templates) == 1
         assert appdb_sts.spec.volume_claim_templates[0].metadata.name == "data"
-        assert (
-            appdb_sts.spec.volume_claim_templates[0].spec.resources.requests["storage"]
-            == "1G"
-        )
+        assert appdb_sts.spec.volume_claim_templates[0].spec.resources.requests["storage"] == "1G"
 
         for api_client, pod in ops_manager.read_appdb_pods():
             # pod volume claim
             expected_claim_name = f"data-{pod.metadata.name}"
-            claims = [
-                volume
-                for volume in pod.spec.volumes
-                if getattr(volume, "persistent_volume_claim")
-            ]
+            claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
             assert len(claims) == 1
             assert claims[0].name == "data"
             assert claims[0].persistent_volume_claim.claim_name == expected_claim_name
 
             # volume claim created
-            pvc = client.CoreV1Api(
-                api_client=api_client
-            ).read_namespaced_persistent_volume_claim(expected_claim_name, namespace)
+            pvc = client.CoreV1Api(api_client=api_client).read_namespaced_persistent_volume_claim(
+                expected_claim_name, namespace
+            )
             assert pvc.status.phase == "Bound"
             assert pvc.spec.resources.requests["storage"] == "1G"
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
         sts = ops_manager.read_statefulset()
-        assert (
-            sts.spec.template.spec.service_account_name
-            == "mongodb-enterprise-ops-manager"
-        )
+        assert sts.spec.template.spec.service_account_name == "mongodb-enterprise-ops-manager"
 
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
@@ -276,19 +255,14 @@ class TestOpsManagerCreation:
                 continue
             assert om_container[k] == expected_spec[k]
 
-        assert_volume_mounts_are_equal(
-            om_container["volume_mounts"], expected_spec["volume_mounts"]
-        )
+        assert_volume_mounts_are_equal(om_container["volume_mounts"], expected_spec["volume_mounts"])
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
         assert len(sts.spec.template.spec.volumes) == 5
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
-        assert (
-            backup_sts.spec.template.spec.service_account_name
-            == "mongodb-enterprise-ops-manager"
-        )
+        assert backup_sts.spec.template.spec.service_account_name == "mongodb-enterprise-ops-manager"
 
         assert len(backup_sts.spec.template.spec.containers) == 1
         om_container = backup_sts.spec.template.spec.containers[0]
@@ -304,29 +278,23 @@ class TestOpsManagerUpdate:
     def test_om_updated(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         # adding annotations
-        ops_manager["spec"]["applicationDatabase"]["podSpec"]["podTemplate"][
-            "metadata"
-        ] = {"annotations": {"annotation1": "val"}}
-
-        # changing memory and adding labels for OM
-        ops_manager["spec"]["statefulSet"]["spec"]["template"]["spec"]["containers"][0][
-            "resources"
-        ]["limits"]["memory"] = "5G"
-        ops_manager["spec"]["statefulSet"]["spec"]["template"]["metadata"]["labels"] = {
-            "additional": "foo"
+        ops_manager["spec"]["applicationDatabase"]["podSpec"]["podTemplate"]["metadata"] = {
+            "annotations": {"annotation1": "val"}
         }
 
+        # changing memory and adding labels for OM
+        ops_manager["spec"]["statefulSet"]["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"][
+            "memory"
+        ] = "5G"
+        ops_manager["spec"]["statefulSet"]["spec"]["template"]["metadata"]["labels"] = {"additional": "foo"}
+
         # termination_grace_period_seconds for Backup
-        ops_manager["spec"]["backup"]["statefulSet"]["spec"]["template"]["spec"][
-            "terminationGracePeriodSeconds"
-        ] = 10
+        ops_manager["spec"]["backup"]["statefulSet"]["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] = 10
 
         ops_manager.update()
 
     def test_appdb_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.appdb_status().assert_reaches_phase(
-            Phase.Pending, msg_regexp="StatefulSet not ready", timeout=1200
-        )
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=1200)
 
     def test_appdb_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         if not is_multi_cluster():
@@ -336,9 +304,7 @@ class TestOpsManagerUpdate:
             )
 
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(
-            Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600
-        )
+        ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600)
 
     def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_status_resource_not_ready(

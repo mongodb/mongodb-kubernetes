@@ -1,14 +1,11 @@
 import base64
 
-from pytest import fixture
-
-from kubetester import find_fixture, create_or_update, try_load
+from kubetester import create_or_update, find_fixture, try_load
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
-
-from kubetester.kubetester import fixture as yaml_fixture
+from pytest import fixture
 from tests.opsmanager.conftest import ensure_ent_version
-
 
 # This test is intended for manual run only.
 #
@@ -21,9 +18,7 @@ from tests.opsmanager.conftest import ensure_ent_version
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: str, custom_appdb_version
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: str, custom_appdb_version) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
     )
@@ -56,23 +51,17 @@ def replica_set(ops_manager: str, namespace: str, custom_mdb_version: str) -> Mo
         },
     }
     resource["spec"]["agent"] = {
-        "startupOptions": {
-            "logFile": "/var/log/mongodb-mms-automation/customLogFileWithoutExt"
-        }
+        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileWithoutExt"}
     }
 
     return resource
 
 
 def test_replica_set(replica_set: MongoDB):
-    with open(
-        "../mongodb-enterprise-init-database/content/agent-launcher.sh", "rb"
-    ) as f:
+    with open("../mongodb-enterprise-init-database/content/agent-launcher.sh", "rb") as f:
         agent_launcher = base64.b64encode(f.read()).decode("utf-8")
 
-    with open(
-        "../mongodb-enterprise-init-database/content/agent-launcher-lib.sh", "rb"
-    ) as f:
+    with open("../mongodb-enterprise-init-database/content/agent-launcher-lib.sh", "rb") as f:
         agent_launcher_lib = base64.b64encode(f.read()).decode("utf-8")
 
     command = f"""
@@ -80,9 +69,7 @@ echo -n "{agent_launcher}" | base64 -d > /opt/scripts/agent-launcher.sh
 echo -n "{agent_launcher_lib}" | base64 -d > /opt/scripts/agent-launcher-lib.sh
     """
 
-    replica_set["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"][0][
-        "args"
-    ] = ["-c", command]
+    replica_set["spec"]["podSpec"]["podTemplate"]["spec"]["initContainers"][0]["args"] = ["-c", command]
 
     create_or_update(replica_set)
 

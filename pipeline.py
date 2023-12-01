@@ -125,9 +125,7 @@ def should_pin_at() -> Optional[Tuple[str, str]]:
     try:
         pinned = os.environ["pin_tag_at"]
     except KeyError:
-        raise MissingEnvironmentVariable(
-            f"pin_tag_at environment variable does not exist, but is required"
-        )
+        raise MissingEnvironmentVariable(f"pin_tag_at environment variable does not exist, but is required")
 
     if is_patch:
         if pinned == "00:00":
@@ -167,9 +165,7 @@ def build_id() -> str:
         print(f"we are pinning to, hour: {hour}, minute: {minute}")
         date = date.replace(hour=int(hour), minute=int(minute), second=0)
     else:
-        print(
-            f"hour and minute cannot be extracted from provided pin_tag_at env, pinning to now"
-        )
+        print(f"hour and minute cannot be extracted from provided pin_tag_at env, pinning to now")
 
     string_time = date.strftime("%Y%m%dT%H%M%SZ")
 
@@ -261,11 +257,7 @@ def try_get_platform_data(client, image):
     try:
         return client.images.get_registry_data(image)
     except Exception as e:
-        logger.debug(
-            "Failed to get registry data for image: {0}. Error: {1}".format(
-                image, str(e)
-            )
-        )
+        logger.debug("Failed to get registry data for image: {0}. Error: {1}".format(image, str(e)))
         return None
 
 
@@ -283,11 +275,7 @@ def check_multi_arch(image: str, suffix: str) -> bool:
     for img in [image, image + suffix]:
         reg_data = try_get_platform_data(client, img)
         if reg_data is not None and all(reg_data.has_platform(p) for p in platforms):
-            logger.debug(
-                "Base image {} supports multi architecture, building for ARM64 and AMD64".format(
-                    img
-                )
-            )
+            logger.debug("Base image {} supports multi architecture, building for ARM64 and AMD64".format(img))
             return True
 
     logger.debug("Base image {} is single-arch, building only for AMD64.".format(img))
@@ -369,9 +357,7 @@ def build_database_image(build_configuration: BuildConfiguration):
         version=version,
     )
 
-    sonar_build_image(
-        image_name, build_configuration, args, "inventories/database.yaml"
-    )
+    sonar_build_image(image_name, build_configuration, args, "inventories/database.yaml")
 
 
 def build_operator_image_patch(build_configuration: BuildConfiguration):
@@ -381,10 +367,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     client = docker.from_env()
     # image that we know is where we build operator.
     image_repo = (
-        build_configuration.base_repository
-        + "/"
-        + build_configuration.image_type
-        + "/mongodb-enterprise-operator"
+        build_configuration.base_repository + "/" + build_configuration.image_type + "/mongodb-enterprise-operator"
     )
     image_tag = "latest"
     repo_tag = image_repo + ":" + image_tag
@@ -404,9 +387,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     )  # Layer 0 is the latest added layer to this Docker image. [-1] is the FROM layer.
 
     if image_timestamp < too_old:
-        logger.info(
-            "Current operator image is too old, will rebuild it completely first"
-        )
+        logger.info("Current operator image is too old, will rebuild it completely first")
         build_operator_image(build_configuration)
         return
 
@@ -418,9 +399,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     except docker.errors.NotFound:
         pass
 
-    container = client.containers.run(
-        repo_tag, name=container_name, entrypoint="sh", detach=True
-    )
+    container = client.containers.run(repo_tag, name=container_name, entrypoint="sh", detach=True)
 
     logger.debug("Building operator with debugging symbols")
     subprocess.run(["make", "manager"], check=True, stdout=subprocess.PIPE)
@@ -428,8 +407,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
 
     copy_into_container(
         client,
-        os.getcwd()
-        + "/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator",
+        os.getcwd() + "/docker/mongodb-enterprise-operator/content/mongodb-enterprise-operator",
         container_name + ":" + operator_binary_location,
     )
 
@@ -473,9 +451,7 @@ def image_config(
         "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/{}{}".format(
             name_prefix, image_name
         ),
-        "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(
-            s3_bucket, name_prefix, image_name
-        ),
+        "s3_bucket_http": "https://{}.s3.amazonaws.com/dockerfiles/{}{}".format(s3_bucket, name_prefix, image_name),
         "ubi_suffix": ubi_suffix,
         "base_suffix": base_suffix,
     }
@@ -496,9 +472,7 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config("init-ops-manager"),
         image_config("operator"),
         image_config("ops-manager"),
-        image_config(
-            "mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"
-        ),
+        image_config("mongodb-agent", name_prefix="", ubi_suffix="-ubi", base_suffix="-ubi"),
         image_config(
             image_name="mongodb-kubernetes-operator",
             name_prefix="",
@@ -548,9 +522,7 @@ def build_image_daily(
 
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
-        logger.info(
-            "Supported Versions for {}: {}".format(image_name, supported_versions)
-        )
+        logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
         completed_versions = set()
         for version in supported_versions:
             version_without_rc = semver.finalize_version(version)
@@ -586,10 +558,7 @@ def build_image_daily(
                     arch_set == {"amd64", "arm64"}
                     or arch_set == set()
                     and check_multi_arch(
-                        image=args["quay_registry"]
-                        + args["ubi_suffix"]
-                        + ":"
-                        + args["release_version"],
+                        image=args["quay_registry"] + args["ubi_suffix"] + ":" + args["release_version"],
                         suffix="-context",
                     )
                 ):
@@ -652,7 +621,9 @@ def get_om_releases() -> Dict[str, str]:
     """Returns a dictionary representation of the Json document holdin all the OM
     releases.
     """
-    ops_manager_release_archive = "https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json"
+    ops_manager_release_archive = (
+        "https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json"
+    )
 
     return requests.get(ops_manager_release_archive).json()
 
@@ -711,9 +682,7 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
 
-    mongodb_tools_url_ubi = "{}{}".format(
-        base_url, release["mongodbToolsBundle"]["ubi"]
-    )
+    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
 
     args = dict(
         version=version,
@@ -750,15 +719,9 @@ def get_builder_function_for_image_name():
         "init-appdb-daily": build_image_daily("init-appdb"),
         "init-database-daily": build_image_daily("init-database"),
         "init-ops-manager-daily": build_image_daily("init-ops-manager"),
-        "ops-manager-5-daily": build_image_daily(
-            "ops-manager", min_version="5.0.0", max_version="6.0.0"
-        ),
-        "ops-manager-6-daily": build_image_daily(
-            "ops-manager", min_version="6.0.0", max_version="7.0.0"
-        ),
-        "ops-manager-7-daily": build_image_daily(
-            "ops-manager", min_version="7.0.0", max_version="8.0.0"
-        ),
+        "ops-manager-5-daily": build_image_daily("ops-manager", min_version="5.0.0", max_version="6.0.0"),
+        "ops-manager-6-daily": build_image_daily("ops-manager", min_version="6.0.0", max_version="7.0.0"),
+        "ops-manager-7-daily": build_image_daily("ops-manager", min_version="7.0.0", max_version="8.0.0"),
         #
         # Ops Manager image
         "ops-manager": build_om_image,
@@ -771,9 +734,7 @@ def get_builder_function_for_image_name():
         "mongodb-kubernetes-operator-version-upgrade-post-start-hook-daily": build_image_daily(
             "mongodb-kubernetes-operator-version-upgrade-post-start-hook",
         ),
-        "mongodb-kubernetes-operator-daily": build_image_daily(
-            "mongodb-kubernetes-operator"
-        ),
+        "mongodb-kubernetes-operator-daily": build_image_daily("mongodb-kubernetes-operator"),
     }
 
 
@@ -785,9 +746,7 @@ def build_init_database(build_configuration: BuildConfiguration):
 
     base_url = "https://fastdl.mongodb.org/tools/db/"
 
-    mongodb_tools_url_ubi = "{}{}".format(
-        base_url, release["mongodbToolsBundle"]["ubi"]
-    )
+    mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
 
     args = dict(
         version=version,
@@ -801,9 +760,7 @@ def build_init_database(build_configuration: BuildConfiguration):
     # If this is set to "" or not set at all, then the default value in
     # "inventories/init_database.yaml" will be used.
     if os.environ.get("readiness_probe"):
-        logger.info(
-            "Using readiness_probe source image: %s", os.environ["readiness_probe"]
-        )
+        logger.info("Using readiness_probe source image: %s", os.environ["readiness_probe"])
         repo, tag = os.environ["readiness_probe"].split(":")
 
     sonar_build_image(
@@ -827,14 +784,10 @@ def build_all_images(
     architecture: Optional[List[str]] = None,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(
-        builder, parallel, debug, architecture
-    )
+    build_configuration = operator_build_configuration(builder, parallel, debug, architecture)
 
     if parallel:
-        raise NotImplemented(
-            "building images in parallel has not been implemented yet."
-        )
+        raise NotImplemented("building images in parallel has not been implemented yet.")
 
     for image in images:
         build_image(image, build_configuration)

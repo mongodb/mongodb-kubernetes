@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
+import configparser
 import json
 import os
 import sys
 
-from packaging.version import Version
-import configparser
-
 import requests
 import yaml
+from packaging.version import Version
 
 
 def get_latest_om_versions_from_evergreen_yml():

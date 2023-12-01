@@ -2,12 +2,13 @@ from typing import Dict, List
 
 import kubernetes
 import pytest
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs, Certificate
+from kubetester.certs import Certificate, create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
 from kubetester.mongotester import with_tls
+from kubetester.operator import Operator
 
 from .conftest import cluster_spec_list
 
@@ -17,15 +18,9 @@ BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi_unmarshalled(
-    namespace: str, member_cluster_names: List[str]
-) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1]
-    )
+def mongodb_multi_unmarshalled(namespace: str, member_cluster_names: List[str]) -> MongoDBMulti:
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
     return resource
 
 
@@ -67,9 +62,7 @@ def mongodb_multi(
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_replica_set
-def test_create_kube_config_file(
-    cluster_clients: Dict, member_cluster_names: List[str]
-):
+def test_create_kube_config_file(cluster_clients: Dict, member_cluster_names: List[str]):
     clients = cluster_clients
 
     assert len(clients) == 2

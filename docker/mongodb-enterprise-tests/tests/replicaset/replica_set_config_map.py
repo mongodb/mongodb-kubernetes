@@ -1,5 +1,4 @@
 import pytest
-
 from kubernetes.client import V1ConfigMap
 from kubetester.kubetester import KubernetesTester
 
@@ -20,9 +19,7 @@ class TestReplicaSetListensConfigMap(KubernetesTester):
 
     def test_patch_config_map(self):
         config_map = V1ConfigMap(data={"orgId": "wrongId"})
-        self.clients("corev1").patch_namespaced_config_map(
-            "my-project", self.get_namespace(), config_map
-        )
+        self.clients("corev1").patch_namespaced_config_map("my-project", self.get_namespace(), config_map)
 
         print('Patched the ConfigMap - changed orgId to "wrongId"')
 

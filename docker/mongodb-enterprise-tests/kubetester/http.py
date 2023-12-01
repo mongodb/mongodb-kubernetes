@@ -30,15 +30,8 @@ def get_retriable_https_session(*, tls_verify: bool) -> requests.Session:
     return get_retriable_session("https", tls_verify)
 
 
-def https_endpoint_is_reachable(
-    url: str, auth: Tuple[str], *, tls_verify: bool
-) -> bool:
+def https_endpoint_is_reachable(url: str, auth: Tuple[str], *, tls_verify: bool) -> bool:
     """
     Checks that `url` is reachable, using `auth` basic credentials.
     """
-    return (
-        get_retriable_https_session(tls_verify=tls_verify)
-        .get(url, auth=auth)
-        .status_code
-        == 200
-    )
+    return get_retriable_https_session(tls_verify=tls_verify).get(url, auth=auth).status_code == 200

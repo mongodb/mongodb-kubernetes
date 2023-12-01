@@ -1,11 +1,7 @@
-from kubetester.certs import (
-    create_mongodb_tls_certs,
-    SetProperties,
-)
-from kubetester.mongodb import MongoDB, Phase
-
+from kubetester.certs import SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import fixture as _fixture
-from pytest import mark, fixture
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"
 SUBJECT = {"organizations": ["MDB Tests"], "organizationalUnits": ["Servers"]}

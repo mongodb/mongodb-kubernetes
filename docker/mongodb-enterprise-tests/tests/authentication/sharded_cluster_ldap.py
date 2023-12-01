@@ -1,24 +1,19 @@
 from typing import List
 
-from pytest import mark, fixture
-
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-
-from kubetester.mongotester import ShardedClusterTester
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
-from kubetester.ldap import OpenLDAP, LDAPUser
+from kubetester.mongotester import ShardedClusterTester
+from pytest import fixture, mark
 
 
 @fixture(scope="module")
 def sharded_cluster(openldap: OpenLDAP, namespace: str) -> MongoDB:
     bind_query_password_secret = "bind-query-password"
-    resource = MongoDB.from_yaml(
-        yaml_fixture("ldap/ldap-sharded-cluster.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("ldap/ldap-sharded-cluster.yaml"), namespace=namespace)
 
-    KubernetesTester.create_secret(
-        namespace, bind_query_password_secret, {"password": openldap.admin_password}
-    )
+    KubernetesTester.create_secret(namespace, bind_query_password_secret, {"password": openldap.admin_password})
 
     resource["spec"]["security"]["authentication"]["ldap"] = {
         "servers": [openldap.servers],
@@ -33,9 +28,7 @@ def sharded_cluster(openldap: OpenLDAP, namespace: str) -> MongoDB:
 
 
 @mark.e2e_sharded_cluster_ldap
-def test_sharded_cluster_is_running(
-    sharded_cluster: MongoDB, ldap_mongodb_users: List[LDAPUser]
-):
+def test_sharded_cluster_is_running(sharded_cluster: MongoDB, ldap_mongodb_users: List[LDAPUser]):
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -57,22 +50,15 @@ class TestAddLDAPUsers(KubernetesTester):
         ac = KubernetesTester.get_automation_config()
         automation_config_users = 0
         for user in ac["auth"]["usersWanted"]:
-            if (
-                user["user"] != "mms-backup-agent"
-                and user["user"] != "mms-monitoring-agent"
-            ):
+            if user["user"] != "mms-backup-agent" and user["user"] != "mms-monitoring-agent":
                 automation_config_users += 1
 
         return automation_config_users == 1
 
 
 @mark.e2e_sharded_cluster_ldap
-def test_new_mdb_users_are_created(
-    sharded_cluster: MongoDB, ldap_mongodb_users: List[LDAPUser]
-):
+def test_new_mdb_users_are_created(sharded_cluster: MongoDB, ldap_mongodb_users: List[LDAPUser]):
     tester = ShardedClusterTester(sharded_cluster.name, 1)
 
     for ldap_user in ldap_mongodb_users:
-        tester.assert_ldap_authentication(
-            ldap_user.username, ldap_user.password, attempts=10
-        )
+        tester.assert_ldap_authentication(ldap_user.username, ldap_user.password, attempts=10)

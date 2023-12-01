@@ -10,9 +10,7 @@ def assert_stateful_set_podspec(
 ) -> None:
     assert pod_template_spec.termination_grace_period_seconds == grace_period_seconds
     assert (
-        pod_template_spec.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution[
-            0
-        ].weight
+        pod_template_spec.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution[0].weight
         == weight
     )
     assert (

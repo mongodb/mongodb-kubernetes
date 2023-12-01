@@ -1,12 +1,13 @@
 from typing import List
-from pytest import mark, fixture
 
-from kubetester import create_or_update
-from kubetester.mongodb import Phase
 import kubernetes
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from kubetester import create_or_update
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
+from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -16,17 +17,11 @@ def mongodb_multi(
     namespace: str,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace
-    )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-cluster.yaml"), "multi-replica-set", namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     # override agent startup flags
-    resource["spec"]["agent"] = {
-        "startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}
-    }
+    resource["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
     resource["spec"]["agent"]["logLevel"] = "DEBUG"
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
@@ -34,9 +29,7 @@ def mongodb_multi(
 
 
 @mark.e2e_multi_cluster_agent_flags
-def test_create_mongodb_multi(
-    multi_cluster_operator: Operator, mongodb_multi: MongoDBMulti
-):
+def test_create_mongodb_multi(multi_cluster_operator: Operator, mongodb_multi: MongoDBMulti):
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 

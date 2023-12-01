@@ -1,8 +1,6 @@
 from typing import Optional
 
-from pytest import fixture, mark
-
-from kubetester import MongoDB, read_secret, create_or_update_secret, create_or_update
+from kubetester import MongoDB, create_or_update, create_or_update_secret, read_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
@@ -10,6 +8,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import (
@@ -30,9 +29,7 @@ MONGODB_CR_KMIP_TEST_PREFIX = "test-prefix"
 
 @fixture(scope="module")
 def kmip(issuer, issuer_ca_configmap, namespace: str) -> KMIPDeployment:
-    return KMIPDeployment(
-        namespace, issuer, "ca-key-pair", issuer_ca_configmap
-    ).deploy()
+    return KMIPDeployment(namespace, issuer, "ca-key-pair", issuer_ca_configmap).deploy()
 
 
 @fixture(scope="module")
@@ -62,9 +59,7 @@ def ops_manager(
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
-    resource["spec"]["backup"]["encryption"]["kmip"]["server"][
-        "ca"
-    ] = issuer_ca_configmap
+    resource["spec"]["backup"]["encryption"]["kmip"]["server"]["ca"] = issuer_ca_configmap
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     resource["spec"]["backup"]["s3OpLogStores"] = [
@@ -104,18 +99,12 @@ def mdb_latest(
 
 
 @fixture(scope="module")
-def mdb_latest_kmip_secrets(
-    aws_s3_client: AwsS3Client, namespace, issuer, issuer_ca_configmap: str
-) -> str:
+def mdb_latest_kmip_secrets(aws_s3_client: AwsS3Client, namespace, issuer, issuer_ca_configmap: str) -> str:
     mdb_latest_generated_kmip_certs_secret_name = create_tls_certs(
         issuer, namespace, MONGODB_CR_NAME, 3, common_name=MONGODB_CR_NAME
     )
-    mdb_latest_generated_kmip_certs_secret = read_secret(
-        namespace, mdb_latest_generated_kmip_certs_secret_name
-    )
-    mdb_secret_name = (
-        MONGODB_CR_KMIP_TEST_PREFIX + "-" + MONGODB_CR_NAME + "-kmip-client"
-    )
+    mdb_latest_generated_kmip_certs_secret = read_secret(namespace, mdb_latest_generated_kmip_certs_secret_name)
+    mdb_secret_name = MONGODB_CR_KMIP_TEST_PREFIX + "-" + MONGODB_CR_NAME + "-kmip-client"
     create_or_update_secret(
         namespace,
         mdb_secret_name,
@@ -145,9 +134,7 @@ class TestOpsManagerCreation:
         kmip.status().assert_is_running()
 
     def test_create_om(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_reaches_phase(
-            Phase.Running, timeout=900, ignore_errors=True
-        )
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
 
     def test_mdbs_created(self, mdb_latest: MongoDB):
         # Once MDB is created, the OpsManager will be redeployed which may cause HTTP errors.
@@ -155,9 +142,7 @@ class TestOpsManagerCreation:
         mdb_latest.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
 
     def test_s3_oplog_created(self, ops_manager: MongoDBOpsManager):
-        ops_manager.backup_status().assert_reaches_phase(
-            Phase.Running, timeout=900, ignore_errors=True
-        )
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
 
 
 @mark.e2e_om_ops_manager_backup_kmip

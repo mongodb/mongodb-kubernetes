@@ -11,9 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 
 
 def om_resource(namespace: str) -> MongoDBOpsManager:
-    return MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_validation.yaml"), namespace=namespace
-    )
+    return MongoDBOpsManager.from_yaml(yaml_fixture("om_validation.yaml"), namespace=namespace)
 
 
 @pytest.mark.e2e_om_appdb_validation

@@ -1,18 +1,18 @@
-from pytest import mark, fixture
 from typing import List
-from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-import kubernetes
 
-from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.kubetester import skip_if_local
-from kubetester.mongotester import with_tls
-from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-from kubetester.mongodb import Phase
-from kubetester.mongodb_user import MongoDBUser
+import kubernetes
 from kubetester import create_secret, read_secret
-from kubetester.mongotester import with_scram
+from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import Phase
+from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import with_scram, with_tls
+from kubetester.operator import Operator
+from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -30,12 +30,8 @@ def mongodb_multi_unmarshalled(
     namespace: str,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     return resource
 
@@ -77,12 +73,8 @@ def mongodb_multi(
 
 
 @fixture(scope="module")
-def mongodb_user(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("mongodb-user.yaml"), USER_RESOURCE, namespace
-    )
+def mongodb_user(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(yaml_fixture("mongodb-user.yaml"), USER_RESOURCE, namespace)
 
     resource["spec"]["username"] = USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {
@@ -116,9 +108,7 @@ def test_update_mongodb_multi_tls_with_scram(
     namespace: str,
 ):
     mongodb_multi.load()
-    mongodb_multi["spec"]["security"] = {
-        "authentication": {"enabled": True, "modes": ["SCRAM"]}
-    }
+    mongodb_multi["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
@@ -148,9 +138,7 @@ def test_tls_connectivity(mongodb_multi: MongoDBMulti, ca_path: str):
 
 @skip_if_local
 @mark.e2e_multi_cluster_tls_with_scram
-def test_replica_set_connectivity_with_scram_and_tls(
-    mongodb_multi: MongoDBMulti, ca_path: str
-):
+def test_replica_set_connectivity_with_scram_and_tls(mongodb_multi: MongoDBMulti, ca_path: str):
     tester = mongodb_multi.tester()
     tester.assert_connectivity(
         db="admin",
@@ -232,8 +220,6 @@ def test_mongodb_multi_tls_automation_config_was_updated(
     namespace: str,
 ):
     tester = AutomationConfigTester(KubernetesTester.get_automation_config())
-    tester.assert_authentication_mechanism_enabled(
-        "MONGODB-X509", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509", active_auth_mechanism=False)
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
