@@ -2,17 +2,14 @@ from typing import List
 
 import kubernetes
 import pytest
-
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    skip_if_local,
-)
 from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
@@ -26,12 +23,8 @@ def mongodb_multi_unmarshalled(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace
-    )
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
     resource["spec"]["security"] = {
         "certsSecretPrefix": "prefix",
         "tls": {
@@ -60,9 +53,7 @@ def server_certs(
 
 
 @pytest.fixture(scope="module")
-def mongodb_multi(
-    mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str
-) -> MongoDBMulti:
+def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     return mongodb_multi_unmarshalled.create()
 
 
@@ -108,9 +99,7 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     # remove first and last cluster
-    mongodb_multi["spec"]["clusterSpecList"] = [
-        mongodb_multi["spec"]["clusterSpecList"][1]
-    ]
+    mongodb_multi["spec"]["clusterSpecList"] = [mongodb_multi["spec"]["clusterSpecList"][1]]
     mongodb_multi.update()
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)

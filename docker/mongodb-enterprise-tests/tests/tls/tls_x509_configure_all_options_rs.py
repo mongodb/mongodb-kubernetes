@@ -1,31 +1,29 @@
 import pytest
-
-from kubetester.kubetester import (
-    KubernetesTester,
-    SERVER_WARNING,
-    AGENT_WARNING,
-    MEMBER_AUTH_WARNING,
-)
-from kubetester.omtester import get_rs_cert_names
-from kubetester import create_secret, read_secret, create_secret, create_or_update
+from kubetester import create_or_update, create_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import fixture as load_fixture, skip_if_local
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
-    create_x509_mongodb_tls_certs,
     create_x509_agent_tls_certs,
+    create_x509_mongodb_tls_certs,
 )
+from kubetester.kubetester import (
+    AGENT_WARNING,
+    MEMBER_AUTH_WARNING,
+    SERVER_WARNING,
+    KubernetesTester,
+)
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.omtester import get_rs_cert_names
 
 MDB_RESOURCE = "test-x509-all-options-rs"
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    create_x509_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    create_x509_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
     secret_name = f"{MDB_RESOURCE}-cert"
     data = read_secret(namespace, secret_name)
     secret_type = "kubernetes.io/tls"
@@ -38,12 +36,8 @@ def agent_certs(issuer: str, namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def mdb(
-    namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace
-    )
+def mdb(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
+    res = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return create_or_update(res)
 

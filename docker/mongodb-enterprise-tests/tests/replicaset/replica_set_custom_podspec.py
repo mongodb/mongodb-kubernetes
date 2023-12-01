@@ -1,14 +1,13 @@
-from pytest import fixture, mark
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.custom_podspec import assert_stateful_set_podspec
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture, mark
 
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-custom-podspec.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set-custom-podspec.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
     yield resource.create()
 

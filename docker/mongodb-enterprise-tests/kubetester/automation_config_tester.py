@@ -1,4 +1,4 @@
-from typing import Dict, Set, Tuple, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 from kubetester.kubetester import KubernetesTester
 
@@ -20,39 +20,24 @@ class AutomationConfigTester:
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
         """Returns all processes for the specified replica set"""
-        replica_set = (
-            [rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name]
-        )[0]
+        replica_set = ([rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name])[0]
         rs_processes_name = [member["host"] for member in replica_set["members"]]
-        return [
-            process
-            for process in self.automation_config["processes"]
-            if process["name"] in rs_processes_name
-        ]
+        return [process for process in self.automation_config["processes"] if process["name"] in rs_processes_name]
 
     def get_replica_set_members(self, rs_name: str) -> List[Dict]:
-        replica_set = (
-            [rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name]
-        )[0]
+        replica_set = ([rs for rs in self.automation_config["replicaSets"] if rs["_id"] == rs_name])[0]
         return replica_set["members"]
 
     def get_mongos_processes(self):
         """ " Returns all mongos processes in deployment. We don't need to filter by sharded cluster name as
         we have only a single resource per deployment"""
-        return [
-            process
-            for process in self.automation_config["processes"]
-            if process["processType"] == "mongos"
-        ]
+        return [process for process in self.automation_config["processes"] if process["processType"] == "mongos"]
 
     def assert_expected_users(self, expected_users: int):
         automation_config_users = 0
 
         for user in self.automation_config["auth"]["usersWanted"]:
-            if (
-                user["user"] != "mms-backup-agent"
-                and user["user"] != "mms-monitoring-agent"
-            ):
+            if user["user"] != "mms-backup-agent" and user["user"] != "mms-monitoring-agent":
                 automation_config_users += 1
 
         assert automation_config_users == expected_users
@@ -60,36 +45,25 @@ class AutomationConfigTester:
     def assert_authoritative_set(self, authoritative_set: bool):
         assert self.automation_config["auth"]["authoritativeSet"] == authoritative_set
 
-    def assert_authentication_mechanism_enabled(
-        self, mechanism: str, active_auth_mechanism: bool = True
-    ) -> None:
+    def assert_authentication_mechanism_enabled(self, mechanism: str, active_auth_mechanism: bool = True) -> None:
         auth: dict = self.automation_config["auth"]
         assert mechanism in auth.get("deploymentAuthMechanisms", [])
         if active_auth_mechanism:
             assert mechanism in auth.get("autoAuthMechanisms", [])
             assert auth["autoAuthMechanism"] == mechanism
 
-    def assert_authentication_mechanism_disabled(
-        self, mechanism: str, check_auth_mechanism: bool = True
-    ) -> None:
+    def assert_authentication_mechanism_disabled(self, mechanism: str, check_auth_mechanism: bool = True) -> None:
         auth = self.automation_config["auth"]
         assert mechanism not in auth.get("deploymentAuthMechanisms", [])
         assert mechanism not in auth.get("autoAuthMechanisms", [])
         if check_auth_mechanism:
             assert auth["autoAuthMechanism"] != mechanism
 
-    def assert_authentication_enabled(
-        self, expected_num_deployment_auth_mechanisms: int = 1
-    ) -> None:
+    def assert_authentication_enabled(self, expected_num_deployment_auth_mechanisms: int = 1) -> None:
         assert not self.automation_config["auth"]["disabled"]
 
-        actual_num_deployment_auth_mechanisms = len(
-            self.automation_config["auth"].get("deploymentAuthMechanisms", [])
-        )
-        assert (
-            actual_num_deployment_auth_mechanisms
-            == expected_num_deployment_auth_mechanisms
-        )
+        actual_num_deployment_auth_mechanisms = len(self.automation_config["auth"].get("deploymentAuthMechanisms", []))
+        assert actual_num_deployment_auth_mechanisms == expected_num_deployment_auth_mechanisms
 
     def assert_internal_cluster_authentication_enabled(self):
         for process in self.automation_config["processes"]:
@@ -98,23 +72,15 @@ class AutomationConfigTester:
     def assert_authentication_disabled(self, remaining_users: int = 0) -> None:
         assert self.automation_config["auth"]["disabled"]
         self.assert_expected_users(expected_users=remaining_users)
-        assert (
-            len(self.automation_config["auth"].get("deploymentAuthMechanisms", [])) == 0
-        )
+        assert len(self.automation_config["auth"].get("deploymentAuthMechanisms", [])) == 0
 
     def assert_user_has_roles(self, username: str, roles: Set[Tuple[str, str]]) -> None:
-        user = [
-            user
-            for user in self.automation_config["auth"]["usersWanted"]
-            if user["user"] == username
-        ][0]
+        user = [user for user in self.automation_config["auth"]["usersWanted"] if user["user"] == username][0]
         actual_roles = {(role["db"], role["role"]) for role in user["roles"]}
         assert actual_roles == roles
 
     def assert_has_user(self, username: str) -> None:
-        assert username in {
-            user["user"] for user in self.automation_config["auth"]["usersWanted"]
-        }
+        assert username in {user["user"] for user in self.automation_config["auth"]["usersWanted"]}
 
     def assert_agent_user(self, agent_user: str) -> None:
         assert self.automation_config["auth"]["autoUser"] == agent_user

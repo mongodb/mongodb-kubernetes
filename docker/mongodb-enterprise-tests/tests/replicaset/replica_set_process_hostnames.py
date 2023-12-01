@@ -8,19 +8,13 @@
 #   om_ops_manager_backup_tls_custom_ca.py
 
 import pytest
-from pytest import fixture
-
-from kubetester import (
-    create_or_update,
-    try_load,
-)
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-)
+from kubetester import create_or_update, try_load
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture
 from tests.conftest import (
-    external_domain_fqdns,
     default_external_domain,
+    external_domain_fqdns,
     update_coredns_hosts,
 )
 
@@ -42,9 +36,7 @@ def replica_set(
     replica_set_members: int,
     custom_mdb_version: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), replica_set_name, namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), replica_set_name, namespace)
     try_load(resource)
 
     resource["spec"]["members"] = replica_set_members
@@ -79,13 +71,9 @@ def test_replica_set_in_running_state(replica_set: MongoDB):
 
 @pytest.mark.e2e_replica_set_process_hostnames
 def test_replica_check_automation_config(replica_set: MongoDB):
-    processes = replica_set.get_automation_config_tester().get_replica_set_processes(
-        replica_set.name
-    )
+    processes = replica_set.get_automation_config_tester().get_replica_set_processes(replica_set.name)
     hostnames = [process["hostname"] for process in processes]
-    assert hostnames == external_domain_fqdns(
-        replica_set.name, replica_set.get_members(), default_external_domain()
-    )
+    assert hostnames == external_domain_fqdns(replica_set.name, replica_set.get_members(), default_external_domain())
 
 
 @pytest.mark.e2e_replica_set_process_hostnames

@@ -1,11 +1,10 @@
 from typing import Optional
 
-from pytest import mark, fixture
-
-from kubetester import find_fixture, create_or_update
+from kubetester import create_or_update, find_fixture
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
@@ -13,9 +12,7 @@ from tests.opsmanager.withMonitoredAppDB.conftest import (
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         find_fixture("om_validation.yaml"), namespace=namespace, name="om-agent-flags"
     )
@@ -131,9 +128,7 @@ def test_appdb_monitoring_agent_flags_inherit_automation_agent_flags(
 @mark.e2e_om_appdb_agent_flags
 def test_appdb_flags_changed(ops_manager: MongoDBOpsManager):
     ops_manager.load()
-    ops_manager["spec"]["applicationDatabase"]["agent"]["startupOptions"][
-        "dialTimeoutSeconds"
-    ] = "70"
+    ops_manager["spec"]["applicationDatabase"]["agent"]["startupOptions"]["dialTimeoutSeconds"] = "70"
 
     ops_manager["spec"]["applicationDatabase"]["monitoringAgent"] = {
         "startupOptions": {
@@ -170,19 +165,13 @@ def test_appdb_has_changed_agent_flags(ops_manager: MongoDBOpsManager, namespace
             container="mongodb-agent-monitoring",
             api_client=api_client,
         )
-        assert (
-            "-logFile=/var/log/mongodb-mms-automation/customLogFileMonitoring" in result
-        )
+        assert "-logFile=/var/log/mongodb-mms-automation/customLogFileMonitoring" in result
         assert "-dialTimeoutSeconds=80" in result
 
 
 @mark.e2e_om_appdb_agent_flags
-def test_automation_config_secret_member_options(
-    ops_manager: MongoDBOpsManager, namespace: str
-):
-    members = ops_manager.get_automation_config_tester().get_replica_set_members(
-        ops_manager.app_db_name()
-    )
+def test_automation_config_secret_member_options(ops_manager: MongoDBOpsManager, namespace: str):
+    members = ops_manager.get_automation_config_tester().get_replica_set_members(ops_manager.app_db_name())
 
     assert members[0]["votes"] == 1
     assert members[0]["priority"] == 0.5

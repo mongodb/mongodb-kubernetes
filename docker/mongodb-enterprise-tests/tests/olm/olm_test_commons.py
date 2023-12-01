@@ -3,11 +3,10 @@ import tempfile
 import time
 from typing import Callable
 
+import kubetester
 import yaml
 from kubeobject import CustomObject
 from kubernetes import client
-
-import kubetester
 from kubetester import run_periodically
 
 
@@ -59,9 +58,7 @@ def get_catalog_source_resource(namespace: str, image: str) -> CustomObject:
     return resource
 
 
-def get_package_manifest_resource(
-    namespace: str, manifest_name: str = "mongodb-enterprise"
-) -> CustomObject:
+def get_package_manifest_resource(namespace: str, manifest_name: str = "mongodb-enterprise") -> CustomObject:
     return CustomObject(
         manifest_name,
         namespace,
@@ -72,9 +69,7 @@ def get_package_manifest_resource(
     )
 
 
-def get_subscription_custom_object(
-    name: str, namespace: str, spec: dict[str, str]
-) -> CustomObject:
+def get_subscription_custom_object(name: str, namespace: str, spec: dict[str, str]) -> CustomObject:
     resource = CustomObject(
         name,
         namespace,
@@ -90,9 +85,7 @@ def get_subscription_custom_object(
 def get_registry():
     registry = os.getenv("REGISTRY")
     if registry is None:
-        raise Exception(
-            "Cannot get base registry url, specify it in REGISTRY env variable."
-        )
+        raise Exception("Cannot get base registry url, specify it in REGISTRY env variable.")
 
     return registry
 
@@ -102,17 +95,13 @@ def get_catalog_image(version: str):
 
 
 def list_operator_pods(namespace: str, name: str) -> list[client.V1Pod]:
-    return client.CoreV1Api().list_namespaced_pod(
-        namespace, label_selector=f"app.kubernetes.io/name={name}"
-    )
+    return client.CoreV1Api().list_namespaced_pod(namespace, label_selector=f"app.kubernetes.io/name={name}")
 
 
 def check_operator_pod_ready_and_with_condition_version(
     namespace: str, name: str, expected_condition_version
 ) -> tuple[str, str]:
-    pod = kubetester.is_pod_ready(
-        namespace=namespace, label_selector=f"app.kubernetes.io/name={name}"
-    )
+    pod = kubetester.is_pod_ready(namespace=namespace, label_selector=f"app.kubernetes.io/name={name}")
     if pod is None:
         return False, f"pod {namespace}/{name} is not ready yet"
 
@@ -128,9 +117,7 @@ def check_operator_pod_ready_and_with_condition_version(
 
 def get_pod_condition_env_var(pod):
     operator_container = pod.spec.containers[0]
-    operator_condition_env = [
-        e for e in operator_container.env if e.name == "OPERATOR_CONDITION_NAME"
-    ]
+    operator_condition_env = [e for e in operator_container.env if e.name == "OPERATOR_CONDITION_NAME"]
     if len(operator_condition_env) == 0:
         return None
     return operator_condition_env[0].value
@@ -139,9 +126,7 @@ def get_pod_condition_env_var(pod):
 def get_current_operator_version(namespace: str):
     package_manifest = get_package_manifest_resource(namespace)
     if not kubetester.try_load(package_manifest):
-        print(
-            "The PackageManifest doesn't exist. Falling back to using Helm Chart for obtaining version"
-        )
+        print("The PackageManifest doesn't exist. Falling back to using Helm Chart for obtaining version")
         with open("helm_chart/values.yaml", "r") as f:
             values = yaml.safe_load(f)
             return values.get("operator", {}).get("version", None)
@@ -149,9 +134,7 @@ def get_current_operator_version(namespace: str):
         if channel["name"] == "stable":
             return channel["currentCSVDesc"]["version"]
             # [0] is the fast channel and [1] is the stable one.
-    raise Exception(
-        f"Could not find the stable channel in the PackageManifest. The full object: {package_manifest}"
-    )
+    raise Exception(f"Could not find the stable channel in the PackageManifest. The full object: {package_manifest}")
 
 
 def increment_patch_version(version: str):

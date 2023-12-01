@@ -1,8 +1,7 @@
 import pytest
-
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ShardedClusterTester
-from kubetester.automation_config_tester import AutomationConfigTester
 
 MDB_RESOURCE = "sharded-cluster-scram-sha-256"
 USER_NAME = "mms-user-1"
@@ -43,9 +42,7 @@ class TestCreateMongoDBUser(KubernetesTester):
 
     @classmethod
     def setup_class(cls):
-        print(
-            f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} "
-        )
+        print(f"creating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME} ")
         KubernetesTester.create_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,
@@ -100,9 +97,7 @@ class TestShardedClusterIsUpdatedWithNewUser(KubernetesTester):
 class TestCanChangePassword(KubernetesTester):
     @classmethod
     def setup_env(cls):
-        print(
-            f"updating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME}"
-        )
+        print(f"updating password for MongoDBUser {USER_NAME} in secret/{PASSWORD_SECRET_NAME}")
         KubernetesTester.update_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,

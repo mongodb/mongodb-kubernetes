@@ -1,16 +1,18 @@
+from typing import List
+
+import kubernetes
 import yaml
 from kubernetes import client
-from pytest import mark, fixture
-from typing import List
-from kubetester import read_secret, create_service
+from kubetester import create_service, read_secret
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-import kubernetes
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.kubetester import skip_if_local, KubernetesTester
 from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
+from pytest import fixture, mark
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
@@ -54,9 +56,7 @@ USER_PASSWORD = "my-password"
 
 @fixture(scope="module")
 def mongodb_multi_unmarshalled(namespace: str) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi-split-horizon.yaml"), MDB_RESOURCE, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi-split-horizon.yaml"), MDB_RESOURCE, namespace)
     return resource
 
 
@@ -117,9 +117,7 @@ def test_deploy_mongodb_multi_with_tls(
 
 
 @mark.e2e_multi_cluster_split_horizon
-def test_create_node_ports(
-    mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]
-):
+def test_create_node_ports(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
     for mcc in member_cluster_clients:
         with open(
             yaml_fixture(f"split-horizon-node-ports/split-horizon-node-port.yaml"),

@@ -1,12 +1,7 @@
-from pytest import mark, fixture
-
-from kubetester import find_fixture, create_or_update
-from kubetester.certs import (
-    create_x509_agent_tls_certs,
-    create_sharded_cluster_certs,
-)
-from kubetester.mongodb import MongoDB
-from kubetester.mongodb import Phase
+from kubetester import create_or_update, find_fixture
+from kubetester.certs import create_sharded_cluster_certs, create_x509_agent_tls_certs
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture, mark
 
 MDB_RESOURCE_NAME = "sc-internal-cluster-auth-transition"
 
@@ -31,9 +26,7 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def sc(
-    namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str
-) -> MongoDB:
+def sc(namespace: str, server_certs, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         find_fixture("sharded-cluster-x509-internal-cluster-auth-transition.yaml"),
         namespace=namespace,

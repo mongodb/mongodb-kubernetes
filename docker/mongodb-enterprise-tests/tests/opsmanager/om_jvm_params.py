@@ -1,15 +1,13 @@
+import re
 from typing import Optional
 
-from kubetester import try_load, create_or_update
-from kubetester import create_or_update
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
+from dateutil.parser import parse
+from kubetester import create_or_update, try_load
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-import re
-from dateutil.parser import parse
-
-
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
@@ -22,13 +20,9 @@ JAVA_DAEMON_OPTS = "JAVA_DAEMON_OPTS"
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created."""
-    om = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace
-    )
+    om = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_jvm_params.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om["spec"]["applicationDatabase"]["agent"] = {

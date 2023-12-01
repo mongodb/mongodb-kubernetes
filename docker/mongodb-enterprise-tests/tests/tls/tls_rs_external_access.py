@@ -1,20 +1,19 @@
 import re
 
 import pytest
-
-from kubetester.omtester import get_rs_cert_names
-from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.mongodb import MongoDB, Phase
-
-from kubetester.kubetester import fixture as load_fixture
-from kubetester import create_secret, find_fixture, create_or_update
+from kubetester import create_or_update, create_secret, find_fixture
 from kubetester.certs import (
-    Certificate,
     ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
+    Certificate,
     create_agent_tls_certs,
+    create_mongodb_tls_certs,
 )
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongotester import ReplicaSetTester
+from kubetester.omtester import get_rs_cert_names
 
 
 @pytest.fixture(scope="module")
@@ -54,17 +53,13 @@ def server_certs_multiple_horizons(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace
-    )
+    res = MongoDB.from_yaml(load_fixture("test-tls-base-rs-external-access.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return create_or_update(res)
 
 
 @pytest.fixture(scope="module")
-def mdb_multiple_horizons(
-    namespace: str, server_certs_multiple_horizons: str, issuer_ca_configmap: str
-) -> MongoDB:
+def mdb_multiple_horizons(namespace: str, server_certs_multiple_horizons: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(
         load_fixture("test-tls-rs-external-access-multiple-horizons.yaml"),
         namespace=namespace,
@@ -100,9 +95,7 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
         serving the right certificates.
         """
         host = f"test-tls-base-rs-external-access-svc.{self.namespace}.svc"
-        assert any(
-            san.endswith(".website.com") for san in self.get_mongo_server_sans(host)
-        )
+        assert any(san.endswith(".website.com") for san in self.get_mongo_server_sans(host))
 
 
 @pytest.mark.e2e_tls_rs_external_access

@@ -1,8 +1,7 @@
 import pytest
-
+from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import ReplicaSetTester
-from kubetester.automation_config_tester import AutomationConfigTester
 
 MDB_RESOURCE = "my-replica-set-scram"
 
@@ -49,6 +48,4 @@ class TestReplicaSetDeleted(KubernetesTester):
             except AssertionError:
                 return False
 
-        KubernetesTester.wait_until(
-            authentication_was_disabled, timeout=10, sleep_time=1
-        )
+        KubernetesTester.wait_until(authentication_was_disabled, timeout=10, sleep_time=1)

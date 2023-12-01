@@ -1,7 +1,8 @@
-from pytest import fixture, mark
-from kubetester.mongodb import MongoDB, Phase
 from kubetester import delete_pod, delete_pvc
-from kubetester.kubetester import KubernetesTester, fixture as yaml_fixture
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture, mark
 
 
 @fixture(scope="module")

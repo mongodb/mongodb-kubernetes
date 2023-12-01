@@ -10,10 +10,7 @@ Usage:
 import json
 import sys
 
-from helm_files_handler import (
-    update_all_helm_values_files,
-    set_value_in_yaml_file,
-)
+from helm_files_handler import set_value_in_yaml_file, update_all_helm_values_files
 
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",

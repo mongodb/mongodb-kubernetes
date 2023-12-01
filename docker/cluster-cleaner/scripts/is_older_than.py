@@ -24,8 +24,8 @@
 #   ./is_older_than.py 1980-25-04T11:00:04Z 39 years
 #
 
-from datetime import datetime, timedelta
 import sys
+from datetime import datetime, timedelta
 
 
 def is_older_than(date, amount, unit):

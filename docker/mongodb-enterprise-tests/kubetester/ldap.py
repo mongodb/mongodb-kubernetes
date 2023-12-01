@@ -1,8 +1,9 @@
+import time
 from dataclasses import dataclass
+from typing import Optional
+
 import ldap
 import ldap.modlist
-import time
-from typing import Optional
 
 LDAP_BASE = "dc=example,dc=org"
 LDAP_AUTHENTICATION_MECHANISM = "PLAIN"
@@ -61,9 +62,7 @@ def ensure_organization(server: OpenLDAP, o: str, ca_path: Optional[str] = None)
 
     result = con.search_s(server.ldap_base, ldap.SCOPE_SUBTREE, filterstr="o=" + o)
     if result is None:
-        raise Exception(
-            f"Error when trying to check for organization {o} in the ldap server"
-        )
+        raise Exception(f"Error when trying to check for organization {o} in the ldap server")
     if len(result) != 0:
         return
     modlist = {"objectClass": [b"top", b"organization"], "o": [str.encode(o)]}
@@ -74,17 +73,13 @@ def ensure_organization(server: OpenLDAP, o: str, ca_path: Optional[str] = None)
     con.add_s(dn, ldapmodlist)
 
 
-def ensure_organizational_unit(
-    server: OpenLDAP, ou: str, o: Optional[str] = None, ca_path: Optional[str] = None
-):
+def ensure_organizational_unit(server: OpenLDAP, ou: str, o: Optional[str] = None, ca_path: Optional[str] = None):
     """If an organizational unit with the provided name does not exists, it creates one."""
     con = ldap_initialize(server, ca_path)
 
     result = con.search_s(server.ldap_base, ldap.SCOPE_SUBTREE, filterstr="ou=" + ou)
     if result is None:
-        raise Exception(
-            f"Error when trying to check for organizationalUnit {ou} in the ldap server"
-        )
+        raise Exception(f"Error when trying to check for organizationalUnit {ou} in the ldap server")
     if len(result) != 0:
         return
     modlist = {"objectClass": [b"top", b"organizationalUnit"], "ou": [str.encode(ou)]}

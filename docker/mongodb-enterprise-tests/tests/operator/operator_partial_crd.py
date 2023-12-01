@@ -1,23 +1,18 @@
+# Dev note: remove all the CRDs before running the test locally!
+from typing import Dict
+
 import pytest
 from kubernetes import client
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
-from pytest import fixture
-
 from kubetester.operator import Operator, delete_operator_crds, list_operator_crds
-
-# Dev note: remove all the CRDs before running the test locally!
-from typing import Dict
+from pytest import fixture
 
 
 @fixture(scope="module")
 def ops_manager_and_mongodb_crds():
     """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
-    create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml"
-    )
-    create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_opsmanagers.yaml"
-    )
+    create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml")
+    create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_opsmanagers.yaml")
 
 
 @fixture(scope="module")
@@ -39,9 +34,7 @@ def operator_only_ops_manager_and_mongodb(
 @fixture(scope="module")
 def mongodb_crds():
     """Installs OM and MDB CRDs only (we need to do this manually as Helm 3 doesn't support templating for CRDs"""
-    create_or_replace_from_yaml(
-        client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml"
-    )
+    create_or_replace_from_yaml(client.api_client.ApiClient(), "helm_chart/crds/mongodb.com_mongodb.yaml")
 
 
 @fixture(scope="module")

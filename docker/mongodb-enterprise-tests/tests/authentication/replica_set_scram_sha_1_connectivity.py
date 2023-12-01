@@ -1,7 +1,6 @@
 import pytest
-from pytest import fixture
-
 from kubetester.mongotester import ReplicaSetTester
+from pytest import fixture
 from tests.authentication.sha1_connectivity_tests import SHA1ConnectivityTests
 
 

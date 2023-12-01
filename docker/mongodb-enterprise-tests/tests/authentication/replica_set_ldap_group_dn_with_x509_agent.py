@@ -1,22 +1,19 @@
 import random
-
-from pytest import mark, fixture
+import time
+from datetime import datetime, timezone
 
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, find_fixture
-from kubetester import kubetester
-
-from kubetester.mongodb import MongoDB, Phase
-from kubetester.mongodb_user import MongoDBUser, generic_user
-from kubetester.ldap import OpenLDAP, LDAPUser
+from kubetester import create_secret, find_fixture, kubetester
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    create_x509_mongodb_tls_certs,
     create_x509_agent_tls_certs,
+    create_x509_mongodb_tls_certs,
 )
-from datetime import datetime, timezone
-import time
+from kubetester.ldap import LDAPUser, OpenLDAP
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongodb_user import MongoDBUser, generic_user
+from pytest import fixture, mark
 
 MDB_RESOURCE = "ldap-replica-set"
 
@@ -34,9 +31,7 @@ def replica_set(
     agent_certs: str,
     namespace: str,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
@@ -70,9 +65,7 @@ def replica_set(
 
 
 @fixture(scope="module")
-def ldap_user_mongodb(
-    replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser
-) -> MongoDBUser:
+def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser) -> MongoDBUser:
     """Returns a list of MongoDBUsers (already created) and their corresponding passwords."""
     user = generic_user(
         namespace,
@@ -87,22 +80,16 @@ def ldap_user_mongodb(
 
 @fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    return create_x509_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert"
-    )
+    return create_x509_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert")
 
 
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
-def test_replica_set(
-    replica_set: MongoDB, ldap_mongodb_x509_agent_user: LDAPUser, namespace: str
-):
+def test_replica_set(replica_set: MongoDB, ldap_mongodb_x509_agent_user: LDAPUser, namespace: str):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
-def test_new_ldap_users_can_authenticate(
-    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str
-):
+def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser, ca_path: str):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(

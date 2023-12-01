@@ -1,11 +1,9 @@
 from typing import Optional
 
 from kubetester.awss3client import AwsS3Client
-from kubetester.kubetester import (
-    skip_if_local,
-    fixture as yaml_fixture,
-    KubernetesTester,
-)
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import MongoDBBackgroundTester
 from kubetester.operator import Operator
@@ -36,14 +34,10 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, s3_bucket: str, custom_version: Optional[str]
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, s3_bucket: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created. Also results in a new s3 bucket
     created and used in OM spec"""
-    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace
-    )
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_full.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     return om.create()
@@ -127,9 +121,7 @@ def test_backup_enabled(
     s3_replica_set.assert_reaches_phase(Phase.Running)
     # We are ignoring any errors as there could be temporary blips in connectivity to backing
     # databases by this time
-    ops_manager.backup_status().assert_reaches_phase(
-        Phase.Running, timeout=200, ignore_errors=True
-    )
+    ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=200, ignore_errors=True)
 
 
 @skip_if_local
@@ -172,9 +164,7 @@ def test_om_ok(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_operator_upgrade_ops_manager
-def test_some_mdb_ok(
-    some_mdb: MongoDB, some_mdb_health_checker: MongoDBBackgroundTester
-):
+def test_some_mdb_ok(some_mdb: MongoDB, some_mdb_health_checker: MongoDBBackgroundTester):
     # TODO make sure the backup is working when it's implemented
     some_mdb.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
     # The mongodb was supposed to be healthy all the time

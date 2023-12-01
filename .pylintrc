@@ -1,0 +1,10 @@
+[GENERAL]
+max-line-length=120
+
+[MESSAGES CONTROL]
+disable=
+   C0114, # missing-module-docstring
+   C0115, # missing-class-docstring
+   C0116, # missing-docstring
+   R0201, # no-self-use
+   W0621, # redefined-outer-name

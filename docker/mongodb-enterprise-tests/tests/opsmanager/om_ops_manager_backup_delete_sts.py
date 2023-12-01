@@ -1,17 +1,12 @@
 from typing import Optional
 
 from kubetester import MongoDB, create_or_update
-from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.kubetester import fixture as yaml_fixture
-
 from kubetester.mongodb import Phase
-from pytest import mark, fixture
-
+from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.om_ops_manager_backup import (
-    OPLOG_RS_NAME,
-    BLOCKSTORE_RS_NAME,
-)
+from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
 )
@@ -68,9 +63,7 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_ops_manager_backup_delete_sts
-def test_create_backing_replica_sets(
-    oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB
-):
+def test_create_backing_replica_sets(oplog_replica_set: MongoDB, blockstore_replica_set: MongoDB):
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
@@ -82,9 +75,7 @@ def test_backup_statefulset_gets_recreated(
     # Wait for the the backup to be fully running
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
     ops_manager.load()
-    ops_manager["spec"]["backup"]["statefulSet"] = {
-        "spec": {"revisionHistoryLimit": 15}
-    }
+    ops_manager["spec"]["backup"]["statefulSet"] = {"spec": {"revisionHistoryLimit": 15}}
     ops_manager.update()
 
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)

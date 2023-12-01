@@ -19,18 +19,14 @@ def test_wait_for_webhook(namespace: str, default_operator: Operator):
 
 
 def om_validation(namespace: str) -> MongoDBOpsManager:
-    return MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_validation.yaml"), namespace=namespace
-    )
+    return MongoDBOpsManager.from_yaml(yaml_fixture("om_validation.yaml"), namespace=namespace)
 
 
 @mark.e2e_om_validation_webhook
 def test_connectivity_not_allowed_in_appdb(namespace: str):
     om = om_validation(namespace)
 
-    om["spec"]["applicationDatabase"]["connectivity"] = {
-        "replicaSetHorizons": [{"test-horizon": "dfdfdf"}]
-    }
+    om["spec"]["applicationDatabase"]["connectivity"] = {"replicaSetHorizons": [{"test-horizon": "dfdfdf"}]}
 
     with pytest.raises(
         ApiException,
@@ -54,25 +50,17 @@ def test_appdb_version(namespace: str):
     om["spec"]["applicationDatabase"]["version"] = "4.4.10.10"
 
     # this exception is raised by CRD regexp validation for the version, not our internal one
-    with pytest.raises(
-        ApiException, match=r"spec.applicationDatabase.version in body should match"
-    ):
+    with pytest.raises(ApiException, match=r"spec.applicationDatabase.version in body should match"):
         om.create()
 
     om["spec"]["applicationDatabase"]["version"] = "3.6.12"
-    with pytest.raises(
-        ApiException, match=r"the version of Application Database must be \\u003e= 4.0"
-    ):
+    with pytest.raises(ApiException, match=r"the version of Application Database must be \\u003e= 4.0"):
         om.create()
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_appdb_version: str
-) -> MongoDBOpsManager:
-    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
-    )
+def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+    om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace)
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     return om.create()

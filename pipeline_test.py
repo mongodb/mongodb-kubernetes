@@ -1,4 +1,5 @@
 from unittest import mock
+
 from pipeline import operator_build_configuration
 
 

@@ -6,28 +6,26 @@ import semver
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, create_or_update, try_load
-from kubetester.kubetester import fixture as yaml_fixture, run_periodically
-from kubetester.kubetester import skip_if_local
+from kubetester.awss3client import AwsS3Client
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically, skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
-from kubetester.awss3client import AwsS3Client
 from pytest import fixture
-
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.conftest import ensure_ent_version
+from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.om_ops_manager_backup import (
     HEAD_PATH,
     OPLOG_RS_NAME,
-    new_om_data_store,
-    create_aws_secret,
     S3_SECRET_NAME,
+    create_aws_secret,
     create_s3_bucket,
+    new_om_data_store,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
 )
-
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of minor OM version upgrade (5.x -> 6.x) agents are expected to be upgraded
@@ -131,12 +129,8 @@ class TestOpsManagerCreation:
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
-        automation_config_tester.assert_authentication_mechanism_enabled(
-            "MONGODB-CR", False
-        )
-        automation_config_tester.assert_authentication_mechanism_enabled(
-            "SCRAM-SHA-256", False
-        )
+        automation_config_tester.assert_authentication_mechanism_enabled("MONGODB-CR", False)
+        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
         ops_manager.get_appdb_tester().assert_scram_sha_authentication(
             OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-1"
         )
@@ -276,9 +270,7 @@ class TestOpsManagerVersionUpgrade:
     agent_version = None
 
     def test_agent_version(self, mdb: MongoDB):
-        TestOpsManagerVersionUpgrade.agent_version = (
-            mdb.get_automation_config_tester().get_agent_version()
-        )
+        TestOpsManagerVersionUpgrade.agent_version = mdb.get_automation_config_tester().get_agent_version()
 
     def test_upgrade_om_version(
         self,
@@ -311,12 +303,8 @@ class TestOpsManagerVersionUpgrade:
     def test_appdb_scram_sha(self, ops_manager: MongoDBOpsManager):
         auto_generated_password = ops_manager.read_appdb_generated_password()
         automation_config_tester = ops_manager.get_automation_config_tester()
-        automation_config_tester.assert_authentication_mechanism_enabled(
-            "MONGODB-CR", False
-        )
-        automation_config_tester.assert_authentication_mechanism_enabled(
-            "SCRAM-SHA-256", False
-        )
+        automation_config_tester.assert_authentication_mechanism_enabled("MONGODB-CR", False)
+        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
         ops_manager.get_appdb_tester().assert_scram_sha_authentication(
             OM_USER_NAME, auto_generated_password, auth_mechanism="SCRAM-SHA-1"
         )
@@ -350,21 +338,13 @@ class TestMongoDbsVersionUpgrade:
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)
 
-    def test_agents_upgraded(
-        self, mdb: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str
-    ):
+    def test_agents_upgraded(self, mdb: MongoDB, ops_manager: MongoDBOpsManager, custom_om_prev_version: str):
         # The agents were requested to get upgraded immediately after Ops Manager upgrade.
         # Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
-        if (
-            prev_version.major != new_version.major
-            or prev_version.minor != new_version.minor
-        ):
-            assert (
-                TestOpsManagerVersionUpgrade.agent_version
-                != mdb.get_automation_config_tester().get_agent_version()
-            )
+        if prev_version.major != new_version.major or prev_version.minor != new_version.minor:
+            assert TestOpsManagerVersionUpgrade.agent_version != mdb.get_automation_config_tester().get_agent_version()
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -376,17 +356,11 @@ class TestAppDBScramShaUpdated:
 
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
-    @pytest.mark.skip(
-        reason="re-enable when only SCRAM-SHA-256 is supported for the AppDB"
-    )
+    @pytest.mark.skip(reason="re-enable when only SCRAM-SHA-256 is supported for the AppDB")
     def test_appdb_scram_sha_(self, ops_manager: MongoDBOpsManager):
         automation_config_tester = ops_manager.get_automation_config_tester()
-        automation_config_tester.assert_authentication_mechanism_enabled(
-            "SCRAM-SHA-256", False
-        )
-        automation_config_tester.assert_authentication_mechanism_disabled(
-            "MONGODB-CR", False
-        )
+        automation_config_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", False)
+        automation_config_tester.assert_authentication_mechanism_disabled("MONGODB-CR", False)
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -433,9 +407,7 @@ class TestOpsManagerRemoved:
         with pytest.raises(ApiException):
             ops_manager.read_api_key_secret()
 
-    def test_gen_key_not_removed(
-        self, ops_manager: MongoDBOpsManager, gen_key_resource_version: str
-    ):
+    def test_gen_key_not_removed(self, ops_manager: MongoDBOpsManager, gen_key_resource_version: str):
         """The gen key must not be removed - this is for situations when the appdb is persistent -
         so PVs may survive removal"""
         gen_key_secret = ops_manager.read_gen_key_secret()

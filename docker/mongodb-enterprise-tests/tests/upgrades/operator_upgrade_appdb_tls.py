@@ -1,10 +1,10 @@
-from pytest import mark, fixture
-
 from kubetester import get_statefulset
-from kubetester.kubetester import fixture as yaml_fixture, skip_if_local
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import create_appdb_certs
 
 APPDB_NAME = "om-appdb-upgrade-tls-db"
@@ -33,9 +33,7 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
     )
-    resource["spec"]["applicationDatabase"]["security"][
-        "certsSecretPrefix"
-    ] = CERT_PREFIX
+    resource["spec"]["applicationDatabase"]["security"]["certsSecretPrefix"] = CERT_PREFIX
 
     return resource.create()
 

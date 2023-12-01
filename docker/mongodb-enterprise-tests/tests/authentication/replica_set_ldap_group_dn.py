@@ -1,10 +1,8 @@
-from pytest import mark, fixture
-
 from kubetester import create_secret, find_fixture
-
+from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, generic_user
-from kubetester.ldap import OpenLDAP, LDAPUser
+from pytest import fixture, mark
 
 
 @fixture(scope="module")
@@ -14,9 +12,7 @@ def replica_set(
     namespace: str,
     ldap_mongodb_user: LDAPUser,
 ) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
     create_secret(namespace, secret_name, {"password": openldap.admin_password})
@@ -32,9 +28,7 @@ def replica_set(
     }
 
     ac_secret_name = "automation-config-password"
-    create_secret(
-        namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."}
-    )
+    create_secret(namespace, ac_secret_name, {"automationConfigPassword": "LDAPPassword."})
     resource["spec"]["security"]["roles"] = [
         {
             "role": "cn=users,ou=groups,dc=example,dc=org",
@@ -57,9 +51,7 @@ def replica_set(
 
 
 @fixture(scope="module")
-def ldap_user_mongodb(
-    replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser
-) -> MongoDBUser:
+def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: LDAPUser) -> MongoDBUser:
     """Returns a list of MongoDBUsers (already created) and their corresponding passwords."""
     user = generic_user(
         namespace,
@@ -82,9 +74,7 @@ def test_replica_set(
 
 
 @mark.e2e_replica_set_ldap_group_dn
-def test_new_ldap_users_can_authenticate(
-    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
-):
+def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     tester = replica_set.tester()
 
     tester.assert_ldap_authentication(
@@ -97,9 +87,7 @@ def test_new_ldap_users_can_authenticate(
 
 
 @mark.e2e_replica_set_ldap_group_dn
-def test_deployment_is_reachable_with_ldap_agent(
-    replica_set: MongoDB, ldap_user_mongodb: MongoDBUser
-):
+def test_deployment_is_reachable_with_ldap_agent(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
     tester = replica_set.tester()
     # Due to what we found out in
     # https://jira.mongodb.org/browse/CLOUDP-68873

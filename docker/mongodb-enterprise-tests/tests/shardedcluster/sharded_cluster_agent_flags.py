@@ -1,23 +1,12 @@
-from pytest import mark, fixture
-
-from kubetester import find_fixture, create_or_update, try_load
+from kubetester import create_or_update, find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
+from pytest import fixture, mark
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.pod_logs import (
+    assert_log_types_in_structured_json_pod_log,
     get_all_default_log_types,
     get_all_log_types,
-    assert_log_types_in_structured_json_pod_log,
-)
-from pytest import mark, fixture
-
-from kubetester import find_fixture, create_or_update, try_load
-from kubetester.kubetester import KubernetesTester
-from kubetester.mongodb import MongoDB, Phase
-from tests.pod_logs import (
-    get_all_default_log_types,
-    get_all_log_types,
-    assert_log_types_in_structured_json_pod_log,
 )
 
 NUMBER_OF_SHARDS = 3
@@ -27,9 +16,7 @@ NUMBER_OF_MONGOS = 2
 
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        find_fixture("sharded-cluster.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(find_fixture("sharded-cluster.yaml"), namespace=namespace)
 
     if try_load(resource):
         return resource
@@ -37,25 +24,13 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
     resource["spec"]["configSrv"] = {
-        "agent": {
-            "startupOptions": {
-                "logFile": "/var/log/mongodb-mms-automation/customLogFileSrv"
-            }
-        }
+        "agent": {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileSrv"}}
     }
     resource["spec"]["mongos"] = {
-        "agent": {
-            "startupOptions": {
-                "logFile": "/var/log/mongodb-mms-automation/customLogFileMongos"
-            }
-        }
+        "agent": {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileMongos"}}
     }
     resource["spec"]["shard"] = {
-        "agent": {
-            "startupOptions": {
-                "logFile": "/var/log/mongodb-mms-automation/customLogFileShard"
-            }
-        }
+        "agent": {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFileShard"}}
     }
 
     create_or_update(resource)
@@ -121,15 +96,9 @@ def test_enable_audit_log(sharded_cluster: MongoDB):
             "path": "/var/log/mongodb-mms-automation/mongodb-audit-changed.log",
         }
     }
-    sharded_cluster["spec"]["configSrv"][
-        "additionalMongodConfig"
-    ] = additional_mongod_config
-    sharded_cluster["spec"]["mongos"][
-        "additionalMongodConfig"
-    ] = additional_mongod_config
-    sharded_cluster["spec"]["shard"][
-        "additionalMongodConfig"
-    ] = additional_mongod_config
+    sharded_cluster["spec"]["configSrv"]["additionalMongodConfig"] = additional_mongod_config
+    sharded_cluster["spec"]["mongos"]["additionalMongodConfig"] = additional_mongod_config
+    sharded_cluster["spec"]["shard"]["additionalMongodConfig"] = additional_mongod_config
     create_or_update(sharded_cluster)
 
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1000)
@@ -137,17 +106,11 @@ def test_enable_audit_log(sharded_cluster: MongoDB):
 
 def assert_log_types_in_pods(namespace: str, expected_log_types: set[str]):
     for i in range(NUMBER_OF_SHARDS):
-        assert_log_types_in_structured_json_pod_log(
-            namespace, f"sh001-base-0-{i}", expected_log_types
-        )
+        assert_log_types_in_structured_json_pod_log(namespace, f"sh001-base-0-{i}", expected_log_types)
     for i in range(NUMBER_OF_CONFIGS):
-        assert_log_types_in_structured_json_pod_log(
-            namespace, f"sh001-base-config-{i}", expected_log_types
-        )
+        assert_log_types_in_structured_json_pod_log(namespace, f"sh001-base-config-{i}", expected_log_types)
     for i in range(NUMBER_OF_MONGOS):
-        assert_log_types_in_structured_json_pod_log(
-            namespace, f"sh001-base-mongos-{i}", expected_log_types
-        )
+        assert_log_types_in_structured_json_pod_log(namespace, f"sh001-base-mongos-{i}", expected_log_types)
 
 
 @mark.e2e_sharded_cluster_agent_flags

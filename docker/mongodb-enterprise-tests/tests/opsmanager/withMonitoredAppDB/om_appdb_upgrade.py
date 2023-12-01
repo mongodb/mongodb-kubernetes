@@ -1,15 +1,12 @@
 from typing import Optional
 
 import pytest
-from pytest import fixture
-
 from kubetester import create_or_update
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    skip_if_local,
-)
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.withMonitoredAppDB.conftest import (
@@ -21,9 +18,7 @@ admin_key_resource_version = None
 
 
 @fixture(scope="module")
-def ops_manager(
-    namespace: str, custom_version: Optional[str], custom_mdb_prev_version: str
-) -> MongoDBOpsManager:
+def ops_manager(namespace: str, custom_version: Optional[str], custom_mdb_prev_version: str) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_appdb_upgrade.yaml"), namespace=namespace
     )
@@ -50,9 +45,7 @@ class TestOpsManagerCreation:
         if not is_multi_cluster():
             assert ops_manager.appdb_status().get_members() == 3
 
-        assert ops_manager.appdb_status().get_version() == ensure_ent_version(
-            custom_mdb_prev_version
-        )
+        assert ops_manager.appdb_status().get_version() == ensure_ent_version(custom_mdb_prev_version)
         db_pods = ops_manager.read_appdb_pods()
         for _, pod in db_pods:
             # the appdb pod container 'mongodb' by default has 500M
@@ -96,9 +89,7 @@ class TestOpsManagerCreation:
 
     def test_appdb_mongodb_options(self, ops_manager: MongoDBOpsManager):
         automation_config_tester = ops_manager.get_automation_config_tester()
-        for process in automation_config_tester.get_replica_set_processes(
-            ops_manager.app_db_name()
-        ):
+        for process in automation_config_tester.get_replica_set_processes(ops_manager.app_db_name()):
             assert process["args2_6"]["operationProfiling"]["mode"] == "slowOp"
 
     def test_om_reaches_running(self, ops_manager: MongoDBOpsManager):
@@ -164,14 +155,10 @@ class TestOpsManagerMixed:
     Performs changes to both AppDB and Ops Manager spec
     """
 
-    def test_appdb_and_om_updated(
-        self, ops_manager: MongoDBOpsManager, custom_appdb_version: str
-    ):
+    def test_appdb_and_om_updated(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         ops_manager.load()
         ops_manager.set_appdb_version(custom_appdb_version)
-        ops_manager["spec"]["configuration"] = {
-            "mms.helpAndSupportPage.enabled": "true"
-        }
+        ops_manager["spec"]["configuration"] = {"mms.helpAndSupportPage.enabled": "true"}
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

@@ -1,22 +1,19 @@
 import pytest
-
-from kubetester.mongotester import StandaloneTester
-from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
     create_agent_tls_certs,
+    create_mongodb_tls_certs,
 )
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongotester import StandaloneTester
 
 MDB_RESOURCE = "my-standalone"
 
 
 @pytest.fixture(scope="module")
 def server_certs(issuer: str, namespace: str):
-    return create_mongodb_tls_certs(
-        ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert", replicas=1
-    )
+    return create_mongodb_tls_certs(ISSUER_CA_NAME, namespace, MDB_RESOURCE, f"{MDB_RESOURCE}-cert", replicas=1)
 
 
 @pytest.fixture(scope="module")

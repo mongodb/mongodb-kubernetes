@@ -2,13 +2,13 @@ from typing import List
 
 import kubernetes
 import pytest
-
-from kubetester import wait_until, create_or_update
+from kubetester import create_or_update, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from kubetester.kubetester import fixture as yaml_fixture, KubernetesTester
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -18,15 +18,11 @@ def mongodb_multi(
     namespace: str,
     member_cluster_names: list[str],
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
 
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     return create_or_update(resource)
 

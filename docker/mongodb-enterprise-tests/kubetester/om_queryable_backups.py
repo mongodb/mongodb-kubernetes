@@ -1,10 +1,11 @@
-import requests
-import time
-from html.parser import HTMLParser
-from dataclasses import dataclass
-import subprocess
 import logging
+import subprocess
 import tempfile
+import time
+from dataclasses import dataclass
+from html.parser import HTMLParser
+
+import requests
 
 
 @dataclass(init=True)
@@ -44,18 +45,14 @@ class OMQueryableBackup:
 
         response = requests.post(endpoint, json=data, headers=headers)
         if response.status_code != 200:
-            raise Exception(
-                f"OM login failed with status code: {response.status_code}, content: {response.content}"
-            )
+            raise Exception(f"OM login failed with status code: {response.status_code}, content: {response.content}")
 
         self._auth_cookies = response.cookies
 
     def _authenticated_http_get(self, url, headers=None):
         response = requests.get(url, headers=headers or {}, cookies=self._auth_cookies)
         if response.status_code != 200:
-            raise Exception(
-                f"HTTP GET failed with status code: {response.status_code}, content: {response.content}"
-            )
+            raise Exception(f"HTTP GET failed with status code: {response.status_code}, content: {response.content}")
         return response
 
     def _get_snapshots_query_host(self):
@@ -80,9 +77,7 @@ class OMQueryableBackup:
         )
 
     def _get_csrf_headers(self):
-        html_response = self._authenticated_http_get(
-            f"{self._om_url}/v2/{self._project_id}"
-        ).text
+        html_response = self._authenticated_http_get(f"{self._om_url}/v2/{self._project_id}").text
         csrf_fields = CsrfHtmlParser().parse_html(html_response)
         return {f"x-{k}": v for k, v in csrf_fields.items()}
 
@@ -100,9 +95,7 @@ class OMQueryableBackup:
         ).text
 
     def _download_ca(self):
-        return self._authenticated_http_get(
-            f"{self._om_url}/backup/web/restore/{self._project_id}/query/ca"
-        ).text
+        return self._authenticated_http_get(f"{self._om_url}/backup/web/restore/{self._project_id}/query/ca").text
 
     def _wait_until_ready_to_query(self, timeout: int):
         initial_timeout = timeout
@@ -114,10 +107,7 @@ class OMQueryableBackup:
                 headers={"Accept": "application/json"},
             ).json()
 
-            if (
-                len(restore_entries) > 0
-                and restore_entries[0].get("progressPhase") in ready_statuses
-            ):
+            if len(restore_entries) > 0 and restore_entries[0].get("progressPhase") in ready_statuses:
                 time_needed = initial_timeout - timeout
                 print(f"needed {time_needed} seconds to be able to query backups")
                 return

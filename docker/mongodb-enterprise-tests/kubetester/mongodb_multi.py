@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 from typing import Dict, List, Optional
 
 import kubernetes.client
 from kubernetes import client
 from kubetester import MongoDB
-from kubetester.mongotester import MultiReplicaSetTester, MongoTester
+from kubetester.mongotester import MongoTester, MultiReplicaSetTester
 
 
 class MultiClusterClient:
@@ -30,14 +31,10 @@ class MongoDBMulti(MongoDB):
         with_defaults.update(kwargs)
         super(MongoDBMulti, self).__init__(*args, **with_defaults)
 
-    def read_statefulsets(
-        self, clients: List[MultiClusterClient]
-    ) -> Dict[str, client.V1StatefulSet]:
+    def read_statefulsets(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1StatefulSet]:
         statefulsets = {}
         for mcc in clients:
-            statefulsets[mcc.cluster_name] = client.AppsV1Api(
-                api_client=mcc.api_client
-            ).read_namespaced_stateful_set(
+            statefulsets[mcc.cluster_name] = client.AppsV1Api(api_client=mcc.api_client).read_namespaced_stateful_set(
                 f"{self.name}-{mcc.cluster_index}", self.namespace
             )
         return statefulsets
@@ -52,40 +49,28 @@ class MongoDBMulti(MongoDB):
 
         raise ValueError(f"Cluster with name {cluster_name} not found!")
 
-    def read_services(
-        self, clients: List[MultiClusterClient]
-    ) -> Dict[str, client.V1Service]:
+    def read_services(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1Service]:
         services = {}
         for mcc in clients:
             spec = self.get_item_spec(mcc.cluster_name)
             for (i, item) in enumerate(spec):
-                services[mcc.cluster_name] = client.CoreV1Api(
-                    api_client=mcc.api_client
-                ).read_namespaced_service(
+                services[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_service(
                     f"{self.name}-{mcc.cluster_index}-{i}-svc", self.namespace
                 )
         return services
 
-    def read_headless_services(
-        self, clients: List[MultiClusterClient]
-    ) -> Dict[str, client.V1Service]:
+    def read_headless_services(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1Service]:
         services = {}
         for mcc in clients:
-            services[mcc.cluster_name] = client.CoreV1Api(
-                api_client=mcc.api_client
-            ).read_namespaced_service(
+            services[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_service(
                 f"{self.name}-{mcc.cluster_index}-svc", self.namespace
             )
         return services
 
-    def read_configmaps(
-        self, clients: List[MultiClusterClient]
-    ) -> Dict[str, client.V1ConfigMap]:
+    def read_configmaps(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1ConfigMap]:
         configmaps = {}
         for mcc in clients:
-            configmaps[mcc.cluster_name] = client.CoreV1Api(
-                api_client=mcc.api_client
-            ).read_namespaced_config_map(
+            configmaps[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_config_map(
                 f"{self.name}-hostname-override", self.namespace
             )
         return configmaps

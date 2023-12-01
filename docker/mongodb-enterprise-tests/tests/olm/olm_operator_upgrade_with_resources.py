@@ -1,38 +1,34 @@
 import kubernetes
+import kubetester
 import pytest
 from kubeobject import CustomObject
-from pytest import fixture
-
-import kubetester
 from kubetester import (
-    create_or_update,
     MongoDB,
-    try_load,
-    get_default_storage_class,
+    create_or_update,
     create_or_update_secret,
+    get_default_storage_class,
+    try_load,
 )
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    KubernetesTester,
-    run_periodically,
-)
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import Phase
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture
 from tests.olm.olm_test_commons import (
-    get_current_operator_version,
-    increment_patch_version,
-    get_operator_group_resource,
-    get_catalog_source_resource,
     get_catalog_image,
+    get_catalog_source_resource,
+    get_current_operator_version,
+    get_operator_group_resource,
     get_subscription_custom_object,
+    increment_patch_version,
     wait_for_operator_ready,
 )
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
-
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
@@ -94,9 +90,7 @@ def test_install_stable_operator_version(
     subscription: CustomObject,
 ):
     create_or_update(subscription)
-    wait_for_operator_ready(
-        namespace, f"mongodb-enterprise.v{current_operator_version}"
-    )
+    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
 
 
 # install resources on the latest released version of the operator
@@ -129,9 +123,7 @@ def test_create_om(
 
     try_load(ops_manager)
     ops_manager["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
-    ops_manager["spec"]["backup"]["headDB"][
-        "storageClass"
-    ] = get_default_storage_class()
+    ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()
     ops_manager["spec"]["backup"]["members"] = 2
 
     ops_manager.set_version(custom_version)
@@ -302,12 +294,8 @@ def test_set_backup_users(
     blockstore_user: MongoDBUser,
 ):
     ops_manager.load()
-    ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {
-        "name": oplog_user.name
-    }
-    ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {
-        "name": blockstore_user.name
-    }
+    ops_manager["spec"]["backup"]["opLogStores"][0]["mongodbUserRef"] = {"name": oplog_user.name}
+    ops_manager["spec"]["backup"]["blockStores"][0]["mongodbUserRef"] = {"name": blockstore_user.name}
     ops_manager.update()
 
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
@@ -363,9 +351,7 @@ def test_operator_upgrade_to_fast(
     def update_subscription() -> bool:
         try:
             subscription.load()
-            subscription["spec"][
-                "channel"
-            ] = "fast"  # fast channel contains operator build from the current branch
+            subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
             subscription.update()
             return True
         except kubernetes.client.ApiException as e:
@@ -376,15 +362,11 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(
-        namespace, f"mongodb-enterprise.v{incremented_operator_version}"
-    )
+    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_one_resources_not_in_running_state(
-    ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB
-):
+def test_one_resources_not_in_running_state(ops_manager: MongoDBOpsManager, mdb_sharded: MongoDB):
     # Wait for the first resource to become reconciling after operator upgrade.
     # Only then wait for all to not get a false positive when all resources are ready,
     # because the upgraded operator haven't started reconciling

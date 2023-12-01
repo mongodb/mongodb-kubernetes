@@ -30,10 +30,7 @@ def large_json_generator() -> Callable[[], Dict]:
 
     def inner() -> Dict:
         doc = _doc.copy()
-        random_id = "".join(
-            rand_generator.choice(string.ascii_uppercase + string.digits)
-            for _ in range(30)
-        )
+        random_id = "".join(rand_generator.choice(string.ascii_uppercase + string.digits) for _ in range(30))
         doc["json_generator_id"] = random_id
 
         return doc
@@ -41,9 +38,7 @@ def large_json_generator() -> Callable[[], Dict]:
     return inner
 
 
-async def upload_random_data_async(
-    client: pymongo.MongoClient, task_name: str = None, count: int = 50_000
-):
+async def upload_random_data_async(client: pymongo.MongoClient, task_name: str = None, count: int = 50_000):
     fn = functools.partial(
         upload_random_data,
         client=client,
@@ -54,9 +49,7 @@ async def upload_random_data_async(
     return await asyncio.get_event_loop().run_in_executor(None, fn)
 
 
-def create_writing_task(
-    client: pymongo.MongoClient, name: str, count: int
-) -> asyncio.Task:
+def create_writing_task(client: pymongo.MongoClient, name: str, count: int) -> asyncio.Task:
     """
     Creates an async Task that uploads documents to a MongoDB database.
     Async tasks in Python start right away after they are created.
@@ -64,15 +57,11 @@ def create_writing_task(
     return asyncio.create_task(upload_random_data_async(client, name, count))
 
 
-def create_writing_tasks(
-    client: pymongo.MongoClient, prefix: str, task_sizes: List[int] = None
-) -> asyncio:
+def create_writing_tasks(client: pymongo.MongoClient, prefix: str, task_sizes: List[int] = None) -> asyncio:
     """
     Creates many async tasks to upload documents to a MongoDB database.
     """
-    return [
-        create_writing_task(client, prefix + str(task), task) for task in task_sizes
-    ]
+    return [create_writing_task(client, prefix + str(task), task) for task in task_sizes]
 
 
 @fixture(scope="module")
@@ -119,9 +108,7 @@ async def test_fill_up_database(replica_set: MongoDB):
 def test_kill_pod_while_writing(replica_set: MongoDB):
     """Keeps writing documents to the database while it is being
     restarted."""
-    logging.info(
-        "Restarting StatefulSet holding the MongoDBs: sts/{}".format(replica_set.name)
-    )
+    logging.info("Restarting StatefulSet holding the MongoDBs: sts/{}".format(replica_set.name))
     replica_set["spec"]["podSpec"] = {
         "podTemplate": {
             "spec": {

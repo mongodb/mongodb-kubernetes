@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 #
 
-import os
-import sys
 import json
+import os
 import subprocess
+import sys
 from typing import Dict, List
 
 import requests
-from requests import Response
-
 from git import Repo
+from requests import Response
 
 
 def get_repo_root():
@@ -29,9 +28,7 @@ SUPPORTED_IMAGES = (
     "mongodb-enterprise-operator",
 )
 
-URL_LOCATION_BASE = (
-    "https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles"
-)
+URL_LOCATION_BASE = "https://enterprise-operator-dockerfiles.s3.amazonaws.com/dockerfiles"
 
 LOCAL_DOCKERFILE_LOCATION = "public/dockerfiles"
 DOCKERFILE_NAME = "Dockerfile"
@@ -89,9 +86,7 @@ def save_supported_dockerfiles():
                 response = download_dockerfile_from_s3(image, version, variant)
                 if response.ok:
                     dockerfile = response.text
-                    docker_dir = (
-                        f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version}/{variant}"
-                    )
+                    docker_dir = f"{LOCAL_DOCKERFILE_LOCATION}/{image}/{version}/{variant}"
                     os.makedirs(docker_dir, exist_ok=True)
                     docker_path = os.path.join(docker_dir, DOCKERFILE_NAME)
                     with open(docker_path, "w") as fd:

@@ -1,15 +1,13 @@
 import pytest
 from kubernetes import client
-from kubetester.mongodb import MongoDB, Phase
 from kubetester.kubetester import fixture as _fixture
+from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture
 
 
 @fixture(scope="module")
 def sharded_cluster(namespace: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        _fixture("sharded-cluster-scale-down-shards.yaml"), namespace=namespace
-    )
+    resource = MongoDB.from_yaml(_fixture("sharded-cluster-scale-down-shards.yaml"), namespace=namespace)
     return resource.create()
 
 
@@ -49,6 +47,4 @@ def test_db_data_the_same_count(sharded_cluster: MongoDB):
 @pytest.mark.e2e_sharded_cluster_scale_down_shards
 def test_statefulset_for_shard_removed(namespace: str):
     with pytest.raises(client.rest.ApiException):
-        client.AppsV1Api().read_namespaced_stateful_set(
-            "sh001-scale-down-shards-1", namespace
-        )
+        client.AppsV1Api().read_namespaced_stateful_set("sh001-scale-down-shards-1", namespace)

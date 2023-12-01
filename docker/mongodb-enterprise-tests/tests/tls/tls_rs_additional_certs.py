@@ -1,19 +1,20 @@
 import re
+import time
+
+import jsonpatch
 import pytest
-from kubetester.omtester import get_rs_cert_names
-from kubetester.kubetester import KubernetesTester, skip_if_local
-from kubetester.mongotester import ReplicaSetTester
-from kubetester.kubetester import fixture as load_fixture
-from kubetester.mongodb import MongoDB, Phase
+from kubernetes import client
 from kubetester.certs import (
     ISSUER_CA_NAME,
-    create_mongodb_tls_certs,
     create_agent_tls_certs,
+    create_mongodb_tls_certs,
 )
-import time
-import jsonpatch
-
-from kubernetes import client
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
+from kubetester.mongotester import ReplicaSetTester
+from kubetester.omtester import get_rs_cert_names
 
 MDB_RESOURCE_NAME = "test-tls-additional-domains"
 
@@ -35,9 +36,7 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
-    res = MongoDB.from_yaml(
-        load_fixture("test-tls-additional-domains.yaml"), namespace=namespace
-    )
+    res = MongoDB.from_yaml(load_fixture("test-tls-additional-domains.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     return res.create()
 

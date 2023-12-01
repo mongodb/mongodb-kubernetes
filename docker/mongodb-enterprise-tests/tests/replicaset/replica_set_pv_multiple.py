@@ -1,9 +1,8 @@
-import pytest
+from operator import attrgetter
 
+import pytest
 from kubetester import get_default_storage_class
 from kubetester.kubetester import KubernetesTester
-
-from operator import attrgetter
 
 
 @pytest.mark.e2e_replica_set_pv_multiple
@@ -38,9 +37,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
     custom_labels = {"label1": "val1", "label2": "val2"}
 
     def test_sts_creation(self):
-        sts = self.appsv1.read_namespaced_stateful_set(
-            self.RESOURCE_NAME, self.namespace
-        )
+        sts = self.appsv1.read_namespaced_stateful_set(self.RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"
         assert sts.kind == "StatefulSet"
@@ -57,11 +54,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
             self.check_pvc_for_pod(idx, pod)
 
     def check_pvc_for_pod(self, idx, pod):
-        claims = [
-            volume
-            for volume in pod.spec.volumes
-            if getattr(volume, "persistent_volume_claim")
-        ]
+        claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
         assert len(claims) == 3
 
         claims.sort(key=attrgetter("name"))

@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+
 import requests
 
 EVERGREEN_API = "https://evergreen.mongodb.com/api"
@@ -28,12 +29,8 @@ def get_variants_with_retried_tasks() -> dict[str, list[dict]]:
 
     headers = {"Api-User": evg_user, "Api-Key": api_key}
     print("Fetching build variants...", file=sys.stderr)
-    build_ids = requests.get(
-        url=f"{EVERGREEN_API}/rest/v2/versions/{version}", headers=headers
-    ).json()
-    build_statuses = [
-        build_status for build_status in build_ids["build_variants_status"]
-    ]
+    build_ids = requests.get(url=f"{EVERGREEN_API}/rest/v2/versions/{version}", headers=headers).json()
+    build_statuses = [build_status for build_status in build_ids["build_variants_status"]]
 
     variants_with_retried_tasks: dict[str, list[dict]] = {}
     print(f"Fetching tasks for build variants: ", end="", file=sys.stderr)

@@ -2,19 +2,16 @@ from typing import List
 
 import kubernetes
 import pytest
-
 from kubetester import (
-    read_secret,
     create_or_update,
     create_or_update_secret,
+    read_secret,
     update_secret,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import (
-    KubernetesTester,
-    fixture as yaml_fixture,
-    skip_if_local,
-)
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongodb_user import MongoDBUser
@@ -37,9 +34,7 @@ def mongodb_multi(
     namespace: str,
     member_cluster_names,
 ) -> MongoDBMulti:
-    resource = MongoDBMulti.from_yaml(
-        yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace
-    )
+    resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
 
     resource["spec"]["security"] = {
         "authentication": {
@@ -49,9 +44,7 @@ def mongodb_multi(
         }
     }
 
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(
-        member_cluster_names, [2, 1, 2]
-    )
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
@@ -59,12 +52,8 @@ def mongodb_multi(
 
 
 @pytest.fixture(scope="function")
-def mongodb_user(
-    central_cluster_client: kubernetes.client.ApiClient, namespace: str
-) -> MongoDBUser:
-    resource = MongoDBUser.from_yaml(
-        yaml_fixture("scram-sha-user.yaml"), USER_RESOURCE, namespace
-    )
+def mongodb_user(central_cluster_client: kubernetes.client.ApiClient, namespace: str) -> MongoDBUser:
+    resource = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user.yaml"), USER_RESOURCE, namespace)
 
     resource["spec"]["username"] = USER_NAME
     resource["spec"]["passwordSecretKeyRef"] = {
@@ -179,23 +168,15 @@ def test_om_configured_correctly():
     tester.assert_has_user(USER_NAME)
     tester.assert_user_has_roles(USER_NAME, expected_roles)
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=3)
-    tester.assert_authentication_mechanism_enabled(
-        "SCRAM-SHA-256", active_auth_mechanism=False
-    )
-    tester.assert_authentication_mechanism_enabled(
-        "SCRAM-SHA-1", active_auth_mechanism=False
-    )
-    tester.assert_authentication_mechanism_enabled(
-        "MONGODB-CR", active_auth_mechanism=False
-    )
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
+    tester.assert_authentication_mechanism_enabled("SCRAM-SHA-1", active_auth_mechanism=False)
+    tester.assert_authentication_mechanism_enabled("MONGODB-CR", active_auth_mechanism=False)
 
 
 @pytest.mark.e2e_multi_cluster_scram
 def test_replica_set_connectivity(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
-    tester.assert_connectivity(
-        db="admin", opts=[with_scram(USER_NAME, NEW_USER_PASSWORD)]
-    )
+    tester.assert_connectivity(db="admin", opts=[with_scram(USER_NAME, NEW_USER_PASSWORD)])
 
 
 @pytest.mark.e2e_multi_cluster_scram

@@ -1,12 +1,11 @@
 import pymongo
-from pytest import fixture, mark
-
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongotester import (
-    ShardedClusterTester,
-    MongoTester,
     MongoDBBackgroundTester,
+    MongoTester,
+    ShardedClusterTester,
 )
+from pytest import fixture, mark
 
 
 @fixture(scope="module")

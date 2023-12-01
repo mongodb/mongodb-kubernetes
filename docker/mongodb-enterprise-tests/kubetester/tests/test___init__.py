@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import MagicMock
 
-from kubetester import create_or_update
-from kubeobject import CustomObject
 import kubernetes.client
+from kubeobject import CustomObject
+from kubetester import create_or_update
 
 
 class TestCreateOrUpdate(unittest.TestCase):
@@ -137,9 +137,7 @@ class TestCreateOrUpdate(unittest.TestCase):
         object_to_api_server.bound = True
         object_to_api_server.update = MagicMock()
         object_to_api_server.api.get_namespaced_custom_object = MagicMock()
-        object_to_api_server.api.get_namespaced_custom_object.return_value = (
-            object_from_api_server
-        )
+        object_to_api_server.api.get_namespaced_custom_object.return_value = object_from_api_server
 
         exception_count = 0
 

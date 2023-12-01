@@ -1,5 +1,4 @@
 import pytest
-
 from kubernetes.client import V1Secret
 from kubetester.kubetester import KubernetesTester
 
@@ -20,9 +19,7 @@ class TestShardedClusterListensSecret(KubernetesTester):
 
     def test_patch_config_map(self):
         secret = V1Secret(string_data={"publicApiKey": "wrongKey"})
-        self.clients("corev1").patch_namespaced_secret(
-            "my-credentials", self.get_namespace(), secret
-        )
+        self.clients("corev1").patch_namespaced_secret("my-credentials", self.get_namespace(), secret)
 
         print('Patched the Secret - changed publicApiKey to "wrongKey"')
 

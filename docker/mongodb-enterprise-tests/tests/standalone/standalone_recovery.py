@@ -1,6 +1,5 @@
-import yaml
 import pytest
-
+import yaml
 from kubernetes.client import V1ConfigMap
 from kubetester.kubetester import KubernetesTester, fixture
 
@@ -22,9 +21,7 @@ class TestStandaloneRecoversBadOmConfiguration(KubernetesTester):
 
         resource = yaml.safe_load(open(fixture("standalone.yaml")))
 
-        KubernetesTester.create_mongodb_from_object(
-            KubernetesTester.get_namespace(), resource
-        )
+        KubernetesTester.create_mongodb_from_object(KubernetesTester.get_namespace(), resource)
 
         KubernetesTester.wait_until("in_error_state", 20)
         mrs = KubernetesTester.get_resource()

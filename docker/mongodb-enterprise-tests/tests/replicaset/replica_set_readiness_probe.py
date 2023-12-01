@@ -1,14 +1,10 @@
 import time
 
 import pytest
-
 from kubetester import create_or_update
-from kubetester.kubetester import (
-    KubernetesTester,
-    get_pods,
-    skip_if_local,
-    fixture as yaml_fixture,
-)
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import get_pods, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 
 RESOURCE_NAME = "my-replica-set-double"
@@ -16,9 +12,7 @@ RESOURCE_NAME = "my-replica-set-double"
 
 @pytest.fixture(scope="module")
 def replica_set(namespace: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-double.yaml"), RESOURCE_NAME, namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set-double.yaml"), RESOURCE_NAME, namespace)
     return create_or_update(resource)
 
 

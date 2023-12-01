@@ -1,11 +1,8 @@
 import pytest
-
-from kubetester.kubetester import (
-    fixture as yaml_fixture,
-    skip_if_local,
-)
-from kubetester.mongodb import MongoDB, Phase
 from kubetester import create_or_update
+from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
+from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture
 
 RESOURCE_NAME = "my-replica-set"
@@ -13,9 +10,7 @@ RESOURCE_NAME = "my-replica-set"
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set.yaml"), RESOURCE_NAME, namespace
-    )
+    resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), RESOURCE_NAME, namespace)
     resource.set_version(custom_mdb_version)
     resource["spec"]["memberConfig"] = [
         {

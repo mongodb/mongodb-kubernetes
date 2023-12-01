@@ -1,8 +1,7 @@
 import pytest
-
-from kubetester.omtester import get_rs_cert_names
 from kubetester.kubetester import KubernetesTester, skip_if_local
 from kubetester.mongotester import ReplicaSetTester
+from kubetester.omtester import get_rs_cert_names
 
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval
@@ -12,9 +11,7 @@ class TestReplicaSetWithExternalAccess(KubernetesTester):
             "file": "test-tls-base-rs-external-access.yaml",
             "wait_for_message": "Not all certificates have been approved by Kubernetes CA",
             "timeout": 60,
-            "patch": [
-                {"op": "remove", "path": "/spec/connectivity/replicaSetHorizons"}
-            ],
+            "patch": [{"op": "remove", "path": "/spec/connectivity/replicaSetHorizons"}],
         }
     }
 
@@ -33,9 +30,7 @@ class TestReplicaSetExternalAccessAddHorizons(KubernetesTester):
     }
 
     def test_certs_approved(self):
-        csr_names = get_rs_cert_names(
-            "test-tls-base-rs-external-access", self.namespace
-        )
+        csr_names = get_rs_cert_names("test-tls-base-rs-external-access", self.namespace)
         for csr_name in self.yield_existing_csrs(csr_names):
             self.delete_csr(csr_name)
         self.wait_for_status_message(
@@ -70,9 +65,7 @@ class TestReplicaSetExternalAccessAddHorizons(KubernetesTester):
         serving the right certificates.
         """
         host = f"test-tls-base-rs-external-access-svc.{self.namespace}.svc"
-        assert any(
-            san.endswith("test-website.com") for san in self.get_mongo_server_sans(host)
-        )
+        assert any(san.endswith("test-website.com") for san in self.get_mongo_server_sans(host))
 
 
 @pytest.mark.e2e_tls_rs_external_access_tls_transition_without_approval

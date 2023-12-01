@@ -4,7 +4,7 @@ import random
 import re
 import sys
 import time
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 
 import requests
 from requests.auth import HTTPDigestAuth
@@ -97,9 +97,7 @@ def whitelist_key(org: str, key_id: str, whitelist: List[str] = None):
     if whitelist is None:
         whitelist = ["0.0.0.0/1", "128.0.0.0/1"]
     base_url = os.getenv(BASE_URL)
-    url = "{}/api/public/v1.0/orgs/{}/apiKeys/{}/whitelist".format(
-        base_url, org, key_id
-    )
+    url = "{}/api/public/v1.0/orgs/{}/apiKeys/{}/whitelist".format(base_url, org, key_id)
     data = [{"cidrBlock": cb} for cb in whitelist]
     response = requests.post(url, auth=get_auth(), json=data)
     if response.status_code != 200:
@@ -132,9 +130,7 @@ def get_group_id_by_name(name: str, retry=3) -> str:
 def project_was_created_before(group_name: str, minutes_interval: int) -> bool:
     """Returns True if the group was created before 'current_time() - minutes_interval'"""
     try:
-        group_seconds_epoch = int(
-            group_name.split("-")[1]
-        )  # a-1598972093-yr3jzt3v7bsl -> 1598972093
+        group_seconds_epoch = int(group_name.split("-")[1])  # a-1598972093-yr3jzt3v7bsl -> 1598972093
     except Exception as e:
         print(e)
         return False
@@ -171,11 +167,7 @@ def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict
 
     json = groups.json()
 
-    return [
-        group
-        for group in json["results"]
-        if project_was_created_before(group["name"], minutes_interval)
-    ]
+    return [group for group in json["results"] if project_was_created_before(group["name"], minutes_interval)]
 
 
 def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
@@ -187,11 +179,7 @@ def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> List[Dict]:
 
     json = groups.json()
 
-    return [
-        key
-        for key in json["results"]
-        if key_is_older_than(key["desc"], minutes_interval)
-    ]
+    return [key for key in json["results"] if key_is_older_than(key["desc"], minutes_interval)]
 
 
 def remove_group_by_id(group_id: str, retry=3):
@@ -210,9 +198,7 @@ def remove_group_by_id(group_id: str, retry=3):
             json=controlled_features_data,
         )
         print(result)
-        result = requests.put(
-            f"{url}/automationConfig", auth=get_auth("org_owner"), json={}
-        )
+        result = requests.put(f"{url}/automationConfig", auth=get_auth("org_owner"), json={})
         print(result)
         result = requests.delete(url, auth=get_auth("org_owner"))
         print(result)
@@ -314,11 +300,7 @@ def clean_unused_keys(org_id: str):
 
 def keep_the_key(key: Dict) -> bool:
     """Returns True if the key shouldn't be removed"""
-    return (
-        key["publicKey"] == os.getenv(USER_OWNER).lower()
-        or "EVG" in key["desc"]
-        or "NOT_DELETE" in key["desc"]
-    )
+    return key["publicKey"] == os.getenv(USER_OWNER).lower() or "EVG" in key["desc"] or "NOT_DELETE" in key["desc"]
 
 
 def clean_unused_projects(org_id: str):
@@ -443,9 +425,7 @@ def main() -> int:
             ORG_ID = ORG_IDS[i]
             USER_OWNER = USER_OWNERS[i]
             APIKEY_OWNER = APIKEY_OWNERS[i]
-            print(
-                f"Removing all project and api key from Cloud QA which are older than X for {ORG_ID}"
-            )
+            print(f"Removing all project and api key from Cloud QA which are older than X for {ORG_ID}")
             unconfigure_all()
     else:
         return argv_error()

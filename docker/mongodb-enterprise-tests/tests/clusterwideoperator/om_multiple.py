@@ -1,34 +1,32 @@
 from typing import Dict
 
 import kubernetes
-from pytest import fixture, mark
-
-from kubetester import read_secret, create_or_update_secret, create_or_update
+from kubetester import create_or_update, create_or_update_secret, read_secret
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
-from kubetester.kubetester import fixture as yaml_fixture, create_testing_namespace
+from kubetester.kubetester import create_testing_namespace
+from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
+from pytest import fixture, mark
 from tests.conftest import (
-    get_multi_cluster_operator_clustermode,
-    is_multi_cluster,
-    get_operator_clusterwide,
-    get_version_id,
-    get_operator_installation_config,
-    get_multi_cluster_operator_installation_config,
     get_central_cluster_client,
-    get_member_cluster_clients,
     get_evergreen_task_id,
+    get_member_cluster_clients,
+    get_multi_cluster_operator_clustermode,
+    get_multi_cluster_operator_installation_config,
+    get_operator_clusterwide,
+    get_operator_installation_config,
+    get_version_id,
+    is_multi_cluster,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import (
     enable_appdb_multi_cluster_deployment,
 )
 
 
-def _prepare_om_namespace(
-    ops_manager_namespace: str, operator_installation_config: dict[str, str]
-):
+def _prepare_om_namespace(ops_manager_namespace: str, operator_installation_config: dict[str, str]):
     """create a new namespace and configures all necessary service accounts there"""
     install_database_roles(
         ops_manager_namespace,
@@ -45,9 +43,7 @@ def install_database_roles(
     try:
         yaml_file = helm_template(
             helm_args={
-                "registry.imagePullSecrets": operator_installation_config[
-                    "registry.imagePullSecrets"
-                ],
+                "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
             },
             templates="templates/database-roles.yaml",
             helm_options=[f"--namespace {namespace}"],
@@ -58,9 +54,7 @@ def install_database_roles(
         raise e
 
 
-def create_om_admin_secret(
-    ops_manager_namespace: str, api_client: kubernetes.client.ApiClient = None
-):
+def create_om_admin_secret(ops_manager_namespace: str, api_client: kubernetes.client.ApiClient = None):
     data = dict(
         Username="test-user",
         Password="@Sihjifutestpass21nnH",
@@ -76,13 +70,9 @@ def create_om_admin_secret(
 
 
 def prepare_multi_cluster_namespace(namespace: str, new_namespace: str):
-    operator_installation_config = get_multi_cluster_operator_installation_config(
-        namespace
-    )
+    operator_installation_config = get_multi_cluster_operator_installation_config(namespace)
     image_pull_secret_name = operator_installation_config["registry.imagePullSecrets"]
-    image_pull_secret_data = read_secret(
-        namespace, image_pull_secret_name, api_client=get_central_cluster_client()
-    )
+    image_pull_secret_data = read_secret(namespace, image_pull_secret_name, api_client=get_central_cluster_client())
     for member_cluster_client in get_member_cluster_clients():
         install_database_roles(
             new_namespace,
@@ -104,12 +94,8 @@ def prepare_multi_cluster_namespace(namespace: str, new_namespace: str):
         )
 
 
-def ops_manager(
-    namespace: str, custom_version: str, custom_appdb_version: str
-) -> MongoDBOpsManager:
-    resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
-    )
+def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
+    resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace)
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
@@ -158,9 +144,7 @@ def om_operator_clusterwide(namespace: str):
     if is_multi_cluster():
         return get_multi_cluster_operator_clustermode(namespace)
     else:
-        return get_operator_clusterwide(
-            namespace, get_operator_installation_config(namespace, get_version_id())
-        )
+        return get_operator_clusterwide(namespace, get_operator_installation_config(namespace, get_version_id()))
 
 
 @mark.e2e_om_multiple
@@ -181,9 +165,7 @@ def test_multiple_om_create(om1: MongoDBOpsManager, om2: MongoDBOpsManager):
 
 
 @mark.e2e_om_multiple
-def test_image_pull_secret_om_created_1(
-    namespace: str, operator_installation_config: Dict[str, str]
-):
+def test_image_pull_secret_om_created_1(namespace: str, operator_installation_config: Dict[str, str]):
     """check if imagePullSecrets was cloned in the OM namespace"""
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     secretDataInOperatorNs = read_secret(namespace, secret_name)
@@ -192,9 +174,7 @@ def test_image_pull_secret_om_created_1(
 
 
 @mark.e2e_om_multiple
-def test_image_pull_secret_om_created_2(
-    namespace: str, operator_installation_config: Dict[str, str]
-):
+def test_image_pull_secret_om_created_2(namespace: str, operator_installation_config: Dict[str, str]):
     """check if imagePullSecrets was cloned in the OM namespace"""
     secret_name = operator_installation_config["registry.imagePullSecrets"]
     secretDataInOperatorNs = read_secret(namespace, secret_name)
