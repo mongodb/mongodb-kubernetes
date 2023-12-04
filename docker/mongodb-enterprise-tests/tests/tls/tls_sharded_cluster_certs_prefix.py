@@ -1,5 +1,5 @@
 from kubetester import create_or_update, try_load
-from kubetester.certs import SetProperties, create_mongodb_tls_certs
+from kubetester.certs import Certificate, SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.kubetester import skip_if_local
@@ -78,6 +78,17 @@ def test_sharded_cluster_has_connectivity_with_tls(sharded_cluster: MongoDB, ca_
 def test_sharded_cluster_has_no_connectivity_without_tls(sharded_cluster: MongoDB):
     tester = sharded_cluster.tester(use_ssl=False)
     tester.assert_no_connection()
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+def test_rotate_tls_certificate(sharded_cluster: MongoDB, namespace: str):
+    # update the shard cert
+    cert = Certificate(name=f"prefix-{MDB_RESOURCE}-0-cert", namespace=namespace).load()
+    cert["spec"]["dnsNames"].append("foo")
+    cert.update()
+
+    sharded_cluster.assert_abandons_phase(Phase.Running, timeout=200)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
