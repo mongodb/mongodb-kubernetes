@@ -85,6 +85,9 @@ def test_mdb_scaled_down_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
 
 @pytest.mark.e2e_replica_set_tls_require
 def test_change_certificate_and_wait_for_running(mdb: MongoDB, namespace: str):
+    """
+    Perform certificate rotation by updating dns in certs
+    """
     cert = Certificate(name=f"{MDB_RESOURCE}-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
