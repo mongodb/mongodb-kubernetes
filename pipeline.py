@@ -525,7 +525,10 @@ def build_image_daily(
         logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
         completed_versions = set()
         for version in supported_versions:
-            version_without_rc = semver.finalize_version(version)
+            try:
+                version_without_rc = semver.finalize_version(version)
+            except ValueError:
+                version_without_rc = version
             if (
                 min_version is not None
                 and max_version is not None
