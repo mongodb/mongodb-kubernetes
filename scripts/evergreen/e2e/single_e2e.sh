@@ -26,7 +26,19 @@ deploy_test_app() {
     if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
       tag="${OVERRIDE_VERSION_ID}"
     fi
-    # apply the correct configuration of the running OM instance
+
+    BRANCH_NAME="${BRANCH_NAME:-default_branch}"
+    GITHUB_COMMIT="${GITHUB_COMMIT:-default_commit}"
+    IS_PATCH="${IS_PATCH:-default_patch}"
+    TASK_NAME="${TASK_NAME:-default_task}"
+    EXECUTION="${EXECUTION:-default_execution}"
+    BUILD_ID="${BUILD_ID:-default_build_id}"
+    BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
+
+    otel_resource_attributes="git_branch=${BRANCH_NAME},git_commit=${GITHUB_COMMIT},is_patch=${IS_PATCH},evg_task_name=${TASK_NAME},evg_execution=${EXECUTION},evg_build_id=${BUILD_ID},evg_build_variant=${BUILD_VARIANT}"
+    # shellcheck disable=SC2001
+    escaped_otel_resource_attributes=$(echo "$otel_resource_attributes" | sed 's/,/\\,/g')
+
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
@@ -49,6 +61,7 @@ deploy_test_app() {
         "--set" "otel_parent_id=${OTEL_PARENT_ID}"
         "--set" "otel_trace_id=${OTEL_TRACE_ID}"
         "--set" "otel_endpoint=${OTEL_COLLECTOR_ENDPOINT}"
+        "--set" "otel_resource_attributes=${escaped_otel_resource_attributes}"
     )
 
     # shellcheck disable=SC2154
@@ -188,6 +201,7 @@ run_tests() {
 mkdir -p logs/
 
 TESTS_OK=0
+# shellcheck disable=SC2153
 run_tests "${TEST_NAME}" || TESTS_OK=1
 
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
