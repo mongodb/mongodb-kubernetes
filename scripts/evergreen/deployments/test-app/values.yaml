@@ -34,3 +34,4 @@ multiCluster:
 otel_trace_id:
 otel_parent_id:
 otel_endpoint:
+otel_resource_attributes:
