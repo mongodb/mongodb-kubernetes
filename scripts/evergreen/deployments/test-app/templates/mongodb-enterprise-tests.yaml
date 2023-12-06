@@ -76,6 +76,10 @@ spec:
     - name: OTEL_PARENT_ID
       value: {{ .Values.otel_parent_id }}
     {{ end }}
+   {{ if .Values.otel_resource_attributes }}
+    - name: OTEL_RESOURCE_ATTRIBUTES
+      value: {{ .Values.otel_resource_attributes }}
+    {{ end }}
     - name: OTEL_SERVICE_NAME
       value: evergreen-agent
     - name: PYTEST_RUN_NAME
