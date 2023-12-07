@@ -9,7 +9,6 @@ set +e
 # shellcheck disable=SC1091
 source scripts/funcs/printing
 
-
 dump_all () {
     [[ "${MODE-}" = "dev" ]] && return
 
