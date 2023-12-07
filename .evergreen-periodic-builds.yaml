@@ -28,7 +28,6 @@ variables:
       - build_variant
       - execution
       - build_id
-      - task_id
 
 parameters:
   - key: pin_tag_at
