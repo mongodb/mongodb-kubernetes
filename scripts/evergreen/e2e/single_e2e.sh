@@ -35,10 +35,6 @@ deploy_test_app() {
     BUILD_ID="${BUILD_ID:-default_build_id}"
     BUILD_VARIANT="${BUILD_VARIANT:-default_build_variant}"
 
-    otel_resource_attributes="git_branch=${BRANCH_NAME},git_commit=${GITHUB_COMMIT},is_patch=${IS_PATCH},evg_task_name=${TASK_NAME},evg_execution=${EXECUTION},evg_build_id=${BUILD_ID},evg_build_variant=${BUILD_VARIANT}"
-    # shellcheck disable=SC2001
-    escaped_otel_resource_attributes=$(echo "$otel_resource_attributes" | sed 's/,/\\,/g')
-
     # note, that the 4 last parameters are used only for Mongodb resource testing - not for Ops Manager
     helm_params=(
         "--set" "taskId=${task_id:-'not-specified'}"
@@ -58,10 +54,6 @@ deploy_test_app() {
         "--set" "imagePullSecrets=image-registries-secret"
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
         "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
-        "--set" "otel_parent_id=${OTEL_PARENT_ID}"
-        "--set" "otel_trace_id=${OTEL_TRACE_ID}"
-        "--set" "otel_endpoint=${OTEL_COLLECTOR_ENDPOINT}"
-        "--set" "otel_resource_attributes=${escaped_otel_resource_attributes}"
     )
 
     # shellcheck disable=SC2154
@@ -74,6 +66,17 @@ deploy_test_app() {
     if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${CUSTOM_OM_VERSION}")
+    fi
+    # As soon as we are having one OTEL expansion it means we want to trace and send everything to our trace provider.
+    if [[ -n "${OTEL_PARENT_ID:-}" ]]; then
+        otel_resource_attributes="git_branch=${BRANCH_NAME},git_commit=${GITHUB_COMMIT},is_patch=${IS_PATCH},evg_task_name=${TASK_NAME},evg_execution=${EXECUTION},evg_build_id=${BUILD_ID},evg_build_variant=${BUILD_VARIANT}"
+        # shellcheck disable=SC2001
+        escaped_otel_resource_attributes=$(echo "$otel_resource_attributes" | sed 's/,/\\,/g')
+        # The test needs to create an OM resource with specific version
+        helm_params+=("--set" "otel_parent_id=${OTEL_PARENT_ID:-"unknown"}")
+        helm_params+=("--set" "otel_trace_id=${OTEL_TRACE_ID:-"unknown"}")
+        helm_params+=("--set" "otel_endpoint=${OTEL_COLLECTOR_ENDPOINT:-"unknown"}")
+        helm_params+=("--set" "otel_resource_attributes=${escaped_otel_resource_attributes}")
     fi
     if [[ -n "${CUSTOM_OM_PREV_VERSION:-}" ]]; then
         # The test needs to create an OM resource with specific version
