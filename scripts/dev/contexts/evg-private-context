@@ -89,18 +89,18 @@ export kubernetes_kind_version=1.22.0
 # Note: this name is correct
 export task_id="$EVR_TASK_ID"
 
-export OTEL_TRACE_ID="${otel_trace_id}"
-export OTEL_PARENT_ID="${otel_parent_id}"
-export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint}"
+export OTEL_TRACE_ID="${otel_trace_id:-"0xdeadbeef"}"
+export OTEL_PARENT_ID="${otel_parent_id:-"0xdeadbeef"}"
+export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint:-"unknown"}"
 
 # This is given by an expansion from evg
 export TASK_NAME="${task_name:-"unknown"}"
 export task_name="${TASK_NAME}"
-export BRANCH_NAME="${branch_name}"
-export IS_PATCH="${is_patch}"
-export BUILD_ID="${build_id}"
-export EXECUTION="${execution}"
-export BUILD_VARIANT="${build_variant}"
+export BRANCH_NAME="${branch_name:-"unknown"}"
+export IS_PATCH="${is_patch:-"unknown"}"
+export BUILD_ID="${build_id:-"unknown"}"
+export EXECUTION="${execution:-"unknown"}"
+export BUILD_VARIANT="${build_variant:-"unknown"}"
 
 # var used in pipeline.py to determine if we're running on EVG host
 # used to discern between local pipeline image build and the build in pipeline

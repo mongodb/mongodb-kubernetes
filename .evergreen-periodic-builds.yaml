@@ -3,7 +3,6 @@ variables:
     include_expansions_in_env:
       - ecr_registry
       - ecr_registry_needs_auth
-      - task_id
       - GITHUB_TOKEN_READ
       - openshift_url
       - openshift_token
@@ -13,6 +12,7 @@ variables:
       - mms_eng_test_aws_region
       - OVERRIDE_VERSION_ID
       - version_id
+      - task_name
       - e2e_cloud_qa_user_owner_ubi_cloudqa
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa
       - e2e_cloud_qa_orgid_owner_ubi_cloudqa
@@ -22,6 +22,13 @@ variables:
       - otel_trace_id
       - otel_parent_id
       - otel_collector_endpoint
+      - branch_name
+      - is_patch
+      - github_commit
+      - build_variant
+      - execution
+      - build_id
+      - task_id
 
 parameters:
   - key: pin_tag_at
