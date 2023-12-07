@@ -37,7 +37,6 @@ variables:
       - build_variant
       - execution
       - build_id
-      - task_id
 
 parameters:
 - key: evergreen_retry
