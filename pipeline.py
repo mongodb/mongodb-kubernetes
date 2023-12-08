@@ -722,7 +722,6 @@ def get_builder_function_for_image_name():
         "init-appdb-daily": build_image_daily("init-appdb"),
         "init-database-daily": build_image_daily("init-database"),
         "init-ops-manager-daily": build_image_daily("init-ops-manager"),
-        "ops-manager-5-daily": build_image_daily("ops-manager", min_version="5.0.0", max_version="6.0.0"),
         "ops-manager-6-daily": build_image_daily("ops-manager", min_version="6.0.0", max_version="7.0.0"),
         "ops-manager-7-daily": build_image_daily("ops-manager", min_version="7.0.0", max_version="8.0.0"),
         #

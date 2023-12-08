@@ -8,6 +8,6 @@ script_dir=$(dirname "${script_name}")
 # shellcheck disable=SC1091
 source "$script_dir/root-context"
 # shellcheck disable=SC1091
-source "$script_dir/variables/om50_image"
+source "$script_dir/variables/om60_image"
 
 export ops_manager_version="cloud_qa"

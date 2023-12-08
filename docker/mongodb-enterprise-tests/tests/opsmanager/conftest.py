@@ -65,16 +65,6 @@ def admin_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
     return secret.metadata.resource_version
 
 
-@fixture
-def skip_if_om5(custom_version: str):
-    """
-    When including this fixture on a test, the test will be skipped,
-    if the "custom_version" is set to OM5.0
-    """
-    if custom_version.startswith("5."):
-        raise skip("Skipping on OM5.0 tests")
-
-
 def mino_operator_install(
     namespace: str,
     operator_name: str = MINIO_OPERATOR,
