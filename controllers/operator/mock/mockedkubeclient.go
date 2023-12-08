@@ -596,6 +596,7 @@ func (k *MockedClient) onStatefulsetUpdate(set *appsv1.StatefulSet) {
 func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	set.Status.UpdatedReplicas = *set.Spec.Replicas
 	set.Status.ReadyReplicas = *set.Spec.Replicas
+	set.Status.Replicas = *set.Spec.Replicas
 
 	if om.CurrMockedConnection != nil {
 		// For tests with external domains we set hostnames externally in test,
