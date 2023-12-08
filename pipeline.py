@@ -318,9 +318,11 @@ def build_tests_image(build_configuration: BuildConfiguration):
     # helm directory needs to be copied over to the tests docker context.
     helm_src = "helm_chart"
     helm_dest = "docker/mongodb-enterprise-tests/helm_chart"
+    requirements_dest = "docker/mongodb-enterprise-tests/requirements.txt"
 
     shutil.rmtree(helm_dest, ignore_errors=True)
     copy_tree(helm_src, helm_dest)
+    shutil.copyfile("requirements.txt", requirements_dest)
 
     sonar_build_image(image_name, build_configuration, {}, "inventories/test.yaml")
 
