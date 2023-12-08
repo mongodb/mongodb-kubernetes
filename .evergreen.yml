@@ -2,8 +2,6 @@
 exec_timeout_secs: 7200
 
 variables:
-  - &ops_manager_50_latest 5.0.22 # The order/index is important, since these are anchors. Please do not change
-
   - &ops_manager_60_latest 6.0.20 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_70_latest 7.0.0-rc8 # The order/index is important, since these are anchors. Please do not change
@@ -2170,30 +2168,6 @@ buildvariants:
 
 ## Ops Manager build variants
 
-# Isolated Ops Manager Tests for 5.0 version
-- name: e2e_om50_kind_ubi
-  display_name: e2e_om50_kind_ubi
-  run_on:
-  - ubuntu2204-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om50_images
-  - name: build_operator_ubi
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  - name: build_init_database_image_ubi
-    variant: init_test_run
-  - name: build_database_image_ubi
-    variant: init_test_run
-  - name: build_init_appdb_images_ubi
-    variant: init_test_run
-  tasks:
-  - name: e2e_ops_manager_kind_only_task_group
-  - name: e2e_ops_manager_kind_5_0_only_task_group
-
 # Isolated Ops Manager Tests for 6.0 version
 - name: e2e_om60_kind_ubi
   display_name: e2e_om60_kind_ubi
@@ -2463,36 +2437,12 @@ buildvariants:
 
 ### Build variants for manual patch only
 
-- name: build_om50_images
-  display_name: build_om50_images
-  run_on:
-  - ubuntu2204-small
-  tasks:
-  - name: build_om_images
-
 - name: build_om60_images
   display_name: build_om60_images
   run_on:
   - ubuntu2204-small
   tasks:
   - name: build_om_images
-
-- name: publish_om50_images
-  display_name: publish_om50_images
-  run_on:
-  - ubuntu2204-small
-  depends_on:
-  - variant: e2e_om50_kind_ubi
-    name: '*'
-  tasks:
-  - name: publish_ops_manager
-
-- name: preflight_om50_images
-  display_name: preflight_om50_images
-  run_on:
-  - rhel90-small
-  tasks:
-  - name: preflight_om_image
 
 - name: publish_om60_images
   display_name: publish_om60_images

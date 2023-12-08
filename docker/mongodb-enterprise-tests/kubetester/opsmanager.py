@@ -510,10 +510,6 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.update_secret(self.namespace, secret_name, new_creds)
 
-    def prepare_upgrade_to_om5(self, version: str):
-        if version.startswith("5.0"):
-            self.update_key_to_programmatic()
-
     def allow_mdb_rc_versions(self):
         """
         Sets configurations parameters for OM to be able to download RC versions.

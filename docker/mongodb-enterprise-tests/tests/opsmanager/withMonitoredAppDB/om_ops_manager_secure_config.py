@@ -159,7 +159,6 @@ def test_changing_app_db_password_triggers_rolling_restart(
 
 @pytest.mark.e2e_om_ops_manager_secure_config
 def test_no_unnecessary_rolling_upgrades_happen(
-    skip_if_om5: None,
     ops_manager: MongoDBOpsManager,
     custom_appdb_version: str,
 ):
@@ -196,7 +195,7 @@ def test_no_unnecessary_rolling_upgrades_happen(
 
 
 @pytest.mark.e2e_om_ops_manager_secure_config
-def test_connection_string_secret_was_updated(skip_if_om5: None, ops_manager: MongoDBOpsManager):
+def test_connection_string_secret_was_updated(ops_manager: MongoDBOpsManager):
     connection_string = ops_manager.read_appdb_connection_url()
 
     assert "new-password" in connection_string
