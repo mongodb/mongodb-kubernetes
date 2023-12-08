@@ -53,7 +53,7 @@ class TestOpsManagerCreation:
 
     def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_status_resource_not_ready(
-            ops_manager.name, msg_regexp="Not all the Pods are ready \(total: 1.*\)"
+            ops_manager.name, msg_regexp="Not all the Pods are ready \(wanted: 1.*\)"
         )
 
     def test_om_status_1_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
@@ -300,7 +300,7 @@ class TestOpsManagerUpdate:
         if not is_multi_cluster():
             ops_manager.appdb_status().assert_status_resource_not_ready(
                 ops_manager.app_db_name(),
-                msg_regexp="Not all the Pods are ready \(total: 3.*\)",
+                msg_regexp="Not all the Pods are ready \(wanted: 3.*\)",
             )
 
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
@@ -308,7 +308,7 @@ class TestOpsManagerUpdate:
 
     def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_status_resource_not_ready(
-            ops_manager.name, msg_regexp="Not all the Pods are ready \(total: 1.*\)"
+            ops_manager.name, msg_regexp="Not all the Pods are ready \(wanted: 1.*\)"
         )
 
     def test_om_status_1_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
