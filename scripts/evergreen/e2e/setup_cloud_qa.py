@@ -15,9 +15,9 @@ BASE_URL = "e2e_cloud_qa_baseurl"
 ENV_FILE = "ENV_FILE"
 NAMESPACE_FILE = "NAMESPACE_FILE"
 OPS_MANAGER_VERSION = "ops_manager_version"
-APIKEY_OWNERS = ["e2e_cloud_qa_apikey_owner", "e2e_cloud_qa_apikey_owner_2"]
-ORG_IDS = ["e2e_cloud_qa_orgid_owner", "e2e_cloud_qa_orgid_owner_2"]
-USER_OWNERS = ["e2e_cloud_qa_user_owner", "e2e_cloud_qa_user_owner_2"]
+APIKEY_OWNERS = ["e2e_cloud_qa_apikey_owner", "e2e_cloud_qa_apikey_owner_2","e2e_cloud_qa_apikey_owner_static", "e2e_cloud_qa_apikey_owner_static_2"]
+ORG_IDS = ["e2e_cloud_qa_orgid_owner", "e2e_cloud_qa_orgid_owner_2","e2e_cloud_qa_orgid_owner_static", "e2e_cloud_qa_orgid_owner_static_2"]
+USER_OWNERS = ["e2e_cloud_qa_user_owner", "e2e_cloud_qa_user_owner_2","e2e_cloud_qa_user_owner_static", "e2e_cloud_qa_user_owner_static_2"]
 
 APIKEY_OWNER = APIKEY_OWNERS[0]
 ORG_ID = ORG_IDS[0]
@@ -43,9 +43,9 @@ def get_auth(auth_type: str = "org_owner") -> HTTPDigestAuth:
     """Builds an Authentication object depending on the type required."""
     if auth_type == "org_owner":
         api_key = os.getenv(APIKEY_OWNER)
-        assert api_key is not None, "no e2e_cloud_qa_apikey_owner env variable defined"
+        assert api_key is not None, f"no {APIKEY_OWNER} env variable defined"
         user = os.getenv(USER_OWNER)
-        assert user is not None, "no e2e_cloud_qa_user_owner env variable defined"
+        assert user is not None, f"no {USER_OWNER} env variable defined"
         return _get_auth(api_key, user)
     if auth_type == "project_owner":
         env = read_env_file()
