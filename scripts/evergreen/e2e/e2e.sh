@@ -24,14 +24,7 @@ fi
 #
 check_env_var "TASK_NAME" "The 'TASK_NAME' must be specified for the Operator e2e tests"
 
-# 1. Ensure the namespace exists - generate its name if not specified
-
-if [[ -z "${NAMESPACE-}" ]]; then
-    NAMESPACE=$(generate_random_namespace)
-    export NAMESPACE
-
-    echo "$NAMESPACE" > "${NAMESPACE_FILE}"
-fi
+# 1. Ensure the namespace exists - it should be created during the private-context switch
 
 current_context=$(kubectl config current-context)
 # shellcheck disable=SC2154

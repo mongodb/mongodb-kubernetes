@@ -23,8 +23,10 @@ fi
 
 export NAMESPACE_FILE="$workdir/.namespace"
 if [ -f "$NAMESPACE_FILE" ]; then
+  echo "found existing namespace file"
   NAMESPACE=$(cat "$NAMESPACE_FILE")
 else
+  echo "generating new namespace name"
   NAMESPACE=$(generate_random_namespace)
   echo "$NAMESPACE" > "${NAMESPACE_FILE}"
 fi
