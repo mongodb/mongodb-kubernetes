@@ -222,7 +222,7 @@ def remove_group_by_name(name: str):
     return result
 
 
-def read_namespace():
+def read_namespace_from_file():
     """Reads a testing namespace name from a file."""
     namespace_file = os.getenv(NAMESPACE_FILE)
     with open(namespace_file) as fd:
@@ -324,7 +324,7 @@ def unconfigure_all():
 
     namespace = None
     try:
-        namespace = read_namespace()
+        namespace = read_namespace_from_file()
     except Exception as e:
         print("Got an exception trying to read namespace", e)
 
@@ -361,7 +361,7 @@ def unconfigure_from_used_project():
 
     namespace = None
     try:
-        namespace = read_namespace()
+        namespace = read_namespace_from_file()
     except Exception as e:
         print("Got an exception trying to read namespace", e)
 
@@ -370,6 +370,8 @@ def unconfigure_from_used_project():
         print("Got namespace:", namespace)
         try:
             remove_group_by_name(namespace)
+            print(f"Removing Namespace file: {os.getenv(NAMESPACE_FILE)}")
+            os.remove(os.getenv(NAMESPACE_FILE))
         except Exception as e:
             print("Got an exception trying to remove group", e)
 
@@ -380,6 +382,8 @@ def unconfigure_from_used_project():
         key_id = env["OM_KEY_ID"]
         try:
             delete_api_key(org, key_id)
+            print(f"Removing ENV_FILE file: {os.getenv(ENV_FILE)}")
+            os.remove(os.getenv(ENV_FILE))
         except Exception as e:
             print("Got an exception trying to remove Api Key", e)
 
