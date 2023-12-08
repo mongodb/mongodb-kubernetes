@@ -92,7 +92,6 @@ export kubernetes_kind_version=1.22.0
 export task_id="$EVR_TASK_ID"
 
 export OTEL_TRACE_ID="${otel_trace_id:-"0xdeadbeef"}"
-export OTEL_PARENT_ID="${otel_parent_id:-"0xdeadbeef"}"
 export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint:-"unknown"}"
 
 # This is given by an expansion from evg

@@ -68,12 +68,14 @@ deploy_test_app() {
         helm_params+=("--set" "customOmVersion=${CUSTOM_OM_VERSION}")
     fi
     # As soon as we are having one OTEL expansion it means we want to trace and send everything to our trace provider.
-    if [[ -n "${OTEL_PARENT_ID:-}" ]]; then
+    # otel_parent_id is a special case (hence lower cased) since it is directly coming from evergreen and not via our
+    # make switch mechanism. We need the "freshest" parent_id otherwise we are attaching to the wrong parent span.
+    if [[ -n "${otel_parent_id:-}" ]]; then
         otel_resource_attributes="git_branch=${BRANCH_NAME},git_commit=${GITHUB_COMMIT},is_patch=${IS_PATCH},evg_task_name=${TASK_NAME},evg_execution=${EXECUTION},evg_build_id=${BUILD_ID},evg_build_variant=${BUILD_VARIANT}"
         # shellcheck disable=SC2001
         escaped_otel_resource_attributes=$(echo "$otel_resource_attributes" | sed 's/,/\\,/g')
         # The test needs to create an OM resource with specific version
-        helm_params+=("--set" "otel_parent_id=${OTEL_PARENT_ID:-"unknown"}")
+        helm_params+=("--set" "otel_parent_id=${otel_parent_id:-"unknown"}")
         helm_params+=("--set" "otel_trace_id=${OTEL_TRACE_ID:-"unknown"}")
         helm_params+=("--set" "otel_endpoint=${OTEL_COLLECTOR_ENDPOINT:-"unknown"}")
         helm_params+=("--set" "otel_resource_attributes=${escaped_otel_resource_attributes}")
