@@ -126,21 +126,7 @@ class Operator(object):
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
     def assert_is_running(self):
-        """Makes 3 checks that the Operator is running with 1 second interval. One check is not enough as the Operator may get
-        to Running state for short and fail later"""
-
-        # the import is done here to prevent circular dependency
-        from tests.conftest import local_operator
-
-        if local_operator():
-            return
-
-        for _ in range(0, 3):
-            pods = self.list_operator_pods()
-            assert len(pods) == 1
-            assert pods[0].status.phase == "Running"
-            assert pods[0].status.container_statuses[0].ready
-            time.sleep(1)
+        self._wait_for_operator_ready()
 
     def _wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
