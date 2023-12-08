@@ -14,7 +14,6 @@ from tests.opsmanager.withMonitoredAppDB.conftest import (
 
 gen_key_resource_version = None
 admin_key_resource_version = None
-OM5_CURRENT_VERSION = "5.0.9"
 
 # Note the strategy for Ops Manager testing: the tests should have more than 1 updates - this is because the initial
 # creation of Ops Manager takes too long, so we try to avoid fine-grained test cases and combine different
