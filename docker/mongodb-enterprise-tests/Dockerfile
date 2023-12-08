@@ -11,7 +11,7 @@ FROM --platform=linux/amd64 python:3.9-slim as builder
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
-    curl libldap2-dev libsasl2-dev build-essential
+    curl libldap2-dev libsasl2-dev build-essential git
 
 COPY requirements.txt requirements.txt
 

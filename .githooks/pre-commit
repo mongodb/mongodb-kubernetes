@@ -39,7 +39,7 @@ function generate_standalone_yaml() {
 function python_formatting() {
   # installing Black
   if ! command -v "black" >/dev/null ; then
-    pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt
+    pip install -r requirements.txt
   fi
 
   echo "formatting isort"

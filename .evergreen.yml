@@ -117,13 +117,6 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       binary: scripts/evergreen/run_python.sh -m pip install -r requirements.txt --quiet --no-warn-script-location
 
-  python_dev_requirements: &python_dev_requirements
-    command: subprocess.exec
-    type: setup
-    params:
-      working_dir: src/github.com/10gen/ops-manager-kubernetes
-      binary: scripts/evergreen/run_python.sh -m pip install -r docker/mongodb-enterprise-tests/requirements-dev.txt --quiet --no-warn-script-location
-
   setup_preflight:
   - command: subprocess.exec
     type: setup
@@ -236,7 +229,6 @@ functions:
 
   lint_repo:
   - *python_venv
-  - *python_dev_requirements
   - *python_requirements
   - command: subprocess.exec
     type: test
