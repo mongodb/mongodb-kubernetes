@@ -60,6 +60,6 @@ def cluster_reaches_not_ready(sharded_cluster: MongoDB, sts_name: str):
     sharded_cluster.wait_for(resource_not_ready, timeout=150, should_raise=True)
     sharded_cluster.assert_status_resource_not_ready(
         sts_name,
-        msg_regexp="Not all the Pods are ready \(total: 1.*\)",
+        msg_regexp="Not all the Pods are ready \(wanted: 1.*\)",
     )
     assert sharded_cluster.get_status_phase() == Phase.Pending

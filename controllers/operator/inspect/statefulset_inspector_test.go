@@ -33,6 +33,7 @@ func TestStatefulSetInspector(t *testing.T) {
 	assert.False(t, state.IsReady())
 	assert.Len(t, state.GetResourcesNotReadyStatus(), 1)
 	assert.Contains(t, state.GetResourcesNotReadyStatus()[0].Message, "Not all the Pods are ready")
+	assert.Contains(t, state.GetMessage(), "not ready")
 	assert.Equal(t, state.GetResourcesNotReadyStatus()[0].Kind, status.StatefulsetKind)
 	assert.Equal(t, state.GetResourcesNotReadyStatus()[0].Name, "sts")
 
@@ -43,6 +44,14 @@ func TestStatefulSetInspector(t *testing.T) {
 
 	state = StatefulSet(statefulSet)
 	assert.True(t, state.IsReady())
+	assert.Contains(t, state.GetMessage(), "is ready")
 	assert.Len(t, state.GetResourcesNotReadyStatus(), 0)
 
+	// We "scale" the StatefulSet
+	// Even though every other properties are the same, we need Spec.Replicas to be equal to Status.Replicas to be ready
+	statefulSet.Spec.Replicas = util.Int32Ref(5)
+
+	state = StatefulSet(statefulSet)
+	assert.False(t, state.IsReady())
+	assert.Contains(t, state.GetResourcesNotReadyStatus()[0].Message, "Not all the Pods are ready")
 }
