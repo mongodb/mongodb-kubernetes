@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -Eeou pipefail
+
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 source scripts/funcs/operator_deployment
@@ -44,18 +45,18 @@ make install 2>&1 | prepend "make install: "
 test -f "docker/mongodb-enterprise-tests/.test_identifiers" && rm "docker/mongodb-enterprise-tests/.test_identifiers"
 scripts/dev/delete_om_projects.sh
 
-echo "installing operator helm chart to create the necessary sa and roles"
-helm_values=$(get_operator_helm_values)
 
-# Conditionally append values to the helm_values variable
-if [[ "$LOCAL_OPERATOR" == true ]]; then
-  helm_values+=" operator.replicas=0"
+if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then
+  echo "installing operator helm chart to create the necessary sa and roles"
+  helm_values=$(get_operator_helm_values)
+  if [[ "$LOCAL_OPERATOR" == true ]]; then
+    helm_values+=" operator.replicas=0"
+  fi
+
+  helm upgrade --install mongodb-enterprise-operator helm_chart --set "$(echo "$helm_values" | tr ' ' ',')"
 fi
 
-
 if [[ "$KUBE_ENVIRONMENT_NAME" == "kind" ]]; then
-  helm upgrade --install mongodb-enterprise-operator mongodb/enterprise-operator --set "$(echo "$helm_values" | tr ' ' ',')"
-
   echo "patching all default sa with imagePullSecrets to ensure we can deploy without setting it for each pod"
 
   service_accounts=$(kubectl get serviceaccounts -n "${NAMESPACE}" -o jsonpath='{.items[*].metadata.name}')
