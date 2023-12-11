@@ -82,6 +82,8 @@ def get_operator_installation_config(namespace, version_id):
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    if local_operator():
+        config["operator.replicas"] = 0
     return config
 
 
@@ -424,16 +426,6 @@ def default_operator(
         namespace=namespace,
         helm_args=operator_installation_config,
     ).upgrade()
-
-    # If we're running locally, then immediately after installing the deployment, we scale it to zero.
-    # Note: There will be a short moment that an operator pod is running interfering with our application
-    # This way operator in POD is not interfering with locally running one.
-    if local_operator():
-        client.AppsV1Api().patch_namespaced_deployment_scale(
-            namespace=namespace,
-            name=operator.name,
-            body={"spec": {"replicas": 0}},
-        )
 
     return operator
 
