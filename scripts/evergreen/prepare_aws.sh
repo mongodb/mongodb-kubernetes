@@ -31,7 +31,7 @@ prepare_aws() {
         # Use date on Linux
         yesterday=$(date +%Y-%m-%dT:%H -d "5 hour ago")
     fi
-    for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&contains(Name,'test-bucket-')]" | jq --raw-output '.[].Name'); do
+    for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&starts_with(Name,'test-bucket-')]" | jq --raw-output '.[].Name'); do
         aws s3 rb s3://"${bucket}" --force || true
     done
 }
