@@ -33,7 +33,7 @@ class Phase(Enum):
 
 
 class MongoDBCommon:
-    def wait_for(self, fn, timeout=None, should_raise=False):
+    def wait_for(self, fn, timeout=None, should_raise=True):
         if timeout is None:
             timeout = 360
         initial_timeout = timeout
@@ -68,7 +68,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         def transition_changed(mdb: MongoDB):
             return mdb.get_status_last_transition_time() != last_transition
 
-        self.wait_for(transition_changed, timeout)
+        self.wait_for(transition_changed, timeout, should_raise=True)
 
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
         intermediate_events = (
@@ -118,7 +118,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             except KeyError:
                 return False
 
-        self.wait_for(reaches_backup_status, timeout=timeout)
+        self.wait_for(reaches_backup_status, timeout=timeout, should_raise=True)
 
     def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
         """Checks the element in 'resources_not_ready' field by index 'idx'"""
