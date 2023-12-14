@@ -108,8 +108,6 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 	for _, config := range projectConfigs {
 		desiredConfig.ClusterId = config.ClusterId
 
-		desiredStatus := getDesiredStatus(desiredConfig, config)
-
 		cluster, err := configReadUpdater.ReadHostCluster(config.ClusterId)
 
 		if err != nil {
@@ -128,17 +126,29 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		isReplicaSet := resourceType == ReplicaSetType && cluster.TypeName == "REPLICA_SET"
 		isShardedCluster := resourceType == ShardedClusterType && cluster.TypeName == "SHARDED_REPLICA_SET"
 		shouldUpdateBackupConfiguration := nameIsEqual && (isReplicaSet || isShardedCluster)
+		// If we are configuring a sharded cluster, we must only update the config of the whole cluster, not each individual shard.
+		// Status: 409 (Conflict), ErrorCode: CANNOT_MODIFY_SHARD_BACKUP_CONFIG, Detail: Cannot modify backup configuration for individual shard; use cluster ID 611a63f668d22f4e2e62c2e3 for entire cluster.
 		if !shouldUpdateBackupConfiguration {
 			continue
 		}
 
-		needToRequeue := desiredStatus != desiredConfig.Status
-		if needToRequeue {
+		// config.Status        = current backup status in OM
+		// desiredConfig.Status = spec.backup.mode from CR, mapped as:
+		//  status in CR | status in OM
+		//  ----------------------------
+		//  enabled        Started,
+		//  disabled       Stopped,
+		//  terminated     Terminating,
+		// desiredStatus here is desiredConfig.Status modified to potentially handle intermediate steps according to what the user specified in spec.backup.mode
+		desiredStatus := getDesiredStatus(desiredConfig, config)
+
+		intermediateStepRequired := desiredStatus != desiredConfig.Status
+		if intermediateStepRequired {
 			result.Requeue()
 		}
 
-		// If we are configuring a sharded cluster, we must only update the config of the whole cluster, not each individual shard.
-		// Status: 409 (Conflict), ErrorCode: CANNOT_MODIFY_SHARD_BACKUP_CONFIG, Detail: Cannot modify backup configuration for individual shard; use cluster ID 611a63f668d22f4e2e62c2e3 for entire cluster.
+		desiredConfig.Status = desiredStatus
+
 		// If backup was never enabled and the deployment has `spec.backup.mode=disabled` specified
 		// we don't send this state to OM, or we will get
 		// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.
@@ -292,5 +302,6 @@ func getDesiredStatus(desiredConfig, currentConfig *Config) Status {
 	if desiredConfig.Status == Stopped && currentConfig.Status == Terminating {
 		return Started
 	}
+
 	return desiredConfig.Status
 }

@@ -1,4 +1,11 @@
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.24.0
+## Warnings and Breaking Changes
+
+## Bug Fixes
+* Fix a bug that prevented terminating backup.
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.23.0
 ## Warnings and Breaking Changes
 
@@ -25,7 +32,6 @@
     * mongodb-audit
 * **MongoDBUser** Fix a bug ignoring the `Spec.MongoDBResourceRef.Namespace`. This prevented storing the user resources in another namespace than the MongoDB resource.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.22.0
 ## Breaking Changes
 * **All Resources**: The Operator no longer uses the "Reconciling" state. In most of the cases it has been replaced with "Pending" and a proper message
