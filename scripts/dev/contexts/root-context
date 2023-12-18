@@ -37,7 +37,7 @@ fi
 
 export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
-export AGENT_VERSION=12.0.25.7724-1
+export AGENT_VERSION=12.0.29.7785-1
 
 # values from .evergreen.yml
 export CUSTOM_OM_PREV_VERSION=5.0.1
