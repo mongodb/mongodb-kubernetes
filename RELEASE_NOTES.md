@@ -1,9 +1,11 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.24.0
-## Warnings and Breaking Changes
+
+## New Features
+* **MongoDBOpsManager**: Added support for the upcoming 7.0.x series of Ops Manager Server.
 
 ## Bug Fixes
-* Fix a bug that prevented terminating backup.
+* Fix a bug that prevented terminating backup correctly.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.23.0
