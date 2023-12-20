@@ -2,12 +2,12 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel80-x86_64-100.9.4.tgz"
   },
-  "mongodbOperator": "1.23.0",
-  "initDatabaseVersion": "1.23.0",
-  "initOpsManagerVersion": "1.23.0",
-  "initAppDbVersion": "1.23.0",
-  "databaseImageVersion": "1.23.0",
-  "agentVersion": "107.0.0.8465-1",
+  "mongodbOperator": "1.24.0",
+  "initDatabaseVersion": "1.24.0",
+  "initOpsManagerVersion": "1.24.0",
+  "initAppDbVersion": "1.24.0",
+  "databaseImageVersion": "1.24.0",
+  "agentVersion": "12.0.29.7785-1",
   "openshift": {
     "minimumSupportedVersion": "4.6"
   },
@@ -52,7 +52,7 @@
         "6.0.19",
         "6.0.20",
         "6.0.21",
-        "7.0.0-rc8"
+        "7.0.0-rc10"
       ],
       "variants": [
         "ubi"
@@ -61,6 +61,7 @@
     "operator": {
       "Description": "We support 3 last versions, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.24.0",
         "1.23.0",
         "1.22.0",
         "1.21.0",
@@ -137,6 +138,7 @@
     "init-ops-manager": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.24.0",
         "1.23.0",
         "1.0.7",
         "1.0.8",
@@ -152,6 +154,7 @@
     "init-database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.24.0",
         "1.23.0",
         "1.0.9",
         "1.0.10",
@@ -172,6 +175,7 @@
     "init-appdb": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.24.0",
         "1.23.0",
         "1.0.9",
         "1.0.10",
@@ -191,6 +195,7 @@
     "database": {
       "Description": "The lowest version corresponds to the lowest supported Operator version, see https://wiki.corp.mongodb.com/display/MMS/Kubernetes+Operator+Support+Policy",
       "versions": [
+        "1.24.0",
         "1.23.0",
         "2.0.2"
       ],
