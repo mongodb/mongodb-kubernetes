@@ -13,8 +13,10 @@ export CUSTOM_OM_VERSION
 export CUSTOM_MDB_VERSION=7.0.2
 export CUSTOM_MDB_PREV_VERSION=6.0.5
 
+export AGENT_VERSION=107.0.0.8465-1
+
 export CUSTOM_APPDB_VERSION=7.0.2-ent
 export TEST_MODE=opsmanager
 export OPS_MANAGER_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
 export APPDB_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi
-export om_download_url="https://s3.amazonaws.com/mongodb-mms-build-onprem/6973db68b4c2581b5814d1183e4d17c208ba9599/mongodb-mms-7.0.0-rc8.500.20231127T2012Z.tar.gz"
+export om_download_url="https://s3.amazonaws.com/mongodb-mms-build-onprem/c89c2e555fdfbcb80467ddfc6f7abbe01fb3fb25/mongodb-mms-7.0.0-rc10.500.20231214T2109Z.tar.gz"
