@@ -3,12 +3,12 @@
 module github.com/10gen/ops-manager-kubernetes
 
 require (
-	github.com/aws/aws-sdk-go v1.48.6
+	github.com/aws/aws-sdk-go v1.49.13
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/evanphx/json-patch v5.6.0+incompatible
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.2.4
-	github.com/google/go-cmp v0.5.9
+	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.5.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-retryablehttp v0.7.4
