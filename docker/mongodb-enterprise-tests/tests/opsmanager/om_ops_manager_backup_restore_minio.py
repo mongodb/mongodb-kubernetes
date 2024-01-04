@@ -18,6 +18,7 @@ from kubetester.mongodb import Phase
 from kubetester.mongotester import with_tls
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from pymongo import ReadPreference
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.conftest import create_appdb_certs, is_multi_cluster
@@ -244,7 +245,7 @@ def mdb_prev_test_collection(mdb_prev, ca_path: str):
     tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
 
     collection = tester.client["testdb"]
-    return collection["testcollection"]
+    return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
 @fixture(scope="module")
@@ -253,7 +254,7 @@ def mdb_latest_test_collection(mdb_latest, ca_path: str):
     tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
 
     collection = tester.client["testdb"]
-    return collection["testcollection"]
+    return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
 @fixture(scope="module")

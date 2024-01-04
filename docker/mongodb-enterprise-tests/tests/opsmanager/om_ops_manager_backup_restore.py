@@ -8,6 +8,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from pymongo import ReadPreference
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
@@ -75,6 +76,7 @@ def mdb_latest(ops_manager: MongoDBOpsManager, namespace, custom_mdb_version: st
     # MongoD versions greater than 4.2.0 must be enterprise build to enable backup
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
+
     try_load(resource)
 
     return resource
@@ -89,21 +91,21 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
     ).configure(ops_manager, "mdbPreviousProject")
     resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource.configure_backup(mode="enabled")
-    try_load(resource)
 
+    try_load(resource)
     return resource
 
 
 @fixture(scope="module")
 def mdb_prev_test_collection(mdb_prev):
     collection = mdb_prev.tester().client["testdb"]
-    return collection["testcollection"]
+    return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
 @fixture(scope="module")
 def mdb_latest_test_collection(mdb_latest):
     collection = mdb_latest.tester().client["testdb"]
-    return collection["testcollection"]
+    return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
 @fixture(scope="module")
