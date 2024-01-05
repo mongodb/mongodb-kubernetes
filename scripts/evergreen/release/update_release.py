@@ -57,9 +57,9 @@ def update_tools_version(data, missing_version):
     repo_owner = "10gen"
     repo_name = "mms"
     file_path = "server/conf/conf-hosted.properties"
+    # starting om 7 our tag starts with ops-manager-<version> instead
     if missing_version.startswith("7."):
-        tag_to_search = f"ops-manager-7.0"  # TODO: update once om release is out and the tag is following below
-        # struture.
+        tag_to_search = f"ops-manager-{missing_version}"
     else:
         tag_to_search = f"on-prem-{missing_version}"
     url = f"https://raw.githubusercontent.com/{repo_owner}/{repo_name}/{tag_to_search}/{file_path}"
