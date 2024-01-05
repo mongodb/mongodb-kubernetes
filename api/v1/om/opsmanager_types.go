@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -65,14 +67,34 @@ func (om *MongoDBOpsManager) AddValidationToManager(mgr manager.Manager, _ map[s
 	return ctrl.NewWebhookManagedBy(mgr).For(om).Complete()
 }
 
-func (om *MongoDBOpsManager) GetAppDBProjectConfig(client secrets.SecretClient) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
 	var operatorVaultSecretPath string
-	if client.VaultClient != nil {
-		operatorVaultSecretPath = client.VaultClient.OperatorSecretPath()
+	if secretClient.VaultClient != nil {
+		operatorVaultSecretPath = secretClient.VaultClient.OperatorSecretPath()
 	}
-	secretName, err := om.APIKeySecretName(client, operatorVaultSecretPath)
+	secretName, err := om.APIKeySecretName(secretClient, operatorVaultSecretPath)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
+	}
+
+	if om.IsTLSEnabled() {
+		opsManagerCA := om.Spec.GetOpsManagerCA()
+		cm, err := client.GetConfigMap(kube.ObjectKey(om.Namespace, opsManagerCA))
+		if err != nil {
+			return mdbv1.ProjectConfig{}, err
+		}
+		ca := cm.Data["mms-ca.crt"]
+		return mdbv1.ProjectConfig{
+			BaseURL:     om.CentralURL(),
+			ProjectName: om.Spec.AppDB.Name(),
+			Credentials: secretName,
+			UseCustomCA: true,
+			SSLProjectConfig: env.SSLProjectConfig{
+				SSLRequireValidMMSServerCertificates: true,
+				SSLMMSCAConfigMap:                    opsManagerCA,
+				SSLMMSCAConfigMapContents:            ca,
+			},
+		}, nil
 	}
 
 	return mdbv1.ProjectConfig{
@@ -610,7 +632,7 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 }
 
 // APIKeySecretName returns the secret object name to store the API key to communicate to ops-manager.
-// To ensure backward compatibility it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
+// To ensure backward compatibility, it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
 func (om *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {

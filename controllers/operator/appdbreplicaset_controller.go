@@ -1451,7 +1451,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 		return env.PodEnvVars{}, xerrors.Errorf("error reading existing podVars: %w", err)
 	}
 
-	projectConfig, err := opsManager.GetAppDBProjectConfig(r.SecretClient)
+	projectConfig, err := opsManager.GetAppDBProjectConfig(r.SecretClient, r.client)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error getting existing project config: %w", err)
 	}
