@@ -170,6 +170,9 @@ func (m *MongoDBMultiCluster) GetLDAP(password, caContents string) *ldap.Ldap {
 		// TODO: Enable LDAP SASL bind method
 		BindMethod:         "simple",
 		BindSaslMechanisms: "",
+
+		TimeoutMS:                     mdbLdap.TimeoutMS,
+		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
 }
 
