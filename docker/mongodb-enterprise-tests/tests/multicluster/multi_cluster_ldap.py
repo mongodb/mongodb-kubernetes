@@ -105,6 +105,8 @@ def mongodb_multi(
                 "validateLDAPServerConfig": True,
                 "caConfigMapRef": {"name": issuer_ca_configmap, "key": "ca-pem"},
                 "userToDNMapping": '[{match: "(.+)",substitution: "uid={0},ou=groups,dc=example,dc=org"}]',
+                "timeoutMS": 12345,
+                "userCacheInvalidationInterval": 60,
             },
             "agents": {
                 "mode": "LDAP",
@@ -193,6 +195,11 @@ def test_ops_manager_state_correctly_updated(mongodb_multi: MongoDBMulti, user_l
     ac.assert_user_has_roles(user_ldap["spec"]["username"], expected_roles)
     ac.assert_authentication_mechanism_enabled("PLAIN", active_auth_mechanism=True)
     ac.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=1)
+
+    assert "timeoutMS" in ac.automation_config["ldap"]
+    assert "userCacheInvalidationInterval" in ac.automation_config["ldap"]
+    assert ac.automation_config["ldap"]["timeoutMS"] == 12345
+    assert ac.automation_config["ldap"]["userCacheInvalidationInterval"] == 60
 
 
 @mark.e2e_multi_cluster_with_ldap
