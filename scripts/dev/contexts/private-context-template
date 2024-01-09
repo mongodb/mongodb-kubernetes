@@ -40,6 +40,12 @@ export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/$USER"
 # Sensible default:
 # - false
 export LOCAL_OPERATOR="false"
+
+# Set this to "local" if you wish to start the operator on some port
+# other that 8080. This might be needed is use a tool like kubefwd which binds
+# to port 8080
+export OPERATOR_ENV="dev"
+
 # Set to true for running cluster-wide operator
 # Allowed values:
 # - true
