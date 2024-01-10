@@ -7,6 +7,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 
@@ -210,7 +211,7 @@ func AppDBReplicaSetConfig(om *omv1.MongoDBOpsManager) Options {
 	return opts
 }
 
-func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler scalers.AppDBScaler) Options {
+func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interfaces.AppDBScaler) Options {
 	mdb := om.Spec.AppDB
 	opts := Options{
 		ResourceName:              mdb.NameForCluster(scaler.MemberClusterNum()),

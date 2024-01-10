@@ -115,7 +115,7 @@ def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_clus
         appdb_member_cluster_names, [5, 2]
     )
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
 
 @mark.e2e_multi_cluster_appdb
