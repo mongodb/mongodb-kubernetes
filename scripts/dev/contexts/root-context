@@ -11,7 +11,7 @@ source "$script_dir/private-context"
 export PROJECT_DIR="$PWD"
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
-export WATCH_NAMESPACE=$NAMESPACE
+export WATCH_NAMESPACE=${WATCH_NAMESPACE:-$NAMESPACE}
 
 #
 # changing variables below should not be necessary
