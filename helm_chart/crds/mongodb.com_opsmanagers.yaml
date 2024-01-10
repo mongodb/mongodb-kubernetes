@@ -1176,6 +1176,15 @@ spec:
                     required:
                     - statusName
                     type: object
+                  clusterStatusList:
+                    items:
+                      properties:
+                        clusterName:
+                          type: string
+                        members:
+                          type: integer
+                      type: object
+                    type: array
                   configServerCount:
                     type: integer
                   lastTransition:

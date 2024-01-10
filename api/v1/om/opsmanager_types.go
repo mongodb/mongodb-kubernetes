@@ -323,6 +323,7 @@ func (m OpsManagerAgentVersionMapping) FindAgentVersionForOpsManager(omVersion s
 
 type AppDbStatus struct {
 	mdbv1.MongoDbStatus `json:",inline"`
+	ClusterStatusList   []status.ClusterStatusItem `json:"clusterStatusList,omitempty"`
 }
 
 type BackupStatus struct {
@@ -527,21 +528,26 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 	}
 }
 
-func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
-	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
+func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	m.Status.AppDbStatus.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
-		om.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
+		m.Status.AppDbStatus.Members = option.(status.ReplicaSetMembersOption).Members
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.MultiReplicaSetMemberOption{}); exists {
+		m.Status.AppDbStatus.Members = option.(status.MultiReplicaSetMemberOption).Members
+		m.Status.AppDbStatus.ClusterStatusList = option.(status.MultiReplicaSetMemberOption).ClusterStatusList
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
-		om.Status.AppDbStatus.Warnings = append(om.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
+		m.Status.AppDbStatus.Warnings = append(m.Status.AppDbStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
 	if phase == status.PhaseRunning {
-		spec := om.Spec.AppDB
-		om.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
-		om.Status.AppDbStatus.Message = ""
+		spec := m.Spec.AppDB
+		m.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
+		m.Status.AppDbStatus.Message = ""
 	}
 }
 

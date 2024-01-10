@@ -339,7 +339,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -372,7 +372,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	hosts, _ := om.CurrMockedConnection.GetHosts()
 	assert.Len(t, hosts.Results, 5, "the AppDB hosts should have been added")
 
-	appDbSts, err = construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -407,7 +407,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images while activating monitoring", func(t *testing.T) {
 		podVars := env.PodEnvVars{ProjectID: "something"}
-		appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -433,7 +433,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
 		podVars := env.PodEnvVars{}
-		appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
