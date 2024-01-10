@@ -2,22 +2,16 @@ package scalers
 
 import (
 	"github.com/10gen/ops-manager-kubernetes/api/v1/om"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/scale"
 )
 
-func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) AppDBScaler {
+func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) interfaces.AppDBScaler {
 	if opsManager.Spec.AppDB.IsMultiCluster() {
 		return NewAppDBMultiClusterScaler(opsManager, memberClusterName, memberClusterNum, prevMembers)
 	} else {
 		return NewAppDBSingleClusterScaler(opsManager)
 	}
-}
-
-type AppDBScaler interface {
-	scale.ReplicaSetScaler
-	MemberClusterName() string
-	MemberClusterNum() int
 }
 
 type AppDBMultiClusterScaler struct {

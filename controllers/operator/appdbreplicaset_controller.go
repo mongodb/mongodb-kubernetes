@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
 	"github.com/hashicorp/go-multierror"
@@ -614,7 +615,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Could not save current state as an annotation: %w", err)), log, omStatusOption)
 	}
 
-	appDBScalers := []scale.ReplicaSetScaler{}
+	appDBScalers := []interfaces.AppDBScaler{}
 	achievedDesiredScaling := true
 	for _, member := range r.getAllMemberClusters() {
 		scaler := scalers.GetAppDBScaler(opsManager, member.Name, r.getMemberClusterIndex(member.Name), r.memberClusters)
@@ -636,13 +637,19 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		// requeues after Ops Manager has been fully configured.
 		log.Infof("Requeuing reconciliation to configure Monitoring in Ops Manager.")
 		// FIXME: use correct MembersOption for scaler
-		return r.updateStatus(opsManager, workflow.Pending("Enabling monitoring").Requeue(), log, appDbStatusOption, status.MembersOption(appDBScalers[0]))
+		return r.updateStatus(opsManager, workflow.Pending("Enabling monitoring").Requeue(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
 	}
 
 	// We need to check for status compared to the spec because the scaler will report desired replicas to be different than what's present in the spec when the
 	// reconciler is not handling that specific cluster.
-	if !achievedDesiredScaling || scale.AnyAreStillScaling(appDBScalers...) {
-		return r.updateStatus(opsManager, workflow.Pending("Continuing scaling operation on AppDB %d", 1), log, appDbStatusOption, status.MembersOption(appDBScalers[0]))
+	rsScalers := []scale.ReplicaSetScaler{}
+	for _, scaler := range appDBScalers {
+		rsScaler := scaler.(scale.ReplicaSetScaler)
+		rsScalers = append(rsScalers, rsScaler)
+	}
+
+	if !achievedDesiredScaling || scale.AnyAreStillScaling(rsScalers...) {
+		return r.updateStatus(opsManager, workflow.Pending("Continuing scaling operation on AppDB %d", 1), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
 	}
 
 	// set the annotation to AppDB that forced reconfigure is performed to indicate to customers
@@ -661,7 +668,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
 	// FIXME: use correct MembersOption for scaler
-	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, status.MembersOption(appDBScalers[0]))
+	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
 }
 
 func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
@@ -1666,7 +1673,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(opsManager *omv1.MongoDBOps
 			return workflow.Failed(err)
 		}
 
-		appDbSts, err := construct.AppDbStatefulSet(opsManager, &podVars, appdbOpts, scaler, log)
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))
 		}
