@@ -90,6 +90,7 @@ def ops_manager(
     central_cluster_client: kubernetes.client.ApiClient,
     appdb_member_cluster_names: list[str],
     custom_appdb_version: str,
+    custom_version: str,
 ) -> MongoDBOpsManager:
 
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
@@ -98,6 +99,7 @@ def ops_manager(
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
     resource.allow_mdb_rc_versions()
+    resource.set_version(custom_version)
 
     del resource["spec"]["security"]
     del resource["spec"]["applicationDatabase"]["security"]
