@@ -31,7 +31,7 @@ prepare_aws() {
         # Use date on Linux
         yesterday=$(date +%Y-%m-%dT:%H -d "3 hour ago")
     fi
-    for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&starts_with(Name,'test-bucket-')]" | jq --raw-output '.[].Name'); do
+    for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&starts_with(Name,'test-')]" | jq --raw-output '.[].Name'); do
         # Get the tags for the bucket and check whether the operator generated tags are present.
         tags=$(aws s3api get-bucket-tagging --bucket "${bucket}" --output json || true)
         operatorTagExists=$(echo "$tags" | jq -r '.TagSet[] | select(.Key=="environment" and .Value=="mongodb-enterprise-operator-tests")')
