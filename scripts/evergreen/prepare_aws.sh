@@ -26,13 +26,21 @@ prepare_aws() {
     # note, to run this on mac you need to install coreutils ('brew install coreutils') and use 'gdate' instead
     if [[ $(uname) == "Darwin" ]]; then
         # Use gdate on macOS
-        yesterday=$(gdate +%Y-%m-%dT:%H -d "5 hour ago") # "2021-04-09T04:23:33+00:00"
+        yesterday=$(gdate +%Y-%m-%dT:%H -d "3 hour ago") # "2021-04-09T04:23:33+00:00"
     else
         # Use date on Linux
-        yesterday=$(date +%Y-%m-%dT:%H -d "5 hour ago")
+        yesterday=$(date +%Y-%m-%dT:%H -d "3 hour ago")
     fi
     for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&starts_with(Name,'test-bucket-')]" | jq --raw-output '.[].Name'); do
-        aws s3 rb s3://"${bucket}" --force || true
+        # Get the tags for the bucket and check whether the operator generated tags are present.
+        tags=$(aws s3api get-bucket-tagging --bucket "${bucket}" --output json || true)
+        operatorTagExists=$(echo "$tags" | jq -r '.TagSet[] | select(.Key=="environment" and .Value=="mongodb-enterprise-operator-tests")')
+        if [[ -n "$operatorTagExists" ]]
+        then
+            aws s3 rb s3://"${bucket}" --force || true
+        else
+            echo "#### Not removing bucket ${bucket} because it was not created by the operator test suite"
+        fi
     done
 }
 prepare_aws
