@@ -181,8 +181,13 @@ def managed_security_context() -> str:
 
 
 @fixture(scope="module")
-def aws_s3_client() -> AwsS3Client:
-    return AwsS3Client("us-east-1")
+def aws_s3_client(evergreen_task_id: str) -> AwsS3Client:
+    tags = {"environment": "mongodb-enterprise-operator-tests"}
+
+    if evergreen_task_id != "":
+        tags["evg_task"] = evergreen_task_id
+
+    return AwsS3Client("us-east-1", **tags)
 
 
 @fixture(scope="session")

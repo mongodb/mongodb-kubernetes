@@ -245,6 +245,28 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 
+  # Performs some AWS cleanup
+  cleanup_aws:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/setup_jq.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        binary: scripts/evergreen/setup_aws.sh
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        command: scripts/evergreen/prepare_aws.sh
+
   # This is a generic function for conditionally running given task.
   # It works by appending <task> to <variant> if <condition_script> returns no error.
   #
@@ -465,6 +487,7 @@ tasks:
     commands:
       - func: clone
       - func: teardown_cloud_qa_all
+      - func: cleanup_aws
 
 task_groups:
   - name: periodic_build_task_group
@@ -495,7 +518,7 @@ buildvariants:
   - name: periodic_teardown
     display_name: periodic_teardown
     run_on:
-      - ubuntu1804-small
+      - ubuntu2204-small
     tasks:
       - name: periodic_teardown_task_group
 
