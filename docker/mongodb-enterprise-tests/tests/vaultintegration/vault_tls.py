@@ -44,14 +44,13 @@ def ops_manager(
         "enabled": False,
     }
     om.set_version(custom_version)
-    om.set_appdb_version("5.0.16-ent")
+    om.set_appdb_version(custom_appdb_version)
 
     return om.create()
 
 
 @mark.e2e_vault_setup_tls
 def test_vault_creation(vault_tls: str, vault_name: str, vault_namespace: str, issuer: str):
-    vault_tls
 
     # assert if vault statefulset is ready, this is sort of redundant(we already assert for pod phase)
     # but this is basic assertion at the moment, will remove in followup PR
