@@ -105,7 +105,6 @@
         "12.0.15.7646-1": "Community and Helm Charts version"
       },
       "versions": [
-        "11.12.0.7388-1",
         "12.0.4.7554-1",
         "12.0.15.7646-1",
         "12.0.21.7698-1",
@@ -117,10 +116,6 @@
         "107.0.1.8507-1"
       ],
       "opsManagerMapping": [
-        {
-          "ops_manager_version": "5.0",
-          "agent_version": "11.0.5.6963-1"
-        },
         {
           "ops_manager_version": "5.9",
           "agent_version": "11.12.0.7388-1"

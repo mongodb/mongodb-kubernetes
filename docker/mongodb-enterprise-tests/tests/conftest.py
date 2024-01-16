@@ -416,7 +416,7 @@ def custom_appdb_version(custom_mdb_version: str) -> str:
 def custom_version() -> str:
     """Returns a CUSTOM_OM_VERSION for OM.
     Defaults to 5.0+ (for development)"""
-    return os.getenv("CUSTOM_OM_VERSION", "5.0.2")
+    return os.getenv("CUSTOM_OM_VERSION", "6.0.22")
 
 
 @fixture(scope="module")

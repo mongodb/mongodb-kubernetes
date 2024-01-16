@@ -289,8 +289,6 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-init-ops-manager-ubi:1.24.0"
             - name: RELATED_IMAGE_INIT_APPDB_IMAGE_REPOSITORY_1_24_0
               value: "quay.io/mongodb/mongodb-enterprise-init-appdb-ubi:1.24.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_11_12_0_7388_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:11.12.0.7388-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_4_7554_1
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.4.7554-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_15_7646_1
