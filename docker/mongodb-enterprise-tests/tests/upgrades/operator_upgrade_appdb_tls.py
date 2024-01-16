@@ -29,11 +29,16 @@ def ops_manager(
     namespace,
     issuer_ca_configmap: str,
     appdb_certs_secret: str,
+    custom_version: str,
+    custom_appdb_version: str
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
     )
     resource["spec"]["applicationDatabase"]["security"]["certsSecretPrefix"] = CERT_PREFIX
+    # TODO: this test runs in the cloudqa variant but still creates OM. We might want to move that to OM variant instead
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
 
     return resource.create()
 
