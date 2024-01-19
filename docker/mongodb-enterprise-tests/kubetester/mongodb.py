@@ -14,6 +14,7 @@ from kubetester.kubetester import (
     ensure_nested_objects,
 )
 from kubetester.omtester import OMContext, OMTester
+from opentelemetry import trace
 
 from .mongotester import (
     MongoTester,
@@ -89,7 +90,10 @@ class MongoDB(CustomObject, MongoDBCommon):
             # Sometimes agents need longer to register with OM.
             "some agents failed to register or the Operator",
         )
-        return self.wait_for(
+
+        start_time = time.time()
+
+        self.wait_for(
             lambda s: in_desired_state(
                 current_state=self.get_status_phase(),
                 desired_state=phase,
@@ -103,6 +107,13 @@ class MongoDB(CustomObject, MongoDBCommon):
             timeout,
             should_raise=True,
         )
+
+        end_time = time.time()
+        span = trace.get_current_span()
+        span.set_attribute("meko_resource", self.__class__.__name__)
+        span.set_attribute("meko_action", "assert_phase")
+        span.set_attribute("meko_desired_phase", phase.name)
+        span.set_attribute("meko_time_needed", end_time - start_time)
 
     def assert_abandons_phase(self, phase: Phase, timeout=None):
         """This method can be racy by nature, it assumes that the operator is slow enough that its phase transition
