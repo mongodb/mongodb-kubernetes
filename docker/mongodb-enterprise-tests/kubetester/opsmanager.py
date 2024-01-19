@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from base64 import b64decode
 from typing import Callable, Dict, List, Optional, overload
 
@@ -26,6 +27,7 @@ from kubetester.kubetester import (
 from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, get_pods, in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
 from kubetester.omtester import OMContext, OMTester
+from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
 from tests.conftest import (
     get_central_cluster_client,
@@ -643,6 +645,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             timeout=None,
             ignore_errors=False,
         ):
+            start_time = time.time()
             self.ops_manager.wait_for(
                 lambda s: in_desired_state(
                     current_state=self.get_phase(),
@@ -656,6 +659,12 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 timeout,
                 should_raise=True,
             )
+            end_time = time.time()
+            span = trace.get_current_span()
+            span.set_attribute("meko_resource", self.__class__.__name__)
+            span.set_attribute("meko_action", "assert_phase")
+            span.set_attribute("meko_desired_phase", phase.name)
+            span.set_attribute("meko_time_needed", end_time - start_time)
 
         def assert_abandons_phase(self, phase: Phase, timeout=None):
             return self.ops_manager.wait_for(lambda s: self.get_phase() != phase, timeout, should_raise=True)
