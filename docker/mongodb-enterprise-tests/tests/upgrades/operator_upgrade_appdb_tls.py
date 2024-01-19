@@ -26,11 +26,7 @@ def appdb_certs_secret(namespace: str, issuer: str):
 
 @fixture(scope="module")
 def ops_manager(
-    namespace,
-    issuer_ca_configmap: str,
-    appdb_certs_secret: str,
-    custom_version: str,
-    custom_appdb_version: str
+    namespace, issuer_ca_configmap: str, appdb_certs_secret: str, custom_version: str, custom_appdb_version: str
 ) -> MongoDBOpsManager:
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_appdb_upgrade_tls.yaml"), namespace=namespace
