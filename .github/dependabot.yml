@@ -6,7 +6,8 @@ updates:
       interval: weekly
       day: monday
     reviewers:
-      - "irajdeep"
       - "mircea-cosbuc"
-      - "priyolahiri"
       - "lsierant"
+      - "slaskawi"
+      - "nammn"
+      - "Julien-Ben"

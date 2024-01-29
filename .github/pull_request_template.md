@@ -9,6 +9,6 @@
 
 ## Changes to CRDs
 
-* [ ] Add `@irajdeep` (Raj) , `slaskawi`(Sebastian) and `@giohan` (George) as reviewers.
+* [ ] Add `slaskawi`(Sebastian) and `@giohan` (George) as reviewers.
 * [ ] Make sure any changes are reflected on `/public/samples` directory.
 
