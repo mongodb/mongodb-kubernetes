@@ -64,6 +64,10 @@ if [[ "${OPERATOR_ENV:-""}" != "" ]]; then
   echo "OPERATOR_ENV=${OPERATOR_ENV}"
 fi
 
+if [[ "${OM_VERSION_MAPPING_PATH:-""}" != "" ]]; then
+  echo "OM_VERSION_MAPPING_PATH=${OM_VERSION_MAPPING_PATH}"
+fi
+
 }
 
 print_operator_env
