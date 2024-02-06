@@ -95,27 +95,27 @@ create_image_registries_secret() {
       exit 0
   fi
 
+  create_pull_secret() {
+    context=$1
+    namespace=$2
+    secret_name=$3
+    # shellcheck disable=SC2154
+    if kubectl --context "${context}" get namespace "${namespace}"; then
+      kubectl --context "${context}" -n "${namespace}" delete secret "${secret_name}" --ignore-not-found
+      kubectl --context "${context}" -n "${namespace}" create secret generic "${secret_name}" \
+        --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
+    else
+      echo "Skipping creating pull secret in ${context}/${namespace} as it doesn't exist yet."
+    fi
+  }
+
   echo "Creating/updating pull secret from docker configured file"
   if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
-      # shellcheck disable=SC2154
-      if kubectl --context "${CENTRAL_CLUSTER}" get namespace "${NAMESPACE}"; then
-        kubectl --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
-        kubectl --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
-          --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
-      else
-        echo "Skipping creating pull secret in ${CENTRAL_CLUSTER}/${NAMESPACE} as it doesn't exist yet."
-      fi
-
-      # shellcheck disable=SC2154
+      create_pull_secret "${CENTRAL_CLUSTER}" "${NAMESPACE}" "${secret_name}" &
       for member_cluster in ${MEMBER_CLUSTERS}; do
-        if kubectl --context "${member_cluster}" get namespace "${NAMESPACE}"; then
-          kubectl --context "${member_cluster}" -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
-          kubectl --context "${member_cluster}" -n "${NAMESPACE}" create secret generic "${secret_name}" \
-            --from-file=.dockerconfigjson="${HOME}/.docker/config.json" --type=kubernetes.io/dockerconfigjson
-        else
-          echo "Skipping creating pull secret in ${member_cluster}/${NAMESPACE} as it doesn't exist yet."
-        fi
+        create_pull_secret "${member_cluster}" "${NAMESPACE}" "${secret_name}" &
       done
+      wait
   else
     kubectl -n "${NAMESPACE}" delete secret "${secret_name}" --ignore-not-found
     kubectl -n "${NAMESPACE}" create secret generic "${secret_name}" \
