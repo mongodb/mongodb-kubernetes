@@ -13,6 +13,18 @@ if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.21
 fi
 
+on_exit() {
+  # shellcheck disable=SC2181
+  error_code=$?
+  if [[ ${error_code} -ne 0 ]]; then
+    echo
+    echo "An error occurred during execution. Execute the script again."
+    echo
+    exit ${error_code}
+  fi
+}
+
+trap on_exit EXIT
 if [[ "${RESET:-"true"}" == "true" ]]; then
   echo "Resetting"
   scripts/dev/reset.sh
@@ -24,7 +36,6 @@ ensure_namespace "${NAMESPACE}"
 echo "Deleting ~/.docker/.config.json and re-creating it"
 rm ~/.docker/config.json || true
 scripts/dev/configure_docker_auth.sh
-
 
 echo "Configuring operator"
 scripts/evergreen/e2e/configure_operator.sh 2>&1 | prepend "configure_operator: "
