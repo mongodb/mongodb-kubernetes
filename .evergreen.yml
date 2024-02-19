@@ -6,6 +6,55 @@ variables:
 
   - &ops_manager_70_latest 7.0.2 # The order/index is important, since these are anchors. Please do not change
 
+  - &base_om6_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+
+  - &base_no_om_image_dependency
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+
+  - &base_om7_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+
   - &e2e_include_expansions_in_env
     include_expansions_in_env:
       - ecr_registry
@@ -51,6 +100,7 @@ parameters:
   description: "Patch id to reuse images from other Evergreen build"
 
 functions:
+
   setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
     command: shell.exec
     type: setup
@@ -2132,19 +2182,7 @@ buildvariants:
   display_name: e2e_mdb_kind_ubi_cloudqa
   run_on:
     - ubuntu2204-large
-  depends_on:
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
+  <<: *base_no_om_image_dependency
   tasks:
     - name: e2e_mdb_kind_cloudqa_task_group
 
@@ -2171,21 +2209,7 @@ buildvariants:
   display_name: e2e_om60_kind_ubi
   run_on:
   - ubuntu2204-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om60_images
-  - name: build_operator_ubi
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  - name: build_init_database_image_ubi
-    variant: init_test_run
-  - name: build_database_image_ubi
-    variant: init_test_run
-  - name: build_init_appdb_images_ubi
-    variant: init_test_run
+  <<: *base_om6_dependency
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_5_0_only_task_group
@@ -2196,21 +2220,7 @@ buildvariants:
   display_name: e2e_om70_kind_ubi
   run_on:
   - ubuntu2204-large
-  depends_on:
-  - name: build_om_images
-    variant: build_om70_images
-  - name: build_operator_ubi
-    variant: init_test_run
-  - name: build_test_image
-    variant: init_test_run
-  - name: build_init_om_images_ubi
-    variant: init_test_run
-  - name: build_init_database_image_ubi
-    variant: init_test_run
-  - name: build_database_image_ubi
-    variant: init_test_run
-  - name: build_init_appdb_images_ubi
-    variant: init_test_run
+  <<: *base_om7_dependency
   tasks:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_5_0_only_task_group
@@ -2230,21 +2240,7 @@ buildvariants:
   display_name: e2e_multi_cluster_kind
   run_on:
     - ubuntu1804-xlarge
-  depends_on:
-    - name: build_om_images
-      variant: build_om60_images
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
+  <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_kind_task_group
 
@@ -2252,21 +2248,7 @@ buildvariants:
   display_name: e2e_multi_cluster_2_clusters
   run_on:
     - ubuntu1804-xlarge
-  depends_on:
-    - name: build_om_images
-      variant: build_om60_images
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
+  <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -2274,21 +2256,7 @@ buildvariants:
   display_name: e2e_multi_cluster_om_appdb
   run_on:
     - ubuntu1804-xlarge
-  depends_on:
-    - name: build_om_images
-      variant: build_om60_images
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
+  <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_om_appdb_task_group
 
@@ -2298,19 +2266,7 @@ buildvariants:
   display_name: e2e_operator_kind_ubi_cloudqa
   run_on:
     - ubuntu2204-large
-  depends_on:
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
+  <<: *base_no_om_image_dependency
   tasks:
     - name: e2e_operator_task_group
 
@@ -2406,21 +2362,7 @@ buildvariants:
 
 - name: init_tests_with_olm
   display_name: init_tests_with_olm
-  depends_on:
-    - name: build_om_images
-      variant: build_om60_images
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_init_database_image_ubi
-      variant: init_test_run
-    - name: build_database_image_ubi
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
+  <<: *base_om6_dependency
   run_on:
     - ubuntu2204-small
   tasks:
