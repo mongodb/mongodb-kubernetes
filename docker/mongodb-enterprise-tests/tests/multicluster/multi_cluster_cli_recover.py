@@ -130,5 +130,5 @@ def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, me
     mongodb_multi.assert_state_transition_happens(last_transition_time)
 
     mongodb_multi["spec"]["clusterSpecList"].pop(0)
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)

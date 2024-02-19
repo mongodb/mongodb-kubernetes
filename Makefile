@@ -56,6 +56,9 @@ usage:
 prerequisites:
 	@ scripts/dev/install.sh
 
+precommit:
+	@ EVERGREEN_MODE=true .githooks/pre-commit
+
 switch:
 	@ scripts/dev/switch_context.sh $(context)
 

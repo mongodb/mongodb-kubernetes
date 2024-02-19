@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import create_or_update
+from kubetester import create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -19,7 +19,8 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -31,17 +32,19 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     ).configure(ops_manager, "mdb")
     resource.set_version(custom_mdb_version)
 
-    create_or_update(resource)
+    try_load(resource)
     return resource
 
 
 @mark.e2e_om_feature_controls
 def test_create_om(ops_manager: MongoDBOpsManager):
+    create_or_update(ops_manager)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_om_feature_controls
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 

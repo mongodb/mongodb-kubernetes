@@ -10,9 +10,9 @@ from typing import Dict, Optional
 
 from kubernetes import client
 from kubetester import (
-    create_configmap,
-    create_secret,
-    create_service,
+    create_or_update_configmap,
+    create_or_update_secret,
+    create_or_update_service,
     create_statefulset,
     read_configmap,
     read_secret,
@@ -51,7 +51,7 @@ class KMIPDeployment(object):
             service_name,
         )
 
-        create_service(
+        create_or_update_service(
             self.namespace,
             service_name,
             cluster_ip=None,
@@ -138,7 +138,7 @@ class KMIPDeployment(object):
             additional_domains=[service_name],
         )
         secret = read_secret(namespace, cert_secret_name)
-        create_secret(
+        create_or_update_secret(
             namespace,
             bundle_secret_name,
             {
@@ -171,7 +171,7 @@ class KMIPDeployment(object):
         """
         equals_separated = [k + "=" + str(v) for (k, v) in config_dict.items()]
         config_file_contents = "[server]\n" + "\n".join(equals_separated)
-        create_configmap(
+        create_or_update_configmap(
             namespace,
             name,
             {

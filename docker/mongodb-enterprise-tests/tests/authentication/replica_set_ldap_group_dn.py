@@ -94,4 +94,4 @@ def test_deployment_is_reachable_with_ldap_agent(replica_set: MongoDB, ldap_user
     # the agents might report being in goal state, the MDB resource
     # would report no errors but the deployment would be unreachable
     # See the comment inside the function for further details
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()

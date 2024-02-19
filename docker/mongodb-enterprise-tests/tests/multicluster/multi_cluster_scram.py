@@ -2,16 +2,10 @@ from typing import List
 
 import kubernetes
 import pytest
-from kubetester import (
-    create_or_update,
-    create_or_update_secret,
-    read_secret,
-    update_secret,
-)
+from kubetester import create_or_update, create_or_update_secret, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.mongodb_user import MongoDBUser

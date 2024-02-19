@@ -27,10 +27,9 @@ def ops_manager(
     namespace,
     custom_version: str,
     custom_appdb_version: str,
-    custom_om_prev_version: str,
 ) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_scale.yaml"), namespace=namespace)
-    resource.set_version(custom_om_prev_version)
+    resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():

@@ -3,7 +3,7 @@ from typing import Dict
 
 import pytest
 from kubernetes import client
-from kubetester import create_secret, read_secret
+from kubetester import create_or_update, create_secret, read_secret, try_load
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
 from kubetester.kubetester import create_testing_namespace
@@ -45,27 +45,32 @@ def ops_manager(ops_manager_namespace: str, custom_version: str, custom_appdb_ve
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
 
-    return resource.create()
+    try_load(resource)
+
+    return resource
 
 
 @fixture(scope="module")
-def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str) -> MongoDB:
+def mdb(ops_manager: MongoDBOpsManager, mdb_namespace: str, namespace: str, custom_mdb_prev_version: str) -> MongoDB:
     # we need to copy credentials secret - as the global api key secret exists in Operator namespace only
     data = read_secret(namespace, ops_manager.api_key_secret(namespace))
     # we are now copying the secret from operator to mdb_namespace and the api_key_secret should therefore check for mdb_namespace, later
     # mongodb.configure will reference this new secret
     create_secret(mdb_namespace, ops_manager.api_key_secret(mdb_namespace), data)
 
-    return (
+    resource = (
         MongoDB.from_yaml(
             yaml_fixture("replica-set-for-om.yaml"),
             namespace=mdb_namespace,
             name="my-replica-set",
         )
         .configure(ops_manager, "development")
-        .set_version("4.2.8")
-        .create()
+        .set_version(custom_mdb_prev_version)
     )
+
+    try_load(resource)
+
+    return resource
 
 
 @fixture(scope="module")
@@ -151,6 +156,7 @@ def test_create_image_pull_secret_mdb_namespace(
 @pytest.mark.e2e_operator_clusterwide
 @pytest.mark.e2e_operator_multi_namespaces
 def test_create_om_in_separate_namespace(ops_manager: MongoDBOpsManager):
+    create_or_update(ops_manager)
     ops_manager.create_admin_secret()
     ops_manager.backup_status().assert_reaches_phase(
         Phase.Pending, msg_regexp=".*configuration is required for backup", timeout=900
@@ -173,20 +179,21 @@ def test_check_k8s_resources(ops_manager: MongoDBOpsManager, ops_manager_namespa
 @pytest.mark.e2e_operator_clusterwide
 @pytest.mark.e2e_operator_multi_namespaces
 def test_create_mdb_in_separate_namespace(mdb: MongoDB, mdb_namespace: str):
-    mdb.assert_reaches_phase(Phase.Running, timeout=350)
+    create_or_update(mdb)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
     mdb.assert_connectivity()
     assert mdb.read_statefulset().metadata.namespace == mdb_namespace
 
 
 @pytest.mark.e2e_operator_clusterwide
 @pytest.mark.e2e_operator_multi_namespaces
-def test_upgrade_mdb(mdb: MongoDB):
-    mdb["spec"]["version"] = "4.2.2"
+def test_upgrade_mdb(mdb: MongoDB, custom_mdb_version):
+    mdb.set_version(custom_mdb_version)
 
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running)
+    mdb.assert_reaches_phase(Phase.Running, timeout=1000)
     mdb.assert_connectivity()
-    mdb.tester().assert_version("4.2.2")
+    mdb.tester().assert_version(custom_mdb_version)
 
 
 @pytest.mark.e2e_operator_clusterwide

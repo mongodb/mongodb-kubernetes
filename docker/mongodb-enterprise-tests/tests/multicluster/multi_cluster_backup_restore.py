@@ -92,6 +92,7 @@ def new_om_data_store(
 def ops_manager(
     namespace: str,
     multi_cluster_issuer_ca_configmap: str,
+    custom_version: Optional[str],
     custom_appdb_version: str,
     ops_manager_certs: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -108,6 +109,8 @@ def ops_manager(
     # remove s3 config
     del resource["spec"]["backup"]["s3Stores"]
 
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
     resource.allow_mdb_rc_versions()
     resource.create_admin_secret(api_client=central_cluster_client)
 

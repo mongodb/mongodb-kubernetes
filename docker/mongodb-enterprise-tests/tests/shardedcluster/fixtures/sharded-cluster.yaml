@@ -9,7 +9,7 @@ spec:
   mongodsPerShardCount: 3
   mongosCount: 2
   configServerCount: 3
-  version: 4.0.15
+  version: 5.0.15
   cloudManager:
     configMapRef:
       name: my-project

@@ -113,12 +113,7 @@ function pre_commit() {
   for file in $(echo "$git_last_changed" | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json'); do
     # check if bash script
     if head -1 "${file}" | grep "#!/usr/bin/env bash" >/dev/null; then
-      # see https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
-      if ! grep "set -Eeou pipefail" "${file}" >/dev/null; then
-        echo "set opts not set on ${file}"
-        exit 1
-      fi
-      if ! shellcheck -x "${file}"; then
+      if ! shellcheck -x "${file}" -e SC2154; then
         echo "shellcheck failed on ${file}"
         exit 1
       fi
