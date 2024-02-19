@@ -5,7 +5,7 @@ metadata:
   name: my-replica-set
 spec:
   members: 3
-  version: 4.0.15
+  version: 4.4.15
   type: ReplicaSet
 
   opsManager:

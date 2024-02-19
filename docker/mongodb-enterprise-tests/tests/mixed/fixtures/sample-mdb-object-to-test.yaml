@@ -3,7 +3,7 @@ kind: MongoDB
 metadata:
   name: my-mdb-object-to-test
 spec:
-  version: 4.0.15
+  version: 5.0.15
   type: Standalone
   opsManager:
     configMapRef:

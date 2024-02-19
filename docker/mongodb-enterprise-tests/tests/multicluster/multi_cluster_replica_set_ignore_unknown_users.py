@@ -1,13 +1,10 @@
-from typing import Dict, List
-
 import kubernetes
-from kubernetes import client
 from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
@@ -52,7 +49,7 @@ def test_authoritative_set_false(mongodb_multi: MongoDBMulti):
 def test_set_ignore_unknown_users_false(mongodb_multi: MongoDBMulti):
     mongodb_multi.load()
     mongodb_multi["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = False
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 

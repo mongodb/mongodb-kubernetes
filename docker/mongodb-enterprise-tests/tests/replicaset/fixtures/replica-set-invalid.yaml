@@ -5,11 +5,11 @@ metadata:
   name: my-invalid-replica-set
 spec:
   members: 3
-  version: 10.0.0
+  version: 6.0.5-ent
   type: ReplicaSet
   opsManager:
     configMapRef:
       name: my-project
-  credentials: my-credentials
+  credentials: my-credentialsd
   logLevel: DEBUG
   persistent: false

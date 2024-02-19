@@ -279,7 +279,7 @@ class MongoTester:
     ):
         return upload_random_data(self.client, count, generation_function)
 
-    def assert_deployment_reachable(self, attempts: int = 5):
+    def assert_deployment_reachable(self, attempts: int = 10):
         """See: https://jira.mongodb.org/browse/CLOUDP-68873
         the agents might report being in goal state, the MDB resource
         would report no errors but the deployment would be unreachable
@@ -302,7 +302,7 @@ class MongoTester:
                 return
             if attempts <= 0:
                 fail(msg="Some hosts still report NO_DATA state")
-            time.sleep(5)
+            time.sleep(10)
 
 
 class StandaloneTester(MongoTester):

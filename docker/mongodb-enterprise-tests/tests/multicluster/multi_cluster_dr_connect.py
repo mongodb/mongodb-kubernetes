@@ -1,13 +1,12 @@
 import subprocess
 import time
-from typing import Dict, List
+from typing import Dict
 
 import kubernetes
 import pytest
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}

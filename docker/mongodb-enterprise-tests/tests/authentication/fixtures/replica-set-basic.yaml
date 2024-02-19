@@ -5,7 +5,7 @@ metadata:
   name: replica-set
 spec:
   members: 3
-  version: 4.2.2
+  version: 4.4.22
   type: ReplicaSet
   credentials: my-credentials
   opsManager:

@@ -2,6 +2,7 @@ from typing import List
 
 import kubernetes
 import pytest
+from kubetester import create_or_update
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -98,7 +99,7 @@ def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_clients
     mongodb_multi["spec"]["clusterSpecList"].append(
         {"members": 2, "clusterName": member_cluster_clients[2].cluster_name}
     )
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
 
 

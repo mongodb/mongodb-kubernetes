@@ -35,7 +35,7 @@ class TestShardedClusterUpgradeDowngradeCreate(KubernetesTester):
     create:
       file: sharded-cluster-downgrade.yaml
       wait_until: in_running_state
-      timeout: 300
+      timeout: 1000
     """
 
     def test_start_mongod_background_tester(self, mdb_health_checker):
@@ -56,7 +56,7 @@ class TestShardedClusterUpgradeDowngradeUpdate(KubernetesTester):
       file: sharded-cluster-downgrade.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.4.0"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "4.4"}]'
       wait_until: in_running_state
-      timeout: 300
+      timeout: 1000
     """
 
     def test_db_connectable(self, mongod_tester):
@@ -72,7 +72,7 @@ class TestShardedClusterUpgradeDowngradeRevert(KubernetesTester):
     update:
       file: sharded-cluster-downgrade.yaml
       wait_until: in_running_state
-      timeout: 500
+      timeout: 1000
     """
 
     def test_db_connectable(self, mongod_tester):

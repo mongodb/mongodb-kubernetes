@@ -10,7 +10,7 @@ script_dir=$(dirname "${script_name}")
 context_file="$script_dir/../../.generated/context.export.env"
 
 if [[ ! -f ${context_file} ]]; then
-    fatal "File ${context_file} not found! You must init development environment using 'make init' first."
+    fatal "File ${context_file} not found! Make sure to follow this guide to get started: https://wiki.corp.mongodb.com/display/MMS/Setting+up+local+development+and+E2E+testing#SettinguplocaldevelopmentandE2Etesting-GettingStartedGuide(VariantSwitching)"
 fi
 
 # shellcheck disable=SC1090

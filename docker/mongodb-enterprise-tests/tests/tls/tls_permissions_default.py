@@ -1,4 +1,4 @@
-from kubetester import find_fixture
+from kubetester import create_or_update, find_fixture, try_load
 from kubetester.certs import create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB, Phase
@@ -12,15 +12,24 @@ def certs_secret_prefix(namespace: str, issuer: str):
 
 
 @fixture(scope="module")
-def replica_set(issuer_ca_configmap: str, namespace: str, certs_secret_prefix) -> MongoDB:
+def replica_set(
+    issuer_ca_configmap: str,
+    namespace: str,
+    certs_secret_prefix,
+    custom_mdb_version: str,
+) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("test-tls-base-rs.yaml"), namespace=namespace)
     resource.configure_custom_tls(issuer_ca_configmap, certs_secret_prefix)
-    return resource.create()
+    resource.set_version(custom_mdb_version)
+
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replica_set_tls_default
 def test_replica_set(replica_set: MongoDB):
 
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
