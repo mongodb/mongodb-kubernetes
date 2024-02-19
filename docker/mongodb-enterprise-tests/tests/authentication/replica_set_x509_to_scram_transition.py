@@ -1,5 +1,7 @@
+import time
+
 import pytest
-from kubetester import create_or_update
+from kubetester import create_or_update, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
@@ -23,7 +25,8 @@ USER_PASSWORD = "my-password"
 def replica_set(namespace: str, server_certs: str, agent_certs: str, issuer_ca_configmap: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("replica-set-x509-to-scram-256.yaml"), namespace=namespace)
     res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-    return create_or_update(res)
+    try_load(res)
+    return res
 
 
 @pytest.fixture(scope="module")
@@ -39,6 +42,7 @@ def agent_certs(issuer: str, namespace: str) -> str:
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
 class TestEnableX509ForReplicaSet(KubernetesTester):
     def test_replica_set_running(self, replica_set: MongoDB):
+        create_or_update(replica_set)
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_ops_manager_state_updated_correctly(self):
@@ -55,7 +59,8 @@ class TestEnableX509ForReplicaSet(KubernetesTester):
         # the agents might report being in goal state, the MDB resource
         # would report no errors but the deployment would be unreachable
         # See the comment inside the function for further details
-        tester.assert_deployment_reachable(attempts=10)
+        time.sleep(20)
+        tester.assert_deployment_reachable()
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition

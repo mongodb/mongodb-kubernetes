@@ -73,23 +73,6 @@ def create_service_account(namespace: str, name: str) -> str:
     return name
 
 
-def create_or_update_service(
-    namespace: str,
-    name: str,
-    spec: client.V1ServiceSpec,
-    api_client: Optional[kubernetes.client.ApiClient] = None,
-):
-    """Creates a service with `name` in `namespace`"""
-    service = client.V1Service(metadata=client.V1ObjectMeta(name=name, namespace=namespace), spec=spec)
-    try:
-        client.CoreV1Api(api_client=api_client).create_namespaced_service(namespace=namespace, body=service)
-    except kubernetes.client.ApiException as e:
-        if e.status == 409:
-            client.CoreV1Api(api_client=api_client).patch_namespaced_service(name, namespace, body=service)
-        else:
-            raise e
-
-
 def delete_service_account(namespace: str, name: str) -> str:
     """Deletes a service account with `name` in `namespace`"""
     client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
@@ -161,6 +144,34 @@ def create_or_update_configmap(
     return name
 
 
+def create_or_update_service(
+    namespace: str,
+    service_name: str,
+    cluster_ip: Optional[str] = None,
+    ports: Optional[List[client.V1ServicePort]] = None,
+    selector=None,
+) -> str:
+    print("Logging inside create_or_update configmap")
+    try:
+        create_service(
+            namespace,
+            service_name,
+            cluster_ip=cluster_ip,
+            ports=ports,
+            selector=selector,
+        )
+    except kubernetes.client.ApiException as e:
+        if e.status == 409:
+            update_service(
+                namespace,
+                service_name,
+                cluster_ip=cluster_ip,
+                ports=ports,
+                selector=selector,
+            )
+    return service_name
+
+
 def create_service(
     namespace: str,
     name: str,
@@ -176,6 +187,23 @@ def create_service(
         spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip, selector=selector),
     )
     client.CoreV1Api().create_namespaced_service(namespace, service)
+
+
+def update_service(
+    namespace: str,
+    name: str,
+    cluster_ip: Optional[str] = None,
+    ports: Optional[List[client.V1ServicePort]] = None,
+    selector=None,
+):
+    if ports is None:
+        ports = []
+
+    service = client.V1Service(
+        metadata=client.V1ObjectMeta(name=name, namespace=namespace),
+        spec=client.V1ServiceSpec(ports=ports, cluster_ip=cluster_ip, selector=selector),
+    )
+    client.CoreV1Api().patch_namespaced_service(name, namespace, service)
 
 
 def create_statefulset(

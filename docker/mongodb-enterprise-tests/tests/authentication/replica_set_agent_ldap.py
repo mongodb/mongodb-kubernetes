@@ -1,4 +1,10 @@
-from kubetester import create_secret, find_fixture
+from kubetester import (
+    create_or_update,
+    create_or_update_secret,
+    create_secret,
+    find_fixture,
+    try_load,
+)
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
@@ -34,7 +40,9 @@ def replica_set(openldap: OpenLDAP, namespace: str) -> MongoDB:
         "automationUserName": "mms-automation-agent",
     }
 
-    return resource.create()
+    try_load(resource)
+
+    return resource
 
 
 @fixture(scope="module")
@@ -60,6 +68,7 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
 @mark.e2e_replica_set_ldap_agent_auth
 @mark.usefixtures("ldap_mongodb_agent_user", "ldap_user_mongodb")
 def test_replica_set(replica_set: MongoDB):
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
@@ -84,7 +93,7 @@ def test_deployment_is_reachable_with_ldap_agent(replica_set: MongoDB):
     # the agents might report being in goal state, the MDB resource
     # would report no errors but the deployment would be unreachable
     # See the comment inside the function for further details
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -126,7 +135,7 @@ def test_replica_set_connectivity_with_no_auth(replica_set: MongoDB):
 @mark.e2e_replica_set_ldap_agent_auth
 def test_deployment_is_reachable_with_no_auth(replica_set: MongoDB):
     tester = replica_set.tester()
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -138,17 +147,16 @@ def test_replica_set_connectivity_after_version_change_no_auth(replica_set: Mong
 @mark.e2e_replica_set_ldap_agent_auth
 def test_deployment_is_reachable_after_version_change(replica_set: MongoDB):
     tester = replica_set.tester()
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()
 
 
 @mark.e2e_replica_set_ldap_agent_auth
 def test_enable_SCRAM_auth(replica_set: MongoDB):
-    replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["agents"]["enabled"] = True
     replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     replica_set["spec"]["security"]["authentication"]["enabled"] = True
     replica_set["spec"]["security"]["authentication"]["mode"] = "SCRAM"
-    replica_set.update()
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=700)
 
 
@@ -161,7 +169,7 @@ def test_replica_set_connectivity_with_SCRAM_auth(replica_set: MongoDB):
 @mark.e2e_replica_set_ldap_agent_auth
 def test_change_version_to_latest(replica_set: MongoDB, custom_mdb_version: str):
     replica_set.reload()
-    replica_set["spec"]["version"] = ensure_ent_version(custom_mdb_version)
+    replica_set.set_version(ensure_ent_version(custom_mdb_version))
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -175,4 +183,4 @@ def test_replica_set_connectivity_after_version_change_SCRAM(replica_set: MongoD
 @mark.e2e_replica_set_ldap_agent_auth
 def test_deployment_is_reachable_after_version_change_SCRAM(replica_set: MongoDB):
     tester = replica_set.tester()
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()

@@ -1,15 +1,11 @@
-from typing import Dict, List
+from typing import Dict
 
 import kubernetes
 import pytest
-from kubernetes import client
-from kubernetes.client.rest import ApiException
 from kubetester import create_or_update
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -147,7 +143,7 @@ def test_mongodb_multi_update_member_options(mongodb_multi: MongoDBMulti):
             "app": "backend",
         },
     }
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
     config = mongodb_multi.get_automation_config_tester().automation_config
@@ -169,7 +165,7 @@ def test_mongodb_multi_set_member_votes_to_0(mongodb_multi: MongoDBMulti):
 
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 0
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.0"
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
     config = mongodb_multi.get_automation_config_tester().automation_config
@@ -186,7 +182,7 @@ def test_mongodb_multi_set_invalid_votes_and_priority(mongodb_multi: MongoDBMult
 
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 0
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.7"
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(
         Phase.Failed,
         msg_regexp=".*cannot have 0 votes when priority is greater than 0",
@@ -200,7 +196,7 @@ def test_mongodb_multi_set_recover_valid_member_options(mongodb_multi: MongoDBMu
     # https://www.mongodb.com/docs/v5.0/core/replica-set-priority-0-member/#priority-0-replica-set-members
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["votes"] = 1
     mongodb_multi["spec"]["clusterSpecList"][1]["memberConfig"][0]["priority"] = "0.0"
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
@@ -210,7 +206,7 @@ def test_mongodb_multi_set_only_one_vote_per_member(mongodb_multi: MongoDBMulti)
 
     mongodb_multi["spec"]["clusterSpecList"][2]["memberConfig"][1]["votes"] = 3
     mongodb_multi["spec"]["clusterSpecList"][2]["memberConfig"][1]["priority"] = "0.1"
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(
         Phase.Failed,
         msg_regexp=".*cannot have greater than 1 vote",

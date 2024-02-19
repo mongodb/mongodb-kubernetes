@@ -8,12 +8,10 @@ from kubetester import (
     create_or_update,
     create_or_update_configmap,
     create_or_update_secret,
-    create_secret,
     read_secret,
 )
 from kubetester.kubetester import KubernetesTester, create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator

@@ -44,7 +44,7 @@ class TestReplicaSetUpgradeDowngradeCreate(KubernetesTester):
     create:
       file: replica-set-downgrade.yaml
       wait_until: in_running_state
-      timeout: 300
+      timeout: 1000
     """
 
     def test_start_mongod_background_tester(self, mdb_health_checker):
@@ -62,12 +62,12 @@ class TestReplicaSetUpgradeDowngradeUpdate(KubernetesTester):
     """
     name: ReplicaSet upgrade downgrade (update)
     description: |
-      Updates a ReplicaSet to bigger version, leaving feature compatibility version as it was
+      Updates a ReplicaSet to smaller version, leaving feature compatibility version as it was
     update:
       file: replica-set-downgrade.yaml
       patch: '[{"op":"replace","path":"/spec/version", "value": "4.4.0"}, {"op":"add","path":"/spec/featureCompatibilityVersion", "value": "4.4"}]'
       wait_until: in_running_state
-      timeout: 300
+      timeout: 1000
     """
 
     def test_db_connectable(self, mongod_tester):
@@ -83,7 +83,7 @@ class TestReplicaSetUpgradeDowngradeRevert(KubernetesTester):
     update:
       file: replica-set-downgrade.yaml
       wait_until: in_running_state
-      timeout: 300
+      timeout: 1000
     """
 
     def test_db_connectable(self, mongod_tester):

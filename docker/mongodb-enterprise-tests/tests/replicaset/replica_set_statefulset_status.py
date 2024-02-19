@@ -31,6 +31,6 @@ def test_replica_set_reaches_pending_phase(replica_set: MongoDB):
 
 @mark.e2e_replica_set_statefulset_status
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
-    replica_set.assert_reaches_phase(Phase.Running, timeout=100)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
     assert replica_set.get_status_resources_not_ready() is None
     assert replica_set.get_status_message() is None

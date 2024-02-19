@@ -404,6 +404,13 @@ def custom_mdb_version() -> str:
 
 
 @fixture(scope="module")
+def custom_mdb_prev_version() -> str:
+    """Returns a CUSTOM_MDB_PREV_VERSION for Mongodb to be created/upgraded to for testing.
+    Defaults to 5.0.1 (simplifies testing locally)"""
+    return os.getenv("CUSTOM_MDB_PREV_VERSION", "5.0.1")
+
+
+@fixture(scope="module")
 def custom_appdb_version(custom_mdb_version: str) -> str:
     """Returns a CUSTOM_APPDB_VERSION for AppDB to be created/upgraded to for testing,
     defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)
