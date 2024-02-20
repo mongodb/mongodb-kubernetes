@@ -1,14 +1,11 @@
 from typing import List
 
 import kubernetes
-from kubetester import create_secret, read_secret
+from kubetester import create_or_update, read_secret
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.mongodb_user import MongoDBUser
-from kubetester.mongotester import with_tls
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
@@ -83,7 +80,7 @@ def test_enabled_tls_mongodb_multi(
             "ca": multi_cluster_issuer_ca_configmap,
         },
     }
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1300)
 
     # assert the presence of the generated pem certificates in each member cluster

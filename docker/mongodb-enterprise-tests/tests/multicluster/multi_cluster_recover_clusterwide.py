@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import kubernetes
 from kubeobject import CustomObject
@@ -11,7 +11,6 @@ from kubetester import (
     delete_cluster_role,
     delete_cluster_role_binding,
     delete_statefulset,
-    get_statefulset,
     read_secret,
     statefulset_is_deleted,
 )
@@ -25,7 +24,6 @@ from pytest import fixture, mark
 from tests.conftest import (
     MULTI_CLUSTER_OPERATOR_NAME,
     _install_multi_cluster_operator,
-    get_member_cluster_api_client,
     run_kube_config_creation_tool,
     run_multi_cluster_recovery_tool,
 )

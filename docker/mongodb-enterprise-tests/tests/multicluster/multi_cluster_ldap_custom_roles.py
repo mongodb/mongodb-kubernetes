@@ -1,17 +1,15 @@
-import os
 from typing import List
 
 import kubernetes
-from kubetester import create_or_update, create_secret, get_pod_when_ready
+from kubetester import create_or_update, create_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.helm import helm_install
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
-from kubetester.mongodb_user import MongoDBUser, Role, generic_user
+from kubetester.mongodb_user import MongoDBUser, generic_user
 from kubetester.operator import Operator
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list

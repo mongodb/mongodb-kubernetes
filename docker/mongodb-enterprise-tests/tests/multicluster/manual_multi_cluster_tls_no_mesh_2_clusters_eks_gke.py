@@ -20,7 +20,7 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from pytest import fixture, mark
+from pytest import fixture
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"

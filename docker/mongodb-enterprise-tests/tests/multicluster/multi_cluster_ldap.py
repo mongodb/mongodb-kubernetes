@@ -1,11 +1,9 @@
-import os
 from typing import List
 
 import kubernetes
-from kubetester import create_or_update, create_secret, get_pod_when_ready
+from kubetester import create_or_update, create_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.helm import helm_install
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
@@ -32,7 +30,12 @@ def mongodb_multi_unmarshalled(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
-    resource.set_version(ensure_ent_version(custom_mdb_version))
+    # This test has always been tested with 5.0.5-ent. After trying to unify its variant and upgrading it
+    # to MDB 6 we realized that our EVG hosts contain outdated docker and seccomp libraries in the host which
+    # cause MDB process to exit. It might be a good idea to try uncommenting it after migrating to newer EVG hosts.
+    # resource.set_version(ensure_ent_version(custom_mdb_version))
+    # See https://github.com/docker-library/mongo/issues/606 for more information
+    resource.set_version(ensure_ent_version("5.0.5"))
 
     # Setting the initial clusterSpecList to more members than we need to generate
     # the certificates for all the members once the RS is scaled up.
@@ -205,14 +208,14 @@ def test_ops_manager_state_correctly_updated(mongodb_multi: MongoDBMulti, user_l
 @mark.e2e_multi_cluster_with_ldap
 def test_deployment_is_reachable_with_ldap_agent(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()
 
 
 @mark.e2e_multi_cluster_with_ldap
 def test_scale_mongodb_multi(mongodb_multi: MongoDBMulti, member_cluster_names):
     mongodb_multi.reload()
     mongodb_multi["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -234,7 +237,7 @@ def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
     mongodb_multi.reload()
     mongodb_multi["spec"]["security"]["authentication"]["enabled"] = False
     mongodb_multi["spec"]["security"]["authentication"]["agents"]["enabled"] = False
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -247,4 +250,4 @@ def test_mongodb_multi_connectivity_with_no_auth(mongodb_multi: MongoDBMulti):
 @mark.e2e_multi_cluster_with_ldap
 def test_deployment_is_reachable_with_no_auth(mongodb_multi: MongoDBMulti):
     tester = mongodb_multi.tester()
-    tester.assert_deployment_reachable(attempts=10)
+    tester.assert_deployment_reachable()

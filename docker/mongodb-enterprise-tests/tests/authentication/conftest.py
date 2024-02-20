@@ -62,7 +62,6 @@ def openldap_install(
             helm_override_path=True,
         )
         get_pod_when_ready(namespace, f"app={name}", api_client=cluster_client)
-
     if tls:
         return OpenLDAP(
             ldap_url(namespace, name, LDAP_PROTO_TLS, LDAP_PORT_TLS),
@@ -80,7 +79,7 @@ def openldap_tls(
     namespace: str,
     openldap_cert: str,
     ca_path: str,
-) -> Generator[OpenLDAP, None, None]:
+) -> OpenLDAP:
     """Installs an OpenLDAP server with TLS configured and returns a reference to it.
 
     In order to do it, this fixture will install the vendored openldap Helm chart
@@ -103,22 +102,20 @@ def openldap_tls(
 
 
 @fixture(scope="module")
-def openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
+def openldap(namespace: str) -> OpenLDAP:
     """Installs a OpenLDAP server and returns a reference to it.
 
     In order to do it, this fixture will install the vendored openldap Helm chart
     located in `vendor/openldap` directory inside the `tests` container image.
     """
-    yield openldap_install(namespace, LDAP_NAME)
-
-    helm_uninstall(LDAP_NAME)
+    ref = openldap_install(namespace, LDAP_NAME)
+    print(f"Returning OpenLDAP=: {ref}")
+    return ref
 
 
 @fixture(scope="module")
-def secondary_openldap(namespace: str) -> Generator[OpenLDAP, None, None]:
-    yield openldap_install(namespace, f"{LDAP_NAME}secondary")
-
-    helm_uninstall(f"{LDAP_NAME}secondary")
+def secondary_openldap(namespace: str) -> OpenLDAP:
+    return openldap_install(namespace, f"{LDAP_NAME}secondary")
 
 
 @fixture(scope="module")
@@ -132,7 +129,6 @@ def openldap_cert(namespace: str, issuer: str) -> str:
 def ldap_mongodb_user_tls(openldap_tls: OpenLDAP, ca_path: str) -> LDAPUser:
     user = LDAPUser("mdb0", LDAP_PASSWORD)
     create_user(openldap_tls, user, ca_path=ca_path)
-
     return user
 
 
@@ -195,6 +191,7 @@ def secondary_ldap_mongodb_agent_user(secondary_openldap: OpenLDAP) -> LDAPUser:
 
 @fixture(scope="module")
 def ldap_mongodb_user(openldap: OpenLDAP) -> LDAPUser:
+    print(f"Creating LDAP user {openldap}")
     user = LDAPUser("mdb0", LDAP_PASSWORD)
 
     ensure_organizational_unit(openldap, "groups")
