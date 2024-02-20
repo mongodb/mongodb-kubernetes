@@ -16,6 +16,17 @@ spec:
       - name: blockStore1
         mongodbResourceRef:
           name: my-mongodb-blockstore
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-backup-daemon
+                resources:
+                  requests:
+                    memory: 10G
+                  limits:
+                    memory: 10G
   security:
     tls:
       ca: issuer-ca
@@ -27,6 +38,17 @@ spec:
         ca: issuer-ca
         secretRef:
           prefix: appdb
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: 15G
+                limits:
+                  memory: 15G
 
   # adding this just to avoid wizard when opening OM UI
   configuration:
