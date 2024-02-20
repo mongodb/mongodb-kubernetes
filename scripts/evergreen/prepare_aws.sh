@@ -26,10 +26,10 @@ prepare_aws() {
     # note, to run this on mac you need to install coreutils ('brew install coreutils') and use 'gdate' instead
     if [[ $(uname) == "Darwin" ]]; then
         # Use gdate on macOS
-        yesterday=$(gdate +%Y-%m-%dT:%H -d "3 hour ago") # "2021-04-09T04:23:33+00:00"
+        yesterday=$(gdate +%Y-%m-%dT:%H -d "4 hour ago") # "2021-04-09T04:23:33+00:00"
     else
         # Use date on Linux
-        yesterday=$(date +%Y-%m-%dT:%H -d "3 hour ago")
+        yesterday=$(date +%Y-%m-%dT:%H -d "4 hour ago")
     fi
     for bucket in $(aws s3api list-buckets --query "Buckets[?CreationDate<='${yesterday}'&&starts_with(Name,'test-')]" | jq --raw-output '.[].Name'); do
         # Get the tags for the bucket and check whether the operator generated tags are present.
