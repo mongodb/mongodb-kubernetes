@@ -2,8 +2,6 @@ from typing import List
 
 import kubernetes
 import yaml
-from kubernetes import client
-from kubetester import create_service, read_secret
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture

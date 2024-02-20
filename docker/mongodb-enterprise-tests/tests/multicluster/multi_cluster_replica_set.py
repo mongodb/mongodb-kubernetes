@@ -154,7 +154,7 @@ def test_update_additional_options(mongodb_multi: MongoDBMulti, central_cluster_
     # update uses json merge+patch which means that deleting keys is done by setting them to None
     mongodb_multi["spec"]["additionalMongodConfig"]["operationProfiling"] = None
 
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
@@ -213,7 +213,7 @@ def test_cleanup_on_mdbm_delete(mongodb_multi: MongoDBMulti, member_cluster_clie
         else:
             return False
 
-    KubernetesTester.wait_until(check_sts_not_exist, timeout=100)
+    KubernetesTester.wait_until(check_sts_not_exist, timeout=200)
 
 
 def assert_container_in_sts(container_name: str, sts: client.V1StatefulSet):

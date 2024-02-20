@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 import ipaddress
-import re
 import urllib
 from typing import Dict, Generator, List
 from urllib import parse
 
 import kubernetes
 from kubeobject import CustomObject
-from kubernetes import client
-from kubernetes.client import V1ObjectMeta
 from kubetester import create_or_update_namespace
 from kubetester.certs import generate_cert
 from kubetester.ldap import (
@@ -29,11 +26,7 @@ from tests.authentication.conftest import (
     ldap_host,
     openldap_install,
 )
-from tests.conftest import (
-    create_issuer,
-    get_api_servers_from_test_pod_kubeconfig,
-    get_clients_for_clusters,
-)
+from tests.conftest import create_issuer, get_api_servers_from_test_pod_kubeconfig
 
 
 @fixture(scope="module")

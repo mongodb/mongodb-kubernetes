@@ -15,11 +15,6 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
-from tests.conftest import (
-    MULTI_CLUSTER_OPERATOR_NAME,
-    _install_multi_cluster_operator,
-    run_kube_config_creation_tool,
-)
 
 from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list
@@ -78,7 +73,6 @@ def mongodb_multi_a_unmarshalled(
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", mdba_ns)
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1])
-    return resource
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     create_or_update(resource)

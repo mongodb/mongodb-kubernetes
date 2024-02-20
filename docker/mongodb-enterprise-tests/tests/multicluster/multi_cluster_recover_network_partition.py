@@ -1,17 +1,9 @@
-import time
-from typing import List, Optional
+from typing import List
 
 import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
-from kubetester import (
-    create_or_update,
-    delete_statefulset,
-    get_statefulset,
-    read_configmap,
-    statefulset_is_deleted,
-    update_configmap,
-)
+from kubetester import create_or_update, delete_statefulset, statefulset_is_deleted
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import Phase
@@ -153,6 +145,6 @@ def test_mongodb_multi_recovers_removing_cluster(mongodb_multi: MongoDBMulti, me
 
     mongodb_multi["metadata"]["annotations"]["failedClusters"] = None
     mongodb_multi["spec"]["clusterSpecList"].pop()
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
 
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1500)
