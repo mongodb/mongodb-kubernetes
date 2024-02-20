@@ -1,12 +1,8 @@
-from typing import Dict, List
-
 import kubernetes
 import pytest
 import yaml
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.mongodb import Phase
-from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
 
 

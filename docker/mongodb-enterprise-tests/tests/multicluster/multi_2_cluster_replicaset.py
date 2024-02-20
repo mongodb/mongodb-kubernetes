@@ -2,7 +2,7 @@ from typing import Dict, List
 
 import kubernetes
 import pytest
-from kubetester.certs import Certificate, create_multi_cluster_mongodb_tls_certs
+from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase

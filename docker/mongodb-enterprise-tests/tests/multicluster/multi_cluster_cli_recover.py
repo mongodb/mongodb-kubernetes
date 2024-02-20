@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List
+from typing import Callable, List
 
 import kubernetes
 import pytest
@@ -101,7 +101,7 @@ def test_mongodb_multi_recovers_adding_cluster(mongodb_multi: MongoDBMulti, memb
     mongodb_multi.load()
 
     mongodb_multi["spec"]["clusterSpecList"].append({"clusterName": member_cluster_names[-1], "members": 2})
-    mongodb_multi.update()
+    create_or_update(mongodb_multi)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
 
