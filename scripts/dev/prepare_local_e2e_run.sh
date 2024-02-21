@@ -78,4 +78,4 @@ if [[ "$KUBE_ENVIRONMENT_NAME" == "kind" ]]; then
 fi
 
 # Generating om version mapping from release.json
-cat release.json | jq -r '.supportedImages."mongodb-agent".opsManagerMapping' > .generated/om_version_mapping.json
+cat release.json | jq -r '.supportedImages."mongodb-agent".opsManagerMapping.ops_manager' > .generated/om_version_mapping.json

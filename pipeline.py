@@ -13,9 +13,11 @@ import shutil
 import subprocess
 import sys
 import tarfile
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
+from queue import Queue
 from typing import Dict, List, Optional, Tuple, Union
 
 import requests
@@ -470,6 +472,7 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
         image_config("appdb"),
         image_config("database"),
         image_config("init-appdb"),
+        image_config("agent"),
         image_config("init-database"),
         image_config("init-ops-manager"),
         image_config("operator"),
@@ -703,6 +706,84 @@ def build_init_appdb(build_configuration: BuildConfiguration):
     )
 
 
+def build_agent_in_sonar(
+    build_configuration: BuildConfiguration, image_version, mongodb_tools_url_ubi, mongodb_agent_url_ubi: str
+):
+    args = dict(
+        version=image_version,
+        mongodb_tools_url_ubi=mongodb_tools_url_ubi,
+        mongodb_agent_url_ubi=mongodb_agent_url_ubi,
+    )
+    sonar_build_image(
+        "agent",
+        build_configuration,
+        args,
+        "inventories/agent.yaml",
+    )
+
+
+def build_agent(build_configuration: BuildConfiguration):
+    release = get_release()
+
+    agent_versions_to_be_build = build_agent_gather_versions(release)
+
+    operator_version = os.environ.get("version_id", "latest")
+    if "release" in str(build_configuration.include_tags):
+        operator_version = release["mongodbOperator"]
+
+    logger.info(f"Building Agent versions: {agent_versions_to_be_build} for Operator versions: {operator_version}")
+
+    tasks_queue = Queue()
+    with ProcessPoolExecutor(max_workers=1 if build_configuration.parallel is False else None) as executor:
+        for agent_version in agent_versions_to_be_build:
+            agent_distro = "rhel7_x86_64"
+            tools_version = agent_version[1]
+            tools_distro = "rhel70-x86_64"
+            image_version = f"{agent_version[0]}_{operator_version}"
+            mongodb_tools_url_ubi = (
+                f"https://downloads.mongodb.org/tools/db/mongodb-database-tools-{tools_distro}-{tools_version}.tgz"
+            )
+            mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
+
+            tasks_queue.put(
+                executor.submit(
+                    build_agent_in_sonar,
+                    build_configuration,
+                    image_version,
+                    mongodb_tools_url_ubi,
+                    mongodb_agent_url_ubi,
+                )
+            )
+
+    exceptions_found = False
+    for task in tasks_queue.queue:
+        if task.exception() is not None:
+            exceptions_found = True
+            logger.fatal(f"The following exception has been found when building: {task.exception()}")
+    if exceptions_found:
+        raise Exception(
+            f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
+        )
+
+
+def build_agent_gather_versions(release: Dict[str, str]):
+    # This is a list of a tuples - agent version and corresponding tools version
+    agent_versions_to_be_build = list()
+    agent_versions_to_be_build.append(
+        (
+            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
+            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
+        )
+    )
+    for om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]:
+        # This piece might be removed after 1.25 release.
+        if om["agent_version"].startswith("11"):
+            logger.info(f"Ignoring Ops Manager {om} as not supported")
+            continue
+        agent_versions_to_be_build.append((om["agent_version"], om["tools_version"]))
+    return agent_versions_to_be_build
+
+
 def get_builder_function_for_image_name():
     """Returns a dictionary of image names that can be built."""
 
@@ -711,6 +792,7 @@ def get_builder_function_for_image_name():
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
         "database": build_database_image,
+        "agent": build_agent,
         #
         # Init images
         "init-appdb": build_init_appdb,
@@ -789,9 +871,6 @@ def build_all_images(
 ):
     """Builds all the images in the `images` list."""
     build_configuration = operator_build_configuration(builder, parallel, debug, architecture)
-
-    if parallel:
-        raise NotImplemented("building images in parallel has not been implemented yet.")
 
     for image in images:
         build_image(image, build_configuration)
