@@ -215,7 +215,7 @@ functions:
         - distro
         - is_patch
       working_dir: src/github.com/10gen/ops-manager-kubernetes
-      binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name}
+      binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel
 
 
   upload_dockerfiles:
@@ -635,6 +635,17 @@ tasks:
       image_name: init-ops-manager
       include_tags: release
 
+- name: release_agent
+  git_tag_only: true
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - func: quay_login
+    - func: pipeline
+      vars:
+        image_name: agent
+        include_tags: release
+
 - name: build_test_image
   priority: 60
   commands:
@@ -674,6 +685,15 @@ tasks:
     vars:
       image_name: init-appdb
       skip_tags: ubuntu,release
+
+- name: build_agent_images_ubi
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - func: pipeline
+      vars:
+        image_name: agent
+        skip_tags: ubuntu,release
 
 - name: build_init_database_image_ubi
   commands:
@@ -2351,10 +2371,8 @@ buildvariants:
   tasks:
     - name: build_operator_ubi
     - name: build_test_image
-
-    # Init AppDB images
     - name: build_init_appdb_images_ubi
-
+    - name: build_agent_images_ubi
     - name: build_init_om_images_ubi
     - name: build_init_database_image_ubi
     - name: build_database_image_ubi
@@ -2424,3 +2442,14 @@ buildvariants:
       name: '*'
   tasks:
     - name: publish_ops_manager
+
+  # This variant is kept manual for now in order avoid any interfering with the existing release process.
+  # In the future, it will be called in one of two ways:
+  # From the release job - as the second components of the tag will change (<agent>_<operator>).
+  # By PCT when a new OpsManager version is released.
+- name: release_agent
+  display_name: (Static Containers) Release Agent matrix
+  run_on:
+    - ubuntu2204-small
+  tasks:
+    - name: release_agent
