@@ -454,6 +454,10 @@ functions:
         working_dir: src/github.com/10gen/ops-manager-kubernetes
         include_expansions_in_env:
         - otel_parent_id
+        - branch_name
+        - github_commit
+        - revision
+        - github_pr_number
         add_to_path:
         - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
