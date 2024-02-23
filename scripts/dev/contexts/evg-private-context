@@ -97,7 +97,6 @@ export OTEL_COLLECTOR_ENDPOINT="${otel_collector_endpoint:-"unknown"}"
 # This is given by an expansion from evg
 export TASK_NAME="${task_name:-"unknown"}"
 export task_name="${TASK_NAME}"
-export BRANCH_NAME="${branch_name:-"unknown"}"
 export IS_PATCH="${is_patch:-"unknown"}"
 export BUILD_ID="${build_id:-"unknown"}"
 export EXECUTION="${execution:-"unknown"}"
