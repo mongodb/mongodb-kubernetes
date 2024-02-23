@@ -1,18 +1,22 @@
 # Name of the Namespace to use
 namespace: mongodb
 
-# OpenShift manages security context on its own
+# Set this to true if your cluster is managing SecurityContext for you.
+# If running OpenShift (Cloud, Minishift, etc.), set this to true.
 managedSecurityContext: true
 
 operator:
   # Execution environment for the operator, dev or prod. Use dev for more verbose logging
   env: prod
 
-  # Name that will be assigned to most of the internal Kubernetes objects like ServiceAccount, Role etc.
+  # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-enterprise-operator
 
   # Name of the operator image
   operator_image_name: mongodb-enterprise-operator-ubi
+
+  # Name of the deployment of the operator pod
+  deployment_name: mongodb-enterprise-operator
 
   # Version of mongodb-enterprise-operator
   version: 1.24.0
@@ -29,14 +33,25 @@ operator:
 
   affinity: {}
 
-# operator cpu requests and limits
-resources:
-  requests:
-    cpu: 500m
-    memory: 200Mi
-  limits:
-    cpu: 1100m
-    memory: 1Gi
+  # operator cpu requests and limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 200Mi
+    limits:
+      cpu: 1100m
+      memory: 1Gi
+
+  # Create operator service account and roles
+  # if false, then templates/operator-roles.yaml is excluded
+  createOperatorServiceAccount: true
+
+  vaultSecretBackend:
+  # set to true if you want the operator to store secrets in Vault
+    enabled: false
+    tlsSecretRef: ''
+
+  replicas: 1
 
 ## Database
 database:
@@ -55,6 +70,7 @@ initOpsManager:
   name: mongodb-enterprise-init-ops-manager-ubi
   version: 1.24.0
 
+## Application Database
 initAppDb:
   name: mongodb-enterprise-init-appdb-ubi
   version: 1.24.0
@@ -63,18 +79,24 @@ agent:
   name: mongodb-agent-ubi
   version: 12.0.29.7785-1
 
+mongodbLegacyAppDb:
+  name: mongodb-enterprise-appdb-database-ubi
+  repo: quay.io/mongodb
+
 mongodb:
   name: mongodb-enterprise-server
   repo: quay.io/mongodb
   appdbAssumeOldFormat: false
+  imageType: ubi8
+
 
 ## Registry
 registry:
-  # The pull secret must be specified
   imagePullSecrets:
   pullPolicy: Always
-  database: quay.io/mongodb
+  # Specify if images are pulled from private registry
   operator: quay.io/mongodb
+  database: quay.io/mongodb
   initDatabase: quay.io/mongodb
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
@@ -82,10 +104,21 @@ registry:
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
 
+multiCluster:
+  # Specify if we want to deploy the operator in multi-cluster mode
+  clusters: []
+  kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+  performFailOver: true
+  clusterClientTimeout: 10
+
+# Set this to false to disable subresource utilization
+# It might be required on some versions of Openshift
+subresourceEnabled: true
+
 # Versions listed here are used to populate RELATED_IMAGE_ env variables in the operator deployment.
 # Environment variables prefixed with RELATED_IMAGE_ are used by operator-sdk to generate relatedImages section
 # with sha256 digests pinning for the certified operator bundle with disconnected environment feature enabled.
-# https://docs.openshift.com/container-platform/4.11/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
+# https://docs.openshift.com/container-platform/4.14/operators/operator_sdk/osdk-generating-csvs.html#olm-enabling-operator-for-restricted-network_osdk-generating-csvs
 relatedImages:
   opsManager:
   - 6.0.0
@@ -188,4 +221,3 @@ relatedImages:
   - 5.0.7-ent
   - 5.0.14-ent
   - 5.0.18-ent
-subresourceEnabled: true
