@@ -21,13 +21,10 @@ from tests.conftest import is_multi_cluster
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
-AWS_REGION = "us-east-1"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
@@ -151,10 +148,6 @@ class TestOpsManagerCreation:
       eventually as it will wait for oplog db to be created
     """
 
-    def test_setup_gp2_storage_class(self):
-        """This is necessary for Backup HeadDB"""
-        KubernetesTester.make_default_gp2_storage_class()
-
     def test_create_om(
         self,
         ops_manager: MongoDBOpsManager,
@@ -173,7 +166,7 @@ class TestOpsManagerCreation:
         ops_manager.allow_mdb_rc_versions()
 
         if is_multi_cluster():
-            enable_appdb_multi_cluster_deployment(ops_manager)
+            enable_multi_cluster_deployment(ops_manager)
 
         create_or_update(ops_manager)
 
@@ -184,17 +177,29 @@ class TestOpsManagerCreation:
         )
 
     def test_daemon_statefulset(self, ops_manager: MongoDBOpsManager):
-        def stateful_set_becomes_ready():
-            stateful_set = ops_manager.read_backup_statefulset()
-            return stateful_set.status.ready_replicas == 2 and stateful_set.status.current_replicas == 2
+        def stateful_sets_become_ready():
+            total_ready_replicas = 0
+            total_current_replicas = 0
+            for member_cluster_name, _ in ops_manager.get_backup_sts_names_in_member_clusters():
+                stateful_set = ops_manager.read_backup_statefulset(member_cluster_name=member_cluster_name)
+                ready_replicas = (
+                    stateful_set.status.ready_replicas if stateful_set.status.ready_replicas is not None else 0
+                )
+                total_ready_replicas += ready_replicas
+                current_replicas = (
+                    stateful_set.status.current_replicas if stateful_set.status.current_replicas is not None else 0
+                )
+                total_current_replicas += current_replicas
+            return total_ready_replicas == 2 and total_current_replicas == 2
 
-        KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
+        KubernetesTester.wait_until(stateful_sets_become_ready, timeout=300)
 
-        stateful_set = ops_manager.read_backup_statefulset()
-        # pod template has volume mount request
-        assert (HEAD_PATH, "head") in (
-            (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
-        )
+        for member_cluster_name, _ in ops_manager.get_backup_sts_names_in_member_clusters():
+            stateful_set = ops_manager.read_backup_statefulset(member_cluster_name=member_cluster_name)
+            # pod template has volume mount request
+            assert (HEAD_PATH, "head") in (
+                (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts
+            )
 
 
 @mark.e2e_om_ops_manager_backup_sharded_cluster

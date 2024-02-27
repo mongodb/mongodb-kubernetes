@@ -16,9 +16,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     create_aws_secret,
     create_s3_bucket,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
@@ -35,13 +33,13 @@ def kmip(issuer, issuer_ca_configmap, namespace: str) -> KMIPDeployment:
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket")
 
 
 @fixture(scope="module")
 def oplog_s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, OPLOG_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-oplog")
 
 
 @fixture(scope="module")
@@ -75,7 +73,7 @@ def ops_manager(
     ]
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource

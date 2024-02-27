@@ -119,8 +119,6 @@ def test_create_om(
     custom_version: str,
     custom_appdb_version: str,
 ):
-    KubernetesTester.make_default_gp2_storage_class()
-
     try_load(ops_manager)
     ops_manager["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     ops_manager["spec"]["backup"]["headDB"]["storageClass"] = get_default_storage_class()

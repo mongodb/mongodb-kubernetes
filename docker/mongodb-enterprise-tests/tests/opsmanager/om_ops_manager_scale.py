@@ -7,10 +7,8 @@ from kubetester.mongodb import Phase
 from kubetester.omtester import OMBackgroundTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
-from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 gen_key_resource_version = None
 admin_key_resource_version = None
@@ -33,7 +31,7 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource, om_cluster_spec_list=[2, 1, 1])
 
     try_load(resource)
     return resource
@@ -67,27 +65,34 @@ class TestOpsManagerCreation:
         )
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):
-        statefulset = ops_manager.read_statefulset()
-        assert statefulset.status.ready_replicas == 2
-        assert statefulset.status.current_replicas == 2
+        for member_cluster_name in ops_manager.get_om_member_cluster_names():
+            statefulset = ops_manager.read_statefulset(member_cluster_name=member_cluster_name)
+            replicas = ops_manager.get_om_replicas_in_member_cluster(member_cluster_name=member_cluster_name)
+            assert statefulset.status.ready_replicas == replicas
+            assert statefulset.status.current_replicas == replicas
 
     def test_service(self, ops_manager: MongoDBOpsManager):
-        internal, external = ops_manager.services()
-        assert external is None
-        assert internal.spec.type == "ClusterIP"
-        assert internal.spec.cluster_ip == "None"
-        assert len(internal.spec.ports) == 2
-        assert internal.spec.ports[0].target_port == 8080
-        assert internal.spec.ports[1].target_port == 25999
+        for _, cluster_spec_item in ops_manager.get_om_indexed_cluster_spec_items():
+            internal, external = ops_manager.services(cluster_spec_item["clusterName"])
+            assert external is None
+            assert internal.spec.type == "ClusterIP"
+            assert internal.spec.cluster_ip == "None"
+            assert len(internal.spec.ports) == 2
+            assert internal.spec.ports[0].target_port == 8080
+            assert internal.spec.ports[1].target_port == 25999
 
     def test_endpoints(self, ops_manager: MongoDBOpsManager):
         """making sure the service points at correct pods"""
-        endpoints = client.CoreV1Api().read_namespaced_endpoints(ops_manager.svc_name(), ops_manager.namespace)
-        assert len(endpoints.subsets) == 1
-        assert len(endpoints.subsets[0].addresses) == 2
+        for member_cluster_name in ops_manager.get_om_member_cluster_names():
+            endpoints = client.CoreV1Api(
+                api_client=get_member_cluster_api_client(member_cluster_name)
+            ).read_namespaced_endpoints(ops_manager.svc_name(member_cluster_name), ops_manager.namespace)
+            replicas = ops_manager.get_om_replicas_in_member_cluster(member_cluster_name)
+            assert len(endpoints.subsets) == 1
+            assert len(endpoints.subsets[0].addresses) == replicas
 
     def test_om_resource(self, ops_manager: MongoDBOpsManager):
-        assert ops_manager.om_status().get_replicas() == 2
+        assert ops_manager.om_status().get_replicas() == ops_manager.get_total_number_of_om_replicas()
         assert ops_manager.om_status().get_url() == "http://om-scale-svc.{}.svc.cluster.local:8080".format(
             ops_manager.namespace
         )
@@ -107,7 +112,10 @@ class TestOpsManagerCreation:
         om_tester.assert_test_service()
 
         # checking connectivity to each OM instance
-        om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
+        # We can only perform this test in the single cluster case because we don't create a service per pod so that
+        # every OM pod can be addressable by FQDN from a different cluster (the test pod cluster for example).
+        if not is_multi_cluster():
+            om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
 
 
 @pytest.mark.e2e_om_ops_manager_scale
@@ -137,9 +145,9 @@ class TestOpsManagerVersionUpgrade:
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         """All pods in statefulset are referencing the correct image"""
         pods = ops_manager.read_om_pods()
-        assert len(pods) == 2
-        assert ops_manager.get_version() in pods[0].spec.containers[0].image
-        assert ops_manager.get_version() in pods[1].spec.containers[0].image
+        assert len(pods) == ops_manager.get_total_number_of_om_replicas()
+        for _, pod in pods:
+            assert ops_manager.get_version() in pod.spec.containers[0].image
 
     @skip_if_local
     def test_om_has_been_up_during_upgrade(self, background_tester: OMBackgroundTester):
@@ -156,16 +164,22 @@ class TestOpsManagerScaleUp:
 
     def test_scale_up_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["replicas"] = 3
+        if is_multi_cluster():
+            enable_multi_cluster_deployment(ops_manager, om_cluster_spec_list=[3, 2, 1])
+        else:
+            ops_manager["spec"]["replicas"] = 3
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):
-        statefulset = ops_manager.read_statefulset()
-        assert statefulset.status.ready_replicas == 3
-        assert statefulset.status.current_replicas == 3
+        for member_cluster_name in ops_manager.get_om_member_cluster_names():
 
-        assert ops_manager.om_status().get_replicas() == 3
+            statefulset = ops_manager.read_statefulset(member_cluster_name=member_cluster_name)
+            replicas = ops_manager.get_om_replicas_in_member_cluster(member_cluster_name=member_cluster_name)
+            assert statefulset.status.ready_replicas == replicas
+            assert statefulset.status.current_replicas == replicas
+
+        assert ops_manager.om_status().get_replicas() == ops_manager.get_total_number_of_om_replicas()
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester):
@@ -174,8 +188,11 @@ class TestOpsManagerScaleUp:
         om_tester.assert_healthiness()
         om_tester.assert_test_service()
 
-        # checking connectivity to each OM instance
-        om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
+        # checking connectivity to each OM instance.
+        # We can only perform this test in the single cluster case because we don't create a service per pod so that
+        # every OM pod can be addressable by FQDN from a different cluster (the test pod cluster for example).
+        if not is_multi_cluster():
+            om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
 
         # checking the background thread to make sure the OM was ok during scale up
         background_tester.assert_healthiness(allowed_rate_of_failure=0.1)
@@ -190,17 +207,23 @@ class TestOpsManagerScaleDown:
 
     def test_scale_down_om(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
-        ops_manager["spec"]["replicas"] = 1
+        if is_multi_cluster():
+            enable_multi_cluster_deployment(ops_manager, om_cluster_spec_list=[1, 1, 1])
+        else:
+            ops_manager["spec"]["replicas"] = 1
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_number_of_replicas(self, ops_manager: MongoDBOpsManager):
-        statefulset = ops_manager.read_statefulset()
-        assert statefulset.status.ready_replicas == 1
-        assert statefulset.status.current_replicas == 1
+        for member_cluster_name in ops_manager.get_om_member_cluster_names():
 
-        # number of replicas in OM cr has changed as well
-        assert ops_manager.om_status().get_replicas() == 1
+            statefulset = ops_manager.read_statefulset(member_cluster_name=member_cluster_name)
+            replicas = ops_manager.get_om_replicas_in_member_cluster(member_cluster_name=member_cluster_name)
+            if replicas != 0:
+                assert statefulset.status.ready_replicas == replicas
+                assert statefulset.status.current_replicas == replicas
+
+        assert ops_manager.om_status().get_replicas() == ops_manager.get_total_number_of_om_replicas()
 
     @skip_if_local
     def test_om(self, ops_manager: MongoDBOpsManager, background_tester: OMBackgroundTester):
@@ -209,7 +232,10 @@ class TestOpsManagerScaleDown:
         om_tester.assert_healthiness()
 
         # checking connectivity to a single pod
-        om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
+        # We can only perform this test in the single cluster case because we don't create a service per pod so that
+        # every OM pod can be addressable by FQDN from a different cluster (the test pod cluster for example).
+        if not is_multi_cluster():
+            om_tester.assert_om_instances_healthiness(ops_manager.pod_urls())
 
         # OM was ok during scale down
         background_tester.assert_healthiness(allowed_rate_of_failure=0.1)

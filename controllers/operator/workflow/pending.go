@@ -76,6 +76,9 @@ func (f pendingStatus) Log(log *zap.SugaredLogger) {
 func mergedPending(p1, p2 pendingStatus) pendingStatus {
 	p := Pending(p1.msg + ", " + p2.msg)
 	p.warnings = append(p1.warnings, p2.warnings...)
+	p.resourcesNotReady = make([]status.ResourceNotReady, 0)
+	p.resourcesNotReady = append(p.resourcesNotReady, p1.resourcesNotReady...)
+	p.resourcesNotReady = append(p.resourcesNotReady, p2.resourcesNotReady...)
 	return *p
 }
 

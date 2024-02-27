@@ -21,10 +21,9 @@ spec:
       name: appdb-secret
 
     security:
+      certsSecretPrefix: appdb
       tls:
         ca: issuer-ca
-        secretRef:
-          prefix: appdb
 
   # adding this just to avoid wizard when opening OM UI
   configuration:

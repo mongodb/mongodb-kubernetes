@@ -267,15 +267,14 @@ class TestOpsManagerCreation:
     def test_daemon_statefulset(
         self,
         ops_manager: MongoDBOpsManager,
-        central_cluster_client: kubernetes.client.ApiClient,
     ):
         def stateful_set_becomes_ready():
-            stateful_set = ops_manager.read_backup_statefulset(central_cluster_client)
+            stateful_set = ops_manager.read_backup_statefulset()
             return stateful_set.status.ready_replicas == 1 and stateful_set.status.current_replicas == 1
 
         KubernetesTester.wait_until(stateful_set_becomes_ready, timeout=300)
 
-        stateful_set = ops_manager.read_backup_statefulset(central_cluster_client)
+        stateful_set = ops_manager.read_backup_statefulset()
         # pod template has volume mount request
         assert (HEAD_PATH, "head") in (
             (mount.mount_path, mount.name) for mount in stateful_set.spec.template.spec.containers[0].volume_mounts

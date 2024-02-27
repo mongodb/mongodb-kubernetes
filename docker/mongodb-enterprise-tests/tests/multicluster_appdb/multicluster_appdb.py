@@ -30,6 +30,8 @@ def ops_manager_unmarshalled(
     )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
+    resource["spec"]["topology"] = "MultiCluster"
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-2", "kind-e2e-cluster-3"], [2, 2])
 
     resource.allow_mdb_rc_versions()
     resource.create_admin_secret(api_client=central_cluster_client)
@@ -115,7 +117,7 @@ def test_scale_up_two_clusters(ops_manager: MongoDBOpsManager, appdb_member_clus
         appdb_member_cluster_names, [5, 2]
     )
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
 
 @mark.e2e_multi_cluster_appdb

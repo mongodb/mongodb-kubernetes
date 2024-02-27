@@ -152,7 +152,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(secretReadClient, secretWriteClie
 		externalDomain := opts.ExternalDomain
 
 		for podNum := 0; podNum < opts.Replicas; podNum++ {
-			podName, serviceFQDN := dns.GetMultiPodName(mdbmName, clusterNum, podNum), dns.GetMultiServiceFQDN(mdbmName, opts.Namespace, clusterNum, podNum)
+			podName, serviceFQDN := dns.GetMultiPodName(mdbmName, clusterNum, podNum), dns.GetMultiServiceFQDN(mdbmName, opts.Namespace, opts.ClusterDomain, clusterNum, podNum)
 			pem := fmt.Sprintf("%s-pem", podName)
 			additionalDomains := []string{serviceFQDN}
 			if externalDomain != nil {

@@ -7,9 +7,7 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -40,7 +38,7 @@ def ops_manager(
     om["spec"]["statefulSet"]["spec"]["template"]["spec"] = {}
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(om)
+        enable_multi_cluster_deployment(om)
 
     create_or_update(om)
     return om

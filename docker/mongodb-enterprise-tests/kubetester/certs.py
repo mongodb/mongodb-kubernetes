@@ -177,7 +177,8 @@ def create_tls_certs(
     vault_subpath: Optional[str] = None,
     common_name: Optional[str] = None,
     process_hostnames: Optional[List[str]] = None,
-) -> Dict[str, str]:
+    clusterwide: bool = False,
+) -> str:
     """
     :param process_hostnames: set for TLS certificate to contain only given domains
     """
@@ -217,6 +218,7 @@ def create_tls_certs(
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
         common_name=common_name,
+        clusterwide=clusterwide,
     )
     return cert_secret_name
 
@@ -229,6 +231,7 @@ def create_ops_manager_tls_certs(
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    clusterwide: bool = False,
 ) -> str:
     certs_secret_name = "certs-for-ops-manager"
 
@@ -236,7 +239,8 @@ def create_ops_manager_tls_certs(
         certs_secret_name = secret_name
 
     domain = f"{om_name}-svc.{namespace}.svc.cluster.local"
-    hostnames = [domain]
+    central_domain = f"{om_name}-central.{namespace}.svc.cluster.local"
+    hostnames = [domain, central_domain]
     if additional_domains:
         hostnames += additional_domains
 
@@ -252,6 +256,7 @@ def create_ops_manager_tls_certs(
         secret_backend=secret_backend,
         vault_subpath="opsmanager",
         api_client=api_client,
+        clusterwide=clusterwide,
     )
 
 
@@ -300,6 +305,7 @@ def create_mongodb_tls_certs(
     secret_backend: Optional[str] = None,
     vault_subpath: Optional[str] = None,
     process_hostnames: Optional[List[str]] = None,
+    clusterwide: bool = False,
 ) -> str:
     """
     :param process_hostnames: set for TLS certificate to contain only given domains
@@ -316,6 +322,7 @@ def create_mongodb_tls_certs(
         secret_backend=secret_backend,
         vault_subpath=vault_subpath,
         process_hostnames=process_hostnames,
+        clusterwide=clusterwide,
     )
 
     return cert_and_pod_names

@@ -23,9 +23,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     create_s3_bucket,
     new_om_data_store,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
@@ -38,7 +36,7 @@ Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manag
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
 
 @fixture(scope="module")
@@ -51,12 +49,16 @@ def ops_manager(
     resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
+
+    if try_load(resource):
+        return resource
+
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -77,9 +79,9 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version) -> MongoDB:
     return resource
 
 
-def service_exists(service_name: str, namespace: str) -> bool:
+def service_exists(service_name: str, namespace: str, api_client: Optional[kubernetes.client.ApiClient] = None) -> bool:
     try:
-        client.CoreV1Api().read_namespaced_service(service_name, namespace)
+        client.CoreV1Api(api_client=api_client).read_namespaced_service(service_name, namespace)
     except client.rest.ApiException:
         return False
     return True
@@ -126,7 +128,7 @@ class TestOpsManagerCreation:
     ):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+        for pod_fqdn in ops_manager.backup_daemon_pods_headless_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
 
@@ -157,27 +159,33 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["externalConnectivity"] = {"type": "LoadBalancer"}
         ops_manager.update()
 
-        wait_until(
-            lambda: service_exists("om-backup-svc-ext", namespace),
-            timeout=90,
-            sleep_time=5,
-        )
+        for member_cluster_name, _ in ops_manager.get_om_sts_names_in_member_clusters():
+            om_external_service_name = f"{ops_manager.name}-svc-ext"
+            wait_until(
+                lambda: service_exists(
+                    om_external_service_name, namespace, api_client=get_member_cluster_api_client(member_cluster_name)
+                ),
+                timeout=90,
+                sleep_time=5,
+            )
 
-        service = client.CoreV1Api().read_namespaced_service("om-backup-svc-ext", namespace)
+            service = client.CoreV1Api(
+                api_client=get_member_cluster_api_client(member_cluster_name)
+            ).read_namespaced_service(om_external_service_name, namespace)
 
-        # Tests that the service is created with both externalConnectivity and backup
-        # and that it contains the correct ports
-        assert service.spec.type == "LoadBalancer"
-        assert len(service.spec.ports) == 2
-        assert service.spec.ports[0].port == 8080
-        assert service.spec.ports[1].port == 25999
+            # Tests that the service is created with both externalConnectivity and backup
+            # and that it contains the correct ports
+            assert service.spec.type == "LoadBalancer"
+            assert len(service.spec.ports) == 2
+            assert service.spec.ports[0].port == 8080
+            assert service.spec.ports[1].port == 25999
 
     def test_disable_external_connectivity(self, ops_manager: MongoDBOpsManager, namespace: str):
-
-        # We dont' have a nice way to delete fields from a resource specification
+        # We don't have a nice way to delete fields from a resource specification
         # in our test env, so we need to achieve it with specific uses of patches
         body = {"op": "remove", "path": "/spec/externalConnectivity"}
         patch = jsonpatch.JsonPatch([body])
+
         om = client.CustomObjectsApi().get_namespaced_custom_object(
             ops_manager.group,
             ops_manager.version,
@@ -194,11 +202,20 @@ class TestOpsManagerCreation:
             jsonpatch.apply_patch(om, patch),
         )
 
-        wait_until(
-            lambda: not (service_exists("om-backup-svc-ext", namespace)),
-            timeout=90,
-            sleep_time=5,
-        )
+        for member_cluster_name, _ in ops_manager.get_om_sts_names_in_member_clusters():
+            om_external_service_name = f"{ops_manager.name}-svc-ext"
+
+            wait_until(
+                lambda: not (
+                    service_exists(
+                        om_external_service_name,
+                        namespace,
+                        api_client=get_member_cluster_api_client(member_cluster_name),
+                    )
+                ),
+                timeout=90,
+                sleep_time=5,
+            )
 
 
 @mark.e2e_om_ops_manager_backup_light
@@ -231,12 +248,7 @@ def test_labels_on_om_and_backup_daemon_and_appdb_sts(ops_manager: MongoDBOpsMan
     check_sts_labels(ops_manager.read_appdb_statefulset(), labels)
 
 
-def check_pvc_labels(
-    pvc_name: str,
-    labels: Dict[str, str],
-    namespace: str,
-    api_client: kubernetes.client.ApiClient,
-):
+def check_pvc_labels(pvc_name: str, labels: Dict[str, str], namespace: str, api_client: kubernetes.client.ApiClient):
     pvc = client.CoreV1Api(api_client=api_client).read_namespaced_persistent_volume_claim(pvc_name, namespace)
     pvc_labels = pvc.metadata.labels
 
@@ -250,18 +262,8 @@ def test_labels_on_backup_daemon_and_appdb_pvc(ops_manager: MongoDBOpsManager, n
 
     appdb_pvc_name = "data-{}-0".format(ops_manager.read_appdb_statefulset().metadata.name)
 
-    member_cluster_name = ops_manager.pick_one_member_cluster_name()
-    check_pvc_labels(
-        appdb_pvc_name,
-        labels,
-        namespace,
-        api_client=get_member_cluster_api_client(member_cluster_name),
-    )
+    member_cluster_name = ops_manager.pick_one_appdb_member_cluster_name()
+    check_pvc_labels(appdb_pvc_name, labels, namespace, api_client=get_member_cluster_api_client(member_cluster_name))
     backupdaemon_pvc_name = "head-{}-0".format(ops_manager.read_backup_statefulset().metadata.name)
 
-    check_pvc_labels(
-        backupdaemon_pvc_name,
-        labels,
-        namespace,
-        api_client=get_central_cluster_client(),
-    )
+    check_pvc_labels(backupdaemon_pvc_name, labels, namespace, api_client=get_central_cluster_client())

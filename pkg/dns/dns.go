@@ -11,10 +11,6 @@ func GetMultiPodName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
 }
 
-func GetMultiAppDBPodName(mdbmName string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s-%d-%d", mdbmName, clusterNum, podNum)
-}
-
 func GetMultiServiceName(mdbmName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-svc", GetMultiPodName(mdbmName, clusterNum, podNum))
 }
@@ -35,8 +31,8 @@ func GetMultiExternalServiceName(mdbmName string, clusterNum, podNum int) string
 	return fmt.Sprintf("%s-external", GetMultiServiceName(mdbmName, clusterNum, podNum))
 }
 
-func GetMultiServiceFQDN(mdbmName, namespace string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s.svc.cluster.local", GetMultiServiceName(mdbmName, clusterNum, podNum), namespace)
+func GetMultiServiceFQDN(mdbmName, namespace, clusterDomain string, clusterNum, podNum int) string {
+	return fmt.Sprintf("%s.%s.svc.%s", GetMultiServiceName(mdbmName, clusterNum, podNum), namespace, clusterDomain)
 }
 
 func GetMultiServiceExternalDomain(mdbmName, externalDomain string, clusterNum, podNum int) string {
@@ -44,7 +40,7 @@ func GetMultiServiceExternalDomain(mdbmName, externalDomain string, clusterNum, 
 }
 
 // GetMultiClusterProcessHostnames returns the agent hostnames, which they should be registered in OM in multi-cluster mode.
-func GetMultiClusterProcessHostnames(mdbmName, namespace string, clusterNum, members int, externalDomain *string) []string {
+func GetMultiClusterProcessHostnames(mdbmName, namespace string, clusterNum, members int, clusterDomain string, externalDomain *string) []string {
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
@@ -52,7 +48,12 @@ func GetMultiClusterProcessHostnames(mdbmName, namespace string, clusterNum, mem
 		if externalDomain != nil {
 			hostname = GetMultiServiceExternalDomain(mdbmName, *externalDomain, clusterNum, podNum)
 		} else {
-			hostname = GetMultiServiceFQDN(mdbmName, namespace, clusterNum, podNum)
+			domain := "cluster.local"
+			if len(clusterDomain) > 0 {
+				domain = strings.TrimPrefix(clusterDomain, ".")
+			}
+
+			hostname = GetMultiServiceFQDN(mdbmName, namespace, domain, clusterNum, podNum)
 		}
 		hostnames = append(hostnames, hostname)
 	}
@@ -65,7 +66,7 @@ func GetMultiClusterHostnamesForMonitoring(mdbmName, namespace string, clusterNu
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
-		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiAppDBPodName(mdbmName, clusterNum, podNum), GetMultiHeadlessServiceName(mdbmName, clusterNum), namespace)
+		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", GetMultiPodName(mdbmName, clusterNum, podNum), GetMultiHeadlessServiceName(mdbmName, clusterNum), namespace)
 		hostnames = append(hostnames, hostname)
 	}
 

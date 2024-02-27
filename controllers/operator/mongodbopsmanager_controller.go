@@ -10,8 +10,15 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"syscall"
 	"time"
+
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
 
 	"k8s.io/utils/pointer"
 
@@ -84,6 +91,9 @@ type S3ConfigGetter interface {
 	BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string
 }
 
+// OpsManagerReconciler is a controller implementation.
+// It's Reconciler function is called by Controller Runtime.
+// WARNING: do not put any mutable state into this class. Controller runtime uses and shares a single instance of it.
 type OpsManagerReconciler struct {
 	*ReconcileCommonController
 	omInitializer          api.Initializer
@@ -109,6 +119,163 @@ func newOpsManagerReconciler(mgr manager.Manager, memberClustersMap map[string]c
 		programmaticKeyVersion:    semver.MustParse(programmaticKeyVersion),
 		memberClustersMap:         memberClustersMap,
 	}
+}
+
+// OpsManagerReconcilerHelper is a type containing the state and logic for a SINGLE reconcile execution.
+// This object is NOT shared between multiple reconcile invocations in contrast to OpsManagerReconciler where
+// we cannot store state of the current reconcile.
+type OpsManagerReconcilerHelper struct {
+	opsManager     *omv1.MongoDBOpsManager
+	memberClusters []multicluster.MemberCluster
+}
+
+func newOpsManagerReconcilerHelper(opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
+	reconcilerHelper := OpsManagerReconcilerHelper{
+		opsManager: opsManager,
+	}
+
+	if !opsManager.Spec.IsMultiCluster() {
+		reconcilerHelper.memberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(opsManager.Spec.Replicas, 0, opsManagerReconciler.client, opsManagerReconciler.SecretClient)}
+		return &reconcilerHelper, nil
+	}
+
+	if len(globalMemberClustersMap) == 0 {
+		return nil, xerrors.Errorf("member clusters have to be initialized for MultiCluster OpsManager topology")
+	}
+
+	// here we access ClusterSpecList directly, as we have to check what's been defined in yaml
+	if len(opsManager.Spec.ClusterSpecList) == 0 {
+		return nil, xerrors.Errorf("for MongoDBOpsManager.spec.Topology = MultiCluster, clusterSpecList has to be non empty")
+	}
+
+	clusterNamesFromClusterSpecList := util.Transform(opsManager.GetClusterSpecList(), func(clusterSpecItem omv1.ClusterSpecOMItem) string {
+		return clusterSpecItem.ClusterName
+	})
+	memberClusterMapping, err := updateMemberClusterMapping(opsManager.Namespace, opsManager.ClusterMappingConfigMapName(), opsManagerReconciler.client, clusterNamesFromClusterSpecList)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to initialize clustermapping: %e", err)
+	}
+
+	for _, clusterSpecItem := range opsManager.GetClusterSpecList() {
+		var memberClusterKubeClient kubernetesClient.Client
+		var memberClusterSecretClient secrets.SecretClient
+		memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
+		if !ok {
+			var clusterList []string
+			for m := range globalMemberClustersMap {
+				clusterList = append(clusterList, m)
+			}
+			log.Warnf("Member cluster %s specified in appDBSpec.clusterSpecList is not found in the list of operator's member clusters: %+v. "+
+				"Assuming the cluster is down. It will be ignored from reconciliation but its MongoDB processes will still be maintained in replicaset configuration.", clusterSpecItem.ClusterName, clusterList)
+		} else {
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient.GetClient())
+			memberClusterSecretClient = secrets.SecretClient{
+				VaultClient: nil, // Vault is not supported yet on multicluster
+				KubeClient:  memberClusterKubeClient,
+			}
+		}
+
+		reconcilerHelper.memberClusters = append(reconcilerHelper.memberClusters, multicluster.MemberCluster{
+			Name:         clusterSpecItem.ClusterName,
+			Index:        memberClusterMapping[clusterSpecItem.ClusterName],
+			Client:       memberClusterKubeClient,
+			SecretClient: memberClusterSecretClient,
+			// TODO should we do lastAppliedMember map like in AppDB?
+			Replicas: clusterSpecItem.Members,
+			Active:   true,
+			Healthy:  memberClusterKubeClient != nil,
+		})
+	}
+
+	return &reconcilerHelper, nil
+}
+
+func (r *OpsManagerReconcilerHelper) GetMemberClusters() []multicluster.MemberCluster {
+	return r.memberClusters
+}
+
+type backupDaemonFQDN struct {
+	hostname          string
+	memberClusterName string
+}
+
+// BackupDaemonHeadlessFQDNs returns headless FQDNs for backup daemons for all member clusters.
+// It's used primarily for registering backup daemon instances in Ops Manager.
+func (r *OpsManagerReconcilerHelper) BackupDaemonHeadlessFQDNs() []backupDaemonFQDN {
+	var fqdns []backupDaemonFQDN
+	for _, memberCluster := range r.GetMemberClusters() {
+		clusterHostnames, _ := dns.GetDNSNames(r.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), r.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster),
+			r.opsManager.Namespace, r.opsManager.Spec.GetClusterDomain(), r.BackupDaemonMembersForMemberCluster(memberCluster), nil)
+		for _, hostname := range clusterHostnames {
+			fqdns = append(fqdns, backupDaemonFQDN{hostname: hostname, memberClusterName: memberCluster.Name})
+		}
+
+	}
+
+	return fqdns
+}
+
+func (r *OpsManagerReconcilerHelper) BackupDaemonMembersForMemberCluster(memberCluster multicluster.MemberCluster) int {
+	clusterSpecOMItem := r.getClusterSpecOMItem(memberCluster.Name)
+	if clusterSpecOMItem.Backup != nil {
+		return clusterSpecOMItem.Backup.Members
+	}
+	return 0
+}
+
+func (r *OpsManagerReconcilerHelper) OpsManagerMembersForMemberCluster(memberCluster multicluster.MemberCluster) int {
+	clusterSpecOMItem := r.getClusterSpecOMItem(memberCluster.Name)
+	return clusterSpecOMItem.Members
+}
+
+func (r *OpsManagerReconcilerHelper) getClusterSpecOMItem(clusterName string) omv1.ClusterSpecOMItem {
+	idx := slices.IndexFunc(r.opsManager.GetClusterSpecList(), func(clusterSpecOMItem omv1.ClusterSpecOMItem) bool {
+		return clusterSpecOMItem.ClusterName == clusterName
+	})
+	if idx == -1 {
+		panic(fmt.Errorf("member cluster %s not found in OM's clusterSpecList", clusterName))
+	}
+
+	return r.opsManager.GetClusterSpecList()[idx]
+}
+
+func (r *OpsManagerReconcilerHelper) OpsManagerStatefulSetNameForMemberCluster(memberCluster multicluster.MemberCluster) string {
+	if memberCluster.Legacy {
+		return r.opsManager.Name
+	}
+
+	return fmt.Sprintf("%s-%d", r.opsManager.Name, memberCluster.Index)
+}
+
+func (r *OpsManagerReconcilerHelper) BackupDaemonStatefulSetNameForMemberCluster(memberCluster multicluster.MemberCluster) string {
+	if memberCluster.Legacy {
+		return r.opsManager.BackupDaemonStatefulSetName()
+	}
+
+	return r.opsManager.BackupDaemonStatefulSetNameForClusterIndex(memberCluster.Index)
+}
+
+func (r *OpsManagerReconcilerHelper) BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster multicluster.MemberCluster) string {
+	if memberCluster.Legacy {
+		return r.opsManager.BackupDaemonServiceName()
+	}
+
+	return r.opsManager.BackupDaemonHeadlessServiceNameForClusterIndex(memberCluster.Index)
+}
+
+func (r *OpsManagerReconcilerHelper) BackupDaemonPodServiceNameForMemberCluster(memberCluster multicluster.MemberCluster) []string {
+	if memberCluster.Legacy {
+		hostnames, _ := dns.GetDNSNames(r.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), r.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster),
+			r.opsManager.Namespace, r.opsManager.Spec.GetClusterDomain(), r.BackupDaemonMembersForMemberCluster(memberCluster), nil)
+		return hostnames
+	}
+
+	var hostnames []string
+	for podIdx := 0; podIdx < r.BackupDaemonMembersForMemberCluster(memberCluster); podIdx++ {
+		hostnames = append(hostnames, fmt.Sprintf("%s-%d-svc", r.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), podIdx))
+	}
+
+	return hostnames
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={opsmanagers,opsmanagers/status,opsmanagers/finalizers},verbs=*,namespace=placeholder
@@ -174,7 +341,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 
 	// We need to remove the watches on the top of the reconcile since we might add resources with the same key below.
 	if opsManager.IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetSecurity().TLS.CA, []string{opsManager.TLSCertificateSecretName()})
+		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
 	}
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(opsManager, log)
@@ -189,13 +356,20 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error getting AppDB password: %w", err)), log, opsManagerExtraStatusParams)
 	}
 
+	opsManagerReconcilerHelper, err := newOpsManagerReconcilerHelper(r, opsManager, r.memberClustersMap, log)
+	if err != nil {
+		return r.updateStatus(opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
+	}
+
 	appDBConnectionString := buildMongoConnectionUrl(opsManager, appDBPassword, appDbReconciler.getCurrentStatefulsetHostnames(opsManager))
-	if err := r.ensureAppDBConnectionString(opsManager, appDBConnectionString, log); err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string: %w", err)), log, opsManagerExtraStatusParams)
+	for _, memberCluster := range opsManagerReconcilerHelper.GetMemberClusters() {
+		if err := r.ensureAppDBConnectionStringInMemberCluster(opsManager, appDBConnectionString, memberCluster, log); err != nil {
+			return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)), log, opsManagerExtraStatusParams)
+		}
 	}
 
 	// 2. Reconcile Ops Manager
-	status, omAdmin := r.reconcileOpsManager(opsManager, appDBConnectionString, log)
+	status, omAdmin := r.reconcileOpsManager(opsManagerReconcilerHelper, opsManager, appDBConnectionString, log)
 	if !status.IsOK() {
 		return r.updateStatus(opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
 	}
@@ -208,7 +382,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	}
 
 	// 3. Reconcile Backup Daemon
-	if status := r.reconcileBackupDaemon(opsManager, omAdmin, appDBConnectionString, log); !status.IsOK() {
+	if status := r.reconcileBackupDaemon(opsManagerReconcilerHelper, opsManager, omAdmin, appDBConnectionString, log); !status.IsOK() {
 		return r.updateStatus(opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
@@ -403,18 +577,56 @@ func createOrUpdateSecretIfNotFound(secretGetUpdaterCreator secret.GetUpdateCrea
 
 }
 
-func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
-	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
-
-	// Prepare Ops Manager StatefulSet (create and wait)
-	status := r.createOpsManagerStatefulset(opsManager, appDBConnectionString, log)
-	if !status.IsOK() {
-		return status, nil
+func (r *OpsManagerReconciler) reconcileOpsManager(reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
+	var genKeySecretMap map[string][]byte
+	var err error
+	if genKeySecretMap, err = r.ensureGenKeyInOperatorCluster(opsManager, log); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in ensureGenKeyInOperatorCluster: %w", err)), nil
 	}
+
+	if err := r.replicateGenKeyInMemberClusters(reconcilerHelper, genKeySecretMap); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in replicateGenKeyInMemberClusters: %w", err)), nil
+	}
+
+	if err := r.replicateTLSCAInMemberClusters(reconcilerHelper); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in replicateTLSCAInMemberClusters: %w", err)), nil
+	}
+
+	if err := r.replicateAppDBTLSCAInMemberClusters(reconcilerHelper); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in replicateAppDBTLSCAInMemberClusters: %w", err)), nil
+	}
+
+	if err := r.replicateKMIPCAInMemberClusters(reconcilerHelper); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in replicateKMIPCAInMemberClusters: %w", err)), nil
+	}
+	if err := r.replicateQueryableBackupTLSSecretInMemberClusters(reconcilerHelper); err != nil {
+		return workflow.Failed(xerrors.Errorf("error in replicateQueryableBackupTLSSecretInMemberClusters: %w", err)), nil
+	}
+
+	// Prepare Ops Manager StatefulSets in parallel in all member clusters
+	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+		status := r.createOpsManagerStatefulsetInMemberCluster(reconcilerHelper, appDBConnectionString, memberCluster, log)
+		if !status.IsOK() {
+			return status, nil
+		}
+	}
+
+	// wait for all statefulsets to become ready
+	var statefulSetStatus workflow.Status = workflow.OK()
+	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+		status := getStatefulSetStatus(opsManager.Namespace, reconcilerHelper.OpsManagerStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client)
+		statefulSetStatus = statefulSetStatus.Merge(status)
+	}
+	if !statefulSetStatus.IsOK() {
+		return statefulSetStatus, nil
+	}
+
+	opsManagerURL := opsManager.CentralURL()
 
 	// 3. Prepare Ops Manager (ensure the first user is created and public API key saved to secret)
 	var omAdmin api.OpsManagerAdmin
-	if status, omAdmin = r.prepareOpsManager(opsManager, log); !status.IsOK() {
+	var status workflow.Status
+	if status, omAdmin = r.prepareOpsManager(opsManager, opsManagerURL, log); !status.IsOK() {
 		return status, nil
 	}
 
@@ -424,10 +636,11 @@ func (r *OpsManagerReconciler) reconcileOpsManager(opsManager *omv1.MongoDBOpsMa
 	}
 
 	// 5. Stop backup daemon if necessary
-	if err := r.stopBackupDaemonIfNeeded(opsManager); err != nil {
+	if err := r.stopBackupDaemonIfNeeded(reconcilerHelper); err != nil {
 		return workflow.Failed(err), nil
 	}
 
+	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManagerURL)}
 	if _, err := r.updateStatus(opsManager, workflow.OK(), log, statusOptions...); err != nil {
 		return workflow.Failed(err), nil
 	}
@@ -461,38 +674,47 @@ func triggerOmChangedEventIfNeeded(opsManager *omv1.MongoDBOpsManager, log *zap.
 // Otherwise, the backup daemon will remain in a broken state (because of version missmatch between OM and backup daemon)
 // due to this STS limitation: https://github.com/kubernetes/kubernetes/issues/67250.
 // Later, the normal reconcile process will update the STS and start the backup daemon.
-func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(opsManager *omv1.MongoDBOpsManager) error {
+func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(reconcileHelper *OpsManagerReconcilerHelper) error {
+	opsManager := reconcileHelper.opsManager
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}
 
-	if _, err := r.scaleStatefulSet(opsManager.Namespace, opsManager.BackupStatefulSetName(), 0); err != nil {
-		return client.IgnoreNotFound(err)
+	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+		if _, err := r.scaleStatefulSet(opsManager.Namespace, reconcileHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), 0, memberCluster.Client); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+
+		// delete all backup daemon pods, scaling down the statefulSet to 0 does not terminate the pods,
+		// if the number of pods is greater than 1 and all of them are in an unhealthy state
+		cleanupOptions := mongodbCleanUpOptions{
+			namespace: opsManager.Namespace,
+			labels: map[string]string{
+				"app": reconcileHelper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster),
+			},
+		}
+
+		if err := memberCluster.Client.DeleteAllOf(context.TODO(), &corev1.Pod{}, &cleanupOptions); client.IgnoreNotFound(err) != nil {
+			return err
+		}
 	}
 
-	// delete all backup daemon pods, scaling down the statefulSet to 0 does not terminate the pods,
-	// if the number of pods is greater than 1 and all of them are in an unhealthy state
-	cleanupOptions := mongodbCleanUpOptions{
-		namespace: opsManager.Namespace,
-		labels: map[string]string{
-			"app": opsManager.BackupServiceName(),
-		},
-	}
-	err := r.client.DeleteAllOf(context.TODO(), &corev1.Pod{}, &cleanupOptions)
-
-	return client.IgnoreNotFound(err)
+	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) reconcileBackupDaemon(reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
 	if !opsManager.Spec.Backup.Enabled {
 		var backupStatus workflow.Status
-		backupStatus = workflow.OK()
+		backupStatus = workflow.Disabled()
 
-		for _, hostName := range opsManager.BackupDaemonFQDNs() {
-			_, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
+		for _, fqdn := range reconcilerHelper.BackupDaemonHeadlessFQDNs() {
+			// In case there is a backup daemon running still, while backup is not enabled, we check whether it is still configured in OM.
+			// We're keeping the `Running` status if still configured and marking it as `Disabled` otherwise.
+			backupStatus = workflow.OK()
+			_, err := omAdmin.ReadDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb)
 			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() || errors.Is(err, syscall.ECONNREFUSED) {
 				backupStatus = workflow.Disabled()
 				break
@@ -506,19 +728,25 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(opsManager *omv1.MongoDBOps
 		return backupStatus
 	}
 
-	// Prepare Backup Daemon StatefulSet (create and wait)
-	if status := r.createBackupDaemonStatefulset(opsManager, appDBConnectionString, log); !status.IsOK() {
-		return status
+	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+		// Prepare Backup Daemon StatefulSet (create and wait)
+		if status := r.createBackupDaemonStatefulset(reconcilerHelper, appDBConnectionString, memberCluster, log); !status.IsOK() {
+			return status
+		}
 	}
 
 	// Configure Backup using API
-	if status := r.prepareBackupInOpsManager(opsManager, omAdmin, appDBConnectionString, log); !status.IsOK() {
+	if status := r.prepareBackupInOpsManager(reconcilerHelper, opsManager, omAdmin, appDBConnectionString, log); !status.IsOK() {
 		return status
 	}
 
 	// StatefulSet will reach ready state eventually once backup has been configured in Ops Manager.
-	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.BackupStatefulSetName(), r.client); !status.IsOK() {
-		return status
+
+	// wait for all statefulsets to become ready
+	for _, memberCluster := range reconcilerHelper.GetMemberClusters() {
+		if status := getStatefulSetStatus(opsManager.Namespace, reconcilerHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), memberCluster.Client); !status.IsOK() {
+			return status
+		}
 	}
 
 	if _, err := r.updateStatus(opsManager, workflow.OK(), log, backupStatusPartOption); err != nil {
@@ -539,16 +767,17 @@ func (r *OpsManagerReconciler) readOpsManagerResource(request reconcile.Request,
 }
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
-func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager *omv1.MongoDBOpsManager, computedConnectionString string, log *zap.SugaredLogger) error {
+func (r *OpsManagerReconciler) ensureAppDBConnectionStringInMemberCluster(opsManager *omv1.MongoDBOpsManager, computedConnectionString string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) error {
 	var opsManagerSecretPath string
 	if r.VaultClient != nil {
 		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
 	}
-	_, err := r.ReadSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), opsManagerSecretPath)
+
+	_, err := memberCluster.SecretClient.ReadSecret(kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), opsManagerSecretPath)
 
 	if err != nil {
 		if secrets.SecretNotExist(err) {
-			log.Debugf("AppDB connection string secret was not found, creating %s now", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
+			log.Debugf("AppDB connection string secret was not found in cluster %s, creating %s now", memberCluster.Name, kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
 			// assume the secret was not found, need to create it
 
 			connectionStringSecret := secret.Builder().
@@ -557,7 +786,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager *omv1.Mong
 				SetField(util.AppDbConnectionStringKey, computedConnectionString).
 				Build()
 
-			return r.PutSecret(connectionStringSecret, opsManagerSecretPath)
+			return memberCluster.SecretClient.PutSecret(connectionStringSecret, opsManagerSecretPath)
 		}
 		log.Warnf("Error getting connection string secret: %s", err)
 		return err
@@ -571,7 +800,7 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionString(opsManager *omv1.Mong
 		SetNamespace(opsManager.Namespace).
 		SetStringMapToData(connectionStringSecretData).Build()
 	log.Debugf("Connection string secret already exists, updating %s", kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
-	return r.PutSecret(connectionStringSecret, opsManagerSecretPath)
+	return memberCluster.SecretClient.PutSecret(connectionStringSecret, opsManagerSecretPath)
 }
 
 func hashConnectionString(connectionString string) string {
@@ -580,34 +809,31 @@ func hashConnectionString(connectionString string) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
-// createOpsManagerStatefulset ensures the gen key secret exists and creates the Ops Manager StatefulSet.
-func (r *OpsManagerReconciler) createOpsManagerStatefulset(opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
-	if err := r.ensureGenKey(opsManager, log); err != nil {
-		return workflow.Failed(err)
-	}
+func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) workflow.Status {
+	opsManager := reconcilerHelper.opsManager
 
-	r.ensureConfiguration(opsManager, log)
+	r.ensureConfiguration(reconcilerHelper, log)
 
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
 	}
-	sts, err := construct.OpsManagerStatefulSet(r.SecretClient, opsManager, log,
+
+	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
+	sts, err := construct.OpsManagerStatefulSet(r.SecretClient, opsManager, memberCluster, log,
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
-		construct.WithKmipConfig(opsManager, r.client, log),
+		construct.WithKmipConfig(opsManager, memberCluster.Client, log),
+		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
+		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
 	)
 
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
 	}
 
-	if err := create.OpsManagerInKubernetes(r.client, opsManager, sts, log); err != nil {
+	if err := create.OpsManagerInKubernetes(memberCluster.Client, opsManager, sts, log); err != nil {
 		return workflow.Failed(err)
-	}
-
-	if status := getStatefulSetStatus(opsManager.Namespace, opsManager.Name, r.client); !status.IsOK() {
-		return status
 	}
 
 	return workflow.OK()
@@ -664,25 +890,25 @@ func AddOpsManagerController(mgr manager.Manager, memberClustersMap map[string]c
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified.
-func (r *OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) {
 	// update the central URL
-	setConfigProperty(opsManager, util.MmsCentralUrlPropKey, opsManager.CentralURL(), log)
+	setConfigProperty(reconcilerHelper.opsManager, util.MmsCentralUrlPropKey, reconcilerHelper.opsManager.CentralURL(), log)
 
-	if opsManager.Spec.AppDB.Security.IsTLSEnabled() {
-		setConfigProperty(opsManager, util.MmsMongoSSL, "true", log)
+	if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
+		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
 	}
-	if opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
-		setConfigProperty(opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
+	if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
+		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
 	}
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
-	setConfigProperty(opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
+	setConfigProperty(reconcilerHelper.opsManager, util.MmsVersionsDirectory, "/mongodb-ops-manager/mongodb-releases/", log)
 
 	// feature controls will always be enabled
-	setConfigProperty(opsManager, util.MmsFeatureControls, "true", log)
+	setConfigProperty(reconcilerHelper.opsManager, util.MmsFeatureControls, "true", log)
 
-	if opsManager.Spec.Backup.QueryableBackupSecretRef.Name != "" {
-		setConfigProperty(opsManager, util.BrsQueryablePem, "/certs/queryable.pem", log)
+	if reconcilerHelper.opsManager.Spec.Backup.QueryableBackupSecretRef.Name != "" {
+		setConfigProperty(reconcilerHelper.opsManager, util.BrsQueryablePem, "/certs/queryable.pem", log)
 	}
 }
 
@@ -690,30 +916,36 @@ func (r *OpsManagerReconciler) ensureConfiguration(opsManager *omv1.MongoDBOpsMa
 // Note, that the idea of creating two statefulsets for Ops Manager and Backup Daemon in parallel hasn't worked out
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
-func (r *OpsManagerReconciler) createBackupDaemonStatefulset(opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
-	if !opsManager.Spec.Backup.Enabled {
+func (r *OpsManagerReconciler) createBackupDaemonStatefulset(reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) workflow.Status {
+	if !reconcilerHelper.opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
 
-	if err := r.ensureAppDBConnectionString(opsManager, appDBConnectionString, log); err != nil {
+	if err := r.ensureAppDBConnectionStringInMemberCluster(reconcilerHelper.opsManager, appDBConnectionString, memberCluster, log); err != nil {
 		return workflow.Failed(err)
 	}
 
-	r.ensureConfiguration(opsManager, log)
+	r.ensureConfiguration(reconcilerHelper, log)
 
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
 		vaultConfig = r.VaultClient.VaultConfig
 	}
-	sts, err := construct.BackupDaemonStatefulSet(r.SecretClient, opsManager, log,
+	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
+	sts, err := construct.BackupDaemonStatefulSet(r.SecretClient, reconcilerHelper.opsManager, memberCluster, log,
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
-		construct.WithKmipConfig(opsManager, r.client, log))
+		// TODO KMIP support will not work across clusters
+		construct.WithKmipConfig(reconcilerHelper.opsManager, memberCluster.Client, log),
+		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
+		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
+	)
+
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("error building stateful set: %w", err))
 	}
 
-	needToRequeue, err := create.BackupDaemonInKubernetes(r.client, opsManager, sts, log)
+	needToRequeue, err := create.BackupDaemonInKubernetes(memberCluster.Client, reconcilerHelper.opsManager, sts, log)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -839,14 +1071,16 @@ func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, lo
 	}
 }
 
-// ensureGenKey
-func (r *OpsManagerReconciler) ensureGenKey(om *omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func (r *OpsManagerReconciler) ensureGenKeyInOperatorCluster(om *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (map[string][]byte, error) {
 	objectKey := kube.ObjectKey(om.Namespace, om.Name+"-gen-key")
 	var opsManagerSecretPath string
 	if r.VaultClient != nil {
 		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
 	}
-	_, err := r.ReadSecret(objectKey, opsManagerSecretPath)
+	genKeySecretMap, err := r.ReadBinarySecret(objectKey, opsManagerSecretPath)
+	if err == nil {
+		return genKeySecretMap, nil
+	}
 
 	if secrets.SecretNotExist(err) {
 		// todo if the key is not found but the AppDB is initialized - OM will fail to start as preflight
@@ -856,7 +1090,7 @@ func (r *OpsManagerReconciler) ensureGenKey(om *omv1.MongoDBOpsManager, log *zap
 		token := make([]byte, 24)
 		_, err := rand.Read(token)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		keyMap := map[string][]byte{"gen.key": token}
 
@@ -869,9 +1103,123 @@ func (r *OpsManagerReconciler) ensureGenKey(om *omv1.MongoDBOpsManager, log *zap
 			SetByteData(keyMap).
 			Build()
 
-		return r.PutBinarySecret(genKeySecret, opsManagerSecretPath)
+		return keyMap, r.PutBinarySecret(genKeySecret, opsManagerSecretPath)
 	}
-	return err
+
+	return nil, xerrors.Errorf("error reading secret %v: %w", objectKey, err)
+}
+
+func (r *OpsManagerReconciler) replicateGenKeyInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper, secretMap map[string][]byte) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() {
+		return nil
+	}
+	objectKey := kube.ObjectKey(reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Name+"-gen-key")
+	var opsManagerSecretPath string
+	if r.VaultClient != nil {
+		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
+	}
+
+	genKeySecret := secret.Builder().
+		SetName(objectKey.Name).
+		SetNamespace(objectKey.Namespace).
+		SetLabels(map[string]string{}).
+		SetByteData(secretMap).
+		Build()
+
+	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+		if err := memberCluster.SecretClient.PutBinarySecret(genKeySecret, opsManagerSecretPath); err != nil {
+			return xerrors.Errorf("error replicating %v secret to cluster %s: %w", objectKey, memberCluster.Name, err)
+		}
+	}
+
+	return nil
+}
+func (r *OpsManagerReconciler) replicateQueryableBackupTLSSecretInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() {
+		return nil
+	}
+
+	if reconcileHelper.opsManager.Spec.Backup == nil || reconcileHelper.opsManager.Spec.Backup.QueryableBackupSecretRef.Name == "" {
+		return nil
+	}
+	return r.replicateSecretInMemberClusters(reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.QueryableBackupSecretRef.Name)
+}
+
+func (r *OpsManagerReconciler) replicateSecretInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper, namespace string, secretName string) error {
+	objectKey := kube.ObjectKey(namespace, secretName)
+	var opsManagerSecretPath string
+	if r.VaultClient != nil {
+		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
+	}
+	secretMap, err := r.ReadSecret(objectKey, opsManagerSecretPath)
+	if err != nil {
+		return xerrors.Errorf("failed to read secret %s: %w", secretName, err)
+	}
+
+	newSecret := secret.Builder().
+		SetName(objectKey.Name).
+		SetNamespace(objectKey.Namespace).
+		SetLabels(map[string]string{}).
+		SetStringMapToData(secretMap).
+		Build()
+
+	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+		if err := memberCluster.SecretClient.PutSecretIfChanged(newSecret, opsManagerSecretPath); err != nil {
+			return xerrors.Errorf("error replicating secret %v to cluster %s: %w", objectKey, memberCluster.Name, err)
+		}
+	}
+
+	return nil
+}
+
+func (r *OpsManagerReconciler) replicateTLSCAInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.Spec.GetOpsManagerCA() == "" {
+		return nil
+	}
+
+	return r.replicateConfigMapInMemberClusters(reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.GetOpsManagerCA())
+}
+
+func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.Spec.GetAppDbCA() == "" {
+		return nil
+	}
+
+	return r.replicateConfigMapInMemberClusters(reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.GetAppDbCA())
+}
+
+func (r *OpsManagerReconciler) replicateKMIPCAInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper) error {
+	if !reconcileHelper.opsManager.Spec.IsKmipEnabled() {
+		return nil
+	}
+
+	return r.replicateConfigMapInMemberClusters(reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Encryption.Kmip.Server.CA)
+}
+
+func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(reconcileHelper *OpsManagerReconcilerHelper, namespace string, configMapName string) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || configMapName == "" {
+		return nil
+	}
+
+	configMapNSName := types.NamespacedName{Name: configMapName, Namespace: namespace}
+	caConfigMapData, err := configmap.ReadData(r.client, configMapNSName)
+	if err != nil {
+		return xerrors.Errorf("failed to read config map %+v from central cluster: %w", configMapNSName, err)
+	}
+
+	caConfigMap := configmap.Builder().
+		SetName(configMapNSName.Name).
+		SetNamespace(configMapNSName.Namespace).
+		SetData(caConfigMapData).
+		Build()
+
+	for _, memberCluster := range reconcileHelper.GetMemberClusters() {
+		if err := configmap.CreateOrUpdate(memberCluster.Client, caConfigMap); err != nil && !apiErrors.IsAlreadyExists(err) {
+			return xerrors.Errorf("failed to create or update config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
+		}
+	}
+
+	return nil
 }
 
 func (r *OpsManagerReconciler) getOpsManagerAPIKeySecretName(opsManager *omv1.MongoDBOpsManager) (string, workflow.Status) {
@@ -900,7 +1248,7 @@ func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 // asking the user to fix this manually.
 // Theoretically, the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
 // allow the db to get recreated, but this is a quite radical operation.
-func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
+func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsManager, centralURL string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -949,7 +1297,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsMana
 
 	if secrets.SecretNotExist(err) {
 
-		apiKey, err := r.omInitializer.TryCreateUser(opsManager.CentralURL(), opsManager.Spec.Version, newUser, ca)
+		apiKey, err := r.omInitializer.TryCreateUser(centralURL, opsManager.Spec.Version, newUser, ca)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
 			// by modifying the credentials secret
@@ -1020,24 +1368,24 @@ func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsMana
 		return workflow.Failed(err), nil
 	}
 
-	admin := r.omAdminProvider(opsManager.CentralURL(), cred.PublicAPIKey, cred.PrivateAPIKey, ca)
+	admin := r.omAdminProvider(centralURL, cred.PublicAPIKey, cred.PrivateAPIKey, ca)
 	return workflow.OK(), admin
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
-func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) prepareBackupInOpsManager(reconcileHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
 
 	// 1. Enabling Daemon Config if necessary
-	backupHostNames := opsManager.BackupDaemonFQDNs()
-	for _, hostName := range backupHostNames {
-		dc, err := omAdmin.ReadDaemonConfig(hostName, util.PvcMountPathHeadDb)
+	backupFQDNs := reconcileHelper.BackupDaemonHeadlessFQDNs()
+	for _, fqdn := range backupFQDNs {
+		dc, err := omAdmin.ReadDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb)
 		if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
-			log.Infow("Backup Daemons is not configured, enabling it", "hostname", hostName, "headDB", util.PvcMountPathHeadDb)
+			log.Infow("Backup Daemons is not configured, enabling it", "hostname", fqdn.hostname, "headDB", util.PvcMountPathHeadDb)
 
-			err = omAdmin.CreateDaemonConfig(hostName, util.PvcMountPathHeadDb, opsManager.Spec.Backup.AssignmentLabels)
+			err = omAdmin.CreateDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb, opsManager.GetMemberClusterBackupAssignmentLabels(fqdn.memberClusterName))
 			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
 				// Unfortunately by this time backup daemon may not have been started yet, and we don't have proper
 				// mechanism to ensure this using readiness probe, so we just retry
@@ -1051,8 +1399,9 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(opsManager *omv1.MongoD
 			// The Assignment Labels are the only thing that can change at the moment.
 			// If we add new features for controlling the Backup Daemons, we may want
 			// to compare the whole backup.DaemonConfig objects.
-			if !reflect.DeepEqual(opsManager.Spec.Backup.AssignmentLabels, dc.Labels) {
-				dc.Labels = opsManager.Spec.Backup.AssignmentLabels
+			assignmentLabels := opsManager.GetMemberClusterBackupAssignmentLabels(fqdn.memberClusterName)
+			if !reflect.DeepEqual(assignmentLabels, dc.Labels) {
+				dc.Labels = assignmentLabels
 				err = omAdmin.UpdateDaemonConfig(dc)
 				if err != nil {
 					return workflow.Failed(xerrors.New(err.Error()))
@@ -1647,8 +1996,40 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 // it's used in MongoDBOpsManagerEventHandler
 func (r *OpsManagerReconciler) OnDelete(obj interface{}, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
+	helper, err := newOpsManagerReconcilerHelper(r, opsManager, r.memberClustersMap, log)
+	if err != nil {
+		log.Errorf("Error initializing OM reconciler helper: %s", err)
+		return
+	}
 
-	r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
+	// r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
+	for _, memberCluster := range helper.GetMemberClusters() {
+		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
+		r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
+	}
+
+	for _, memberCluster := range helper.GetMemberClusters() {
+		memberClient := memberCluster.Client
+		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
+		err := memberClient.DeleteStatefulSet(kube.ObjectKey(opsManager.Namespace, stsName))
+		if err != nil {
+			log.Warnf("Failed to delete statefulset: %s in cluster: %s", stsName, memberCluster.Name)
+		}
+	}
+
+	for _, memberCluster := range helper.GetMemberClusters() {
+		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
+		r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
+	}
+
+	for _, memberCluster := range helper.GetMemberClusters() {
+		memberClient := memberCluster.Client
+		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
+		err := memberClient.DeleteStatefulSet(kube.ObjectKey(opsManager.Namespace, stsName))
+		if err != nil {
+			log.Warnf("Failed to delete statefulset: %s in cluster: %s", stsName, memberCluster.Name)
+		}
+	}
 
 	appDbReconciler, err := r.createNewAppDBReconciler(opsManager, log)
 	if err != nil {

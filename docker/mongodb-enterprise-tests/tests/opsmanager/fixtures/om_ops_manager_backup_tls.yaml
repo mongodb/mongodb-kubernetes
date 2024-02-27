@@ -34,6 +34,7 @@ spec:
     version: 4.4.20-ent
     members: 3
     security:
+      certsSecretPrefix: appdb
       tls:
         ca: issuer-ca
         secretRef:
@@ -62,4 +63,3 @@ spec:
     mms.mail.transport: smtp
     mms.minimumTLSVersion: TLSv1.2
     mms.replyToEmailAddr: cloud-manager-support@mongodb.com
-

@@ -22,9 +22,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
     S3_SECRET_NAME,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
 FIRST_PROJECT_RS_NAME = "mdb-four-two"
@@ -126,7 +124,7 @@ def ops_manager(
     resource["spec"]["configuration"]["automation.versions.source"] = "hybrid"
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource

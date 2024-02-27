@@ -10,9 +10,7 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import create_appdb_certs, is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 MDB_VERSION = "4.2.1"
 CA_FILE_PATH_IN_TEST_POD = "/tests/ca.crt"
@@ -50,7 +48,7 @@ def ops_manager(
     os.environ["REQUESTS_CA_BUNDLE"] = issuer_ca_filepath
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(om)
+        enable_multi_cluster_deployment(om)
 
     create_or_update(om)
     return om

@@ -225,14 +225,22 @@ class KubernetesTester(object):
         cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
 
     @classmethod
-    def create_or_update_pvc(cls, namespace: str, body: Dict, storage_class_name: str = "gp2"):
+    def create_or_update_pvc(
+        cls,
+        namespace: str,
+        body: Dict,
+        storage_class_name: str = "gp2",
+        api_client: Optional[kubernetes.client.ApiClient] = None,
+    ):
         if storage_class_name is not None:
             body["spec"]["storageClassName"] = storage_class_name
         try:
-            cls.clients("corev1").create_namespaced_persistent_volume_claim(body=body, namespace=namespace)
+            cls.clients("corev1", api_client=api_client).create_namespaced_persistent_volume_claim(
+                body=body, namespace=namespace
+            )
         except client.rest.ApiException as e:
             if e.status == 409:
-                cls.clients("corev1").patch_namespaced_persistent_volume_claim(
+                cls.clients("corev1", api_client=api_client).patch_namespaced_persistent_volume_claim(
                     body=body, name=body["metadata"]["name"], namespace=namespace
                 )
 
@@ -759,7 +767,8 @@ class KubernetesTester(object):
     def ensure_group(org_id, group_name):
         try:
             return KubernetesTester.get_om_group_id(group_name=group_name, org_id=org_id)
-        except:
+        except Exception as e:
+            print(f"Caught exception: {e}")
             return KubernetesTester.create_group(org_id, group_name)
 
     @staticmethod
@@ -1252,11 +1261,14 @@ class KubernetesTester(object):
         expected_size,
         storage_class=None,
         labels: Optional[Dict[str, str]] = None,
+        api_client: Optional[client.ApiClient] = None,
     ):
         assert volume.name == expected_name
         assert volume.persistent_volume_claim.claim_name == expected_claim_name
 
-        pvc = client.CoreV1Api().read_namespaced_persistent_volume_claim(expected_claim_name, namespace)
+        pvc = client.CoreV1Api(api_client=api_client).read_namespaced_persistent_volume_claim(
+            expected_claim_name, namespace
+        )
         assert pvc.status.phase == "Bound"
         assert pvc.spec.resources.requests["storage"] == expected_size
 

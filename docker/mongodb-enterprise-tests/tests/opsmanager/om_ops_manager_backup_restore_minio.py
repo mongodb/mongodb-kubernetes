@@ -32,9 +32,7 @@ from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import (
     FIRST_PROJECT_RS_NAME,
     SECOND_PROJECT_RS_NAME,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
@@ -195,7 +193,7 @@ def ops_manager(
     }
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     return resource
 

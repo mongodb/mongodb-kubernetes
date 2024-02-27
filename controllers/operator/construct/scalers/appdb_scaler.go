@@ -143,7 +143,7 @@ func (s *AppDBSingleClusterScaler) CurrentReplicas() int {
 }
 
 func (s *AppDBSingleClusterScaler) MemberClusterName() string {
-	return om.DummmyCentralClusterName
+	return multicluster.LegacyCentralClusterName
 }
 
 func (s *AppDBSingleClusterScaler) MemberClusterNum() int {

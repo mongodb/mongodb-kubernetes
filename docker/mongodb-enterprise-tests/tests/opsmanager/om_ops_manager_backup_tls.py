@@ -13,9 +13,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     OPLOG_RS_NAME,
     new_om_data_store,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
@@ -58,7 +56,7 @@ def ops_manager(
     resource["spec"]["applicationDatabase"]["security"]["tls"]["ca"] = app_db_issuer_ca_configmap
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource

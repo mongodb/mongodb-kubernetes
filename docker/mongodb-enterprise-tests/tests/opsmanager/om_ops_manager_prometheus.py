@@ -14,9 +14,7 @@ from kubetester.mongodb import Phase, generic_replicaset
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 def certs_for_prometheus(issuer: str, namespace: str, resource_name: str) -> str:
@@ -61,7 +59,7 @@ def ops_manager(
     }
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource

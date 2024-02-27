@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -266,17 +268,7 @@ func (r *ReconcileAppDbReplicaSet) initializeMemberClusters(appDBSpec omv1.AppDB
 		})
 	} else {
 		// for SingleCluster member cluster list will contain one member  which will be the central (default) cluster
-		r.memberClusters = []multicluster.MemberCluster{
-			{
-				Name:         omv1.DummmyCentralClusterName,
-				Index:        0,
-				Client:       r.centralClient,
-				Replicas:     appDBSpec.Members,
-				SecretClient: r.SecretClient,
-				Active:       true,
-				Healthy:      true,
-			},
-		}
+		r.memberClusters = []multicluster.MemberCluster{multicluster.GetLegacyCentralMemberCluster(appDBSpec.Members, 0, r.centralClient, r.SecretClient)}
 	}
 
 	log.Debugf("Initialized member cluster list: %+v", util.Transform(r.memberClusters, func(m multicluster.MemberCluster) string {
@@ -373,29 +365,24 @@ func (r *ReconcileAppDbReplicaSet) updateLastAppliedMemberSpec(spec omv1.AppDBSp
 	return nil
 }
 
-// updateMemberClusterMapping returns a map of member cluster name -> cluster index.
-// Mapping is preserved in spec.ClusterMappingConfigMapName() config map. Config map is created if not exists.
-// Subsequent executions will merge, update and store mappings from config map and from clusterSpecList and save back to config map.
-func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(spec omv1.AppDBSpec) (map[string]int, error) {
-	if !spec.IsMultiCluster() {
-		return nil, nil
-	}
-
+// updateMemberClusterMapping is maintains mapping of member cluster names to its indexes
+// TODO: it's a first step towards extracting this into a class to maintain a generic deployment state + replication (CLOUDP-199499)
+func updateMemberClusterMapping(namespace string, configMapName string, centralClient kubernetesClient.Client, memberClusterNames []string) (map[string]int, error) {
 	// read existing config map
 	existingMapping := map[string]int{}
-	existingConfigMap, err := r.centralClient.GetConfigMap(types.NamespacedName{Name: spec.ClusterMappingConfigMapName(), Namespace: spec.Namespace})
+	existingConfigMap, err := centralClient.GetConfigMap(types.NamespacedName{Name: configMapName, Namespace: namespace})
 	existingConfigMapNotFound := false
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			existingConfigMapNotFound = true
 		} else {
-			return nil, xerrors.Errorf("failed to read cluster mapping config map %s: %w", spec.ClusterMappingConfigMapName(), err)
+			return nil, xerrors.Errorf("failed to read cluster mapping config map %s: %w", configMapName, err)
 		}
 	} else {
 		for clusterName, indexStr := range existingConfigMap.Data {
 			index, err := strconv.Atoi(indexStr)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to read cluster mapping indexes from config map %s (%+v): %w", spec.ClusterMappingConfigMapName(), existingConfigMap.Data, err)
+				return nil, xerrors.Errorf("failed to read cluster mapping indexes from config map %s (%+v): %w", configMapName, existingConfigMap.Data, err)
 			}
 			existingMapping[clusterName] = index
 		}
@@ -407,9 +394,9 @@ func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(spec omv1.AppDBSpe
 	}
 
 	// merge existing config map with cluster spec list
-	for _, clusterSpecItem := range spec.GetClusterSpecList() {
-		if _, ok := newMapping[clusterSpecItem.ClusterName]; !ok {
-			newMapping[clusterSpecItem.ClusterName] = getNextIndex(newMapping)
+	for _, clusterName := range memberClusterNames {
+		if _, ok := newMapping[clusterName]; !ok {
+			newMapping[clusterName] = getNextIndex(newMapping)
 		}
 	}
 
@@ -419,15 +406,15 @@ func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(spec omv1.AppDBSpe
 	}
 
 	// save config map if needed
-	mappingConfigMap := configmap.Builder().SetName(spec.ClusterMappingConfigMapName()).SetNamespace(spec.Namespace).SetData(configMapData).Build()
+	mappingConfigMap := configmap.Builder().SetName(configMapName).SetNamespace(namespace).SetData(configMapData).Build()
 	if existingConfigMapNotFound {
-		if err := r.centralClient.CreateConfigMap(mappingConfigMap); err != nil {
-			return nil, xerrors.Errorf("failed to create cluster mapping config map %s: %w", spec.ClusterMappingConfigMapName(), err)
+		if err := centralClient.CreateConfigMap(mappingConfigMap); err != nil {
+			return nil, xerrors.Errorf("failed to create cluster mapping config map %s: %w", configMapName, err)
 		}
 	} else if !reflect.DeepEqual(newMapping, existingMapping) {
 		// update only changed
-		if err := r.centralClient.UpdateConfigMap(mappingConfigMap); err != nil {
-			return nil, xerrors.Errorf("failed to update cluster mapping config map %s: %w", spec.ClusterMappingConfigMapName(), err)
+		if err := centralClient.UpdateConfigMap(mappingConfigMap); err != nil {
+			return nil, xerrors.Errorf("failed to update cluster mapping config map %s: %w", configMapName, err)
 		}
 	}
 
@@ -441,6 +428,19 @@ func getNextIndex(m map[string]int) int {
 		maxi = intp.Max(maxi, val)
 	}
 	return maxi + 1
+}
+
+// updateMemberClusterMapping returns a map of member cluster name -> cluster index.
+// Mapping is preserved in spec.ClusterMappingConfigMapName() config map. Config map is created if not exists.
+// Subsequent executions will merge, update and store mappings from config map and from clusterSpecList and save back to config map.
+func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(spec omv1.AppDBSpec) (map[string]int, error) {
+	if !spec.IsMultiCluster() {
+		return nil, nil
+	}
+
+	return updateMemberClusterMapping(spec.Namespace, spec.ClusterMappingConfigMapName(), r.centralClient, util.Transform(spec.GetClusterSpecList(), func(clusterSpecItem mdbv1.ClusterSpecItem) string {
+		return clusterSpecItem.ClusterName
+	}))
 }
 
 // shouldReconcileAppDB returns a boolean indicating whether or not the reconciliation for this set of processes should occur.
@@ -667,7 +667,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	// FIXME: use correct MembersOption for scaler
 	return r.updateStatus(opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
 }
 
@@ -731,7 +730,7 @@ func getMultiClusterAppDBService(appdb omv1.AppDBSpec, clusterNum int, podNum in
 		"controller":                         "mongodb-enterprise-operator",
 	}
 	labelSelectors := map[string]string{
-		"statefulset.kubernetes.io/pod-name": dns.GetMultiAppDBPodName(appdb.Name(), clusterNum, podNum),
+		"statefulset.kubernetes.io/pod-name": dns.GetMultiPodName(appdb.Name(), clusterNum, podNum),
 		"controller":                         "mongodb-enterprise-operator",
 	}
 	additionalConfig := appdb.GetAdditionalMongodConfig()
@@ -801,7 +800,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(om *omv1.
 	} else {
 		s, err = r.KubeClient.GetSecret(kube.ObjectKey(om.Namespace, secretName))
 		if err != nil {
-			return workflow.Failed(xerrors.Errorf("can't read current certificate secret: %w", err))
+			return workflow.Failed(xerrors.Errorf("can't read current certificate secret %s: %w", secretName, err))
 		}
 
 		// SecretTypeTLS is kubernetes.io/tls
@@ -1148,7 +1147,7 @@ func (r *ReconcileAppDbReplicaSet) generateProcessList(opsManager *omv1.MongoDBO
 		members := scale.ReplicasThisReconciliation(scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters))
 		var hostnames []string
 		if opsManager.Spec.AppDB.IsMultiCluster() {
-			hostnames = dns.GetMultiClusterProcessHostnames(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members, nil)
+			hostnames = dns.GetMultiClusterProcessHostnames(opsManager.Spec.AppDB.GetName(), opsManager.GetNamespace(), memberCluster.Index, members, opsManager.Spec.GetClusterDomain(), nil)
 		} else {
 			hostnames, _ = dns.GetDNSNames(opsManager.Spec.AppDB.GetName(), opsManager.Spec.AppDB.ServiceName(), opsManager.GetNamespace(), opsManager.Spec.GetClusterDomain(), members, nil)
 		}
@@ -1386,7 +1385,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(opsManager *omv1.MongoDBO
 
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
 		// the user password is deleted
-		log.Debugf("Deleting Operator managed password secret/%s from namespace", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Namespace)
+		log.Debugf("Deleting Operator managed password secret/%s from namespace %s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Namespace)
 		if err := r.DeleteSecret(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secrets.SecretNotExist(err) {
 			return "", err
 		}

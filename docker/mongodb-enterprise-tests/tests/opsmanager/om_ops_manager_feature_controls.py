@@ -6,9 +6,7 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 @fixture(scope="module")

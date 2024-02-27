@@ -86,7 +86,7 @@ func (m MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
 	}
 	return hostnames, nil
 }
@@ -610,7 +610,7 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, nil)...)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).

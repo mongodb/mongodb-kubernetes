@@ -10,7 +10,7 @@ from kubetester import (
     create_or_update_secret,
     read_secret,
 )
-from kubetester.kubetester import KubernetesTester, create_testing_namespace
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
@@ -23,7 +23,7 @@ from tests.conftest import (
 )
 
 from . import prepare_multi_cluster_namespaces
-from .conftest import cluster_spec_list
+from .conftest import cluster_spec_list, create_namespace
 
 
 @fixture(scope="module")
@@ -39,36 +39,6 @@ def mdbb_ns(namespace: str):
 @fixture(scope="module")
 def unmanaged_mdb_ns(namespace: str):
     return "{}-mdb-ns-c".format(namespace)
-
-
-def create_namespace(
-    central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
-    task_id: str,
-    namespace: str,
-    image_pull_secret_name: str,
-    image_pull_secret_data: Dict[str, str],
-) -> str:
-    for client in member_cluster_clients:
-        create_testing_namespace(task_id, namespace, client.api_client, True)
-        create_or_update_secret(
-            namespace,
-            image_pull_secret_name,
-            image_pull_secret_data,
-            type="kubernetes.io/dockerconfigjson",
-            api_client=client.api_client,
-        )
-
-    create_testing_namespace(task_id, namespace, central_cluster_client)
-    create_or_update_secret(
-        namespace,
-        image_pull_secret_name,
-        image_pull_secret_data,
-        type="kubernetes.io/dockerconfigjson",
-        api_client=client.api_client,
-    )
-
-    return namespace
 
 
 @fixture(scope="module")

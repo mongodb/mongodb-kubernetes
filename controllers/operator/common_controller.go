@@ -401,14 +401,13 @@ func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
 }
 
 // scaleStatefulSet sets the number of replicas for a StatefulSet and returns a reference of the updated resource.
-func (r *ReconcileCommonController) scaleStatefulSet(namespace, name string, replicas int32) (appsv1.StatefulSet, error) {
-	if set, err := r.client.GetStatefulSet(kube.ObjectKey(namespace, name)); err != nil {
+func (r *ReconcileCommonController) scaleStatefulSet(namespace, name string, replicas int32, client kubernetesClient.Client) (appsv1.StatefulSet, error) {
+	if set, err := client.GetStatefulSet(kube.ObjectKey(namespace, name)); err != nil {
 		return set, err
 	} else {
 		set.Spec.Replicas = &replicas
-		return r.client.UpdateStatefulSet(set)
+		return client.UpdateStatefulSet(set)
 	}
-
 }
 
 // getStatefulSetStatus returns the workflow.Status based on the status of the StatefulSet.

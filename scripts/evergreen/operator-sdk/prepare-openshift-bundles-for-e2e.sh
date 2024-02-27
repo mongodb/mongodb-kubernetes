@@ -174,7 +174,7 @@ generate_helm_charts
 export CERTIFIED_BUNDLE_IMAGE=${CURRENT_BUNDLE_IMAGE}
 export COMMUNITY_BUNDLE_IMAGE=${CURRENT_COMMUNITY_BUNDLE_IMAGE}
 export VERSION="${current_incremented_version}"
-export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-enterprise-operator:${VERSION_ID}"
+export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-enterprise-operator-ubi:${VERSION_ID}"
 header "Preparing OpenShift bundles:"
 scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 

@@ -18,9 +18,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     create_aws_secret,
     create_s3_bucket,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
 The test checks the backup for MongoDB 4.0 and 4.2, checks that snapshots are built and PIT restore and 
@@ -60,7 +58,7 @@ def ops_manager(
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource

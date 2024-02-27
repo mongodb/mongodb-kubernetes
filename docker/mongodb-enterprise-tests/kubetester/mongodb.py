@@ -419,7 +419,6 @@ def in_desired_state(
     is_in_desired_state = current_state == desired_state
     if msg_regexp is not None:
         print("msg_regexp: " + str(msg_regexp))
-        print("type: " + str(type(msg_regexp)))
         regexp = re.compile(msg_regexp)
         is_in_desired_state = is_in_desired_state and current_message is not None and regexp.match(current_message)
 

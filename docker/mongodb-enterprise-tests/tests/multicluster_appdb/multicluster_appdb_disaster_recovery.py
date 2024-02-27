@@ -109,8 +109,8 @@ def test_create_om_majority_down(ops_manager: MongoDBOpsManager, appdb_certs_sec
     )
 
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     config_version.version = ops_manager.get_automation_config_tester().automation_config["version"]
 
@@ -203,8 +203,8 @@ def test_delete_om_and_appdb_statefulset_in_failed_cluster(
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
 def test_appdb_is_stable_and_om_is_recreated(ops_manager: MongoDBOpsManager, config_version):
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     # there shouldn't be any automation config version change when one of the clusters is lost and OM is recreated
     current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
@@ -218,8 +218,8 @@ def test_add_appdb_member_to_om_cluster(ops_manager: MongoDBOpsManager, config_v
         [3, 2, 1],
     )
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     # there should be exactly one automation config version change when we add new member
     current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
@@ -238,15 +238,15 @@ def test_add_appdb_member_to_om_cluster_force_reconfig(ops_manager: MongoDBOpsMa
         [3, 2, 1],
     )
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Pending)
 
     ops_manager.reload()
     ops_manager["metadata"]["annotations"].update({"mongodb.com/v1.forceReconfigure": "true"})
     create_or_update(ops_manager)
 
     # This can potentially take quite a bit of time. AppDB needs to go up and sync with OM (which will be crashlooping)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=2400)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     replica_set_members = ops_manager.get_automation_config_tester().get_replica_set_members(f"{ops_manager.name}-db")
     assert len(replica_set_members) == 3 + 2 + 1
@@ -263,8 +263,8 @@ def test_remove_failed_member_cluster_has_been_scaled_down(ops_manager: MongoDBO
         ["kind-e2e-cluster-2", OM_MEMBER_CLUSTER_NAME], [3, 1]
     )
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
-    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     current_ac_version = ops_manager.get_automation_config_tester().automation_config["version"]
     assert current_ac_version == config_version.version + 2  # two scale downs
