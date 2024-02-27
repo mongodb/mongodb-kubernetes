@@ -14,9 +14,7 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -33,7 +31,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     om.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(om)
+        enable_multi_cluster_deployment(om)
 
     return om
 
@@ -52,9 +50,13 @@ class TestOpsManagerCreation:
         ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600)
 
     def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_status_resource_not_ready(
-            ops_manager.name, msg_regexp="Not all the Pods are ready \(wanted: 1.*\)"
-        )
+        for _, cluster_spec_item in ops_manager.get_om_indexed_cluster_spec_items():
+            ops_manager.om_status().assert_status_resource_not_ready(
+                ops_manager.om_sts_name(cluster_spec_item["clusterName"]),
+                msg_regexp=f"Not all the Pods are ready \(wanted: {cluster_spec_item['members']}.*\)",
+            )
+            # we don't run this check for multi-cluster mode
+            break
 
     def test_om_status_1_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
@@ -297,19 +299,25 @@ class TestOpsManagerUpdate:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=1200)
 
     def test_appdb_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        if not is_multi_cluster():
+        for _, cluster_spec_item in ops_manager.get_appdb_indexed_cluster_spec_items():
             ops_manager.appdb_status().assert_status_resource_not_ready(
-                ops_manager.app_db_name(),
-                msg_regexp="Not all the Pods are ready \(wanted: 3.*\)",
+                ops_manager.app_db_sts_name(cluster_spec_item["clusterName"]),
+                msg_regexp=f"Not all the Pods are ready \(wanted: {cluster_spec_item['members']}.*\)",
             )
+            # we don't run this check for multi-cluster mode
+            break
 
     def test_om_status_0_sts_not_ready(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Pending, msg_regexp="StatefulSet not ready", timeout=600)
 
     def test_om_status_0_pods_not_ready(self, ops_manager: MongoDBOpsManager):
-        ops_manager.om_status().assert_status_resource_not_ready(
-            ops_manager.name, msg_regexp="Not all the Pods are ready \(wanted: 1.*\)"
-        )
+        for _, cluster_spec_item in ops_manager.get_om_indexed_cluster_spec_items():
+            ops_manager.om_status().assert_status_resource_not_ready(
+                ops_manager.om_sts_name(cluster_spec_item["clusterName"]),
+                msg_regexp=f"Not all the Pods are ready \(wanted: {cluster_spec_item['members']}.*\)",
+            )
+            # we don't run this check for multi-cluster mode
+            break
 
     def test_om_status_1_reaches_running_phase(self, ops_manager: MongoDBOpsManager):
         ops_manager.om_status().assert_reaches_phase(Phase.Running)

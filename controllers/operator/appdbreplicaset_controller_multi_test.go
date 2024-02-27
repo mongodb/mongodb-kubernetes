@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -36,7 +38,7 @@ import (
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw"
 
 func TestAppDB_MultiCluster(t *testing.T) {
-	centralClusterName := om.DummmyCentralClusterName
+	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
 	clusters := []string{centralClusterName, memberClusterName, memberClusterName2}
@@ -67,7 +69,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	kubeManager := mock.NewManager(opsManager)
 
 	// prepare CA config map in central cluster
-	caConfigMapName := createCAConfigMap(t, kubeManager.GetClient(), appdb)
+	caConfigMapName := createAppDbCAConfigMap(t, kubeManager.GetClient(), appdb)
 	tlsCertSecretName, tlsSecretPemHash := createAppDBTLSCert(t, kubeManager.GetClient(), appdb)
 	pemSecretName := tlsCertSecretName + "-pem"
 
@@ -140,7 +142,7 @@ func agentAPIKeySecretName(projectID string) string {
 
 func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	log := zap.S()
-	centralClusterName := om.DummmyCentralClusterName
+	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
 	memberClusterName3 := "member-cluster-3"
@@ -414,7 +416,7 @@ func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t *testing.
 
 func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	log := zap.S()
-	centralClusterName := om.DummmyCentralClusterName
+	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName1 := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
 	memberClusterName3 := "member-cluster-3"
@@ -680,7 +682,7 @@ func createOMAPIKeySecret(t *testing.T, secretClient secrets.SecretClient, opsMa
 	require.NoError(t, err)
 }
 
-func createCAConfigMap(t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) string {
+func createAppDbCAConfigMap(t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) string {
 	cert, _ := createMockCertAndKeyBytes()
 	cm := configmap.Builder().
 		SetName(appDBSpec.GetCAConfigMapName()).

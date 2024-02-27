@@ -9,7 +9,7 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (
     HEAD_PATH,
     OPLOG_RS_NAME,
@@ -18,9 +18,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     create_s3_bucket,
     new_om_data_store,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
@@ -33,7 +31,7 @@ Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manag
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
 
 @fixture(scope="module")
@@ -51,7 +49,7 @@ def ops_manager(
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -119,7 +117,6 @@ class TestOpsManagerCreation:
             ignore_errors=True,
         )
 
-    @skip_if_local
     def test_om(
         self,
         ops_manager: MongoDBOpsManager,
@@ -127,7 +124,7 @@ class TestOpsManagerCreation:
     ):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+        for pod_fqdn in ops_manager.backup_daemon_pods_headless_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
         om_tester.assert_oplog_stores([new_om_data_store(oplog_replica_set, "oplog1")])
@@ -140,60 +137,71 @@ class TestOpsManagerCreation:
 def test_backup_daemon_pod_restarts_when_process_is_killed(
     ops_manager: MongoDBOpsManager,
 ):
-    corev1_client = client.CoreV1Api()
 
-    backup_daemon_pod = corev1_client.read_namespaced_pod(
-        ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace
-    )
+    for member_cluster_name, pod_name in ops_manager.backup_daemon_pod_names():
+        member_api_client = get_member_cluster_api_client(member_cluster_name)
+        backup_daemon_pod = client.CoreV1Api(api_client=member_api_client).read_namespaced_pod(
+            pod_name, ops_manager.namespace
+        )
 
-    # ensure the pod has not yet been restarted.
-    assert MongoDBOpsManager.get_backup_daemon_container_status(backup_daemon_pod).restart_count == 0
+        # ensure the pod has not yet been restarted.
+        assert MongoDBOpsManager.get_backup_daemon_container_status(backup_daemon_pod).restart_count == 0
 
-    # get the process id of the Backup Daemon.
-    cmd = ["/opt/scripts/backup-daemon-liveness-probe.sh"]
-    process_id = KubernetesTester.run_command_in_pod_container(
-        pod_name=ops_manager.backup_daemon_pods_names()[0],
-        namespace=ops_manager.namespace,
-        cmd=cmd,
-        container="mongodb-backup-daemon",
-    )
+        # get the process id of the Backup Daemon.
+        cmd = ["/opt/scripts/backup-daemon-liveness-probe.sh"]
+        process_id = KubernetesTester.run_command_in_pod_container(
+            pod_name=pod_name,
+            namespace=ops_manager.namespace,
+            cmd=cmd,
+            container="mongodb-backup-daemon",
+            api_client=member_api_client,
+        )
 
-    kill_cmd = ["/bin/sh", "-c", f"kill -9 {process_id}"]
+        kill_cmd = ["/bin/sh", "-c", f"kill -9 {process_id}"]
 
-    print(f"kill_cmd: {kill_cmd}")
+        print(f"kill_cmd in cluster {member_cluster_name}, in pod {pod_name}: {kill_cmd}")
 
-    # kill the process, resulting in the liveness probe terminating the backup daemon.
-    result = KubernetesTester.run_command_in_pod_container(
-        pod_name=ops_manager.backup_daemon_pods_names()[0],
-        namespace=ops_manager.namespace,
-        cmd=kill_cmd,
-        container="mongodb-backup-daemon",
-    )
+        # kill the process, resulting in the liveness probe terminating the backup daemon.
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name=pod_name,
+            namespace=ops_manager.namespace,
+            cmd=kill_cmd,
+            container="mongodb-backup-daemon",
+            api_client=member_api_client,
+        )
 
-    # ensure the process was existed and was terminated successfully.
-    assert "No such process" not in result
+        # ensure the process was existed and was terminated successfully.
+        assert "No such process" not in result
 
-    def backup_daemon_container_has_restarted():
-        try:
-            pod = corev1_client.read_namespaced_pod(ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace)
-            return MongoDBOpsManager.get_backup_daemon_container_status(pod).restart_count > 0
-        except Exception as e:
-            print("Error reading pod state: " + str(e))
-            return False
+    for member_cluster_name, pod_name in ops_manager.backup_daemon_pod_names():
+        member_api_client = get_member_cluster_api_client(member_cluster_name)
 
-    KubernetesTester.wait_until(backup_daemon_container_has_restarted, timeout=3500)
+        def backup_daemon_container_has_restarted():
+            try:
+                pod = client.CoreV1Api(api_client=member_api_client).read_namespaced_pod(
+                    pod_name, ops_manager.namespace
+                )
+                return MongoDBOpsManager.get_backup_daemon_container_status(pod).restart_count > 0
+            except Exception as e:
+                print("Error reading pod state: " + str(e))
+                return False
+
+        KubernetesTester.wait_until(backup_daemon_container_has_restarted, timeout=3500)
 
 
 @mark.e2e_om_ops_manager_backup_liveness_probe
 def test_backup_daemon_reaches_ready_state(ops_manager: MongoDBOpsManager):
-    corev1_client = client.CoreV1Api()
 
-    def backup_daemon_is_ready():
-        try:
-            pod = corev1_client.read_namespaced_pod(ops_manager.backup_daemon_pods_names()[0], ops_manager.namespace)
-            return MongoDBOpsManager.get_backup_daemon_container_status(pod).ready
-        except Exception as e:
-            print("Error checking if pod is ready: " + str(e))
-            return False
+    for member_cluster_name, pod_name in ops_manager.backup_daemon_pod_names():
 
-    KubernetesTester.wait_until(backup_daemon_is_ready, timeout=300)
+        def backup_daemon_is_ready():
+            try:
+                pod = client.CoreV1Api(
+                    api_client=get_member_cluster_api_client(member_cluster_name)
+                ).read_namespaced_pod(pod_name, ops_manager.namespace)
+                return MongoDBOpsManager.get_backup_daemon_container_status(pod).ready
+            except Exception as e:
+                print("Error checking if pod is ready: " + str(e))
+                return False
+
+        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=300)

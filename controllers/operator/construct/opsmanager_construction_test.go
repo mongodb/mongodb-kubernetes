@@ -6,6 +6,8 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"k8s.io/utils/pointer"
 
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -34,20 +36,13 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-func defaultSecretClient() secrets.SecretClient {
-	return secrets.SecretClient{
-		VaultClient: &vault.VaultClient{},
-		KubeClient:  mock.NewClient(),
-	}
-}
-
-func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
+func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
 	tag := env.ReadOrDefault(util.InitOpsManagerVersion, "latest")
 	t.Setenv(util.InitOpsManagerImageUrl, "test-registry")
 
 	modification := buildOpsManagerAndBackupInitContainer()
-	container := &corev1.Container{}
-	modification(container)
+	containerObj := &corev1.Container{}
+	modification(containerObj)
 	expectedVolumeMounts := []corev1.VolumeMount{{
 		Name:      "ops-manager-scripts",
 		MountPath: "/opt/scripts",
@@ -62,7 +57,7 @@ func Test_buildOpsManagerandBackupInitContainer(t *testing.T) {
 			AllowPrivilegeEscalation: pointer.Bool(false),
 		},
 	}
-	assert.Equal(t, expectedContainer, container)
+	assert.Equal(t, expectedContainer, containerObj)
 
 }
 
@@ -73,7 +68,7 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 		Build()
 	om.Spec.JVMParams = []string{"-DFakeOptionEnabled"}
 
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), om, zap.S())
+	omSts, err := createOpsManagerStatefulset(om)
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -106,13 +101,30 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 	assert.Equal(t, "-DFakeOptionEnabled", envVarsNoLimitsOrReqs[0].Value)
 }
 
+func createOpsManagerStatefulset(om *omv1.MongoDBOpsManager) (appsv1.StatefulSet, error) {
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	omSts, err := OpsManagerStatefulSet(secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S())
+	return omSts, err
+}
+
 func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().
 		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
 		AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 		Build()
 
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), om, zap.S())
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	omSts, err := OpsManagerStatefulSet(secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -133,7 +145,8 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			AddConfiguration("mms.adminEmailAddr", "cloud-manager-support@mongodb.com").
 			Build()
 
-		sts, err := OpsManagerStatefulSet(defaultSecretClient(), om, zap.S())
+		sts, err := createOpsManagerStatefulset(om)
+
 		assert.NoError(t, err)
 
 		// env vars are in sorted order
@@ -170,7 +183,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			SetStatefulSetSpec(statefulSet.Spec).
 			Build()
 
-		sts, err := OpsManagerStatefulSet(defaultSecretClient(), om, zap.S())
+		sts, err := createOpsManagerStatefulset(om)
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
 			{Name: "ENABLE_IRP", Value: "true"},
@@ -184,7 +197,7 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 }
 
 func Test_buildOpsManagerStatefulSet(t *testing.T) {
-	sts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
+	sts, err := createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om", sts.ObjectMeta.Name)
 	assert.Equal(t, util.OpsManagerContainerName, sts.Spec.Template.Spec.Containers[0].Name)
@@ -194,11 +207,11 @@ func Test_buildOpsManagerStatefulSet(t *testing.T) {
 
 func Test_buildOpsManagerStatefulSet_Secrets(t *testing.T) {
 	opsManager := omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build()
-	sts, err := OpsManagerStatefulSet(defaultSecretClient(), opsManager, zap.S())
+	sts, err := createOpsManagerStatefulset(opsManager)
 	assert.NoError(t, err)
 
 	expectedSecretVolumeNames := []string{"test-om-gen-key", opsManager.AppDBMongoConnectionStringSecretName()}
-	actualSecretVolumeNames := []string{}
+	var actualSecretVolumeNames []string
 	for _, v := range sts.Spec.Template.Spec.Volumes {
 		if v.Secret != nil {
 			actualSecretVolumeNames = append(actualSecretVolumeNames, v.Secret.SecretName)
@@ -231,7 +244,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), om, zap.S())
+	omSts, err := createOpsManagerStatefulset(om)
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 
@@ -264,7 +277,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 
 // TestOpsManagerPodTemplate_PodSpec verifies that StatefulSetSpec is applied correctly to OpsManager/Backup pod template.
 func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
+	omSts, err := createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 
 	resourceLimits := buildSafeResourceList("1.0", "500M")
@@ -321,7 +334,7 @@ func TestOpsManagerPodTemplate_PodSpec(t *testing.T) {
 func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
+	omSts, err := createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 
 	podSpecTemplate := omSts.Spec.Template
@@ -333,14 +346,14 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 
 	t.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	omSts, err = OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
+	omSts, err = createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
 	assert.Nil(t, podSpecTemplate.Spec.SecurityContext)
 }
 
 func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
+	omSts, err := createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 	podSpecTemplate := omSts.Spec.Template
 	assert.Equal(t, int64(300), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
@@ -349,7 +362,7 @@ func TestOpsManagerPodTemplate_TerminationTimeout(t *testing.T) {
 func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
-	omSts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
+	omSts, err := createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 
 	podSpecTemplate := omSts.Spec.Template
@@ -358,7 +371,7 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 	assert.Nil(t, spec.ImagePullSecrets)
 
 	t.Setenv(util.ImagePullSecrets, "my-cool-secret")
-	omSts, err = OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().Build(), zap.S())
+	omSts, err = createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().Build())
 	assert.NoError(t, err)
 	podSpecTemplate = omSts.Spec.Template
 	spec = podSpecTemplate.Spec
@@ -370,28 +383,28 @@ func TestOpsManagerPodTemplate_ImagePullPolicy(t *testing.T) {
 // TestOpsManagerPodTemplate_Container verifies the default OM container built by 'opsManagerPodTemplate' method
 func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
-	sts, err := OpsManagerStatefulSet(defaultSecretClient(), om, zap.S())
+	sts, err := createOpsManagerStatefulset(om)
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 
 	assert.Len(t, template.Spec.Containers, 1)
-	container := template.Spec.Containers[0]
-	assert.Equal(t, util.OpsManagerContainerName, container.Name)
+	containerObj := template.Spec.Containers[0]
+	assert.Equal(t, util.OpsManagerContainerName, containerObj.Name)
 	// TODO change when we stop using versioning
-	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0", container.Image)
-	assert.Equal(t, corev1.PullNever, container.ImagePullPolicy)
+	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:4.2.0", containerObj.Image)
+	assert.Equal(t, corev1.PullNever, containerObj.ImagePullPolicy)
 
-	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), container.Ports[0].ContainerPort)
-	assert.Equal(t, "/monitor/health", container.ReadinessProbe.ProbeHandler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), container.ReadinessProbe.ProbeHandler.HTTPGet.Port.IntVal)
-	assert.Equal(t, "/monitor/health", container.LivenessProbe.ProbeHandler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), container.LivenessProbe.ProbeHandler.HTTPGet.Port.IntVal)
-	assert.Equal(t, "/monitor/health", container.StartupProbe.ProbeHandler.HTTPGet.Path)
-	assert.Equal(t, int32(8080), container.StartupProbe.ProbeHandler.HTTPGet.Port.IntVal)
+	assert.Equal(t, int32(util.OpsManagerDefaultPortHTTP), containerObj.Ports[0].ContainerPort)
+	assert.Equal(t, "/monitor/health", containerObj.ReadinessProbe.ProbeHandler.HTTPGet.Path)
+	assert.Equal(t, int32(8080), containerObj.ReadinessProbe.ProbeHandler.HTTPGet.Port.IntVal)
+	assert.Equal(t, "/monitor/health", containerObj.LivenessProbe.ProbeHandler.HTTPGet.Path)
+	assert.Equal(t, int32(8080), containerObj.LivenessProbe.ProbeHandler.HTTPGet.Port.IntVal)
+	assert.Equal(t, "/monitor/health", containerObj.StartupProbe.ProbeHandler.HTTPGet.Path)
+	assert.Equal(t, int32(8080), containerObj.StartupProbe.ProbeHandler.HTTPGet.Port.IntVal)
 
-	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, container.Command)
+	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, containerObj.Command)
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
-		container.Lifecycle.PreStop.Exec.Command)
+		containerObj.Lifecycle.PreStop.Exec.Command)
 }
 
 func Test_OpsManagerStatefulSetWithRelatedImages(t *testing.T) {
@@ -404,7 +417,7 @@ func Test_OpsManagerStatefulSetWithRelatedImages(t *testing.T) {
 	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
 	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
 
-	sts, err := OpsManagerStatefulSet(defaultSecretClient(), omv1.NewOpsManagerBuilderDefault().SetName("test-om").SetVersion("5.0.0").Build(), zap.S())
+	sts, err := createOpsManagerStatefulset(omv1.NewOpsManagerBuilderDefault().SetName("test-om").SetVersion("5.0.0").Build())
 	assert.NoError(t, err)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)

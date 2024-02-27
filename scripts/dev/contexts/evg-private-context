@@ -6,7 +6,7 @@ source scripts/evergreen/e2e/lib
 
 
 # This is the default cluster name to be used for single cluster. Multi-cluster variants need to override this.
-export CLUSTER_NAME="kind-e2e-cluster-1"
+export CLUSTER_NAME="kind-kind"
 # In case of EVG tests, those variables need to be empty (in this case we assume an OpsManager test) or created by
 # the setup_cloud_qa script. The latter case will create all credentials in $ENV_FILE. This case is handled below.
 export OM_USER=""

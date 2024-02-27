@@ -3,6 +3,8 @@ package create
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,7 +82,8 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, zap.S())
+
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
@@ -120,7 +123,7 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, zap.S())
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 
 	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())

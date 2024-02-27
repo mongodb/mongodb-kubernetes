@@ -233,13 +233,18 @@ func (b *OpsManagerBuilder) SetAppDBTopology(topology string) *OpsManagerBuilder
 	return b
 }
 
+func (b *OpsManagerBuilder) SetOpsManagerTopology(topology string) *OpsManagerBuilder {
+	b.om.Spec.Topology = topology
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDBClusterSpecList(clusterSpecItems []mdbv1.ClusterSpecItem) *OpsManagerBuilder {
-	for _, e := range clusterSpecItems {
-		b.om.Spec.AppDB.ClusterSpecList = append(b.om.Spec.AppDB.ClusterSpecList, mdbv1.ClusterSpecItem{
-			ClusterName: e.ClusterName,
-			Members:     e.Members,
-		})
-	}
+	b.om.Spec.AppDB.ClusterSpecList = append(b.om.Spec.AppDB.ClusterSpecList, clusterSpecItems...)
+	return b
+}
+
+func (b *OpsManagerBuilder) SetOpsManagerClusterSpecList(clusterSpecItems []ClusterSpecOMItem) *OpsManagerBuilder {
+	b.om.Spec.ClusterSpecList = append(b.om.Spec.ClusterSpecList, clusterSpecItems...)
 	return b
 }
 

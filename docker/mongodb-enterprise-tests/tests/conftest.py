@@ -39,6 +39,8 @@ try:
 except Exception:
     kubernetes.config.load_incluster_config()
 
+AWS_REGION = "us-east-1"
+
 KUBECONFIG_FILEPATH = "/etc/config/kubeconfig"
 MULTI_CLUSTER_CONFIG_DIR = "/etc/multicluster"
 # AppDB monitoring is disabled by default for e2e tests.
@@ -52,9 +54,15 @@ CLUSTER_HOST_MAPPING = {
     "us-west1-a_member-3a": "https://35.230.121.15",
 }
 
+LEGACY_CENTRAL_CLUSTER_NAME: str = "central"
+
 
 @fixture(scope="module")
 def namespace() -> str:
+    return get_namespace()
+
+
+def get_namespace() -> str:
     return os.environ["NAMESPACE"]
 
 
@@ -182,6 +190,10 @@ def managed_security_context() -> str:
 
 @fixture(scope="module")
 def aws_s3_client(evergreen_task_id: str) -> AwsS3Client:
+    return get_aws_s3_client(evergreen_task_id)
+
+
+def get_aws_s3_client(evergreen_task_id: str = ""):
     tags = {"environment": "mongodb-enterprise-operator-tests"}
 
     if evergreen_task_id != "":
@@ -195,48 +207,14 @@ def crd_api():
     return ApiextensionsV1Api()
 
 
-def install_multi_cluster_cert_manager(namespace: str):
-    install_cert_manager(
-        namespace,
+@fixture(scope="module")
+def cert_manager() -> str:
+    result = install_cert_manager(
         cluster_client=get_central_cluster_client(),
         cluster_name=get_central_cluster_name(),
     )
-    for member_client in get_member_cluster_clients():
-        install_cert_manager(
-            namespace,
-            cluster_client=member_client.api_client,
-            cluster_name=member_client.cluster_name,
-        )
-
-    wait_for_cert_manager_ready(namespace, cluster_client=get_central_cluster_client())
-    for member_client in get_member_cluster_clients():
-        wait_for_cert_manager_ready(namespace, cluster_client=member_client.api_client)
-
-    return "cert-manager"
-
-
-@fixture(scope="module")
-def cert_manager(namespace: str) -> str:
-    if is_multi_cluster():
-        return install_multi_cluster_cert_manager(namespace)
-    else:
-        result = install_cert_manager(
-            namespace,
-            cluster_client=get_central_cluster_client(),
-            cluster_name=get_central_cluster_name(),
-        )
-        wait_for_cert_manager_ready(namespace, cluster_client=get_central_cluster_client())
-        return result
-
-
-@fixture(scope="module")
-def multi_cluster_cert_manager(
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-    central_cluster_name: str,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    return install_multi_cluster_cert_manager(namespace)
+    wait_for_cert_manager_ready(cluster_client=get_central_cluster_client())
+    return result
 
 
 @fixture(scope="module")
@@ -270,7 +248,7 @@ def intermediate_issuer(cert_manager: str, issuer: str, namespace: str) -> str:
 
 @fixture(scope="module")
 def multi_cluster_issuer(
-    multi_cluster_cert_manager: str,
+    cert_manager: str,
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
@@ -279,7 +257,7 @@ def multi_cluster_issuer(
 
 @fixture(scope="module")
 def multi_cluster_clusterissuer(
-    multi_cluster_cert_manager: str,
+    cert_manager: str,
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
@@ -288,6 +266,10 @@ def multi_cluster_clusterissuer(
 
 @fixture(scope="module")
 def issuer_ca_filepath():
+    return get_issuer_ca_filepath()
+
+
+def get_issuer_ca_filepath():
     return _fixture("ca-tls-full-chain.crt")
 
 
@@ -307,16 +289,18 @@ def multi_cluster_issuer_ca_configmap(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ) -> str:
+    return create_issuer_ca_configmap(issuer_ca_filepath, namespace, api_client=central_cluster_client)
+
+
+def create_issuer_ca_configmap(
+    issuer_ca_filepath: str, namespace: str, name: str = "issuer-ca", api_client: kubernetes.client.ApiClient = None
+):
     """This is the CA file which verifies the certificates signed by it."""
     ca = open(issuer_ca_filepath).read()
-
     # The operator expects the CA that validates Ops Manager is contained in
     # an entry with a name of "mms-ca.crt"
     data = {"ca-pem": ca, "mms-ca.crt": ca}
-    name = "issuer-ca"
-
-    create_or_update_configmap(namespace, name, data, api_client=central_cluster_client)
-
+    create_or_update_configmap(namespace, name, data, api_client=api_client)
     return name
 
 
@@ -400,6 +384,10 @@ def ca_path() -> str:
 def custom_mdb_version() -> str:
     """Returns a CUSTOM_MDB_VERSION for Mongodb to be created/upgraded to for testing.
     Defaults to 5.0.14 (simplifies testing locally)"""
+    return get_custom_mdb_version()
+
+
+def get_custom_mdb_version():
     return os.getenv("CUSTOM_MDB_VERSION", "5.0.14")
 
 
@@ -416,6 +404,10 @@ def custom_appdb_version(custom_mdb_version: str) -> str:
     defaults to custom_mdb_version() (in most cases we need to use the same version for MongoDB as for AppDB)
     """
 
+    return get_custom_appdb_version(custom_mdb_version)
+
+
+def get_custom_appdb_version(custom_mdb_version: str = get_custom_mdb_version()):
     return os.getenv("CUSTOM_APPDB_VERSION", f"{custom_mdb_version}-ent")
 
 
@@ -423,6 +415,10 @@ def custom_appdb_version(custom_mdb_version: str) -> str:
 def custom_version() -> str:
     """Returns a CUSTOM_OM_VERSION for OM.
     Defaults to 5.0+ (for development)"""
+    return get_custom_om_version()
+
+
+def get_custom_om_version():
     return os.getenv("CUSTOM_OM_VERSION", "6.0.22")
 
 
@@ -455,7 +451,7 @@ def operator_with_monitored_appdb(
 
 
 def get_central_cluster_name():
-    central_cluster = ""
+    central_cluster = LEGACY_CENTRAL_CLUSTER_NAME
     if is_multi_cluster():
         central_cluster = os.environ.get("CENTRAL_CLUSTER")
         if not central_cluster:
@@ -500,6 +496,9 @@ def member_cluster_names() -> List[str]:
 
 
 def get_member_cluster_clients() -> List[MultiClusterClient]:
+    if not is_multi_cluster():
+        return [MultiClusterClient(kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME, 0)]
+
     member_cluster_clients = []
     for i, member_cluster in enumerate(sorted(get_member_cluster_names())):
         member_cluster_clients.append(MultiClusterClient(get_cluster_clients()[member_cluster], member_cluster, i))
@@ -507,16 +506,24 @@ def get_member_cluster_clients() -> List[MultiClusterClient]:
 
 
 def get_member_cluster_client_map() -> dict[str, MultiClusterClient]:
-    return {
-        multi_cluster_client.cluster_name: multi_cluster_client for multi_cluster_client in get_member_cluster_clients()
-    }
+    if is_multi_cluster():
+        return {
+            multi_cluster_client.cluster_name: multi_cluster_client
+            for multi_cluster_client in get_member_cluster_clients()
+        }
+    else:
+        return {
+            LEGACY_CENTRAL_CLUSTER_NAME: MultiClusterClient(
+                kubernetes.client.ApiClient(), LEGACY_CENTRAL_CLUSTER_NAME, 0
+            )
+        }
 
 
 def get_member_cluster_api_client(
     member_cluster_name: Optional[str],
 ) -> kubernetes.client.ApiClient:
-    if member_cluster_name is not None:
-        return get_member_cluster_client_map()[member_cluster_name].api_client
+    if is_member_cluster(member_cluster_name):
+        return get_cluster_clients()[member_cluster_name]
     else:
         return kubernetes.client.ApiClient()
 
@@ -828,13 +835,12 @@ def _get_client_for_cluster(
 
 
 def install_cert_manager(
-    namespace: str,
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
     name="cert-manager",
     version="v1.5.4",
 ) -> str:
-    if cluster_name is not None:
+    if is_member_cluster(cluster_name):
         # ensure we cert-manager in the member clusters.
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
@@ -869,27 +875,28 @@ def install_cert_manager(
 
 
 def wait_for_cert_manager_ready(
-    namespace: str,
     cluster_client: Optional[client.ApiClient] = None,
-    name="cert-manager",
+    namespace="cert-manager",
 ):
     # waits until the cert-manager webhook and controller are Ready, otherwise creating
     # Certificate Custom Resources will fail.
     get_pod_when_ready(
-        name,
-        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=webhook",
+        namespace,
+        f"app.kubernetes.io/instance={namespace},app.kubernetes.io/component=webhook",
         api_client=cluster_client,
     )
     get_pod_when_ready(
-        name,
-        f"app.kubernetes.io/instance={name},app.kubernetes.io/component=controller",
+        namespace,
+        f"app.kubernetes.io/instance={namespace},app.kubernetes.io/component=controller",
         api_client=cluster_client,
     )
 
 
 def get_cluster_clients() -> dict[str, kubernetes.client.api_client.ApiClient]:
     if not is_multi_cluster():
-        return dict()
+        return {
+            LEGACY_CENTRAL_CLUSTER_NAME: kubernetes.client.ApiClient(),
+        }
 
     member_clusters = [
         _read_multi_cluster_config_value("member_cluster_1"),
@@ -910,7 +917,9 @@ def get_clients_for_clusters(
     member_cluster_names: List[str],
 ) -> dict[str, kubernetes.client.ApiClient]:
     if not is_multi_cluster():
-        return dict()
+        return {
+            LEGACY_CENTRAL_CLUSTER_NAME: kubernetes.client.ApiClient(),
+        }
 
     central_cluster = _read_multi_cluster_config_value("central_cluster")
 
@@ -1131,6 +1140,12 @@ def multi_cluster_service_names(replica_set_name: str, cluster_index_with_member
     return [f"{pod_name}-svc" for pod_name in multi_cluster_pod_names(replica_set_name, cluster_index_with_members)]
 
 
+def is_member_cluster(cluster_name: Optional[str] = None) -> bool:
+    if cluster_name is not None and cluster_name != LEGACY_CENTRAL_CLUSTER_NAME:
+        return True
+    return False
+
+
 def default_external_domain() -> str:
     """Default external domain used for testing LoadBalancers on Kind."""
     return "mongodb.interconnected"
@@ -1157,7 +1172,7 @@ def update_coredns_hosts(
     config_data = {"Corefile": coredns_config("interconnected", mapping_string)}
 
     if cluster_name is None:
-        cluster_name = "default cluster"
+        cluster_name = LEGACY_CENTRAL_CLUSTER_NAME
 
     print(f"Updating coredns for cluster: {cluster_name}")
     update_configmap("kube-system", "coredns", config_data, api_client=api_client)
@@ -1200,6 +1215,7 @@ def create_appdb_certs(
     appdb_name: str,
     cluster_index_with_members: list[tuple[int, int]] = None,
     cert_prefix="appdb",
+    clusterwide: bool = False,
 ) -> str:
     if cluster_index_with_members is None:
         cluster_index_with_members = [(0, 1), (1, 2)]
@@ -1218,9 +1234,10 @@ def create_appdb_certs(
             get_central_cluster_client(),
             service_fqdns=service_fqdns,
             namespace=namespace,
+            clusterwide=clusterwide,
         )
     else:
-        create_mongodb_tls_certs(issuer, namespace, appdb_name, appdb_cert_name)
+        create_mongodb_tls_certs(issuer, namespace, appdb_name, appdb_cert_name, clusterwide=clusterwide)
 
     return cert_prefix
 
@@ -1248,3 +1265,43 @@ def pytest_sessionfinish(session, exitstatus):
                     json.dump(ev, f, ensure_ascii=False, indent=4)
             except Exception as e:
                 continue
+
+
+def install_multi_cluster_operator_cluster_scoped(
+    watch_namespaces: list[str],
+    namespace: str = get_namespace(),
+    central_cluster_name: str = get_central_cluster_name(),
+    central_cluster_client: client.ApiClient = get_central_cluster_client(),
+    multi_cluster_operator_installation_config: dict[str, str] = None,
+    member_cluster_clients: list[kubernetes.client.ApiClient] = None,
+    cluster_clients: dict[str, kubernetes.client.ApiClient] = None,
+    member_cluster_names: list[str] = None,
+) -> Operator:
+    if multi_cluster_operator_installation_config is None:
+        multi_cluster_operator_installation_config = get_multi_cluster_operator_installation_config(namespace).copy()
+    if member_cluster_clients is None:
+        member_cluster_clients = get_member_cluster_clients().copy()
+    if cluster_clients is None:
+        cluster_clients = get_cluster_clients().copy()
+    if member_cluster_names is None:
+        member_cluster_names = get_member_cluster_names().copy()
+
+    print(
+        f"Installing multi cluster operator in context: {central_cluster_name} and with watched namespaces: {watch_namespaces}"
+    )
+    os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+    member_cluster_namespaces = ",".join(watch_namespaces)
+    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names, True)
+
+    return _install_multi_cluster_operator(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        member_cluster_clients,
+        {
+            "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
+            "operator.createOperatorServiceAccount": "false",
+            "operator.watchNamespace": member_cluster_namespaces,
+        },
+        central_cluster_name,
+    )

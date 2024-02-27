@@ -12,10 +12,8 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -34,7 +32,7 @@ def ops_manager(
     resource.allow_mdb_rc_versions()
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     return create_or_update(resource)
 
@@ -62,23 +60,25 @@ def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
 
     om = MongoDBOpsManager.from_yaml(yaml_fixture("om_localmode-multiple-pv.yaml"), namespace=namespace)
 
-    # We manually delete the ops manager sts, it won't delete the pods as
-    # the function by default does cascade=false
-    delete_statefulset(namespace, ops_manager.name)
+    for member_cluster_name, sts_name in ops_manager.get_om_sts_names_in_member_clusters():
+        # We manually delete the ops manager sts, it won't delete the pods as
+        # the function by default does cascade=false
+        delete_statefulset(namespace, sts_name, api_client=get_member_cluster_api_client(member_cluster_name))
+
     ops_manager.load()
     ops_manager["spec"]["configuration"] = {"automation.versions.source": "local"}
     ops_manager["spec"]["statefulSet"] = om["spec"]["statefulSet"]
     ops_manager.update()
 
-    # At this point the operator has created a new sts  but the existing pods can't be bound to
+    # At this point the operator has created a new sts but the existing pods can't be bound to
     # it because podspecs are immutable so the volumes field can't be changed
     # and thus we can't rollout
 
-    for i in range(2):
+    for member_cluster_name, pod_name in ops_manager.get_om_pod_names_in_member_clusters():
         # So we manually delete one, wait for it to be ready
         # and do the same for the second one
-        delete_pod(namespace, f"om-basic-{i}")
-        get_pod_when_ready(namespace, f"statefulset.kubernetes.io/pod-name=om-basic-{i}")
+        delete_pod(namespace, pod_name, api_client=get_member_cluster_api_client(member_cluster_name))
+        get_pod_when_ready(namespace, f"statefulset.kubernetes.io/pod-name={pod_name}")
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -95,9 +95,13 @@ def test_new_binaries_are_present(ops_manager: MongoDBOpsManager, namespace: str
         "-c",
         "ls /mongodb-ops-manager/mongodb-releases/*.tgz",
     ]
-    for i in range(2):
+    for member_cluster_name, pod_name in ops_manager.get_om_pod_names_in_member_clusters():
         result = KubernetesTester.run_command_in_pod_container(
-            f"om-basic-{i}", namespace, cmd, container="mongodb-ops-manager"
+            pod_name,
+            namespace,
+            cmd,
+            container="mongodb-ops-manager",
+            api_client=get_member_cluster_api_client(member_cluster_name),
         )
         assert result != "0"
 

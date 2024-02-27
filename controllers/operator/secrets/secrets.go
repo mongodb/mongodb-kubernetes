@@ -70,6 +70,24 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 	return secrets, nil
 }
 
+func (r SecretClient) ReadBinarySecret(secretName types.NamespacedName, basePath string) (map[string][]byte, error) {
+	var secrets map[string][]byte
+	var err error
+	if vault.IsVaultSecretBackend() {
+		secretPath := namespacedNameToVaultPath(secretName, basePath)
+		secrets, err = r.VaultClient.ReadSecretBytes(secretPath)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		secrets, err = secret.ReadByteData(r.KubeClient, secretName)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return secrets, nil
+}
+
 // PutSecret copies secret.Data into vault. Note: we don't rely on secret.StringData since our builder does not use the field.
 func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {

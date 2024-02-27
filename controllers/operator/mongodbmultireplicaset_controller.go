@@ -596,7 +596,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 	for _, spec := range clusterSpecList {
-		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, spec.ExternalAccessConfiguration.ExternalDomain)
+		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), spec.ExternalAccessConfiguration.ExternalDomain)
 		if stringutil.Contains(failedClusterNames, spec.ClusterName) {
 			log.Debugf("Skipping hostnames %+v as they are part of the failed cluster %s ", hostnamesToAdd, spec.ClusterName)
 			continue
@@ -920,7 +920,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMultiCluster, clusterNum
 		if externalDomain != nil {
 			value = dns.GetMultiServiceExternalDomain(mrs.Name, *externalDomain, clusterNum, podNum)
 		} else {
-			value = dns.GetMultiServiceFQDN(mrs.Name, mrs.Namespace, clusterNum, podNum)
+			value = dns.GetMultiServiceFQDN(mrs.Name, mrs.Namespace, mrs.Spec.GetClusterDomain(), clusterNum, podNum)
 		}
 		data[key] = value
 	}

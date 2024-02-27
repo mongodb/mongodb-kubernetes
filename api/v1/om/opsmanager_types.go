@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -154,6 +156,89 @@ type MongoDBOpsManagerSpec struct {
 	// Configure custom StatefulSet configuration
 	// +optional
 	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+
+	// Topology sets the desired cluster topology of Ops Manager deployment.
+	// It defaults (and if not set) to SingleCluster. If MultiCluster specified,
+	// then clusterSpecList field is mandatory and at least one member cluster has to be specified.
+	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
+	// +optional
+	Topology string `json:"topology,omitempty"`
+
+	// +optional
+	ClusterSpecList []ClusterSpecOMItem `json:"clusterSpecList,omitempty"`
+
+	// OpsManagerURL specified the URL with which the operator and AppDB monitoring agent should access Ops Manager instance (or instances).
+	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
+	// It defaults (and if not set) to SingleCluster. If MultiCluster specified,
+	// then clusterSpecList field is mandatory and at least one member cluster has to be specified.
+	// +optional
+	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+}
+
+// ClusterSpecOMItem defines members cluster details for Ops Manager multi-cluster deployment.
+type ClusterSpecOMItem struct {
+	// ClusterName is name of the cluster where the Ops Manager Statefulset will be scheduled.
+	// The operator is using ClusterName to find API credentials in `mongodb-enterprise-operator-member-list` config map to use for this member cluster.
+	// If the credentials are not found, then the member cluster is considered unreachable and ignored in the reconcile process.
+	// +kubebuilder:validation:Required
+	ClusterName string `json:"clusterName,omitempty"`
+
+	// +kubebuilder:validation:Required
+	// Number of Ops Manager instances in this member cluster.
+	Members int `json:"members"`
+
+	// Cluster domain to override the default *.svc.cluster.local if the default cluster domain has been changed on a cluster level.
+	// +optional
+	// +kubebuilder:validation:Format="hostname"
+	ClusterDomain string `json:"clusterDomain,omitempty"`
+
+	// The configuration properties passed to Ops Manager and Backup Daemon in this cluster.
+	// If specified (not empty) then this field overrides `spec.configuration` field entirely.
+	// If not specified, then `spec.configuration` field is used for the Ops Manager and Backup Daemon instances in this cluster.
+	// +optional
+	Configuration map[string]string `json:"configuration,omitempty"`
+
+	// JVM parameters to pass to Ops Manager and Backup Daemon instances in this member cluster.
+	// If specified (not empty) then this field overrides `spec.jvmParameters` field entirely.
+	// If not specified, then `spec.jvmParameters` field is used for the Ops Manager and Backup Daemon instances in this cluster.
+	// +optional
+	JVMParams []string `json:"jvmParameters,omitempty"`
+
+	// MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
+	// accessing Ops Manager instances in this member cluster from outside the Kubernetes cluster.
+	// If specified (even if provided empty) then this field overrides `spec.externalConnectivity` field entirely.
+	// If not specified, then `spec.externalConnectivity` field is used for the Ops Manager and Backup Daemon instances in this cluster.
+	// +optional
+	MongoDBOpsManagerExternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"externalConnectivity,omitempty"`
+
+	// Configure custom StatefulSet configuration to override in Ops Manager's statefulset in this member cluster.
+	// If specified (even if provided empty) then this field overrides `spec.externalConnectivity` field entirely.
+	// If not specified, then `spec.externalConnectivity` field is used for the Ops Manager and Backup Daemon instances in this cluster.
+	// +optional
+	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+
+	// Backup contains settings to override from top-level `spec.backup` for this member cluster.
+	// If the value is not set here, then the value is taken from `spec.backup`.
+	// +optional
+	Backup *MongoDBOpsManagerBackupClusterSpecItem `json:"backup,omitempty"`
+
+	// Legacy if true switches to using legacy, single-cluster naming convention for that cluster.
+	// Define to true if this cluster contains existing OM deployment that needs to be migrated to multi-cluster topology.
+	Legacy bool `json:"-"`
+}
+
+func (ms *ClusterSpecOMItem) GetStatefulSetSpecOverride() *appsv1.StatefulSetSpec {
+	if ms != nil && ms.StatefulSetConfiguration != nil {
+		return ms.StatefulSetConfiguration.SpecWrapper.Spec.DeepCopy()
+	}
+	return nil
+}
+
+func (ms *ClusterSpecOMItem) GetBackupStatefulSetSpecOverride() *appsv1.StatefulSetSpec {
+	if ms != nil && ms.Backup != nil && ms.Backup.StatefulSetConfiguration != nil {
+		return ms.Backup.StatefulSetConfiguration.SpecWrapper.Spec.DeepCopy()
+	}
+	return nil
 }
 
 type MongoDBOpsManagerSecurity struct {
@@ -205,6 +290,40 @@ func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
 		return ms.AppDB.Security.TLSConfig.CA
 	}
 	return ""
+}
+
+func (ms *MongoDBOpsManagerSpec) IsMultiCluster() bool {
+	return ms.Topology == ClusterTopologyMultiCluster
+}
+
+func (ms *MongoDBOpsManagerSpec) GetClusterStatusList() []status.OMClusterStatusItem {
+	clusterStatuses := make([]status.OMClusterStatusItem, 0)
+	for _, item := range ms.ClusterSpecList {
+		clusterStatuses = append(clusterStatuses, status.OMClusterStatusItem{ClusterName: item.ClusterName, Replicas: item.Members})
+	}
+	return clusterStatuses
+}
+
+func (ms *MongoDBOpsManagerSpec) GetBackupClusterStatusList() []status.OMClusterStatusItem {
+	clusterStatuses := make([]status.OMClusterStatusItem, 0)
+	for _, item := range ms.ClusterSpecList {
+		if item.Backup != nil {
+			clusterStatuses = append(clusterStatuses, status.OMClusterStatusItem{ClusterName: item.ClusterName, Replicas: item.Backup.Members})
+		}
+	}
+	return clusterStatuses
+}
+
+// GetTotalReplicas gets the number of OpsManager replicas, taking into account all the member cluster in the case of a multicluster deployment.
+func (ms *MongoDBOpsManagerSpec) GetTotalReplicas() int {
+	if ms.IsMultiCluster() {
+		replicas := 0
+		for _, item := range ms.ClusterSpecList {
+			replicas += item.Members
+		}
+		return replicas
+	}
+	return ms.Replicas
 }
 
 func (om *MongoDBOpsManager) ObjectKey() client.ObjectKey {
@@ -277,6 +396,26 @@ type MongoDBOpsManagerBackup struct {
 	Encryption *Encryption `json:"encryption,omitempty"`
 }
 
+// MongoDBOpsManagerBackupClusterSpecItem backup structure for overriding top-level backup definition in Ops Manager's clusterSpecList.
+type MongoDBOpsManagerBackupClusterSpecItem struct {
+	// Members indicate the number of backup daemon pods to create.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	Members int `json:"members,omitempty"`
+
+	// Assignment Labels set in the Ops Manager
+	// +optional
+	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
+
+	// HeadDB specifies configuration options for the HeadDB
+	HeadDB    *mdbv1.PersistenceConfig `json:"headDB,omitempty"`
+	JVMParams []string                 `json:"jvmParameters,omitempty"`
+
+	// StatefulSetConfiguration specified optional overrides for backup datemon statefulset.
+	// +optional
+	StatefulSetConfiguration *mdbc.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+}
+
 // Encryption contains encryption settings
 type Encryption struct {
 	// Kmip corresponds to the KMIP configuration assigned to the Ops Manager Project's configuration.
@@ -297,11 +436,12 @@ type MongoDBOpsManagerStatus struct {
 }
 
 type OpsManagerStatus struct {
-	status.Common `json:",inline"`
-	Replicas      int              `json:"replicas,omitempty"`
-	Version       string           `json:"version,omitempty"`
-	Url           string           `json:"url,omitempty"`
-	Warnings      []status.Warning `json:"warnings,omitempty"`
+	status.Common     `json:",inline"`
+	Replicas          int                          `json:"replicas,omitempty"`
+	Version           string                       `json:"version,omitempty"`
+	Url               string                       `json:"url,omitempty"`
+	Warnings          []status.Warning             `json:"warnings,omitempty"`
+	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
 }
 
 type OpsManagerAgentVersionMapping []struct {
@@ -327,9 +467,10 @@ type AppDbStatus struct {
 }
 
 type BackupStatus struct {
-	status.Common `json:",inline"`
-	Version       string           `json:"version,omitempty"`
-	Warnings      []status.Warning `json:"warnings,omitempty"`
+	status.Common     `json:",inline"`
+	Version           string                       `json:"version,omitempty"`
+	Warnings          []status.Warning             `json:"warnings,omitempty"`
+	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
 }
 
 type FileSystemStoreConfig struct {
@@ -486,11 +627,15 @@ func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
 	return om.Spec.AppDB.Name() + "-connection-string"
 }
 
-func (om *MongoDBOpsManager) BackupServiceName() string {
-	return om.BackupStatefulSetName() + "-svc"
+func (om *MongoDBOpsManager) BackupDaemonServiceName() string {
+	return om.BackupDaemonStatefulSetName() + "-svc"
 }
 
-func (ms MongoDBOpsManagerSpec) BackupSvcPort() (int32, error) {
+func (om *MongoDBOpsManager) BackupDaemonHeadlessServiceNameForClusterIndex(clusterIndex int) string {
+	return fmt.Sprintf("%s-svc", om.BackupDaemonStatefulSetNameForClusterIndex(clusterIndex))
+}
+
+func (ms MongoDBOpsManagerSpec) BackupDaemonSvcPort() (int32, error) {
 	if port, ok := ms.Configuration[queryableBackupConfigPath]; ok {
 		val, err := strconv.Atoi(port)
 		if err != nil {
@@ -563,7 +708,8 @@ func (om *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOp
 	}
 
 	if phase == status.PhaseRunning {
-		om.Status.OpsManagerStatus.Replicas = om.Spec.Replicas
+		om.Status.OpsManagerStatus.Replicas = om.Spec.GetTotalReplicas()
+		om.Status.OpsManagerStatus.ClusterStatusList = om.Spec.GetClusterStatusList()
 		om.Status.OpsManagerStatus.Version = om.Spec.Version
 		om.Status.OpsManagerStatus.Message = ""
 	}
@@ -578,6 +724,7 @@ func (om *MongoDBOpsManager) updateStatusBackup(phase status.Phase, statusOption
 	if phase == status.PhaseRunning {
 		om.Status.BackupStatus.Message = ""
 		om.Status.BackupStatus.Version = om.Spec.Version
+		om.Status.BackupStatus.ClusterStatusList = om.Spec.GetBackupClusterStatusList()
 	}
 }
 
@@ -664,8 +811,16 @@ func (om *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
 	return *om.Spec.Security
 }
 
-func (om *MongoDBOpsManager) BackupStatefulSetName() string {
+func (om *MongoDBOpsManager) OpsManagerStatefulSetName() string {
+	return om.GetName()
+}
+
+func (om *MongoDBOpsManager) BackupDaemonStatefulSetName() string {
 	return fmt.Sprintf("%s-backup-daemon", om.GetName())
+}
+
+func (om *MongoDBOpsManager) BackupDaemonStatefulSetNameForClusterIndex(clusterIndex int) string {
+	return fmt.Sprintf("%s-%d-backup-daemon", om.GetName(), clusterIndex)
 }
 
 func (om *MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int) {
@@ -691,15 +846,22 @@ func (om *MongoDBOpsManager) TLSCertificateSecretName() string {
 }
 
 func (om *MongoDBOpsManager) CentralURL() string {
+	if om.Spec.OpsManagerURL != "" {
+		return om.Spec.OpsManagerURL
+	}
+
 	fqdn := dns.GetServiceFQDN(om.SvcName(), om.Namespace, om.Spec.GetClusterDomain())
 	scheme, port := om.GetSchemePort()
 
-	// TODO use url.URL to build the url
-	return fmt.Sprintf("%s://%s:%d", strings.ToLower(string(scheme)), fqdn, port)
+	centralURL := url.URL{
+		Scheme: string(scheme),
+		Host:   fmt.Sprintf("%s:%d", fqdn, port),
+	}
+	return strings.ToLower(centralURL.String())
 }
 
 func (om *MongoDBOpsManager) BackupDaemonFQDNs() []string {
-	hostnames, _ := dns.GetDNSNames(om.BackupStatefulSetName(), om.BackupServiceName(), om.Namespace, om.Spec.GetClusterDomain(), om.Spec.Backup.Members, nil)
+	hostnames, _ := dns.GetDNSNames(om.BackupDaemonStatefulSetName(), om.BackupDaemonServiceName(), om.Namespace, om.Spec.GetClusterDomain(), om.Spec.Backup.Members, nil)
 	return hostnames
 }
 
@@ -772,6 +934,57 @@ func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 	}
 
 	return secretNames
+}
+
+func (om *MongoDBOpsManager) GetClusterSpecList() []ClusterSpecOMItem {
+	if om.Spec.IsMultiCluster() {
+		return om.Spec.ClusterSpecList
+	} else {
+		return []ClusterSpecOMItem{om.getLegacyClusterSpecOMItem()}
+	}
+}
+
+func (om *MongoDBOpsManager) getLegacyClusterSpecOMItem() ClusterSpecOMItem {
+	legacyClusterSpecOMItem := ClusterSpecOMItem{
+		ClusterName:              multicluster.LegacyCentralClusterName,
+		Members:                  om.Spec.Replicas,
+		Legacy:                   true,
+		StatefulSetConfiguration: om.Spec.StatefulSetConfiguration,
+	}
+	if om.Spec.Backup != nil {
+		legacyClusterSpecOMItem.Backup = &MongoDBOpsManagerBackupClusterSpecItem{
+			Members:                  om.Spec.Backup.Members,
+			AssignmentLabels:         om.Spec.Backup.AssignmentLabels,
+			HeadDB:                   om.Spec.Backup.HeadDB,
+			JVMParams:                om.Spec.Backup.JVMParams,
+			StatefulSetConfiguration: om.Spec.Backup.StatefulSetConfiguration,
+		}
+	}
+	return legacyClusterSpecOMItem
+}
+
+func (om *MongoDBOpsManager) GetMemberClusterSpecByName(memberClusterName string) ClusterSpecOMItem {
+	for _, clusterSpec := range om.GetClusterSpecList() {
+		if clusterSpec.ClusterName == memberClusterName {
+			return clusterSpec
+		}
+	}
+	return ClusterSpecOMItem{
+		ClusterName: memberClusterName,
+		Members:     0,
+	}
+}
+
+func (om *MongoDBOpsManager) GetMemberClusterBackupAssignmentLabels(memberClusterName string) []string {
+	clusterSpecItem := om.GetMemberClusterSpecByName(memberClusterName)
+	if clusterSpecItem.Backup != nil && clusterSpecItem.Backup.AssignmentLabels != nil {
+		return clusterSpecItem.Backup.AssignmentLabels
+	}
+	return om.Spec.Backup.AssignmentLabels
+}
+
+func (om *MongoDBOpsManager) ClusterMappingConfigMapName() string {
+	return om.Name + "-cluster-mapping"
 }
 
 // newBackup returns an empty backup object

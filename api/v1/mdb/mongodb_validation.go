@@ -297,7 +297,7 @@ func ValidateMemberClusterIsSubsetOfKubeConfig(ms []ClusterSpecItem) v1.Validati
 		}
 	}
 	if len(notPresentClusters) > 0 {
-		msg := fmt.Sprintf("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s", notPresentClusters)
+		msg := fmt.Sprintf("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
 		return v1.ValidationError(msg)
 	}
 	return v1.ValidationSuccess()

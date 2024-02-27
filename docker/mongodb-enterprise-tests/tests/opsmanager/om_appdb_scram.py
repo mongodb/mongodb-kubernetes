@@ -8,9 +8,7 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.conftest import get_central_cluster_client, is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 OM_RESOURCE_NAME = "om-scram"
 OM_USER_NAME = "mongodb-ops-manager"
@@ -33,7 +31,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -54,9 +52,7 @@ class TestOpsManagerCreation:
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
-        # FIXME remove the if when appdb multi-cluster-aware status is implemented
-        if not is_multi_cluster():
-            assert ops_manager.appdb_status().get_members() == 3
+        assert ops_manager.appdb_status().get_members() == 3
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
     def test_admin_config_map(self, ops_manager: MongoDBOpsManager):

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import ipaddress
 import urllib
-from typing import Dict, Generator, List
+from typing import Dict, Generator, List, Optional
 from urllib import parse
 
 import kubernetes
 from kubeobject import CustomObject
-from kubetester import create_or_update_namespace
+from kubetester import create_or_update_namespace, create_or_update_secret
 from kubetester.certs import generate_cert
+from kubetester.kubetester import create_testing_namespace
 from kubetester.ldap import (
     LDAPUser,
     OpenLDAP,
@@ -26,12 +27,28 @@ from tests.authentication.conftest import (
     ldap_host,
     openldap_install,
 )
-from tests.conftest import create_issuer, get_api_servers_from_test_pod_kubeconfig
+from tests.conftest import (
+    create_issuer,
+    get_api_servers_from_test_pod_kubeconfig,
+    install_cert_manager,
+    wait_for_cert_manager_ready,
+)
+
+
+@fixture(scope="module")
+def member_cluster_cert_manager(member_cluster_clients: List[MultiClusterClient]) -> str:
+    member_cluster_one = member_cluster_clients[0]
+    result = install_cert_manager(
+        cluster_client=member_cluster_one.api_client,
+        cluster_name=member_cluster_one.cluster_name,
+    )
+    wait_for_cert_manager_ready(cluster_client=member_cluster_one.api_client)
+    return result
 
 
 @fixture(scope="module")
 def multi_cluster_ldap_issuer(
-    cert_manager: str,
+    member_cluster_cert_manager: str,
     member_cluster_clients: List[MultiClusterClient],
 ):
     member_cluster_one = member_cluster_clients[0]
@@ -239,12 +256,48 @@ def create_service_entries_objects(
 def cluster_spec_list(
     member_cluster_names: List[str],
     members: List[int],
-    member_configs: List[Dict] = None,
+    member_configs: Optional[List[Dict]] = None,
+    backup_configs: Optional[List[Dict]] = None,
 ):
-    if member_configs is None:
+    if member_configs is None and backup_configs is None:
         return [{"clusterName": name, "members": members} for (name, members) in zip(member_cluster_names, members)]
-    else:
+    elif member_configs is not None:
         return [
             {"clusterName": name, "members": members, "memberConfig": memberConfig}
             for (name, members, memberConfig) in zip(member_cluster_names, members, member_configs)
         ]
+    elif backup_configs is not None:
+        return [
+            {"clusterName": name, "members": members, "backup": backupConfig}
+            for (name, members, backupConfig) in zip(member_cluster_names, members, backup_configs)
+        ]
+
+
+def create_namespace(
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    task_id: str,
+    namespace: str,
+    image_pull_secret_name: str,
+    image_pull_secret_data: Dict[str, str],
+) -> str:
+    for member_cluster_client in member_cluster_clients:
+        create_testing_namespace(task_id, namespace, member_cluster_client.api_client, True)
+        create_or_update_secret(
+            namespace,
+            image_pull_secret_name,
+            image_pull_secret_data,
+            type="kubernetes.io/dockerconfigjson",
+            api_client=member_cluster_client.api_client,
+        )
+
+    create_testing_namespace(task_id, namespace, central_cluster_client)
+    create_or_update_secret(
+        namespace,
+        image_pull_secret_name,
+        image_pull_secret_data,
+        type="kubernetes.io/dockerconfigjson",
+        api_client=central_cluster_client,
+    )
+
+    return namespace

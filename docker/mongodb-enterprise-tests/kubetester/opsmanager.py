@@ -4,36 +4,32 @@ import json
 import re
 import time
 from base64 import b64decode
-from typing import Callable, Dict, List, Optional, overload
+from typing import Callable, Dict, List, Optional
 
 import kubernetes.client
 import requests
 from kubeobject import CustomObject
-from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import (
     create_configmap,
-    create_or_update_configmap,
     create_or_update_secret,
     read_configmap,
     read_secret,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import (
-    KubernetesTester,
-    build_list_of_hosts,
-    build_om_org_endpoint,
-)
+from kubetester.kubetester import KubernetesTester, build_list_of_hosts
 from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, get_pods, in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
 from tests.conftest import (
+    LEGACY_CENTRAL_CLUSTER_NAME,
     get_central_cluster_client,
+    get_central_cluster_name,
     get_member_cluster_api_client,
     get_member_cluster_client_map,
-    is_multi_cluster,
+    is_member_cluster,
     multi_cluster_pod_names,
     multi_cluster_service_names,
 )
@@ -126,53 +122,189 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         mdb["spec"]["security"] = {"authentication": {"modes": ["SCRAM"]}}
         return mdb
 
-    def services(self) -> List[Optional[client.V1Service]]:
+    def services(self, member_cluster_name: Optional[str] = None) -> List[Optional[kubernetes.client.V1Service]]:
         """Returns a two element list with internal and external Services.
 
         Any of them might be None if the Service is not found.
         """
         services = []
-        service_names = (self.svc_name(), self.external_svc_name())
+        service_names = (
+            self.svc_name(member_cluster_name),
+            self.external_svc_name(member_cluster_name),
+        )
 
         for name in service_names:
             try:
-                svc = client.CoreV1Api().read_namespaced_service(name, self.namespace)
+                svc = kubernetes.client.CoreV1Api(
+                    api_client=get_member_cluster_api_client(member_cluster_name)
+                ).read_namespaced_service(name, self.namespace)
                 services.append(svc)
             except ApiException:
                 services.append(None)
 
         return [services[0], services[1]]
 
-    def read_statefulset(self, api_client: Optional[client.ApiClient] = None) -> client.V1StatefulSet:
-        return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(self.name, self.namespace)
+    def read_statefulset(self, member_cluster_name: str = None) -> kubernetes.client.V1StatefulSet:
+        if member_cluster_name is None:
+            member_cluster_name = self.pick_one_om_member_cluster_name()
 
-    def pick_one_member_cluster_name(self) -> Optional[str]:
+        return kubernetes.client.AppsV1Api(
+            api_client=get_member_cluster_api_client(member_cluster_name)
+        ).read_namespaced_stateful_set(self.om_sts_name(member_cluster_name), self.namespace)
+
+    def pick_one_appdb_member_cluster_name(self) -> Optional[str]:
         if self.is_appdb_multi_cluster():
-            return self.get_indexed_cluster_spec_items()[0][1]["clusterName"]
+            return self.get_appdb_indexed_cluster_spec_items()[0][1]["clusterName"]
         else:
             return None
 
-    def read_appdb_statefulset(self, member_cluster_name: str = None) -> client.V1StatefulSet:
-        if member_cluster_name is None:
-            member_cluster_name = self.pick_one_member_cluster_name()
+    def pick_one_om_member_cluster_name(self) -> Optional[str]:
+        if self.is_om_multi_cluster():
+            return self.get_om_indexed_cluster_spec_items()[0][1]["clusterName"]
+        else:
+            return None
 
-        return client.AppsV1Api(
+    def read_appdb_statefulset(self, member_cluster_name: Optional[str] = None) -> kubernetes.client.V1StatefulSet:
+        if member_cluster_name is None:
+            member_cluster_name = self.pick_one_appdb_member_cluster_name()
+        return kubernetes.client.AppsV1Api(
             api_client=get_member_cluster_api_client(member_cluster_name)
         ).read_namespaced_stateful_set(self.app_db_sts_name(member_cluster_name), self.namespace)
 
-    def read_backup_statefulset(
-        self,
-        api_client: Optional[client.ApiClient] = None,
-    ) -> client.V1StatefulSet:
-        return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(
-            self.backup_daemon_name(), self.namespace
-        )
+    def read_backup_statefulset(self, member_cluster_name: Optional[str] = None) -> kubernetes.client.V1StatefulSet:
+        if member_cluster_name is None:
+            member_cluster_name = self.pick_one_om_member_cluster_name()
 
-    def read_om_pods(self) -> List[client.V1Pod]:
-        return [
-            client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
-            for podname in get_pods(self.name + "-{}", self.get_replicas())
+        return kubernetes.client.AppsV1Api(
+            api_client=get_member_cluster_api_client(member_cluster_name)
+        ).read_namespaced_stateful_set(self.backup_daemon_sts_name(member_cluster_name), self.namespace)
+
+    def read_om_pods(self) -> list[tuple[kubernetes.client.ApiClient, kubernetes.client.V1Pod]]:
+        if self.is_om_multi_cluster():
+            om_pod_names = self.get_om_pod_names_in_member_clusters()
+            member_cluster_client_map = get_member_cluster_client_map()
+            list_of_pods = []
+            for cluster_name, om_pod_name in om_pod_names:
+                member_cluster_client = member_cluster_client_map[cluster_name].api_client
+                api_client = kubernetes.client.CoreV1Api(api_client=member_cluster_client)
+                list_of_pods.append(
+                    (
+                        member_cluster_client,
+                        api_client.read_namespaced_pod(om_pod_name, self.namespace),
+                    )
+                )
+            return list_of_pods
+        else:
+            api_client = kubernetes.client.ApiClient()
+            return [
+                (
+                    api_client,
+                    kubernetes.client.CoreV1Api(api_client=api_client).read_namespaced_pod(podname, self.namespace),
+                )
+                for podname in get_pods(self.name + "-{}", self.get_total_number_of_om_replicas())
+            ]
+
+    def get_om_pod_names_in_member_clusters(self) -> list[tuple[str, str]]:
+        """Returns list of tuples (cluster_name, pod_name) ordered by cluster index.
+        Pod names are generated according to member count in spec.clusterSpecList.
+        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+        """
+        pod_names_per_cluster = []
+        for cluster_idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            if is_member_cluster(cluster_name):
+                pod_names = multi_cluster_pod_names(self.name, [(cluster_idx, int(cluster_spec_item["members"]))])
+            else:
+                pod_names = [
+                    self.om_pod_name(cluster_name, pod_idx)
+                    for pod_idx in range(0, self.get_om_replicas_in_member_cluster(cluster_name))
+                ]
+
+            pod_names_per_cluster.extend([(cluster_name, pod_name) for pod_name in pod_names])
+
+        return pod_names_per_cluster
+
+    def get_om_cluster_spec_item(self, member_cluster_name: str) -> dict[str, any]:
+        cluster_spec_items = [
+            cluster_spec_item
+            for idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items()
+            if cluster_spec_item["clusterName"] == member_cluster_name
         ]
+        if len(cluster_spec_items) == 0:
+            raise Exception(f"{member_cluster_name} not found on OM's cluster_spec_items")
+
+        return cluster_spec_items[0]
+
+    def get_om_sts_names_in_member_clusters(self) -> list[tuple[str, str]]:
+        """Returns list of tuples (cluster_name, sts_name) ordered by cluster index.
+        Statefulset names are generated according to member count in spec.clusterSpecList.
+        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+        """
+        sts_names_per_cluster = []
+        for cluster_idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            sts_names_per_cluster.append((cluster_name, self.om_sts_name(cluster_name)))
+
+        return sts_names_per_cluster
+
+    def get_appdb_sts_names_in_member_clusters(self) -> list[tuple[str, str]]:
+        """Returns list of tuples (cluster_name, sts_name) ordered by cluster index.
+        Statefulset names are generated according to member count in spec.applicationDatabase.clusterSpecList.
+        Clusters are ordered by cluster indexes in -cluster-mapping config map.
+        """
+        sts_names_per_cluster = []
+        for cluster_idx, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            sts_names_per_cluster.append((cluster_name, self.app_db_sts_name(cluster_name)))
+
+        return sts_names_per_cluster
+
+    def get_backup_sts_names_in_member_clusters(self) -> list[tuple[str, str]]:
+        """ """
+        sts_names_per_cluster = []
+        for cluster_idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            sts_names_per_cluster.append((cluster_name, self.backup_daemon_sts_name(cluster_name)))
+
+        return sts_names_per_cluster
+
+    def get_om_member_cluster_names(self) -> list[str]:
+        """Returns list of OpsManager member cluster names ordered by cluster index."""
+        member_cluster_names = []
+        for cluster_idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items():
+            member_cluster_names.append(cluster_spec_item["clusterName"])
+
+        return member_cluster_names
+
+    def get_appdb_member_cluster_names(self) -> list[str]:
+        """Returns list of AppDB member cluster names ordered by cluster index."""
+        member_cluster_names = []
+        for cluster_idx, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items():
+            member_cluster_names.append(cluster_spec_item["clusterName"])
+
+        return member_cluster_names
+
+    def backup_daemon_pod_names(self, member_cluster_name: Optional[str] = None) -> list[tuple[str, str]]:
+        """
+        Returns list of tuples (cluster_name, pod_name) ordered by cluster index.
+        Pod names are generated according to member count in spec.clusterSpecList[i].backup.members
+        """
+        pod_names_per_cluster = []
+        for _, cluster_spec_item in self.get_om_indexed_cluster_spec_items():
+            cluster_name = cluster_spec_item["clusterName"]
+            if member_cluster_name is not None and cluster_name != member_cluster_name:
+                continue
+            members_in_cluster = cluster_spec_item.get("backup", {}).get(
+                "members", self.get_backup_members_count(member_cluster_name=cluster_name)
+            )
+            pod_names = [
+                f"{self.backup_daemon_sts_name(member_cluster_name=cluster_name)}-{idx}"
+                for idx in range(int(members_in_cluster))
+            ]
+
+            pod_names_per_cluster.extend([(cluster_name, pod_name) for pod_name in pod_names])
+
+        return pod_names_per_cluster
 
     def get_appdb_pod_names_in_member_clusters(self) -> list[tuple[str, str]]:
         """Returns list of tuples (cluster_name, pod_name) ordered by cluster index.
@@ -180,7 +312,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         Clusters are ordered by cluster indexes in -cluster-mapping config map.
         """
         pod_names_per_cluster = []
-        for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items():
+        for (
+            cluster_index,
+            cluster_spec_item,
+        ) in self.get_appdb_indexed_cluster_spec_items():
             cluster_name = cluster_spec_item["clusterName"]
             pod_names = multi_cluster_pod_names(
                 self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
@@ -195,7 +330,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         Clusters are ordered by cluster indexes in -cluster-mapping config map.
         """
         service_names_per_cluster = []
-        for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items():
+        for (
+            cluster_index,
+            cluster_spec_item,
+        ) in self.get_appdb_indexed_cluster_spec_items():
             cluster_name = cluster_spec_item["clusterName"]
             service_names = multi_cluster_service_names(
                 self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
@@ -213,7 +351,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         Clusters are ordered by cluster indexes in -cluster-mapping config map.
         """
         hostnames_per_cluster = []
-        for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items():
+        for (
+            cluster_index,
+            cluster_spec_item,
+        ) in self.get_appdb_indexed_cluster_spec_items():
             cluster_name = cluster_spec_item["clusterName"]
             pod_names = multi_cluster_pod_names(
                 self.app_db_name(), [(cluster_index, int(cluster_spec_item["members"]))]
@@ -230,10 +371,13 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return hostnames_per_cluster
 
-    def get_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
+    def get_appdb_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
         """Returns ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.applicationDatabase.clusterSpecList.
         Cluster indexes are read from -cluster-mapping config map.
         """
+        if not self.is_appdb_multi_cluster():
+            return self.get_legacy_central_cluster(self.get_appdb_members_count())
+
         cluster_index_mapping = read_configmap(
             self.namespace,
             f"{self.app_db_name()}-cluster-mapping",
@@ -251,7 +395,30 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         return sorted(result, key=lambda x: x[0])
 
-    def read_appdb_pods(self) -> list[tuple[kubernetes.client.ApiClient, client.V1Pod]]:
+    def get_om_indexed_cluster_spec_items(self) -> list[tuple[int, dict[str, str]]]:
+        """Returns an ordered list (by cluster index) of tuples (cluster index, clusterSpecItem) from spec.clusterSpecList.
+        Cluster indexes are read from -cluster-mapping config map.
+        """
+        if not self.is_om_multi_cluster():
+            return self.get_legacy_central_cluster(self.get_total_number_of_om_replicas())
+
+        cluster_index_mapping = read_configmap(
+            self.namespace, f"{self.name}-cluster-mapping", get_central_cluster_client()
+        )
+        result = [
+            (
+                int(cluster_index_mapping[cluster_spec_item["clusterName"]]),
+                cluster_spec_item,
+            )
+            for cluster_spec_item in self["spec"].get("clusterSpecList", [])
+        ]
+        return sorted(result, key=lambda x: x[0])
+
+    @staticmethod
+    def get_legacy_central_cluster(replicas: int) -> list[tuple[int, dict[str, str]]]:
+        return [(0, {"clusterName": LEGACY_CENTRAL_CLUSTER_NAME, "members": str(replicas)})]
+
+    def read_appdb_pods(self) -> list[tuple[kubernetes.client.ApiClient, kubernetes.client.V1Pod]]:
         """Returns list of tuples[api_client used, pod]."""
         if self.is_appdb_multi_cluster():
             appdb_pod_names = self.get_appdb_pod_names_in_member_clusters()
@@ -259,7 +426,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             list_of_pods = []
             for cluster_name, appdb_pod_name in appdb_pod_names:
                 member_cluster_client = member_cluster_client_map[cluster_name].api_client
-                api_client = client.CoreV1Api(api_client=member_cluster_client)
+                api_client = kubernetes.client.CoreV1Api(api_client=member_cluster_client)
                 list_of_pods.append(
                     (
                         member_cluster_client,
@@ -273,33 +440,49 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return [
                 (
                     api_client,
-                    client.CoreV1Api(api_client=api_client).read_namespaced_pod(podname, self.namespace),
+                    kubernetes.client.CoreV1Api(api_client=api_client).read_namespaced_pod(pod_name, self.namespace),
                 )
-                for podname in get_pods(self.app_db_name() + "-{}", self.get_appdb_members_count())
+                for pod_name in get_pods(self.app_db_name() + "-{}", self.get_appdb_members_count())
             ]
 
-    def read_backup_pods(self) -> List[client.V1Pod]:
-        return [
-            client.CoreV1Api().read_namespaced_pod(podname, self.namespace)
-            for podname in get_pods(self.backup_daemon_name() + "-{}", self.get_backup_members_count())
-        ]
+    def read_backup_pods(self) -> list[tuple[kubernetes.client.ApiClient, kubernetes.client.V1Pod]]:
+        if self.is_om_multi_cluster():
+            backup_pod_names = self.backup_daemon_pod_names()
+            member_cluster_client_map = get_member_cluster_client_map()
+            list_of_pods = []
+            for cluster_name, backup_pod_name in backup_pod_names:
+                member_cluster_client = member_cluster_client_map[cluster_name].api_client
+                api_client = kubernetes.client.CoreV1Api(api_client=member_cluster_client)
+                list_of_pods.append(
+                    (
+                        member_cluster_client,
+                        api_client.read_namespaced_pod(backup_pod_name, self.namespace),
+                    )
+                )
+            return list_of_pods
+        else:
+            api_client = kubernetes.client.ApiClient()
+            return [
+                (
+                    api_client,
+                    kubernetes.client.CoreV1Api().read_namespaced_pod(pod_name, self.namespace),
+                )
+                for pod_name in get_pods(
+                    self.backup_daemon_sts_name() + "-{}",
+                    self.get_backup_members_count(member_cluster_name=LEGACY_CENTRAL_CLUSTER_NAME),
+                )
+            ]
 
     @staticmethod
     def get_backup_daemon_container_status(
-        backup_daemon_pod: client.V1Pod,
-    ) -> client.V1ContainerStatus:
-        return next(
-            filter(
-                lambda c: c.name == "mongodb-backup-daemon",
-                backup_daemon_pod.status.container_statuses,
-            )
-        )
+        backup_daemon_pod: kubernetes.client.V1Pod,
+    ) -> kubernetes.client.V1ContainerStatus:
+        return next(filter(lambda c: c.name == "mongodb-backup-daemon", backup_daemon_pod.status.container_statuses))
 
     def wait_until_backup_pods_become_ready(self, timeout=300):
         def backup_daemons_are_ready():
             try:
-                backup_pods = self.read_backup_pods()
-                for backup_pod in backup_pods:
+                for _, backup_pod in self.read_backup_pods():
                     if not MongoDBOpsManager.get_backup_daemon_container_status(backup_pod).ready:
                         return False
                 return True
@@ -309,32 +492,38 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(backup_daemons_are_ready, timeout=timeout)
 
-    def read_gen_key_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(self.name + "-gen-key", self.namespace)
+    def read_gen_key_secret(self, member_cluster_name: Optional[str] = None) -> kubernetes.client.V1Secret:
+        return kubernetes.client.CoreV1Api(get_member_cluster_api_client(member_cluster_name)).read_namespaced_secret(
+            self.name + "-gen-key", self.namespace
+        )
 
-    def read_api_key_secret(self, namespace=None) -> client.V1Secret:
+    def read_api_key_secret(self, namespace=None) -> kubernetes.client.V1Secret:
         """Reads the API key secret for the global admin created by the Operator. Note, that the secret is
         located in the Operator namespace - not Ops Manager one, so the 'namespace' parameter must be passed
         if the Ops Manager is installed in a separate namespace"""
         if namespace is None:
             namespace = self.namespace
-        return client.CoreV1Api().read_namespaced_secret(self.api_key_secret(namespace), namespace)
+        return kubernetes.client.CoreV1Api().read_namespaced_secret(self.api_key_secret(namespace), namespace)
 
-    def read_appdb_generated_password_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-om-password", self.namespace)
+    def read_appdb_generated_password_secret(self) -> kubernetes.client.V1Secret:
+        return kubernetes.client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-om-password", self.namespace)
 
     def read_appdb_generated_password(self) -> str:
         data = self.read_appdb_generated_password_secret().data
         return KubernetesTester.decode_secret(data)["password"]
 
-    def read_appdb_agent_password_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-agent-password", self.namespace)
+    def read_appdb_agent_password_secret(self) -> kubernetes.client.V1Secret:
+        return kubernetes.client.CoreV1Api().read_namespaced_secret(
+            self.app_db_name() + "-agent-password", self.namespace
+        )
 
-    def read_appdb_agent_keyfile_secret(self) -> client.V1Secret:
-        return client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-keyfile", self.namespace)
+    def read_appdb_agent_keyfile_secret(self) -> kubernetes.client.V1Secret:
+        return kubernetes.client.CoreV1Api().read_namespaced_secret(self.app_db_name() + "-keyfile", self.namespace)
 
     def read_appdb_connection_url(self) -> str:
-        secret = client.CoreV1Api().read_namespaced_secret(self.get_appdb_connection_url_secret_name(), self.namespace)
+        secret = kubernetes.client.CoreV1Api().read_namespaced_secret(
+            self.get_appdb_connection_url_secret_name(), self.namespace
+        )
         return KubernetesTester.decode_secret(secret.data)["connectionString"]
 
     def read_appdb_members_from_connection_url_secret(self) -> str:
@@ -346,7 +535,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         password="Passw0rd.",
         first_name="Jane",
         last_name="Doe",
-        api_client: Optional[client.ApiClient] = None,
+        api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         data = {
             "Username": user_name,
@@ -359,11 +548,11 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_automation_config_tester(self) -> AutomationConfigTester:
         api_client = None
         if self.is_appdb_multi_cluster():
-            cluster_name = self.pick_one_member_cluster_name()
+            cluster_name = self.pick_one_appdb_member_cluster_name()
             api_client = get_member_cluster_client_map()[cluster_name].api_client
 
         secret = (
-            client.CoreV1Api(api_client=api_client)
+            kubernetes.client.CoreV1Api(api_client=api_client)
             .read_namespaced_secret(self.app_db_name() + "-config", self.namespace)
             .data
         )
@@ -375,7 +564,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         mongodb_name: str,
         project_name: str,
         namespace=None,
-        api_client: Optional[client.ApiClient] = None,
+        api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> str:
         """Creates the configmap containing the information needed to connect to OM"""
         config_map_name = f"{mongodb_name}-config"
@@ -432,14 +621,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return OMTester(om_context)
 
     def get_appdb_service_names_in_multi_cluster(self) -> list[str]:
-        cluster_indexes_with_members = self.get_member_cluster_indexes_with_member_count()
-        for _, cluster_spec_item in self.get_indexed_cluster_spec_items():
+        cluster_indexes_with_members = self.get_appdb_member_cluster_indexes_with_member_count()
+        for _, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items():
             return multi_cluster_service_names(self.app_db_name(), cluster_indexes_with_members)
 
-    def get_member_cluster_indexes_with_member_count(self) -> list[tuple[int, int]]:
+    def get_appdb_member_cluster_indexes_with_member_count(self) -> list[tuple[int, int]]:
         return [
             (cluster_index, int(cluster_spec_item["members"]))
-            for cluster_index, cluster_spec_item in self.get_indexed_cluster_spec_items()
+            for cluster_index, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items()
         ]
 
     def get_appdb_tester(self, **kwargs) -> MongoTester:
@@ -461,7 +650,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Returns http urls to each pod in the Ops Manager"""
         return [
             "http://{}".format(host)
-            for host in build_list_of_hosts(self.name, self.namespace, self.get_replicas(), port=8080)
+            for host in build_list_of_hosts(
+                self.name, self.namespace, self.get_total_number_of_om_replicas(), port=8080
+            )
         ]
 
     def set_version(self, version: Optional[str]):
@@ -537,13 +728,29 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def get_appdb_connection_url_secret_name(self):
         return f"{self.app_db_name()}-connection-string"
 
-    def get_replicas(self) -> int:
+    def get_total_number_of_om_replicas(self) -> int:
+        if not self.is_om_multi_cluster():
+            return self["spec"]["replicas"]
+
+        return sum([item["members"] for _, item in self.get_om_indexed_cluster_spec_items()])
+
+    def get_om_replicas_in_member_cluster(self, member_cluster_name: Optional[str] = None) -> int:
+        if is_member_cluster(member_cluster_name):
+            return self.get_om_cluster_spec_item(member_cluster_name)["members"]
+
         return self["spec"]["replicas"]
 
-    def get_backup_members_count(self) -> int:
-        if "backup" not in self["spec"] or "members" not in self["spec"]["backup"]:
-            return 1
-        return self["spec"]["backup"]["members"]
+    def get_backup_members_count(self, member_cluster_name: Optional[str] = None) -> int:
+        if not self["spec"].get("backup", {}).get("enabled", False):
+            return 0
+
+        if is_member_cluster(member_cluster_name):
+            cluster_spec_item = self.get_om_cluster_spec_item(member_cluster_name)
+            members = cluster_spec_item.get("backup", {}).get("members", None)
+            if members is not None:
+                return members
+
+        return self["spec"]["backup"].get("members", 0)
 
     def get_admin_secret_name(self) -> str:
         return self["spec"]["adminCredentials"]
@@ -556,57 +763,79 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return None
         return self["status"]
 
-    def api_key_secret(self, namespace: str, api_client: Optional[client.ApiClient] = None) -> str:
+    def api_key_secret(self, namespace: str, api_client: Optional[kubernetes.client.ApiClient] = None) -> str:
         old_secret_name = self.name + "-admin-key"
 
         # try to read the old secret, if it's present return it, else return the new secret name
         try:
-            client.CoreV1Api(api_client=api_client).read_namespaced_secret(old_secret_name, namespace)
+            kubernetes.client.CoreV1Api(api_client=api_client).read_namespaced_secret(old_secret_name, namespace)
         except ApiException as e:
             if e.status == 404:
                 return "{}-{}-admin-key".format(self.namespace, self.name)
 
         return old_secret_name
 
+    def om_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
+        if is_member_cluster(member_cluster_name):
+            cluster_idx = self.get_om_member_cluster_index(member_cluster_name)
+            return f"{self.name}-{cluster_idx}"
+        else:
+            return self.name
+
+    def om_pod_name(self, member_cluster_name: str, pod_idx: int) -> str:
+        if is_member_cluster(member_cluster_name):
+            cluster_idx = self.get_om_member_cluster_index(member_cluster_name)
+            return f"{self.name}-{cluster_idx}-{pod_idx}"
+        else:
+            return f"{self.name}-{pod_idx}"
+
     def app_db_name(self) -> str:
         return self.name + "-db"
 
     def app_db_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
-        if member_cluster_name is not None:
-            cluster_idx = self.get_member_cluster_index(member_cluster_name)
+        if is_member_cluster(member_cluster_name):
+            cluster_idx = self.get_appdb_member_cluster_index(member_cluster_name)
             return f"{self.name}-db-{cluster_idx}"
         else:
             return self.name + "-db"
 
-    def get_member_cluster_index(self, member_cluster_name: str) -> int:
-        for cluster_idx, cluster_spec_item in self.get_indexed_cluster_spec_items():
+    def get_om_member_cluster_index(self, member_cluster_name: str) -> int:
+        for cluster_idx, cluster_spec_item in self.get_om_indexed_cluster_spec_items():
+            if cluster_spec_item["clusterName"] == member_cluster_name:
+                return cluster_idx
+        raise Exception(f"member cluster {member_cluster_name} not found in OM cluster spec items")
+
+    def get_appdb_member_cluster_index(self, member_cluster_name: str) -> int:
+        for (
+            cluster_idx,
+            cluster_spec_item,
+        ) in self.get_appdb_indexed_cluster_spec_items():
             if cluster_spec_item["clusterName"] == member_cluster_name:
                 return cluster_idx
 
-        raise Exception(f"member cluster {member_cluster_name} not found in cluster spec items")
+        raise Exception(f"member cluster {member_cluster_name} not found in AppDB cluster spec items")
 
     def app_db_password_secret_name(self) -> str:
         return self.app_db_name() + "-om-user-password"
 
-    def backup_daemon_name(self) -> str:
-        return self.name + "-backup-daemon"
+    def backup_daemon_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
+        return self.om_sts_name(member_cluster_name) + "-backup-daemon"
 
-    def backup_daemon_svc_name(self) -> str:
-        return self.backup_daemon_name() + "-svc"
+    def backup_daemon_pods_headless_fqdns(self) -> list[str]:
+        fqdns = []
+        for member_cluster_name in self.get_om_member_cluster_names():
+            member_fqdns = [
+                f"{pod_name}.{self.backup_daemon_sts_name(member_cluster_name)}-svc.{self.namespace}.svc.cluster.local"
+                for _, pod_name in self.backup_daemon_pod_names(member_cluster_name=member_cluster_name)
+            ]
+            fqdns.extend(member_fqdns)
 
-    def backup_daemon_pods_names(self) -> List[str]:
-        return [self.backup_daemon_name() + "-" + str(item) for item in range(self.get_backup_members_count())]
+        return fqdns
 
-    def backup_daemon_pods_fqdns(self) -> List[str]:
-        return [
-            f"{item}.{self.backup_daemon_svc_name()}.{self.namespace}.svc.cluster.local"
-            for item in self.backup_daemon_pods_names()
-        ]
-
-    def svc_name(self) -> str:
+    def svc_name(self, member_cluster_name: Optional[str] = None) -> str:
         return self.name + "-svc"
 
-    def external_svc_name(self) -> str:
+    def external_svc_name(self, member_cluster_name: Optional[str] = None) -> str:
         return self.name + "-svc-ext"
 
     def download_mongodb_binaries(self, version: str):
@@ -617,7 +846,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             f"mongodb-linux-x86_64-ubuntu1804-{version}.tgz",
         ]
 
-        for pod in self.read_om_pods():
+        for api_client, pod in self.read_om_pods():
             for distro in distros:
                 cmd = [
                     "curl",
@@ -632,10 +861,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     self.namespace,
                     cmd,
                     container="mongodb-ops-manager",
+                    api_client=api_client,
                 )
 
     def is_appdb_multi_cluster(self):
         return self["spec"].get("applicationDatabase", {}).get("topology", "") == "MultiCluster"
+
+    def is_om_multi_cluster(self):
+        return self["spec"].get("topology", "") == "MultiCluster"
 
     class StatusCommon:
         def assert_reaches_phase(
@@ -719,7 +952,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         def assert_abandons_phase(self, phase: Phase, timeout=400):
             super().assert_abandons_phase(phase, timeout)
 
-        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=800, ignore_errors=False):
+        def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=1000, ignore_errors=False):
             super().assert_reaches_phase(phase, msg_regexp, timeout, ignore_errors)
 
         def get_phase(self) -> Optional[Phase]:

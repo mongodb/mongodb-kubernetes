@@ -11,9 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.conftest import get_central_cluster_client, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 MONGO_URI_VOLUME_MOUNT_NAME = "mongodb-uri"
 MONGO_URI_VOLUME_MOUNT_PATH = "/mongodb-ops-manager/.mongodb-mms-connection-string"
@@ -34,7 +32,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     )
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     resource["spec"]["applicationDatabase"]["passwordSecretKeyRef"] = {
         "name": "my-password",
@@ -99,6 +97,10 @@ def test_backing_dbs_created(oplog_replica_set: MongoDB, blockstore_replica_set:
 def test_backup_enabled(ops_manager: MongoDBOpsManager):
     ops_manager.load()
     ops_manager["spec"]["backup"]["enabled"] = True
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(ops_manager)
+
     ops_manager.update()
     ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 

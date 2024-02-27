@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
@@ -412,6 +414,10 @@ func CreateOMHttpClient(ca *string, user *string, key *string) (*Client, error) 
 	}
 	if user != nil && key != nil {
 		opts = append(opts, OptionDigestAuth(*user, *key))
+	}
+
+	if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) {
+		opts = append(opts, OptionDebug)
 	}
 
 	client, err := NewHTTPClient(opts...)

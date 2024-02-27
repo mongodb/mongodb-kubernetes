@@ -21,9 +21,8 @@ spec:
               - name: "mongodb-backup-daemon"
                 resources:
                   requests:
-                    cpu: '0.50'
-                    memory: '4500M'
-
+                    cpu: "0.50"
+                    memory: "4500M"
   statefulSet:
     spec:
       template:
@@ -40,11 +39,6 @@ spec:
               effect: "NoSchedule"
           containers:
             - name: mongodb-ops-manager
-              securityContext:
-                allowPrivilegeEscalation: false
-                runAsNonRoot: true
-                runAsUser: 1001
-                runAsGroup: 1001
               readinessProbe:
                 failureThreshold: 20
               startupProbe:
@@ -54,16 +48,8 @@ spec:
                   name: test-volume
               resources:
                 limits:
-                  cpu: '0.70'
-                  memory: '6G'
-          initContainers:
-            - name: mongodb-enterprise-init-ops-manager
-              securityContext:
-                allowPrivilegeEscalation: false
-                runAsNonRoot: true
-                runAsUser: 1001
-                runAsGroup: 1001
-
+                  cpu: "0.70"
+                  memory: "6G"
   applicationDatabase:
     members: 3
     version: 4.4.20-ent
@@ -80,34 +66,16 @@ spec:
             - name: appdb-sidecar
               image: busybox
               command: ["sleep"]
-              args: [ "infinity" ]
+              args: ["infinity"]
               resources:
                 limits:
                   cpu: "1"
                 requests:
                   cpu: 500m
-            - name: mongod
-              securityContext:
-                allowPrivilegeEscalation: false
-                runAsNonRoot: true
-                runAsUser: 1001
-                runAsGroup: 1001
-            - name: mongodb-agent-monitoring
-              securityContext:
-                allowPrivilegeEscalation: false
-                runAsNonRoot: true
-                runAsUser: 1001
-                runAsGroup: 1001
             - name: mongodb-agent
-              securityContext:
-                allowPrivilegeEscalation: false
-                runAsNonRoot: true
-                runAsUser: 1001
-                runAsGroup: 1001
               resources:
                 requests:
                   memory: 200M
                 limits:
-                  cpu: '0.25'
+                  cpu: "0.25"
                   memory: 350M
-

@@ -4,6 +4,7 @@ import pytest
 from kubernetes.client.rest import ApiException
 from kubetester import create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
@@ -38,6 +39,11 @@ def ops_manager(
     }
 
     return resource
+
+
+@mark.e2e_multi_cluster_appdb_validation
+def test_wait_for_webhook(namespace: str, multi_cluster_operator: Operator):
+    multi_cluster_operator.wait_for_webhook()
 
 
 @mark.usefixtures("multi_cluster_operator")

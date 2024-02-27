@@ -9,9 +9,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 gen_key_resource_version = None
 admin_key_resource_version = None
@@ -26,7 +24,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_mdb_prev_v
     resource.set_appdb_version(ensure_ent_version(custom_mdb_prev_version))
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -41,9 +39,7 @@ class TestOpsManagerCreation:
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_mdb_prev_version: str):
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
-        # FIXME remove the if when appdb multi-cluster-aware status is implemented
-        if not is_multi_cluster():
-            assert ops_manager.appdb_status().get_members() == 3
+        assert ops_manager.appdb_status().get_members() == 3
 
         assert ops_manager.appdb_status().get_version() == ensure_ent_version(custom_mdb_prev_version)
         db_pods = ops_manager.read_appdb_pods()
@@ -166,9 +162,7 @@ class TestOpsManagerMixed:
         ops_manager.backup_status().assert_reaches_phase(Phase.Disabled)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        # FIXME remove the if when appdb multi-cluster-aware status is implemented
-        if not is_multi_cluster():
-            assert ops_manager.appdb_status().get_members() == 3
+        assert ops_manager.appdb_status().get_members() == 3
 
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
 

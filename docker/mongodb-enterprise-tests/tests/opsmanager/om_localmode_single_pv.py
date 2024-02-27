@@ -8,9 +8,10 @@ from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
+    enable_multi_cluster_deployment,
+    get_om_member_cluster_names,
 )
 
 # we can use the custom_mdb_version fixture when we release mongodb-enterprise-init-mongod-rhel and
@@ -24,8 +25,6 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     with open(yaml_fixture("mongodb_versions_claim.yaml"), "r") as f:
         pvc_body = yaml.safe_load(f.read())
 
-    KubernetesTester.create_or_update_pvc(namespace, body=pvc_body, storage_class_name=get_default_storage_class())
-
     """ The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_localmode-single-pv.yaml"), namespace=namespace
@@ -33,7 +32,17 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(om)
+        enable_multi_cluster_deployment(om)
+        for member_cluster_name in get_om_member_cluster_names():
+            member_client = get_member_cluster_api_client(member_cluster_name=member_cluster_name)
+            KubernetesTester.create_or_update_pvc(
+                namespace,
+                body=pvc_body,
+                storage_class_name=get_default_storage_class(),
+                api_client=member_client,
+            )
+    else:
+        KubernetesTester.create_or_update_pvc(namespace, body=pvc_body, storage_class_name=get_default_storage_class())
 
     try_load(om)
     return om
@@ -53,7 +62,7 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
 @mark.e2e_om_localmode
 def test_ops_manager_reaches_running_phase(ops_manager: MongoDBOpsManager):
     create_or_update(ops_manager)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=800)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
