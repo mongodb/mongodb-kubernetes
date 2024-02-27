@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/stretchr/testify/require"
@@ -122,13 +124,13 @@ func TestPublishAutomationConfigCreate(t *testing.T) {
 	require.NoError(t, err)
 	automationConfig, err := buildAutomationConfigForAppDb(builder, kubeManager, automation, zap.S())
 	assert.NoError(t, err)
-	version, err := reconciler.publishAutomationConfig(opsManager, automationConfig, appdb.AutomationConfigSecretName(), omv1.DummmyCentralClusterName)
+	version, err := reconciler.publishAutomationConfig(opsManager, automationConfig, appdb.AutomationConfigSecretName(), multicluster.LegacyCentralClusterName)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
 	monitoringAutomationConfig, err := buildAutomationConfigForAppDb(builder, kubeManager, monitoring, zap.S())
 	assert.NoError(t, err)
-	version, err = reconciler.publishAutomationConfig(opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName(), omv1.DummmyCentralClusterName)
+	version, err = reconciler.publishAutomationConfig(opsManager, monitoringAutomationConfig, appdb.MonitoringAutomationConfigSecretName(), multicluster.LegacyCentralClusterName)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, version)
 
@@ -323,7 +325,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
-	appdbScaler := scalers.GetAppDBScaler(opsManager, omv1.DummmyCentralClusterName, 0, nil)
+	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 	reconciler, err := newAppDbReconciler(kubeManager, opsManager, zap.S())
 	require.NoError(t, err)
 
@@ -382,7 +384,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 	builder := DefaultOpsManagerBuilder()
 	opsManager := builder.Build()
-	appdbScaler := scalers.GetAppDBScaler(opsManager, omv1.DummmyCentralClusterName, 0, nil)
+	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 
 	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = mdb.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
@@ -576,9 +578,9 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// if the automation is not there, we will always want to reconcile. Otherwise, we may not reconcile
 		// based on whether or not there are disabled processes.
 		if createAutomationConfig {
-			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, automation, UnusedPrometheusConfiguration, omv1.DummmyCentralClusterName, zap.S())
+			ac, err := reconciler.buildAppDbAutomationConfig(opsManager, automation, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
 			assert.NoError(t, err)
-			_, err = reconciler.publishAutomationConfig(opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), omv1.DummmyCentralClusterName)
+			_, err = reconciler.publishAutomationConfig(opsManager, ac, opsManager.Spec.AppDB.AutomationConfigSecretName(), multicluster.LegacyCentralClusterName)
 			assert.NoError(t, err)
 		}
 		return reconciler
@@ -798,7 +800,7 @@ func buildAutomationConfigForAppDb(builder *omv1.OpsManagerBuilder, kubeManager 
 	if err != nil {
 		return automationconfig.AutomationConfig{}, err
 	}
-	return reconciler.buildAppDbAutomationConfig(opsManager, acType, UnusedPrometheusConfiguration, omv1.DummmyCentralClusterName, zap.S())
+	return reconciler.buildAppDbAutomationConfig(opsManager, acType, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
 
 }
 

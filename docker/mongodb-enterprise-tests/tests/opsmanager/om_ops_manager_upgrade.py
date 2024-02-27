@@ -23,9 +23,7 @@ from tests.opsmanager.om_ops_manager_backup import (
     create_s3_bucket,
     new_om_data_store,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
 # MongoDBs are also upgraded. In case of minor OM version upgrade (5.x -> 6.x) agents are expected to be upgraded
@@ -35,7 +33,7 @@ from tests.opsmanager.withMonitoredAppDB.conftest import (
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
 
 @fixture(scope="module")
@@ -58,7 +56,7 @@ def ops_manager(
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     try_load(resource)
     return resource
@@ -102,9 +100,10 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
 
     def test_gen_key_secret(self, ops_manager: MongoDBOpsManager):
-        secret = ops_manager.read_gen_key_secret()
-        data = secret.data
-        assert "gen.key" in data
+        for member_cluster_name in ops_manager.get_om_member_cluster_names():
+            secret = ops_manager.read_gen_key_secret(member_cluster_name=member_cluster_name)
+            data = secret.data
+            assert "gen.key" in data
 
     def test_admin_key_secret(self, ops_manager: MongoDBOpsManager):
         secret = ops_manager.read_api_key_secret()
@@ -287,8 +286,9 @@ class TestOpsManagerVersionUpgrade:
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         pods = ops_manager.read_om_pods()
-        assert len(pods) == 1
-        assert ops_manager.get_version() in pods[0].spec.containers[0].image
+        assert len(pods) == ops_manager.get_total_number_of_om_replicas()
+        for _, pod in pods:
+            assert ops_manager.get_version() in pod.spec.containers[0].image
 
     def test_om(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
@@ -378,8 +378,8 @@ class TestBackupDaemonVersionUpgrade:
         self,
         ops_manager: MongoDBOpsManager,
     ):
-        pods = ops_manager.read_backup_pods()
-        assert ops_manager.get_version() in pods[0].spec.containers[0].image
+        for _, pod in ops_manager.read_backup_pods():
+            assert ops_manager.get_version() in pod.spec.containers[0].image
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade
@@ -414,9 +414,11 @@ class TestOpsManagerRemoved:
         assert gen_key_secret.metadata.resource_version == gen_key_resource_version
 
     def test_om_sts_removed(self, ops_manager: MongoDBOpsManager):
-        with pytest.raises(ApiException):
-            ops_manager.read_statefulset()
+        for member_cluster_name in ops_manager.get_om_member_cluster_names():
+            with pytest.raises(ApiException):
+                ops_manager.read_statefulset(member_cluster_name=member_cluster_name)
 
     def test_om_appdb_removed(self, ops_manager: MongoDBOpsManager):
-        with pytest.raises(ApiException):
-            ops_manager.read_appdb_statefulset()
+        for member_cluster_name in ops_manager.get_appdb_member_cluster_names():
+            with pytest.raises(ApiException):
+                ops_manager.read_appdb_statefulset(member_cluster_name=member_cluster_name)

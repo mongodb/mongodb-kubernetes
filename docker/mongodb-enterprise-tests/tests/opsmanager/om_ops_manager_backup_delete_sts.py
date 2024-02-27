@@ -1,15 +1,13 @@
 from typing import Optional
 
-from kubetester import MongoDB, create_or_update
+from kubetester import MongoDB, create_or_update, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
 
@@ -38,7 +36,7 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -80,4 +78,11 @@ def test_backup_statefulset_gets_recreated(
 
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
     # the backup statefulset should have been recreated
-    ops_manager.read_backup_statefulset()
+    def check_backup_sts():
+        try:
+            ops_manager.read_backup_statefulset()
+            return True
+        except:
+            return False
+
+    wait_until(check_backup_sts, timeout=90, sleep_time=5)

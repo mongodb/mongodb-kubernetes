@@ -44,6 +44,11 @@ func (o ReplicaSetMembersOption) Value() interface{} {
 	return o.Members
 }
 
+type OMClusterStatusItem struct {
+	ClusterName string `json:"clusterName,omitempty"`
+	Replicas    int    `json:"replicas,omitempty"`
+}
+
 type ClusterStatusItem struct {
 	ClusterName string `json:"clusterName,omitempty"`
 	Members     int    `json:"members,omitempty"`

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/probes"
 	"go.uber.org/zap"
 
@@ -22,7 +24,7 @@ func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, "test-om-backup-daemon", sts.ObjectMeta.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
@@ -35,7 +37,7 @@ func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	set, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), zap.S())
+	set, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 	podSpecTemplate := set.Spec.Template
 	assert.Equal(t, int64(4200), *podSpecTemplate.Spec.TerminationGracePeriodSeconds)
@@ -47,7 +49,7 @@ func TestBuildBackupDaemonContainer(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build(), zap.S())
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 	template := sts.Spec.Template
 	container := template.Spec.Containers[0]
@@ -74,7 +76,7 @@ func TestMultipleBackupDaemons(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").SetBackupMembers(3).Build(), zap.S())
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").SetBackupMembers(3).Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, 3, int(*sts.Spec.Replicas))
 }
@@ -89,12 +91,13 @@ func Test_BackupDaemonStatefulSetWithRelatedImages(t *testing.T) {
 	t.Setenv(initOpsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB")
 	t.Setenv(opsManagerRelatedImageEnv, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER")
 
+	client := mock.NewClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
-		KubeClient:  mock.NewClient(),
+		KubeClient:  client,
 	}
 
-	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("5.0.0").Build(), zap.S())
+	sts, err := BackupDaemonStatefulSet(secretsClient, omv1.NewOpsManagerBuilderDefault().SetVersion("5.0.0").Build(), multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-init-ops-manager:@sha256:MONGODB_INIT_APPDB", sts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER", sts.Spec.Template.Spec.Containers[0].Image)

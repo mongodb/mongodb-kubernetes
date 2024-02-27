@@ -31,7 +31,6 @@ OM_NAME = "om-basic"
 S3_RS_NAME = "my-mongodb-s3"
 S3_SECRET_NAME = "my-s3-secret"
 OPLOG_RS_NAME = "my-mongodb-oplog"
-AWS_REGION = "us-east-1"
 
 DATABASE_SA_NAME = "mongodb-enterprise-database-pods"
 
@@ -74,7 +73,7 @@ def new_om_s3_store(
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str, vault_namespace: str, vault_name: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, vault_namespace, vault_name, namespace)
-    yield from create_s3_bucket(aws_s3_client)
+    yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
 
 def create_aws_secret(

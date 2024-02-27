@@ -9,13 +9,12 @@
 from typing import Dict, Optional
 
 from kubernetes import client
+
 from kubetester import (
-    create_or_update_configmap,
-    create_or_update_secret,
     create_or_update_service,
     create_statefulset,
     read_configmap,
-    read_secret,
+    read_secret, create_or_update_secret, create_or_update_configmap,
 )
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester

@@ -227,7 +227,7 @@ func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	reconciler, client, initializer := defaultTestOmReconciler(t, testOm, nil)
 
-	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, testOm.CentralURL(), zap.S())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 	assert.Equal(t, "jane.doe@g.com", api.CurrMockedAdmin.PublicKey)
@@ -262,7 +262,7 @@ func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
 
 	addOmCACm(t, testOm, reconciler)
 
-	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, testOm.CentralURL(), zap.S())
 
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 }
@@ -283,7 +283,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	reconciler, client, initializer := defaultTestOmReconciler(t, testOm, nil)
 
-	reconciler.prepareOpsManager(testOm, zap.S())
+	reconciler.prepareOpsManager(testOm, testOm.CentralURL(), zap.S())
 
 	APIKeySecretName, err := testOm.APIKeySecretName(client, "")
 	assert.NoError(t, err)
@@ -292,7 +292,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(OperatorNamespace, APIKeySecretName)].(*corev1.Secret).Data["Username"] = []byte("this-is-not-expected@g.com")
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
-	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, zap.S())
+	reconcileStatus, _ := reconciler.prepareOpsManager(testOm, testOm.CentralURL(), zap.S())
 	assert.Equal(t, workflow.OK(), reconcileStatus)
 	assert.Equal(t, "jane.doe@g.com-key", api.CurrMockedAdmin.PrivateKey)
 
@@ -313,7 +313,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	reconciler, client, initializer := defaultTestOmReconciler(t, testOm, nil)
 
-	reconciler.prepareOpsManager(testOm, zap.S())
+	reconciler.prepareOpsManager(testOm, testOm.CentralURL(), zap.S())
 
 	APIKeySecretName, err := testOm.APIKeySecretName(client, "")
 	assert.NoError(t, err)
@@ -324,7 +324,7 @@ func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: OperatorNamespace, Name: APIKeySecretName},
 	})
 
-	reconcileStatus, admin := reconciler.prepareOpsManager(testOm, zap.S())
+	reconcileStatus, admin := reconciler.prepareOpsManager(testOm, testOm.CentralURL(), zap.S())
 	assert.Equal(t, status.PhaseFailed, reconcileStatus.Phase())
 
 	option, exists := status.GetOption(reconcileStatus.StatusOptions(), status.MessageOption{})
@@ -384,7 +384,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	checkOMReconciliationSuccessful(t, reconciler, testOm)
 
 	backupSts := appsv1.StatefulSet{}
-	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should have been created when backup is enabled")
 
 	testOm.Spec.Backup.Enabled = false
@@ -396,7 +396,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	assert.NoError(t, err)
 
 	backupSts = appsv1.StatefulSet{}
-	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupStatefulSetName()), &backupSts)
+	err = client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
 }
 
@@ -571,8 +571,11 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey")
 	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
 
+	reconcilerHelper, err := newOpsManagerReconcilerHelper(reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
 	// when
-	reconciler.prepareBackupInOpsManager(testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(reconcilerHelper, testOm, mockedAdmin, "", zap.S())
 	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
 	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
 	s3Configs, _ := mockedAdmin.ReadS3Configs()

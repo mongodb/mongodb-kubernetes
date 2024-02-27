@@ -147,6 +147,41 @@ func validateEmptyClusterSpecListSingleCluster(os MongoDBOpsManagerSpec) v1.Vali
 	return v1.ValidationSuccess()
 }
 
+func validateTopologyIsSpecified(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if len(os.ClusterSpecList) > 0 {
+		if os.Topology != ClusterTopologyMultiCluster {
+			return v1.OpsManagerResourceValidationError("Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList", status.OpsManager)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+func validateClusterSpecList(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if os.IsMultiCluster() {
+		if len(os.ClusterSpecList) == 0 {
+			return v1.OpsManagerResourceValidationError("At least one ClusterSpecList entry must be specified for MultiCluster mode OM", status.OpsManager)
+		}
+		if os.Backup != nil && os.Backup.Enabled {
+			backupMembersConfigured := false
+			for _, clusterSpec := range os.ClusterSpecList {
+				if clusterSpec.Backup != nil && clusterSpec.Backup.Members > 0 {
+					backupMembersConfigured = true
+					break
+				}
+			}
+			if !backupMembersConfigured {
+				return v1.OpsManagerResourceValidationError("At least one ClusterSpecList item must have backup members configured", status.OpsManager)
+			}
+		}
+	}
+	if !os.IsMultiCluster() {
+		if len(os.ClusterSpecList) > 0 {
+			return v1.OpsManagerResourceValidationError("ClusterSpecList cannot be specified for SingleCluster mode OM", status.OpsManager)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
@@ -158,6 +193,8 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		s3StoreMongodbUserSpecifiedNoMongoResource,
 		kmipValidation,
 		validateEmptyClusterSpecListSingleCluster,
+		validateTopologyIsSpecified,
+		validateClusterSpecList,
 	}
 
 	multiClusterAppDBSharedClusterValidators := []func(ms []mdb.ClusterSpecItem) v1.ValidationResult{

@@ -13,6 +13,7 @@ from pytest import fixture, mark
 from tests.conftest import (
     get_central_cluster_client,
     get_evergreen_task_id,
+    get_member_cluster_api_client,
     get_member_cluster_clients,
     get_multi_cluster_operator_clustermode,
     get_multi_cluster_operator_installation_config,
@@ -21,9 +22,7 @@ from tests.conftest import (
     get_version_id,
     is_multi_cluster,
 )
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 def _prepare_om_namespace(ops_manager_namespace: str, operator_installation_config: dict[str, str]):
@@ -100,7 +99,7 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) 
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     return resource
 

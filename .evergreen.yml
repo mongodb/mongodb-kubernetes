@@ -1574,6 +1574,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_multi_cluster_om_validation
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_multi_cluster_appdb
   tags: ["patch-run"]
   commands:
@@ -1692,6 +1697,16 @@ tasks:
     - func: e2e_test
 
 - name: e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_om_networking_clusterwide
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
   tags: ["patch-run"]
   commands:
     - func: e2e_test
@@ -2004,14 +2019,17 @@ task_groups:
   tasks:
     # Dedicated AppDB Multi-Cluster tests
     - e2e_multi_cluster_appdb_validation
+    - e2e_multi_cluster_om_validation
     - e2e_multi_cluster_appdb
     - e2e_multi_cluster_appdb_s3_based_backup_restore
     - e2e_multi_cluster_appdb_disaster_recovery
     - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+    - e2e_multi_cluster_om_networking_clusterwide
     # Reused OM tests with AppDB Multi-Cluster topology
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_upgrade
     - e2e_om_appdb_monitoring_tls
+    - e2e_om_ops_manager_backup
     - e2e_om_ops_manager_backup_light
     - e2e_om_ops_manager_backup_liveness_probe
     - e2e_om_ops_manager_pod_spec
@@ -2048,6 +2066,30 @@ task_groups:
   teardown_group:
     - func: prune_docker_resources
     - func: run_retry_script
+
+# Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
+# that is not in the mesh
+- name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+    - func: build_multi_cluster_binary
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
 # including the cluster-wide resources changing. Uses Cloud-qa.
@@ -2283,6 +2325,15 @@ buildvariants:
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_om_appdb_task_group
+
+- name: e2e_multi_cluster_om_operator_not_in_mesh
+  display_name: e2e_multi_cluster_om_operator_not_in_mesh
+  run_on:
+    -  ubuntu1804-xlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
+
 
 ## Operator tests build variants
 

@@ -10,14 +10,13 @@ from kubetester import (
     read_secret,
 )
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
-from kubetester.kubetester import create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti, MultiClusterClient
 from kubetester.operator import Operator
 
 from . import prepare_multi_cluster_namespaces
-from .conftest import cluster_spec_list
+from .conftest import cluster_spec_list, create_namespace
 
 CERT_SECRET_PREFIX = "clustercert"
 MDB_RESOURCE = "multi-cluster-replica-set"
@@ -32,36 +31,6 @@ def mdba_ns(namespace: str):
 @pytest.fixture(scope="module")
 def mdbb_ns(namespace: str):
     return "{}-mdb-ns-b".format(namespace)
-
-
-def create_namespace(
-    central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
-    task_id: str,
-    namespace: str,
-    image_pull_secret_name: str,
-    image_pull_secret_data: Dict[str, str],
-) -> str:
-    for client in member_cluster_clients:
-        create_testing_namespace(task_id, namespace, client.api_client, True)
-        create_or_update_secret(
-            namespace,
-            image_pull_secret_name,
-            image_pull_secret_data,
-            type="kubernetes.io/dockerconfigjson",
-            api_client=client.api_client,
-        )
-
-    create_testing_namespace(task_id, namespace, central_cluster_client)
-    create_or_update_secret(
-        namespace,
-        image_pull_secret_name,
-        image_pull_secret_data,
-        type="kubernetes.io/dockerconfigjson",
-        api_client=client.api_client,
-    )
-
-    return namespace
 
 
 @pytest.fixture(scope="module")

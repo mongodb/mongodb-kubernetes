@@ -516,7 +516,7 @@ func addKubernetesTlsResources(client kubernetesClient.Client, mdb *mdbv1.MongoD
 // createMockCertAndKeyBytesMulti generates a random key and certificate and returns
 // them as bytes with the MongoDBMultiCluster service FQDN in the dns names of the certificate.
 func createMockCertAndKeyBytesMulti(mdbm mdbmulti.MongoDBMultiCluster, clusterNum, podNum int) []byte {
-	return createMockCertAndKeyBytesWithDNSName(dns.GetMultiServiceFQDN(mdbm.Name, mock.TestNamespace, clusterNum, podNum))
+	return createMockCertAndKeyBytesWithDNSName(dns.GetMultiServiceFQDN(mdbm.Name, mock.TestNamespace, mdbm.Spec.GetClusterDomain(), clusterNum, podNum))
 }
 func createMockCertAndKeyBytesWithDNSName(dnsName string) []byte {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

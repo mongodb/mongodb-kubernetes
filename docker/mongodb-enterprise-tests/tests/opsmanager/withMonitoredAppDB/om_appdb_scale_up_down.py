@@ -52,12 +52,13 @@ class TestOpsManagerCreation:
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
-        # FIXME remove the if when appdb multi-cluster-aware status is implemented
+        assert ops_manager.appdb_status().get_members() == 3
         if not is_multi_cluster():
-            assert ops_manager.appdb_status().get_members() == 3
-            statefulset = ops_manager.read_appdb_statefulset()
-            assert statefulset.status.ready_replicas == 3
-            assert statefulset.status.current_replicas == 3
+            for _, cluster_spec_item in ops_manager.get_appdb_indexed_cluster_spec_items():
+                member_cluster_name = cluster_spec_item["clusterName"]
+                statefulset = ops_manager.read_appdb_statefulset(member_cluster_name)
+                assert statefulset.status.ready_replicas == 3
+                assert statefulset.status.current_replicas == 3
 
     def test_appdb_monitoring_group_was_created(self, ops_manager: MongoDBOpsManager):
         ops_manager.assert_appdb_monitoring_group_was_created()
@@ -130,9 +131,8 @@ class TestOpsManagerAppDbScaleDown:
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_appdb(self, ops_manager: MongoDBOpsManager):
-        # FIXME remove the if when appdb multi-cluster-aware status is implemented
+        assert ops_manager.appdb_status().get_members() == 3
         if not is_multi_cluster():
-            assert ops_manager.appdb_status().get_members() == 3
             statefulset = ops_manager.read_appdb_statefulset()
             assert statefulset.status.ready_replicas == 3
             assert statefulset.status.current_replicas == 3

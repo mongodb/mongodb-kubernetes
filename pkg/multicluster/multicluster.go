@@ -189,4 +189,25 @@ type MemberCluster struct {
 	Active bool
 	// Healthy marks if we have connection to the cluster.
 	Healthy bool
+	// Legacy if set to true, marks this cluster to use the old naming conventions (without the cluster index)
+	Legacy bool
+}
+
+// LegacyCentralClusterName is a cluster name for simulating multi-cluster mode when running in legacy single-cluster mode
+const LegacyCentralClusterName = "central"
+
+// GetLegacyCentralMemberCluster returns a legacy central member cluster for unit tests.
+// Such member cluster is created in the reconcile loop in SingleCluster topology
+// in order to simulate multi-cluster deployment on one member cluster that has legacy naming conventions enabled.
+func GetLegacyCentralMemberCluster(replicas int, index int, client kubernetesClient.Client, secretClient secrets.SecretClient) MemberCluster {
+	return MemberCluster{
+		Name:         LegacyCentralClusterName,
+		Index:        index,
+		Replicas:     replicas,
+		Client:       client,
+		SecretClient: secretClient,
+		Active:       true,
+		Healthy:      true,
+		Legacy:       true,
+	}
 }

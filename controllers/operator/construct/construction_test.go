@@ -3,6 +3,8 @@ package construct
 import (
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -128,7 +130,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 
 func TestBuildAppDbStatefulSetDefault(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
-	scaler := scalers.GetAppDBScaler(om, omv1.DummmyCentralClusterName, 0, nil)
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
 	appDbSts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scaler, nil)
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec

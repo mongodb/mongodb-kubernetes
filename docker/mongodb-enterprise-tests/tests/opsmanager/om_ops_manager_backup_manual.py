@@ -22,13 +22,10 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
-AWS_REGION = "us-east-1"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
@@ -75,7 +72,7 @@ def new_om_data_store(
 @fixture(scope="module")
 def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
-    return create_s3_bucket(aws_s3_client)
+    return create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
 
 def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
@@ -118,7 +115,7 @@ def ops_manager(
     resource.set_appdb_version(custom_appdb_version)
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -211,10 +208,6 @@ class TestOpsManagerCreation:
       eventually as it will wait for oplog db to be created
     """
 
-    def test_setup_gp2_storage_class(self):
-        """This is necessary for Backup HeadDB"""
-        KubernetesTester.make_default_gp2_storage_class()
-
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
         ops_manager.backup_status().assert_reaches_phase(
@@ -239,7 +232,7 @@ class TestOpsManagerCreation:
     def test_om(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+        for pod_fqdn in ops_manager.backup_daemon_pods_headless_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
         # No oplog stores were created in Ops Manager by this time

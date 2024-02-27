@@ -9,9 +9,7 @@ from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 OM_CONF_PATH_DIR = "mongodb-ops-manager/conf/mms.conf"
 APPDB_LOG_DIR = "/data"
@@ -39,11 +37,8 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
             "logAppend": False,
         },
     }
-
-    return om
-
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(om)
+        enable_multi_cluster_deployment(om)
 
     try_load(om)
     return om
@@ -70,57 +65,73 @@ class TestOpsManagerCreationWithJvmParams:
         )
 
     def test_om_jvm_params_configured(self, ops_manager: MongoDBOpsManager):
-        pod_name = ops_manager.read_om_pods()[0].metadata.name
-        cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
+        for api_client, pod in ops_manager.read_om_pods():
+            cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd, container="mongodb-ops-manager"
-        )
-        java_params = self.parse_java_params(result, JAVA_MMS_UI_OPTS)
-        assert "-Xmx4291m" in java_params
-        assert "-Xms343m" in java_params
+            result = KubernetesTester.run_command_in_pod_container(
+                pod.metadata.name,
+                ops_manager.namespace,
+                cmd,
+                container="mongodb-ops-manager",
+                api_client=api_client,
+            )
+            java_params = self.parse_java_params(result, JAVA_MMS_UI_OPTS)
+            assert "-Xmx4291m" in java_params
+            assert "-Xms343m" in java_params
 
     def test_om_process_mem_scales(self, ops_manager: MongoDBOpsManager):
-        pod_name = ops_manager.read_om_pods()[0].metadata.name
-        cmd = ["/bin/sh", "-c", "ps aux"]
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd, container="mongodb-ops-manager"
-        )
-        rss = self.parse_rss(result)
+        for api_client, pod in ops_manager.read_om_pods():
 
-        # rss is in kb, we want to ensure that it is > 400mb
-        # this is to ensure that OM can grow properly with it's container
-        assert int(rss) / 1024 > 400
+            cmd = ["/bin/sh", "-c", "ps aux"]
+            result = KubernetesTester.run_command_in_pod_container(
+                pod.metadata.name,
+                ops_manager.namespace,
+                cmd,
+                container="mongodb-ops-manager",
+                api_client=api_client,
+            )
+            rss = self.parse_rss(result)
+
+            # rss is in kb, we want to ensure that it is > 400mb
+            # this is to ensure that OM can grow properly with it's container
+            assert int(rss) / 1024 > 400
 
     def test_om_jvm_backup_params_configured(self, ops_manager: MongoDBOpsManager):
-        pod_names = ops_manager.backup_daemon_pods_names()
-        assert len(pod_names) == 1
-        pod_name = pod_names[0]
-        cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
+        for api_client, pod in ops_manager.read_backup_pods():
 
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd, container="mongodb-backup-daemon"
-        )
+            cmd = ["/bin/sh", "-c", "cat " + OM_CONF_PATH_DIR]
 
-        java_params = self.parse_java_params(result, JAVA_DAEMON_OPTS)
-        assert "-Xmx4352m" in java_params
-        assert "-Xms4352m" in java_params
+            result = KubernetesTester.run_command_in_pod_container(
+                pod.metadata.name,
+                ops_manager.namespace,
+                cmd,
+                container="mongodb-backup-daemon",
+                api_client=api_client,
+            )
+
+            java_params = self.parse_java_params(result, JAVA_DAEMON_OPTS)
+            assert "-Xmx4352m" in java_params
+            assert "-Xms4352m" in java_params
 
     def test_om_log_rotate_configured(self, ops_manager: MongoDBOpsManager):
-        pod_name = ops_manager.read_appdb_pods()[0][1].metadata.name
-        cmd = ["/bin/sh", "-c", "ls " + APPDB_LOG_DIR]
+        for api_client, pod in ops_manager.read_appdb_pods():
+            cmd = ["/bin/sh", "-c", "ls " + APPDB_LOG_DIR]
 
-        result = KubernetesTester.run_command_in_pod_container(
-            pod_name, ops_manager.namespace, cmd, container="mongodb-agent"
-        )
+            result = KubernetesTester.run_command_in_pod_container(
+                pod.metadata.name,
+                ops_manager.namespace,
+                cmd,
+                container="mongodb-agent",
+                api_client=api_client,
+            )
 
-        found = False
-        for row in result.split("\n"):
-            if "mongodb.log" in row and is_date(row):
-                found = True
-                break
+            found = False
+            for row in result.split("\n"):
+                if "mongodb.log" in row and is_date(row):
+                    found = True
+                    break
 
-        assert found
+            assert found
 
     def parse_java_params(self, conf: str, opts_key: str) -> str:
         java_params = ""

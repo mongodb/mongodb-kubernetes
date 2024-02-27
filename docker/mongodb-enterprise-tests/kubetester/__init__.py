@@ -3,13 +3,12 @@ import random
 import string
 import time
 from base64 import b64decode
-from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes.client
 from kubeobject import CustomObject
 from kubernetes import client, utils
-from kubetester.kubetester import run_periodically, running_locally
+from kubetester.kubetester import run_periodically
 
 # Re-exports
 from .kubetester import fixture as find_fixture

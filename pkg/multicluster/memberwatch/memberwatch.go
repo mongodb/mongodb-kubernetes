@@ -81,7 +81,7 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(log *zap.SugaredLo
 
 		err := centralClient.List(context.TODO(), mdbmList, &client.ListOptions{Namespace: ""})
 		if err != nil {
-			log.Errorf("Failed to fetch MongoDBMultiClusterList from Kubernetes : %s", err)
+			log.Errorf("Failed to fetch MongoDBMultiClusterList from Kubernetes: %s", err)
 		}
 
 		// check the cluster health status corresponding to each member cluster

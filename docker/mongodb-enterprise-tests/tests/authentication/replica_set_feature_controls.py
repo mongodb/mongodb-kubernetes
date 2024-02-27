@@ -1,16 +1,20 @@
+from kubetester import create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def replicaset(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-basic.yaml"),
         namespace=namespace,
     )
+    if try_load(resource):
+        return resource
 
-    return resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_feature_controls_authentication

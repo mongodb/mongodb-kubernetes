@@ -6,22 +6,15 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import create_appdb_certs, is_multi_cluster
-from tests.opsmanager.om_ops_manager_backup import (
-    AWS_REGION,
-    create_aws_secret,
-    create_s3_bucket,
-)
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
+from tests.conftest import AWS_REGION, create_appdb_certs, is_multi_cluster
+from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
 This test checks the work with TLS-enabled backing databases (oplog & blockstore)
 """
 
-S3_OPLOG_NAME = "s3-oplog"
-S3_BLOCKSTORE_NAME = "s3-blockstore"
 S3_TEST_CA1 = "s3-test-ca-1"
 S3_TEST_CA2 = "s3-test-ca-2"
 S3_NOT_WORKING_CA = "not-working-ca"
@@ -96,7 +89,7 @@ def ops_manager(
     resource["spec"]["backup"]["s3OpLogStores"][0]["s3RegionOverride"] = AWS_REGION
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     return resource
 

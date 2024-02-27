@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"net"
 
+	"golang.org/x/xerrors"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -87,6 +91,12 @@ func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerState
 	}
 }
 
+func WithReplicas(replicas int) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.Replicas = replicas
+	}
+}
+
 func WithKmipConfig(opsManager *omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		if !opsManager.Spec.IsKmipEnabled() {
@@ -132,8 +142,17 @@ func WithKmipConfig(opsManager *omv1.MongoDBOpsManager, client kubernetesClient.
 	}
 }
 
+func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		if stsOverride != nil {
+			finalSpec := merge.StatefulSetSpecs(*opts.StatefulSetSpecOverride, *stsOverride)
+			opts.StatefulSetSpecOverride = &finalSpec
+		}
+	}
+}
+
 // updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
-func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCreattor secrets.SecretClient, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
+func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(centralClusterSecretClient secrets.SecretClient, memberCluster multicluster.MemberCluster, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
 	// Return immediately if no Certificate is provided
 	if opts.HTTPSCertSecretName == "" {
 		return nil
@@ -145,13 +164,13 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 	var opsManagerSecretPath string
 
 	if vault.IsVaultSecretBackend() {
-		opsManagerSecretPath = secretGetterCreattor.VaultClient.OpsManagerSecretPath()
-		secretData, err = secretGetterCreattor.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName))
+		opsManagerSecretPath = centralClusterSecretClient.VaultClient.OpsManagerSecretPath()
+		secretData, err = centralClusterSecretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName))
 		if err != nil {
 			return err
 		}
 	} else {
-		s, err = secretGetterCreattor.KubeClient.GetSecret(kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName))
+		s, err = centralClusterSecretClient.KubeClient.GetSecret(kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName))
 		if err != nil {
 			return err
 		}
@@ -171,10 +190,10 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 		return err
 	}
 
-	certHash := enterprisepem.ReadHashFromSecret(secretGetterCreattor, opts.Namespace, opts.HTTPSCertSecretName, opsManagerSecretPath, log)
+	certHash := enterprisepem.ReadHashFromSecret(centralClusterSecretClient, opts.Namespace, opts.HTTPSCertSecretName, opsManagerSecretPath, log)
 
 	// The operator concatenates the two fields of the secret into a PEM secret
-	err = certs.CreatePEMSecretClient(secretGetterCreattor, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, certs.OpsManager)
+	err = certs.CreatePEMSecretClient(memberCluster.SecretClient, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), map[string]string{certHash: data}, ownerReferences, certs.OpsManager)
 	if err != nil {
 		return err
 	}
@@ -187,10 +206,10 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(secretGetterCrea
 
 // OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
-func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
-	opts := opsManagerOptions(additionalOpts...)(opsManager)
+func OpsManagerStatefulSet(centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
-	if err := opts.updateHTTPSCertSecret(secretGetterCreator, opsManager.OwnerReferences, log); err != nil {
+	if err := opts.updateHTTPSCertSecret(centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
@@ -198,9 +217,9 @@ func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager 
 	opts.QueryableBackupPemSecretName = secretName
 	if secretName != "" {
 		// if the secret is specified, we must have a queryable.pem entry.
-		_, err := secret.ReadKey(secretGetterCreator, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
+		_, err := secret.ReadKey(centralClusterSecretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
 		if err != nil {
-			return appsv1.StatefulSet{}, err
+			return appsv1.StatefulSet{}, xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
 		}
 	}
 
@@ -222,7 +241,6 @@ func OpsManagerStatefulSet(secretGetterCreator secrets.SecretClient, opsManager 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
-
 	return OpsManagerStatefulSetOptions{
 		OwnerReference:          kube.BaseOwnerReference(opsManager),
 		OwnerName:               opsManager.Name,
@@ -236,7 +254,7 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 }
 
 // opsManagerOptions returns a function which returns the OpsManagerStatefulSetOptions to create the OpsManager StatefulSet
-func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+func opsManagerOptions(memberCluster multicluster.MemberCluster, additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if opsManager.Spec.StatefulSetConfiguration != nil {
@@ -248,8 +266,12 @@ func opsManagerOptions(additionalOpts ...func(opts *OpsManagerStatefulSetOptions
 		opts := getSharedOpsManagerOptions(opsManager)
 		opts.ServicePort = port
 		opts.ServiceName = opsManager.SvcName()
-		opts.Replicas = opsManager.Spec.Replicas
-		opts.Name = opsManager.Name
+		if memberCluster.Legacy {
+			opts.Name = opsManager.Name
+		} else {
+			opts.Name = fmt.Sprintf("%s-%d", opsManager.Name, memberCluster.Index)
+		}
+		opts.Replicas = memberCluster.Replicas
 		opts.StatefulSetSpecOverride = stsSpec
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
 

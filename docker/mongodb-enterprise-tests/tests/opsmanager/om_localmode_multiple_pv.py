@@ -7,9 +7,7 @@ from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
 @fixture(scope="module")
@@ -22,7 +20,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     resource.allow_mdb_rc_versions()
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -37,7 +35,8 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource.set_version(custom_mdb_version)
     resource["spec"]["members"] = 2
 
-    yield resource.create()
+    create_or_update(resource)
+    return resource
 
 
 @mark.e2e_om_localmode_multiple_pv
@@ -54,8 +53,7 @@ class TestOpsManagerCreation:
         )
 
     def test_pvcs(self, ops_manager: MongoDBOpsManager):
-
-        for pod in ops_manager.read_om_pods():
+        for api_client, pod in ops_manager.read_om_pods():
             claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
             assert len(claims) == 1
 
@@ -66,6 +64,7 @@ class TestOpsManagerCreation:
                 expected_claim_name="mongodb-versions-{}".format(pod.metadata.name),
                 expected_size="20G",
                 storage_class=get_default_storage_class(),
+                api_client=api_client,
             )
 
     def test_replica_set_reaches_failed_phase(self, replica_set: MongoDB):

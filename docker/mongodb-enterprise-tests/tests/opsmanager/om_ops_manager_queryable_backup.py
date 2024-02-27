@@ -20,12 +20,10 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.om_queryable_backups import generate_queryable_pem
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
-from tests.conftest import is_multi_cluster
+from tests.conftest import AWS_REGION, is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 TEST_DB = "testdb"
 TEST_COLLECTION = "testcollection"
@@ -38,7 +36,6 @@ logging.basicConfig(level=LOGLEVEL)
 
 HEAD_PATH = "/head/"
 S3_SECRET_NAME = "my-s3-secret"
-AWS_REGION = "us-east-1"
 OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
@@ -127,7 +124,7 @@ def ops_manager(
     resource["spec"]["configuration"]["mongodb.release.autoDownload.enterprise"] = "true"
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(resource)
+        enable_multi_cluster_deployment(resource)
 
     create_or_update(resource)
     return resource
@@ -250,10 +247,6 @@ class TestOpsManagerCreation:
       eventually as it will wait for oplog db to be created
     """
 
-    def test_setup_gp2_storage_class(self):
-        """This is necessary for Backup HeadDB"""
-        KubernetesTester.make_default_gp2_storage_class()
-
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket, s3 config and an OM resource (waits until Backup gets to Pending state)"""
         ops_manager.backup_status().assert_reaches_phase(
@@ -279,7 +272,7 @@ class TestOpsManagerCreation:
         """Verifies the PVCs mounted to the pod"""
         pods = ops_manager.read_backup_pods()
         idx = 0
-        for pod in pods:
+        for api_client, pod in pods:
             claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
             assert len(claims) == 1
             claims.sort(key=attrgetter("name"))
@@ -289,9 +282,10 @@ class TestOpsManagerCreation:
                 namespace,
                 claims[0],
                 "head",
-                "head-{}-{}".format(ops_manager.backup_daemon_name(), idx),
+                "head-{}-{}".format(ops_manager.backup_daemon_sts_name(), idx),
                 "500M",
                 default_sc,
+                api_client=api_client,
             )
             idx += 1
 
@@ -311,7 +305,7 @@ class TestOpsManagerCreation:
     def test_om(self, ops_manager: MongoDBOpsManager):
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+        for pod_fqdn in ops_manager.backup_daemon_pods_headless_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
         # No oplog stores were created in Ops Manager by this time
         om_tester.assert_oplog_stores([])
@@ -338,7 +332,7 @@ class TestOpsManagerCreation:
         operator_installation_config: Dict[str, str],
     ):
         managed = operator_installation_config["managedSecurityContext"] == "true"
-        for pod in ops_manager.read_om_pods():
+        for api_client, pod in ops_manager.read_om_pods():
             assert_pod_security_context(pod, managed)
             assert_pod_container_security_context(pod.spec.containers[0], managed)
 
@@ -392,7 +386,7 @@ class TestBackupDatabasesAdded:
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
 
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+        for pod_fqdn in ops_manager.backup_daemon_pods_headless_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
         om_tester.assert_block_stores([new_om_data_store(blockstore_replica_set, "blockStore1")])
@@ -422,7 +416,7 @@ class TestBackupDatabasesAdded:
     ):
         managed = operator_installation_config["managedSecurityContext"] == "true"
         pods = ops_manager.read_backup_pods()
-        for pod in pods:
+        for _, pod in pods:
             assert_pod_security_context(pod, managed)
             assert_pod_container_security_context(pod.spec.containers[0], managed)
 
@@ -468,7 +462,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
         om_tester = ops_manager.get_om_tester()
         om_tester.assert_healthiness()
         # Nothing has changed for daemon
-        for pod_fqdn in ops_manager.backup_daemon_pods_fqdns():
+        for pod_fqdn in ops_manager.backup_daemon_pods_headless_fqdns():
             om_tester.assert_daemon_enabled(pod_fqdn, HEAD_PATH)
 
         # block store has authentication enabled

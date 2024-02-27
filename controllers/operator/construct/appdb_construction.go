@@ -365,14 +365,18 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	// If we can enable monitoring, let's fill in container modification function
 	monitoringModification := podtemplatespec.NOOP()
+	var podSpec *corev1.PodTemplateSpec
+	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+		podSpec = appDb.PodSpec.PodTemplateWrapper.PodTemplate.DeepCopy()
+	}
 
 	if ShouldEnableMonitoring(podVars) {
 		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
-		if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-			appDb.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers = removeContainerByName(appDb.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers, monitoringAgentContainerName)
+		if podSpec != nil {
+			podSpec.Spec.Containers = removeContainerByName(podSpec.Spec.Containers, monitoringAgentContainerName)
 		}
 	}
 
@@ -428,8 +432,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		appDbLabels(&opsManager, scaler.MemberClusterNum()),
 	)
 	// We merge the podspec specified in the CR
-	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-		sts.Spec = merge.StatefulSetSpecs(sts.Spec, appsv1.StatefulSetSpec{Template: *appDb.PodSpec.PodTemplateWrapper.PodTemplate})
+	if podSpec != nil {
+		sts.Spec = merge.StatefulSetSpecs(sts.Spec, appsv1.StatefulSetSpec{Template: *podSpec})
 	}
 	return sts, nil
 }

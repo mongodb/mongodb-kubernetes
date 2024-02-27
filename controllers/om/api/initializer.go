@@ -78,7 +78,7 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 	resp, err := client.Post(endpoint, "application/json; charset=UTF-8", buffer)
 
 	if err != nil {
-		return OpsManagerKeyPair{}, xerrors.Errorf("Error sending POST request to %s: %w", omUrl, err)
+		return OpsManagerKeyPair{}, xerrors.Errorf("Error sending POST request to %s: %w", endpoint, err)
 	}
 
 	var body []byte

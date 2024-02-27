@@ -16,6 +16,7 @@ from kubetester.ldap import (
     ldap_initialize,
 )
 from pytest import fixture
+from tests.conftest import is_member_cluster
 
 LDAP_PASSWORD = "LDAPPassword."
 LDAP_NAME = "openldap"
@@ -42,7 +43,7 @@ def openldap_install(
     helm_args: Dict[str, str] = None,
     tls: bool = False,
 ) -> OpenLDAP:
-    if cluster_name is not None:
+    if is_member_cluster(cluster_name):
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     if helm_args is None:

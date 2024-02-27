@@ -11,9 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
-from tests.opsmanager.withMonitoredAppDB.conftest import (
-    enable_appdb_multi_cluster_deployment,
-)
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 VERSION_NOT_IN_WEB_SERVER = "4.2.1"
 
@@ -100,7 +98,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     om.allow_mdb_rc_versions()
 
     if is_multi_cluster():
-        enable_appdb_multi_cluster_deployment(om)
+        enable_multi_cluster_deployment(om)
 
     create_or_update(om)
     return om
@@ -130,9 +128,7 @@ def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_v
 @mark.e2e_om_remotemode
 def test_appdb(ops_manager: MongoDBOpsManager):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    # FIXME remove the if when appdb multi-cluster-aware status is implemented
-    if not is_multi_cluster():
-        assert ops_manager.appdb_status().get_members() == 3
+    assert ops_manager.appdb_status().get_members() == 3
 
 
 @skip_if_local

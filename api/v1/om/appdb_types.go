@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	userv1 "github.com/10gen/ops-manager-kubernetes/api/v1/user"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
@@ -24,8 +26,6 @@ import (
 const (
 	appDBKeyfilePath            = "/var/lib/mongodb-mms-automation/authentication/keyfile"
 	ClusterTopologyMultiCluster = "MultiCluster"
-	// cluster name for simulating multi-cluster mode when running in legacy single-cluster mode
-	DummmyCentralClusterName = "central"
 )
 
 type AppDBSpec struct {
@@ -506,7 +506,7 @@ func (m *AppDBSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
 	} else {
 		return []mdbv1.ClusterSpecItem{
 			{
-				ClusterName: DummmyCentralClusterName,
+				ClusterName: multicluster.LegacyCentralClusterName,
 				Members:     m.Members,
 			},
 		}

@@ -1,52 +1,26 @@
 import datetime
 import time
 
-import kubernetes
 import kubernetes.client
 from kubetester import create_or_update, create_or_update_configmap, try_load
-from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from pymongo.errors import ServerSelectionTimeoutError
 from pytest import fixture, mark
-from tests.multicluster.conftest import cluster_spec_list
-from tests.opsmanager.om_ops_manager_backup import (
-    AWS_REGION,
-    create_aws_secret,
-    create_s3_bucket,
+from tests.common.constants import (
+    MONGODB_PORT,
+    S3_BLOCKSTORE_NAME,
+    S3_OPLOG_NAME,
+    TEST_DATA,
 )
-
-TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
-
-MONGODB_PORT = 30000
-
-S3_OPLOG_NAME = "s3-oplog"
-S3_BLOCKSTORE_NAME = "s3-blockstore"
-USER_PASSWORD = "/qwerty@!#:"
-
-
-@fixture(scope="module")
-def s3_bucket_oplog(
-    aws_s3_client: AwsS3Client,
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-) -> str:
-    create_aws_secret(aws_s3_client, S3_OPLOG_NAME + "-secret", namespace, central_cluster_client)
-    yield from create_s3_bucket(aws_s3_client)
-
-
-@fixture(scope="module")
-def s3_bucket_blockstore(
-    aws_s3_client: AwsS3Client,
-    namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
-) -> str:
-    create_aws_secret(aws_s3_client, S3_BLOCKSTORE_NAME + "-secret", namespace, central_cluster_client)
-    yield from create_s3_bucket(aws_s3_client)
+from tests.common.ops_manager.multi_cluster import (
+    ops_manager_multi_cluster_with_tls_s3_backups,
+)
+from tests.conftest import AWS_REGION
+from tests.multicluster.conftest import cluster_spec_list
 
 
 @fixture(scope="module")
@@ -92,9 +66,13 @@ def ops_manager(
     custom_appdb_version: str,
     custom_version: str,
 ) -> MongoDBOpsManager:
-
-    resource: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_ops_manager_backup_tls_s3.yaml"), namespace=namespace
+    resource = ops_manager_multi_cluster_with_tls_s3_backups(
+        namespace,
+        "om-backup-tls-s3",
+        central_cluster_client,
+        custom_appdb_version,
+        s3_bucket_blockstore,
+        s3_bucket_oplog,
     )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
@@ -104,30 +82,9 @@ def ops_manager(
     del resource["spec"]["security"]
     del resource["spec"]["applicationDatabase"]["security"]
 
-    resource["spec"]["applicationDatabase"] = {
-        "topology": "MultiCluster",
-        "clusterSpecList": cluster_spec_list(appdb_member_cluster_names, [1, 2]),
-        "agent": {"logLevel": "DEBUG"},
-        "version": custom_appdb_version,
-    }
+    if try_load(resource):
+        return resource
 
-    # configure S3 Blockstore
-    resource["spec"]["backup"]["s3Stores"][0]["name"] = S3_BLOCKSTORE_NAME
-    resource["spec"]["backup"]["s3Stores"][0]["s3SecretRef"]["name"] = S3_BLOCKSTORE_NAME + "-secret"
-    resource["spec"]["backup"]["s3Stores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
-    resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket_blockstore
-    resource["spec"]["backup"]["s3Stores"][0]["s3RegionOverride"] = AWS_REGION
-
-    # configure S3 Oplog
-    resource["spec"]["backup"]["s3OpLogStores"][0]["name"] = S3_OPLOG_NAME
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3SecretRef"]["name"] = S3_OPLOG_NAME + "-secret"
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketEndpoint"] = s3_endpoint(AWS_REGION)
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3BucketName"] = s3_bucket_oplog
-    resource["spec"]["backup"]["s3OpLogStores"][0]["s3RegionOverride"] = AWS_REGION
-
-    resource.create_admin_secret(api_client=central_cluster_client)
-
-    try_load(resource)
     return resource
 
 
@@ -147,8 +104,8 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["members"] = 1
         create_or_update(ops_manager)
 
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
 
     def test_om_is_running(
         self,
@@ -156,7 +113,7 @@ class TestOpsManagerCreation:
         central_cluster_client: kubernetes.client.ApiClient,
     ):
         # at this point AppDB is used as the "metadatastore"
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000, ignore_errors=True)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
         om_tester = ops_manager.get_om_tester(api_client=central_cluster_client)
         om_tester.assert_healthiness()
 
@@ -175,8 +132,8 @@ class TestOpsManagerCreation:
         }
         ops_manager.update()
 
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=10000)
-        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=1000, ignore_errors=True)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     def test_om_s3_stores(
         self,
@@ -236,7 +193,6 @@ class TestBackupForMongodb:
         # we might fail connection in the beginning since we set a custom dns in coredns
         mongodb_multi_one.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=600)
 
-    @skip_if_local
     def test_add_test_data(self, mongodb_multi_one_collection):
         max_attempts = 100
         while max_attempts > 0:

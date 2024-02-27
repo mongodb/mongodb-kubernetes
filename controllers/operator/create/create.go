@@ -1,6 +1,8 @@
 package create
 
 import (
+	"errors"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -143,12 +145,14 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager *omv1.M
 
 	if err != nil {
 		// Check if it is a k8s error or a custom one
-		if _, ok := err.(enterprisests.StatefulSetCantBeUpdatedError); !ok {
+		var statefulSetCantBeUpdatedError enterprisests.StatefulSetCantBeUpdatedError
+		if !errors.As(err, &statefulSetCantBeUpdatedError) {
 			return false, err
 		}
+
 		// In this case, we delete the old Statefulset
 		log.Debug("Deleting the old backup stateful set and creating a new one")
-		stsNamespacedName := kube.ObjectKey(opsManager.Namespace, opsManager.BackupStatefulSetName())
+		stsNamespacedName := kube.ObjectKey(sts.Namespace, sts.Name)
 		err = client.DeleteStatefulSet(stsNamespacedName)
 		if err != nil {
 			return false, xerrors.Errorf("failed while trying to delete previous backup daemon statefulset: %w", err)
@@ -177,6 +181,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
 		if err := addQueryableBackupPortToService(opsManager, &internalService, internalConnectivityPortName); err != nil {
@@ -221,7 +226,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 // addQueryableBackupPortToService adds the backup port to the existing external Ops Manager service.
 // this function assumes externalService is not nil.
 func addQueryableBackupPortToService(opsManager *omv1.MongoDBOpsManager, service *corev1.Service, portName string) error {
-	backupSvcPort, err := opsManager.Spec.BackupSvcPort()
+	backupSvcPort, err := opsManager.Spec.BackupDaemonSvcPort()
 	if err != nil {
 		return xerrors.Errorf("can't parse queryable backup port: %w", err)
 	}
