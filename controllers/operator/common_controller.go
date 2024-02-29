@@ -441,7 +441,7 @@ func getStatefulSetStatus(namespace, name string, client kubernetesClient.Client
 
 // validateScram ensures that the SCRAM configuration is valid for the MongoDBResource
 func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status {
-	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetMongoDBVersion()))
+	specVersion, err := semver.Make(util.StripEnt(mdb.Spec.GetMongoDBVersion(nil)))
 	if err != nil {
 		return workflow.Failed(err)
 	}
