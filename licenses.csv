@@ -25,7 +25,7 @@ github.com/google/uuid,v1.5.0,https://github.com/google/uuid/blob/v1.5.0/LICENSE
 github.com/hashicorp/errwrap,v1.1.0,https://github.com/hashicorp/errwrap/blob/v1.1.0/LICENSE,MPL-2.0
 github.com/hashicorp/go-cleanhttp,v0.5.2,https://github.com/hashicorp/go-cleanhttp/blob/v0.5.2/LICENSE,MPL-2.0
 github.com/hashicorp/go-multierror,v1.1.1,https://github.com/hashicorp/go-multierror/blob/v1.1.1/LICENSE,MPL-2.0
-github.com/hashicorp/go-retryablehttp,v0.7.4,https://github.com/hashicorp/go-retryablehttp/blob/v0.7.4/LICENSE,MPL-2.0
+github.com/hashicorp/go-retryablehttp,v0.7.5,https://github.com/hashicorp/go-retryablehttp/blob/v0.7.5/LICENSE,MPL-2.0
 github.com/hashicorp/go-rootcerts,v1.0.2,https://github.com/hashicorp/go-rootcerts/blob/v1.0.2/LICENSE,MPL-2.0
 github.com/hashicorp/go-secure-stdlib/parseutil,v0.1.6,https://github.com/hashicorp/go-secure-stdlib/blob/parseutil/v0.1.6/parseutil/LICENSE,MPL-2.0
 github.com/hashicorp/go-secure-stdlib/strutil,v0.1.2,https://github.com/hashicorp/go-secure-stdlib/blob/strutil/v0.1.2/strutil/LICENSE,MPL-2.0
