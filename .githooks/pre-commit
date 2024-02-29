@@ -23,17 +23,19 @@ function generate_standalone_yaml() {
   charttmpdir=${charttmpdir}/chart
   mkdir -p "${charttmpdir}"
 
+  # generate normal public example
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" ${HELM_OPTS[@]}
-
   cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} >public/mongodb-enterprise.yaml
-
   cat "helm_chart/crds/"* >public/crds.yaml
 
+  # generate openshift public example
   rm -rf "${charttmpdir:?}/*"
-
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml ${HELM_OPTS[@]}
-
   cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} >public/mongodb-enterprise-openshift.yaml
+
+  # generate multi-cluster public example
+  helm template --namespace mongodb -f helm_chart/values-multi-cluster.yaml helm_chart ${HELM_OPTS[@]} >public/mongodb-enterprise-multi-cluster.yaml
+
 }
 
 function python_formatting() {
