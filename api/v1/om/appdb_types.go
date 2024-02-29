@@ -267,7 +267,7 @@ type AppDbBuilder struct {
 }
 
 // GetMongoDBVersion returns the version of the MongoDB.
-func (m *AppDBSpec) GetMongoDBVersion() string {
+func (m *AppDBSpec) GetMongoDBVersion(map[string]string) string {
 	return m.Version
 }
 
@@ -484,7 +484,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetPassword(password).
 		SetReplicas(m.Replicas()).
 		SetService(m.ServiceName()).
-		SetVersion(m.GetMongoDBVersion()).
+		SetVersion(m.GetMongoDBVersion(nil)).
 		SetAuthenticationModes(m.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.GetClusterDomain()).
 		SetIsReplicaSet(true).

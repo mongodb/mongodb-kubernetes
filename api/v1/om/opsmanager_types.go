@@ -691,7 +691,7 @@ func (m *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions 
 
 	if phase == status.PhaseRunning {
 		spec := m.Spec.AppDB
-		m.Status.AppDbStatus.Version = spec.GetMongoDBVersion()
+		m.Status.AppDbStatus.Version = spec.GetMongoDBVersion(nil)
 		m.Status.AppDbStatus.Message = ""
 	}
 }

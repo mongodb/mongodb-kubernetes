@@ -364,7 +364,7 @@ type ProcessOption func(process Process)
 
 func WithResourceSpec(resourceSpec mdbv1.DbSpec) ProcessOption {
 	return func(process Process) {
-		processVersion := resourceSpec.GetMongoDBVersion()
+		processVersion := resourceSpec.GetMongoDBVersion(nil)
 		process["version"] = processVersion
 		process["authSchemaVersion"] = CalculateAuthSchemaVersion(processVersion)
 		featureCompatibilityVersion := resourceSpec.GetFeatureCompatibilityVersion()
