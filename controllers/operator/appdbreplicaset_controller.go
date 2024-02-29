@@ -1001,7 +1001,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.M
 		SetFCV(fcVersion).
 		AddVersions(existingAutomationConfig.Versions).
 		IsEnterprise(construct.IsEnterprise()).
-		SetMongoDBVersion(rs.GetMongoDBVersion()).
+		SetMongoDBVersion(rs.GetMongoDBVersion(nil)).
 		SetOptions(automationconfig.Options{DownloadBase: util.AgentDownloadsDir}).
 		SetPreviousAutomationConfig(existingAutomationConfig).
 		SetTLSConfig(
@@ -1013,7 +1013,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(opsManager *omv1.M
 			p.Name = processList[i].Name
 			p.HostName = processList[i].HostName
 
-			p.AuthSchemaVersion = om.CalculateAuthSchemaVersion(rs.GetMongoDBVersion())
+			p.AuthSchemaVersion = om.CalculateAuthSchemaVersion(rs.GetMongoDBVersion(nil))
 			p.Args26 = objx.New(rs.AdditionalMongodConfig.ToMap())
 			p.SetPort(int(rs.AdditionalMongodConfig.GetPortOrDefault()))
 			p.SetReplicaSetName(rs.Name())

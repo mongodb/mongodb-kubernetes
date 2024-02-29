@@ -501,7 +501,7 @@ func (m *MongoDBMultiSpec) GetClusterDomain() string {
 	return "cluster.local"
 }
 
-func (m *MongoDBMultiSpec) GetMongoDBVersion() string {
+func (m *MongoDBMultiSpec) GetMongoDBVersion(map[string]string) string {
 	return m.Version
 }
 
@@ -542,7 +542,7 @@ func (m *MongoDBMultiSpec) MinimumMajorVersion() uint64 {
 		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
 		return semverFcv.Major
 	}
-	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
+	semverVersion, _ := semver.Make(m.GetMongoDBVersion(nil))
 	return semverVersion.Major
 }
 
@@ -620,7 +620,7 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, s
 		SetReplicas(m.Spec.Replicas()).
 		SetService(m.Name + "-svc").
 		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetVersion(m.Spec.GetMongoDBVersion()).
+		SetVersion(m.Spec.GetMongoDBVersion(nil)).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).
 		SetIsReplicaSet(true).

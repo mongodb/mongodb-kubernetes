@@ -234,7 +234,7 @@ type ClusterSpecItem struct {
 type DbSpec interface {
 	Replicas() int
 	GetClusterDomain() string
-	GetMongoDBVersion() string
+	GetMongoDBVersion(annotations map[string]string) string
 	GetSecurityAuthenticationModes() []string
 	GetResourceType() ResourceType
 	IsSecurityTLSConfigEnabled() bool
@@ -527,7 +527,7 @@ func (m *MongoDB) CurrentReplicas() int {
 }
 
 // GetMongoDBVersion returns the version of the MongoDB.
-func (ms MongoDbSpec) GetMongoDBVersion() string {
+func (ms MongoDbSpec) GetMongoDBVersion(map[string]string) string {
 	return ms.Version
 }
 
@@ -547,7 +547,7 @@ func (m MongoDbSpec) MinimumMajorVersion() uint64 {
 		semverFcv, _ := semver.Make(fmt.Sprintf("%s.0", fcv))
 		return semverFcv.Major
 	}
-	semverVersion, _ := semver.Make(m.GetMongoDBVersion())
+	semverVersion, _ := semver.Make(m.GetMongoDBVersion(nil))
 	return semverVersion.Major
 }
 
@@ -1429,7 +1429,7 @@ func (m *MongoDB) BuildConnectionString(username, password string, scheme connec
 		SetReplicas(m.Spec.Replicas()).
 		SetService(m.ServiceName()).
 		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetVersion(m.Spec.GetMongoDBVersion()).
+		SetVersion(m.Spec.GetMongoDBVersion(nil)).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).
 		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).

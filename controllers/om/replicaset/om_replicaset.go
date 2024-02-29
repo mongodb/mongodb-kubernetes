@@ -23,7 +23,7 @@ func BuildFromStatefulSet(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec) om.Replic
 // parameter.
 func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, replicas int) om.ReplicaSetWithProcesses {
 	members := process.CreateMongodProcessesWithLimit(set, dbSpec, replicas)
-	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion(nil))
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())
 	return rsWithProcesses
@@ -33,7 +33,7 @@ func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpe
 // based on the StatefulSet and AppDB provided.
 func BuildAppDBFromStatefulSet(set appsv1.StatefulSet, mdb omv1.AppDBSpec) om.ReplicaSetWithProcesses {
 	members := process.CreateAppDBProcesses(set, om.ProcessTypeMongod, mdb)
-	replicaSet := om.NewReplicaSet(set.Name, mdb.GetMongoDBVersion())
+	replicaSet := om.NewReplicaSet(set.Name, mdb.GetMongoDBVersion(nil))
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, mdb.GetMemberOptions())
 	return rsWithProcesses
 }
