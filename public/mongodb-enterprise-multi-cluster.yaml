@@ -31,9 +31,9 @@ metadata:
 apiVersion: v1
 kind: ConfigMap
 data:
-  MDB_CLUSTER_1_FULL_NAME: ""
-  MDB_CLUSTER_2_FULL_NAME: ""
-  MDB_CLUSTER_3_FULL_NAME: ""
+   MDB_CLUSTER_1_FULL_NAME: ""
+   MDB_CLUSTER_2_FULL_NAME: ""
+   MDB_CLUSTER_3_FULL_NAME: ""
 metadata:
   namespace: mongodb
   name: mongodb-enterprise-operator-member-list
