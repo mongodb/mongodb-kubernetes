@@ -97,11 +97,19 @@ type AppDBSpec struct {
 }
 
 func (m *AppDBSpec) GetAgentLogLevel() mdbcv1.LogLevel {
-	return mdbcv1.LogLevel(m.AutomationAgent.LogLevel)
+	agentLogLevel := mdbcv1.LogLevelInfo
+	if m.AutomationAgent.LogLevel != "" {
+		agentLogLevel = string(m.AutomationAgent.LogLevel)
+	}
+	return mdbcv1.LogLevel(agentLogLevel)
 }
 
 func (m *AppDBSpec) GetAgentMaxLogFileDurationHours() int {
-	return m.AutomationAgent.MaxLogFileDurationHours
+	agentMaxLogFileDurationHours := automationconfig.DefaultAgentMaxLogFileDurationHours
+	if m.AutomationAgent.MaxLogFileDurationHours != 0 {
+		agentMaxLogFileDurationHours = m.AutomationAgent.MaxLogFileDurationHours
+	}
+	return agentMaxLogFileDurationHours
 }
 
 // ObjectKey returns the client.ObjectKey with m.OpsManagerName because the name is used to identify the object to enqueue and reconcile.
@@ -389,7 +397,7 @@ func (m *AppDBSpec) MonitoringAutomationConfigSecretName() string {
 }
 
 func (m *AppDBSpec) GetAgentLogFile() string {
-	return ""
+	return automationconfig.DefaultAgentLogFile
 }
 
 // This function is used in community to determine whether we need to create a single
