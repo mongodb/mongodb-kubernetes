@@ -52,7 +52,6 @@ const (
 	tmpSubpathName = "mongodb-agent-monitoring-tmp"
 
 	monitoringAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/monitoring-agent-health-status.json"
-	monitoringAgentLogOptions                = " -logFile /var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs ${AGENT_MAX_LOG_FILE_DURATION_HOURS} -logLevel ${AGENT_LOG_LEVEL}"
 )
 
 type AppDBStatefulSetOptions struct {
@@ -61,6 +60,10 @@ type AppDBStatefulSetOptions struct {
 	MonitoringAgentVersion string
 
 	PrometheusTLSCertHash string
+}
+
+func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
+	return fmt.Sprintf(" -logFile /var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs %d -logLevel %s", spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
@@ -381,7 +384,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := construct.AutomationAgentCommand(true)
+	automationAgentCommand := construct.AutomationAgentCommand(true, string(opsManager.Spec.AppDB.GetAgentLogLevel()), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 	if opsManager.Spec.AppDB.IsMultiCluster() {
@@ -397,7 +400,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	sts := statefulset.New(
 		// create appdb statefulset from the community code
-		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, os.Getenv(construct.AgentImageEnv), true),
+		construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&opsManager.Spec.AppDB, scaler, os.Getenv(construct.AgentImageEnv), true), statefulset.WithName(opsManager.Spec.AppDB.NameForCluster(scaler.MemberClusterNum())),
 		statefulset.WithName(opsManager.Spec.AppDB.NameForCluster(scaler.MemberClusterNum())),
 		statefulset.WithServiceName(opsManager.Spec.AppDB.HeadlessServiceNameForCluster(scaler.MemberClusterNum())),
 
@@ -537,7 +540,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	command += "agent/mongodb-agent"
 	command += " -healthCheckFilePath=" + monitoringAgentHealthStatusFilePathValue
 	command += " -serveStatusPort=5001"
-	command += monitoringAgentLogOptions
+	command += getMonitoringAgentLogOptions(appDB)
 
 	// 2. Add the cluster config file path
 	// If we are using k8s secrets, this is the same as community (and the same as the other agent container)
