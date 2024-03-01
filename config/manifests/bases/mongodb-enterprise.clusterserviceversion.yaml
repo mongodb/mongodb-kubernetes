@@ -439,7 +439,6 @@ spec:
   - email: support@mongodb.com
     name: MongoDB, Inc
   maturity: stable
-  minKubeVersion: 1.26.0
   provider:
     name: MongoDB, Inc
   replaces: mongodb-enterprise.v1.23.0
