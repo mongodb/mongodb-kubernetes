@@ -234,7 +234,7 @@ apiVersion: v1
 kind: ConfigMap
 data:
   {{- range .Values.multiCluster.clusters }}
-  {{ . | indent 1 }}: ""
+  {{ . }}: ""
   {{- end }}
 metadata:
   namespace: {{$ns}}
