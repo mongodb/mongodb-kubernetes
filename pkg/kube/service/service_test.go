@@ -154,3 +154,38 @@ func TestService_mergeAnnotations(t *testing.T) {
 	assert.Len(t, dst.ObjectMeta.Annotations, 3)
 	assert.Equal(t, dst.ObjectMeta.Annotations["annotation0"], "valueXXXX")
 }
+
+func TestService_mergeFieldsWhenDestFieldsAreNil(t *testing.T) {
+	annotationsSrc := make(map[string]string)
+	annotationsSrc["annotation0"] = "value0"
+	annotationsSrc["annotation1"] = "value1"
+
+	labelsSrc := make(map[string]string)
+	labelsSrc["label0"] = "labelValue0"
+	labelsSrc["label1"] = "labelValue1"
+
+	selectorsSrc := make(map[string]string)
+	selectorsSrc["sel0"] = "selValue0"
+	selectorsSrc["sel1"] = "selValue1"
+
+	src := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: annotationsSrc,
+			Labels:      labelsSrc,
+		},
+		Spec: corev1.ServiceSpec{Selector: selectorsSrc},
+	}
+	dst := corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "my-service",
+			Namespace:   "my-namespace",
+			Annotations: nil,
+			Labels:      nil,
+		},
+	}
+	dst = Merge(dst, src)
+	assert.Len(t, dst.ObjectMeta.Annotations, 2)
+	assert.Equal(t, dst.ObjectMeta.Annotations, annotationsSrc)
+	assert.Equal(t, dst.ObjectMeta.Labels, labelsSrc)
+	assert.Equal(t, dst.Spec.Selector, selectorsSrc)
+}

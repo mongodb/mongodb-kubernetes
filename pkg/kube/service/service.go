@@ -26,12 +26,23 @@ func DeleteServiceIfItExists(getterDeleter service.GetDeleter, serviceName types
 // a new service will be created and returned.
 // The "merging" process is arbitrary and it only handle specific attributes
 func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
+	if dest.ObjectMeta.Annotations == nil {
+		dest.ObjectMeta.Annotations = map[string]string{}
+	}
 	for k, v := range source.ObjectMeta.Annotations {
 		dest.ObjectMeta.Annotations[k] = v
 	}
 
+	if dest.ObjectMeta.Labels == nil {
+		dest.ObjectMeta.Labels = map[string]string{}
+	}
+
 	for k, v := range source.ObjectMeta.Labels {
 		dest.ObjectMeta.Labels[k] = v
+	}
+
+	if dest.Spec.Selector == nil {
+		dest.Spec.Selector = map[string]string{}
 	}
 
 	for k, v := range source.Spec.Selector {
