@@ -28,6 +28,15 @@ kubectl_cmd() {
 
 reset_context() {
   context=$1
+  # Deleting ClusterRoleBindings
+  matching_resources=$(kubectl get clusterrolebindings --context "${context}" -o name | grep mongodb || echo "")
+  if [ -n "$matching_resources" ]; then
+    kubectl_cmd delete --context "${context}" "${matching_resources}"
+  fi
+}
+
+reset_context_namespace() {
+  context=$1
   namespace=$2
   if [[ "${context}" == "" ]]; then
     echo "context cannot be empty"
@@ -95,9 +104,10 @@ reset_context() {
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   # reset central cluster
   central_cluster_namespaces=$(get_test_namespaces "${CENTRAL_CLUSTER}")
+  reset_context "${CENTRAL_CLUSTER}"
   echo "${CENTRAL_CLUSTER}: resetting namespaces: ${central_cluster_namespaces}"
   for ns in ${central_cluster_namespaces}; do
-    reset_context "${CENTRAL_CLUSTER}" "${ns}" 2>&1 | prepend "${CENTRAL_CLUSTER}:${ns}" &
+    reset_context_namespace "${CENTRAL_CLUSTER}" "${ns}" 2>&1 | prepend "${CENTRAL_CLUSTER}:${ns}" &
   done
 
 # we are in our static cluster, lets skip!
@@ -106,14 +116,18 @@ if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
     for member_cluster in ${MEMBER_CLUSTERS}; do
       member_cluster_namespaces=$(get_test_namespaces "${member_cluster}")
       echo "${member_cluster}: resetting namespaces: ${member_cluster_namespaces}"
+      reset_context "${member_cluster}"
       for ns in ${member_cluster_namespaces}; do
-        reset_context "${member_cluster}" "${ns}" 2>&1 | prepend "${member_cluster}:${ns}" &
+        reset_context_namespace "${member_cluster}" "${ns}" 2>&1 | prepend "${member_cluster}:${ns}" &
       done
     done
   fi
   echo "Waiting for background jobs to complete..."
   wait
 else
+  current_context=$(kubectl config current-context)
   # shellcheck disable=SC2153
-  reset_context "$(kubectl config current-context)" "${NAMESPACE}"
+  reset_context "${current_context}"
+  # shellcheck disable=SC2153
+  reset_context_namespace "${current_context}" "${NAMESPACE}"
 fi
