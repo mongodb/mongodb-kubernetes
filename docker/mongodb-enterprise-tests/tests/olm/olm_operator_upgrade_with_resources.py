@@ -125,9 +125,7 @@ def test_create_om(
     ops_manager["spec"]["backup"]["members"] = 2
 
     ops_manager.set_version(custom_version)
-    # we don't use latest AppDB here this time, due to the lack of support for the new official AppDB image in the latest released bundle
-    # TODO: change it to custom_appdb_version when 1.20 is released
-    ops_manager.set_appdb_version("5.0.7-ent")
+    ops_manager.set_appdb_version(custom_appdb_version)
     ops_manager.allow_mdb_rc_versions()
 
     create_or_update(ops_manager)
