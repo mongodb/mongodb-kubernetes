@@ -3,6 +3,8 @@ package create
 import (
 	"errors"
 
+	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -55,7 +57,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	if prom != nil {
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
-	err = service.CreateOrUpdateService(client, internalService)
+	err = mekoService.CreateOrUpdateService(client, internalService)
 	if err != nil {
 		return err
 	}
@@ -63,7 +65,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	for podNum := 0; podNum < mdb.GetSpec().Replicas(); podNum++ {
 		namespacedName = kube.ObjectKey(mdb.Namespace, dns.GetExternalServiceName(set.Name, podNum))
 		if mdb.Spec.ExternalAccessConfiguration == nil {
-			if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {
+			if err := mekoService.DeleteServiceIfItExists(client, namespacedName); err != nil {
 				return err
 			}
 			continue
@@ -103,7 +105,7 @@ func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, o
 	}
 	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
 
-	err := service.CreateOrUpdateService(client, externalService)
+	err := mekoService.CreateOrUpdateService(client, externalService)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
 	}
@@ -131,7 +133,7 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBO
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
-	return service.CreateOrUpdateService(client, internalService)
+	return mekoService.CreateOrUpdateService(client, internalService)
 }
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
@@ -161,7 +163,7 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager *omv1.M
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = service.CreateOrUpdateService(client, internalService)
+	err = mekoService.CreateOrUpdateService(client, internalService)
 	return false, err
 }
 
@@ -189,7 +191,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 		}
 	}
 
-	err = service.CreateOrUpdateService(client, internalService)
+	err = mekoService.CreateOrUpdateService(client, internalService)
 	if err != nil {
 		return err
 	}
@@ -200,7 +202,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
 		externalService = &svc
 	} else {
-		if err := service.DeleteServiceIfItExists(client, namespacedName); err != nil {
+		if err := mekoService.DeleteServiceIfItExists(client, namespacedName); err != nil {
 			return err
 		}
 
@@ -216,7 +218,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 	}
 
 	if externalService != nil {
-		if err := service.CreateOrUpdateService(client, *externalService); err != nil {
+		if err := mekoService.CreateOrUpdateService(client, *externalService); err != nil {
 			return err
 		}
 	}
