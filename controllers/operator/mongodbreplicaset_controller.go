@@ -204,6 +204,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
 	agentCertSecretName += certs.OperatorGeneratedCertSuffix
 
+	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
+	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
+	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(conn, rs.Status.Members, rs, sts, log, caFilePath, agentCertSecretName, prometheusCertHash, true).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")

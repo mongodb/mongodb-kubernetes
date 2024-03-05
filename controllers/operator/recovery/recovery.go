@@ -3,6 +3,8 @@ package recovery
 import (
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 )
 
@@ -27,6 +29,7 @@ func ShouldTriggerRecovery(isResourceFailing bool, lastTransitionTime string) bo
 			// We silently ignore all the errors and just prevent the recovery from happening
 			return false
 		}
+		zap.S().Debugf("The configured delay before recovery is %d seconds", automaticRecoveryBackoffSeconds())
 		if parsedTime.Add(time.Duration(automaticRecoveryBackoffSeconds()) * time.Second).Before(time.Now()) {
 			return true
 		}

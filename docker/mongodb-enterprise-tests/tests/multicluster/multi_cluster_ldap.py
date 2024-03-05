@@ -1,7 +1,8 @@
-from typing import List
+import time
+from typing import Dict, List
 
 import kubernetes
-from kubetester import create_or_update, create_secret
+from kubetester import create_or_update, create_secret, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
@@ -21,6 +22,11 @@ BUNDLE_SECRET_NAME = f"{CERT_SECRET_PREFIX}-{MDB_RESOURCE}-cert"
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
 LDAP_NAME = "openldap"
+
+
+@fixture(scope="module")
+def operator_installation_config(operator_installation_config_quick_recovery: Dict[str, str]) -> Dict[str, str]:
+    return operator_installation_config_quick_recovery
 
 
 @fixture(scope="module")
@@ -99,12 +105,12 @@ def mongodb_multi(
         },
         "authentication": {
             "enabled": True,
-            "modes": ["LDAP"],
+            "modes": ["LDAP", "SCRAM"],  # SCRAM for testing CLOUDP-229222
             "ldap": {
                 "servers": [multicluster_openldap_tls.servers],
                 "bindQueryUser": "cn=admin,dc=example,dc=org",
                 "bindQueryPasswordSecretRef": {"name": secret_name},
-                "transportSecurity": "tls",
+                "transportSecurity": "none",  # For testing CLOUDP-229222
                 "validateLDAPServerConfig": True,
                 "caConfigMapRef": {"name": issuer_ca_configmap, "key": "ca-pem"},
                 "userToDNMapping": '[{match: "(.+)",substitution: "uid={0},ou=groups,dc=example,dc=org"}]',
@@ -112,7 +118,7 @@ def mongodb_multi(
                 "userCacheInvalidationInterval": 60,
             },
             "agents": {
-                "mode": "LDAP",
+                "mode": "SCRAM",  # SCRAM for testing CLOUDP-189433
                 "automationPasswordSecretRef": {
                     "name": ac_secret_name,
                     "key": "automationConfigPassword",
@@ -162,7 +168,72 @@ def test_deploy_operator(multi_cluster_operator: Operator):
 
 
 @mark.e2e_multi_cluster_with_ldap
-def test_create_mongodb_multi_with_ldap(mongodb_multi: MongoDBMulti):
+def test_mongodb_multi_pending(mongodb_multi: MongoDBMulti):
+    """
+    This function tests CLOUDP-229222. The resource needs to enter the "Pending" state and without the automatic
+    recovery, it would stay like this forever (since we wouldn't push the new AC with a fix).
+    """
+    mongodb_multi.assert_reaches_phase(Phase.Pending, timeout=100)
+
+
+@mark.e2e_multi_cluster_with_ldap
+def test_turn_tls_on_CLOUDP_229222(mongodb_multi: MongoDBMulti):
+    """
+    This function tests CLOUDP-229222. The user attempts to fix the AutomationConfig.
+    Before updating the AutomationConfig, we need to ensure the operator pushed the wrong one to Ops Manager.
+    """
+
+    def wait_for_ac_exists() -> bool:
+        ac = mongodb_multi.get_automation_config_tester().automation_config
+        try:
+            _ = ac["ldap"]["transportSecurity"]
+            _ = ac["version"]
+            return True
+        except KeyError:
+            return False
+
+    wait_until(wait_for_ac_exists, timeout=1900)
+    current_version = mongodb_multi.get_automation_config_tester().automation_config["version"]
+
+    def wait_for_ac_pushed() -> bool:
+        ac = mongodb_multi.get_automation_config_tester().automation_config
+        try:
+            _ = ac["ldap"]["transportSecurity"]
+            new_version = ac["version"]
+            if new_version != current_version:
+                return True
+        except KeyError:
+            return False
+        return False
+
+    wait_until(wait_for_ac_pushed, timeout=1900)
+
+    resource = mongodb_multi.load()
+    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    create_or_update(resource)
+
+
+@mark.e2e_multi_cluster_with_ldap
+def test_multi_replicaset_CLOUDP_229222(mongodb_multi: MongoDBMulti):
+    """
+    This function tests CLOUDP-229222.  The recovery mechanism kicks in and pushes Automation Config. The ReplicaSet
+    goes into running state.
+    """
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1900)
+
+
+@mark.e2e_multi_cluster_with_ldap
+def test_restore_mongodb_multi_ldap_configuration(mongodb_multi: MongoDBMulti):
+    """
+    This function restores the initial desired security configuration to carry on with the next tests normally.
+    """
+    resource = mongodb_multi.load()
+
+    resource["spec"]["security"]["authentication"]["modes"] = ["LDAP"]
+    resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
+    resource["spec"]["security"]["authentication"]["agents"]["mode"] = "LDAP"
+
+    create_or_update(resource)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=800)
 
 

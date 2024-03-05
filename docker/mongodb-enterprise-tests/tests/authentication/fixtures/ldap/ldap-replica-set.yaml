@@ -18,10 +18,12 @@ spec:
       agents:
         mode: "SCRAM"
       enabled: true
+      # Enabled LDAP and SCRAM Authentication Mode
       modes: ["LDAP", "SCRAM"]
       ldap:
-        bindQueryUser: "<filled-by-test>"
         servers: "<filled-by-test>"
+        transportSecurity: "<filled-by-test>"
+        bindQueryUser: "<filled-by-test>"
         bindQueryPasswordSecretRef:
           name: "<filled-by-test>"
-        transportSecurity: "<filled-by-test>"
+        

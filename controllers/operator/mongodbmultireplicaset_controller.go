@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"sort"
 
+	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 
 	"golang.org/x/xerrors"
@@ -152,6 +155,21 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 	needToPublishStateFirst, err := r.needToPublishStateFirstMultiCluster(&mrs, log)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err), log)
+	}
+
+	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
+	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
+	// See CLOUDP-189433 and CLOUDP-229222 for more details.
+	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
+		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
+		automationConfigError := r.updateOmDeploymentRs(conn, mrs, true, log)
+		reconcileStatus := r.reconcileMemberResources(mrs, log, conn, projectConfig)
+		if !reconcileStatus.IsOK() {
+			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
+		}
+		if automationConfigError != nil {
+			log.Errorf("Recovery failed because of Automation Config update errors, %w", automationConfigError)
+		}
 	}
 
 	status := workflow.RunInGivenOrder(needToPublishStateFirst,
@@ -606,11 +624,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 			continue
 		}
 		reachableHostnames = append(reachableHostnames, hostnamesToAdd...)
-
 	}
 
 	err = agents.WaitForRsAgentsToRegisterReplicasSpecifiedMultiCluster(conn, reachableHostnames, log)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return err
 	}
 
@@ -642,7 +659,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	processes, err := process.CreateMongodProcessesWithLimitMulti(mrs, certificateFileName)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return err
 	}
 
@@ -656,7 +673,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	// We do not provide an agentCertSecretName on purpose because then we will default to the non pem secret on the central cluster.
 	// Below method has special code handling reading certificates from the central cluster in that case.
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, rs.GetProcessNames(), &mrs, "", caFilePath, internalClusterPath, isRecovering, log)
-	if !status.IsOK() {
+	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
 
@@ -668,7 +685,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		},
 		log,
 	)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return err
 	}
 
@@ -677,7 +694,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 	}
 
 	status = r.ensureBackupConfigurationAndUpdateStatus(conn, &mrs, r.SecretClient, log)
-	if !status.IsOK() {
+	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
 	}
 
@@ -687,7 +704,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 			reachableProcessNames = append(reachableProcessNames, proc.Name())
 		}
 	}
-	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil {
+	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
 		return err
 	}
 	return nil

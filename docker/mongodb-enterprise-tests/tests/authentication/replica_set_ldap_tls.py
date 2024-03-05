@@ -1,6 +1,12 @@
+import time
 from typing import Dict
 
-from kubetester import create_or_update, create_or_update_secret, find_fixture
+from kubetester import (
+    create_or_update,
+    create_or_update_secret,
+    find_fixture,
+    wait_until,
+)
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
@@ -8,15 +14,8 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def operator_installation_config(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
-    """
-    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in reasonable time,
-    we override the Recovery back off to 10 seconds only. This way it immediately kicks in.
-    """
-    operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
-    )
-    return operator_installation_config
+def operator_installation_config(operator_installation_config_quick_recovery: Dict[str, str]) -> Dict[str, str]:
+    return operator_installation_config_quick_recovery
 
 
 @fixture(scope="module")
@@ -80,7 +79,34 @@ def test_replica_set_pending_CLOUDP_189433(replica_set: MongoDB):
 def test_turn_tls_on_CLOUDP_189433(replica_set: MongoDB):
     """
     This function tests CLOUDP-189433. The user attempts to fix the AutomationConfig.
+    Before updating the AutomationConfig, we need to ensure the operator pushed the wrong one to Ops Manager.
     """
+
+    def wait_for_ac_exists() -> bool:
+        ac = replica_set.get_automation_config_tester().automation_config
+        try:
+            _ = ac["ldap"]["transportSecurity"]
+            _ = ac["version"]
+            return True
+        except KeyError:
+            return False
+
+    wait_until(wait_for_ac_exists, timeout=200)
+    current_version = replica_set.get_automation_config_tester().automation_config["version"]
+
+    def wait_for_ac_pushed() -> bool:
+        ac = replica_set.get_automation_config_tester().automation_config
+        try:
+            _ = ac["ldap"]["transportSecurity"]
+            new_version = ac["version"]
+            if new_version != current_version:
+                return True
+        except KeyError:
+            return False
+        return False
+
+    wait_until(wait_for_ac_pushed, timeout=200)
+
     resource = replica_set.load()
     resource["spec"]["security"]["authentication"]["ldap"]["transportSecurity"] = "tls"
     create_or_update(resource)
