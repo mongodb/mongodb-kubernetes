@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
@@ -1726,7 +1728,7 @@ func (r *ReconcileAppDbReplicaSet) createMultiClusterServices(opsManager *omv1.M
 		clusterSpecItem := opsManager.Spec.AppDB.GetMemberClusterSpecByName(memberCluster.Name)
 		for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
 			svc := getMultiClusterAppDBService(opsManager.Spec.AppDB, r.getMemberClusterIndex(memberCluster.Name), podNum)
-			err := service.CreateOrUpdateService(memberCluster.Client, svc)
+			err := mekoService.CreateOrUpdateService(memberCluster.Client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create service: %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}

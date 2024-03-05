@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"sort"
 
+	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
 
@@ -841,7 +843,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 					} else {
 						svc = getService(mrs, e.ClusterName, podNum)
 					}
-					err := service.CreateOrUpdateService(v, svc)
+					err := mekoService.CreateOrUpdateService(v, svc)
 					if err != nil && !apiErrors.IsAlreadyExists(err) {
 						return xerrors.Errorf("failed to created service: %s in cluster: %s, err: %w", svc.Name, k, err)
 					}
@@ -895,7 +897,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 }
 
 func ensureSRVService(client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
-	err := service.CreateOrUpdateService(client, svc)
+	err := mekoService.CreateOrUpdateService(client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create SRVservice: % in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
@@ -911,7 +913,7 @@ func ensureClusterIPServices(client service.GetUpdateCreator, m *mdbmultiv1.Mong
 			svc = getService(m, clusterSpecItem.ClusterName, podNum)
 
 		}
-		err := service.CreateOrUpdateService(client, svc)
+		err := mekoService.CreateOrUpdateService(client, svc)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to create clusterIP service: %s in cluster: %s, err: %w", svc.Name, clusterSpecItem.ClusterName, err)
 		}
@@ -920,7 +922,7 @@ func ensureClusterIPServices(client service.GetUpdateCreator, m *mdbmultiv1.Mong
 }
 
 func ensureHeadlessService(client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
-	err := service.CreateOrUpdateService(client, svc)
+	err := mekoService.CreateOrUpdateService(client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create headless service: %s in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
