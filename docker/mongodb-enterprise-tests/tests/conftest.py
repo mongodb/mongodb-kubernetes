@@ -170,6 +170,18 @@ def operator_vault_secret_backend_tls(
 
 
 @fixture(scope="module")
+def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+    """
+    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in reasonable time,
+    we override the Recovery back off to 10 seconds only. This way it immediately kicks in.
+    """
+    operator_installation_config["customEnvVars"] = (
+        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+    )
+    return operator_installation_config
+
+
+@fixture(scope="module")
 def evergreen_task_id() -> str:
     return get_evergreen_task_id()
 
