@@ -89,6 +89,15 @@ type UserOptions struct {
 func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.SugaredLogger) error {
 	log.Infow("ensuring correct deployment mechanisms", "MinimumMajorVersion", opts.MinimumMajorVersion, "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
 
+	// In case we're recovering, we can push all changes at once, because the mechanism is triggered after 20min by default.
+	// Otherwise, we might unnecessarily enter this waiting loop 7 times, and waste >10 min
+	waitForReadyStateIfNeeded := func() error {
+		if isRecovering {
+			return nil
+		}
+		return om.WaitForReadyState(conn, opts.ProcessNames, false, log)
+	}
+
 	if stringutil.Contains(opts.Mechanisms, util.X509) && !canEnableX509(conn) {
 		return xerrors.Errorf("unable to configure X509 with this version of Ops Manager, 4.0.11 is the minimum required version to enable X509")
 	}
@@ -98,18 +107,16 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 	if err := ensureDeploymentsMechanismsExist(conn, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
 	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
 	}
 
 	// we make sure that the AuthoritativeSet options in the AC is correct
 	if err := ensureAuthoritativeSetIsConfigured(conn, opts.AuthoritativeSet, log); err != nil {
 		return xerrors.Errorf("error ensuring that authoritative set is configured: %w", err)
 	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
 	}
 
 	// once we have made sure that the deployment authentication mechanism array contains the desired auth mechanism
@@ -117,9 +124,8 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 	if err := enableAgentAuthentication(conn, opts, log); err != nil {
 		return xerrors.Errorf("error enabling agent authentication: %w", err)
 	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
 	}
 
 	// once we have successfully enabled auth for the agents, we need to remove mechanisms we don't need.
@@ -127,9 +133,8 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 	if err := removeUnusedAuthenticationMechanisms(conn, opts, log); err != nil {
 		return xerrors.Errorf("error removing unused authentication mechanisms %w", err)
 	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
 	}
 
 	// we remove any unrequired deployment auth mechanisms. This will generally be mechanisms
@@ -137,18 +142,16 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 	if err := removeUnrequiredDeploymentMechanisms(conn, opts, log); err != nil {
 		return xerrors.Errorf("error removing unrequired deployment mechanisms: %w", err)
 	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
 	}
 
 	// Adding a client certificate for agents
 	if err := addOrRemoveAgentClientCertificate(conn, opts, log); err != nil {
 		return xerrors.Errorf("error adding client certificates for the agents: %w", err)
 	}
-
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
-		return xerrors.Errorf("error waiting for ready state: %w", err)
+	if err := waitForReadyStateIfNeeded(); err != nil {
+		return err
 	}
 
 	// if scram if the specified authentication mechanism rotate passwrd
@@ -156,6 +159,7 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 	if err := rotateAgentUserPassword(conn, opts, log); err != nil {
 		return xerrors.Errorf("error rotating password for agent user: %w", err)
 	}
+
 	if err := om.WaitForReadyState(conn, opts.ProcessNames, isRecovering, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
@@ -192,7 +196,7 @@ func ConfigureScramCredentials(user *om.MongoDBUser, password string) error {
 }
 
 // Disable disables all authentication mechanisms, and waits for the agents to reach goal state. It is still required to provide
-// automation agent user name, password and keyfile contents to ensure a valid Automation Config.
+// automation agent username, password and keyfile contents to ensure a valid Automation Config.
 func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
@@ -200,7 +204,7 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 	}
 
 	// Disabling auth must be done in two steps, otherwise the agents might not be able to transition.
-	// From a slack conversation with Agent team:
+	// From a Slack conversation with Agent team:
 	// "First disable with leaving credentials and mechanisms and users in place. Wait for goal state.  Then remove the rest"
 	// "assume the agent is stateless.  So if you remove the authentication information before it has transitioned then it won't be able to transition"
 	if ac.Auth.IsEnabled() {
@@ -218,7 +222,6 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
 			return xerrors.Errorf("error waiting for ready state: %w", err)
 		}
-
 	}
 
 	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {

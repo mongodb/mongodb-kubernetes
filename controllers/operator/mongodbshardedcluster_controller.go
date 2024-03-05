@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"golang.org/x/xerrors"
 
@@ -280,6 +281,21 @@ func (r *ReconcileMongoDbShardedCluster) doShardedClusterProcessing(obj interfac
 	allConfigs := r.getAllConfigs(*sc, opts, log)
 
 	agentCertSecretName += certs.OperatorGeneratedCertSuffix
+
+	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
+	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
+	// See CLOUDP-189433 and CLOUDP-229222 for more details.
+	if recovery.ShouldTriggerRecovery(sc.Status.Phase != mdbstatus.PhaseRunning, sc.Status.LastTransition) {
+		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", sc.Namespace, sc.Name, sc.Status.Phase, sc.Status.LastTransition)
+		automationConfigStatus := r.updateOmDeploymentShardedCluster(conn, sc, opts, true, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		deploymentError := r.createKubernetesResources(sc, opts, log)
+		if deploymentError != nil {
+			log.Errorf("Recovery failed because of deployment errors, %w", deploymentError)
+		}
+		if !automationConfigStatus.IsOK() {
+			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
+		}
+	}
 
 	status = workflow.RunInGivenOrder(anyStatefulSetNeedsToPublishState(*sc, r.client, allConfigs, log),
 		func() workflow.Status {
@@ -563,7 +579,7 @@ func AddShardedClusterController(mgr manager.Manager, memberClustersMap map[stri
 	if err != nil {
 		return err
 	}
-	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
+	// if vault secret backend is enabled watch for Vault secret change and  reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
 		go vaultwatcher.WatchSecretChangeForMDB(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.ShardedCluster)
@@ -639,12 +655,12 @@ type deploymentOptions struct {
 // until the agents have performed draining
 func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
 	err := r.waitForAgentsToRegister(sc, conn, opts, log, sc)
-	if err != nil {
+	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
 	dep, err := conn.ReadDeployment()
-	if err != nil {
+	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
@@ -653,11 +669,11 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 
 	processNames, shardsRemoving, status := r.publishDeployment(conn, sc, &opts, isRecovering, log)
 
-	if !status.IsOK() {
+	if !status.IsOK() && !isRecovering {
 		return status
 	}
 
-	if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil && !isRecovering {
 		if shardsRemoving {
 			return workflow.Pending("automation agents haven't reached READY state: shards removal in progress")
 		}
@@ -669,11 +685,11 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
 		processNames, _, status = r.publishDeployment(conn, sc, &opts, isRecovering, log)
-		if !status.IsOK() {
+		if !status.IsOK() && !isRecovering {
 			return status
 		}
 
-		if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+		if err = om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil && !isRecovering {
 			return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
 		}
 	}
@@ -695,11 +711,11 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 	currentHosts := getAllHosts(sc, currentCount)
 	wantedHosts := getAllHosts(sc, desiredCount)
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
-	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, sc, r.SecretClient, log); !status.IsOK() {
+	if status := r.ensureBackupConfigurationAndUpdateStatus(conn, sc, r.SecretClient, log); !status.IsOK() && !isRecovering {
 		return status
 	}
 
@@ -708,7 +724,6 @@ func (r *ReconcileMongoDbShardedCluster) updateOmDeploymentShardedCluster(conn o
 }
 
 func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
-
 	// mongos
 	sts := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(*sc, *opts, log), nil)
 	mongosInternalClusterPath := statefulset.GetFilePathFromAnnotationOrDefault(sts, util.InternalCertAnnotationKey, util.InternalClusterAuthMountPath, "")
@@ -741,7 +756,7 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(conn om.Connection, s
 	}
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, opts.processNames, sc, opts.agentCertSecretName, opts.caFilePath, "", isRecovering, log)
-	if !status.IsOK() {
+	if !status.IsOK() && !isRecovering {
 		return nil, false, status
 	}
 

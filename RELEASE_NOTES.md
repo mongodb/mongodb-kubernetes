@@ -1,4 +1,10 @@
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.25.0
+
+## New Features
+**MongoDB**: The Automatic Recovery mechanism introduced for Replicasets in release 1.22 has been generalized to all types of MongoDB resources.
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.24.0
 
 ## New Features
@@ -7,7 +13,6 @@
 ## Bug Fixes
 * Fix a bug that prevented terminating backup correctly.
 
-<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.23.0
 ## Warnings and Breaking Changes
 

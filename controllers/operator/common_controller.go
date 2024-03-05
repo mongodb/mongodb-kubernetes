@@ -580,13 +580,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(conn om.Connection, p
 				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
 			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
-
 		}
 		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
 			autoConfigPassword, err := r.ReadSecretKey(kube.ObjectKey(ar.GetNamespace(), secretRef.Name), databaseSecretPath, secretRef.Key)
 			if err != nil {
-				return workflow.Failed(xerrors.Errorf("error reading automation agent  password: %w", err)), false
+				return workflow.Failed(xerrors.Errorf("error reading automation agent password: %w", err)), false
 			}
 
 			authOpts.AutoPwd = autoConfigPassword
