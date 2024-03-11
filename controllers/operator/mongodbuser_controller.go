@@ -159,7 +159,7 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 	// TODO: unregister config map upon MongoDBUser deletion
 	if user.Namespace == "" && user.Name == "" {
 		// stop reconciliation
-		return reconcile.Result{}, nil
+		return workflow.Invalid("User or namespace is empty or nil").ReconcileResult()
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, mdb, log)

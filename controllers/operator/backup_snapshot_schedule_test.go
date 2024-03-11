@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"k8s.io/utils/pointer"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -143,5 +144,5 @@ func assertSnapshotScheduleEqual(t *testing.T, expected *mdbv1.SnapshotSchedule,
 func checkReconcile(t *testing.T, reconciler reconcile.Reconciler, resource metav1.Object) {
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(resource))
 	require.NoError(t, e)
-	require.Equal(t, reconcile.Result{}, result)
+	require.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
 }

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -385,7 +387,7 @@ func reconcileAppDBOnceAndCheckExpectedProcesses(t *testing.T, kubeManager manag
 		// we're expected to scale one by one for expectedReconciles count
 		require.Greater(t, reconcileResult.RequeueAfter, time.Duration(0))
 	} else {
-		require.Zero(t, reconcileResult.RequeueAfter)
+		require.Equal(t, util.TWENTY_FOUR_HOURS, reconcileResult.RequeueAfter)
 	}
 
 	assertExpectedProcesses(t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
@@ -407,7 +409,8 @@ func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t *testing.
 			// we're expected to scale one by one for expectedReconciles count
 			require.Greater(t, reconcileResult.RequeueAfter, time.Duration(0), "failed in reconcile %d", i)
 		} else {
-			require.Zero(t, reconcileResult.RequeueAfter, "failed in reconcile %d", i)
+			ok, _ := workflow.OK().ReconcileResult()
+			require.Equal(t, ok, reconcileResult, "failed in reconcile %d", i)
 		}
 	}
 

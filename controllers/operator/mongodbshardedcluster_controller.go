@@ -85,7 +85,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 	reconcileResult, err := r.prepareResourceForReconciliation(request, sc, log)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return reconcile.Result{}, nil
+			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
 	}

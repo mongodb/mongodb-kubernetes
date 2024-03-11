@@ -119,7 +119,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); err != nil {
 		if errors.IsNotFound(err) {
-			return reconcile.Result{}, nil
+			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
 	}

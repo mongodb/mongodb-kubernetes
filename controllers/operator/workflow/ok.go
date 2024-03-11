@@ -1,7 +1,10 @@
 package workflow
 
 import (
+	"time"
+
 	"github.com/10gen/ops-manager-kubernetes/api/v1/status"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -9,11 +12,12 @@ import (
 // okStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type okStatus struct {
 	commonStatus
-	requeue bool
+	requeue      bool
+	requeueAfter time.Duration
 }
 
 func OK() *okStatus {
-	return &okStatus{}
+	return &okStatus{requeueAfter: util.TWENTY_FOUR_HOURS}
 }
 
 func (o *okStatus) WithWarnings(warnings []status.Warning) *okStatus {
@@ -22,7 +26,7 @@ func (o *okStatus) WithWarnings(warnings []status.Warning) *okStatus {
 }
 
 func (o okStatus) ReconcileResult() (reconcile.Result, error) {
-	return reconcile.Result{Requeue: o.requeue}, nil
+	return reconcile.Result{Requeue: o.requeue, RequeueAfter: o.requeueAfter}, nil
 }
 
 func (o okStatus) IsOK() bool {
@@ -51,6 +55,7 @@ func (o okStatus) Phase() status.Phase {
 }
 
 func (o *okStatus) Requeue() Status {
+	o.requeueAfter = 0
 	o.requeue = true
 	return o
 }
