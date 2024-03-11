@@ -330,7 +330,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	}
 
 	// 1. Reconcile AppDB
-	emptyResult := reconcile.Result{}
+	emptyResult, _ := workflow.OK().ReconcileResult()
 	retryResult := reconcile.Result{Requeue: true}
 
 	// TODO: make SetupCommonWatchers support opsmanager watcher setup
@@ -413,7 +413,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
-	return reconcile.Result{}, nil
+	return workflow.OK().ReconcileResult()
 }
 
 // getMonitoringAgentVersion returns the minimum supported agent version for the given version of Ops Manager.

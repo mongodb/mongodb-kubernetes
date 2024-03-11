@@ -384,7 +384,7 @@ func testConnectionSpec() mdbv1.ConnectionSpec {
 func checkReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
 	result, e := reconciler.Reconcile(context.TODO(), requestFromObject(object))
 	require.NoError(t, e)
-	require.Equal(t, reconcile.Result{}, result)
+	require.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
 
 	// also need to make sure the object status is updated to successful
 	assert.NoError(t, client.Get(context.TODO(), mock.ObjectKeyFromApiObject(object), object))
@@ -418,7 +418,19 @@ func checkOMReconciliationSuccessful(t *testing.T, reconciler reconcile.Reconcil
 	assert.NoError(t, err)
 
 	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(om))
-	expected = reconcile.Result{}
+	expected = reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+}
+
+func checkOMReconciliationInvalid(t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
+	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(om))
+	expected, _ := workflow.OK().Requeue().ReconcileResult()
+	assert.Equal(t, expected, res)
+	assert.NoError(t, err)
+
+	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(om))
+	expected, _ = workflow.Invalid("doesn't matter").ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 }

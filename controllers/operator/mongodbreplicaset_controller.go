@@ -99,7 +99,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, rs, log); err != nil {
 		if errors.IsNotFound(err) {
-			return reconcile.Result{}, nil
+			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
 	}

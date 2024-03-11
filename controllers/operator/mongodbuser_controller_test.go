@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -50,7 +52,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -86,7 +88,7 @@ func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T
 
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if MongoDBUser and MongoDB resources are in different namespaces")
@@ -106,7 +108,7 @@ func TestReconciliationSucceed_OnAddingUser_WithNoMongoDBNamespaceSpecified(t *t
 
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if MongoDBResourceRef is not provided")
@@ -124,7 +126,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -157,7 +159,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -250,7 +252,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	// pre-configure the connection
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "the reconciliation should be successful as x509 does not require a password")
@@ -288,7 +290,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
 
 	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
-	expected := reconcile.Result{}
+	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)

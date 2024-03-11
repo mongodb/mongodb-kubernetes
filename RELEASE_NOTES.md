@@ -3,6 +3,7 @@
 
 ## New Features
 **MongoDB**: The Automatic Recovery mechanism introduced for Replicasets in release 1.22 has been generalized to all types of MongoDB resources.
+* Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.24.0

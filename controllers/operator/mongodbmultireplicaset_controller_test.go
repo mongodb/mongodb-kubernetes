@@ -55,7 +55,7 @@ func checkMultiReconcileSuccessful(t *testing.T, reconciler reconcile.Reconciler
 	if shouldRequeue {
 		assert.True(t, result.Requeue || result.RequeueAfter > 0)
 	} else {
-		assert.Equal(t, reconcile.Result{}, result)
+		assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
 	}
 
 	// fetch the last updates as the reconciliation loop can update the mdb resource.

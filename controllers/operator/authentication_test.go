@@ -232,7 +232,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	}, memberClusterMap)
 
 	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(x509User))
-	expected := reconcile.Result{}
+	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
@@ -270,7 +270,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	}, memberClusterMap)
 
 	actual, err := userReconciler.Reconcile(context.TODO(), requestFromObject(scramUser))
-	expected := reconcile.Result{}
+	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
