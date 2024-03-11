@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
@@ -160,7 +159,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(testOm))
-	assert.Equal(t, reconcile.Result{}, res)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 
 	assert.NotContains(t, reconciler.WatchedResources, omTLSSecretKey)
@@ -176,7 +175,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NoError(t, err)
 
 	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(testOm))
-	assert.Equal(t, reconcile.Result{}, res)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 
 	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
@@ -381,7 +380,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	}).Build()
 	reconciler, client, _ := defaultTestOmReconciler(t, testOm, nil)
 
-	checkOMReconciliationSuccessful(t, reconciler, testOm)
+	checkOMReconciliationInvalid(t, reconciler, testOm)
 
 	backupSts := appsv1.StatefulSet{}
 	err := client.Get(context.TODO(), kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &backupSts)
@@ -392,7 +391,7 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(testOm))
-	assert.Equal(t, reconcile.Result{}, res)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 
 	backupSts = appsv1.StatefulSet{}
@@ -631,8 +630,8 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(testOm))
 
 	assert.NoError(t, err)
-	assert.Equal(t, false, res.Requeue)
-	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+	ok, _ := workflow.OK().ReconcileResult()
+	assert.Equal(t, ok, res)
 
 }
 
@@ -708,8 +707,8 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(testOm))
 
 	assert.NoError(t, err)
-	assert.Equal(t, false, res.Requeue)
-	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+	ok, _ := workflow.OK().ReconcileResult()
+	assert.Equal(t, ok, res)
 
 	t.Run("Configs are created successfully", func(t *testing.T) {
 		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs()

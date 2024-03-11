@@ -125,7 +125,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 	mrs := mdbmultiv1.MongoDBMultiCluster{}
 	if reconcileResult, err := r.prepareResourceForReconciliation(request, &mrs, log); err != nil {
 		if apiErrors.IsNotFound(err) {
-			return reconcile.Result{}, nil
+			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		log.Errorf("error preparing resource for reconciliation: %s", err)
 		return reconcileResult, err

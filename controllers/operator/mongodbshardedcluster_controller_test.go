@@ -319,7 +319,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 	addKubernetesTlsResources(client, sc)
 
 	actualResult, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
-	expectedResult := reconcile.Result{}
+	expectedResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
@@ -335,7 +335,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	reconciler, client := defaultClusterReconciler(sc)
 	addKubernetesTlsResources(client, sc)
 	actualResult, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
-	expectedResult := reconcile.Result{}
+	expectedResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
@@ -509,7 +509,8 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		if shouldRetry {
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
 		} else {
-			assert.Equal(t, time.Duration(0), res.RequeueAfter)
+			ok, _ := workflow.OK().ReconcileResult()
+			assert.Equal(t, ok, res)
 		}
 		err = client.Get(context.TODO(), sc.ObjectKey(), sc)
 		assert.NoError(t, err)
@@ -590,7 +591,8 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 		if shouldRetry {
 			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter)
 		} else {
-			assert.Equal(t, time.Duration(0), res.RequeueAfter)
+			ok, _ := workflow.OK().ReconcileResult()
+			assert.Equal(t, ok, res)
 		}
 		err = client.Get(context.TODO(), sc.ObjectKey(), sc)
 		assert.NoError(t, err)
@@ -750,7 +752,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(sc))
-	assert.Equal(t, reconcile.Result{}, res)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 	assert.Len(t, reconciler.WatchedResources, 2)
 

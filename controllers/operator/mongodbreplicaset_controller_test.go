@@ -456,7 +456,7 @@ func TestScalingScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {
 
 	res, err = reconciler.Reconcile(context.TODO(), requestFromObject(rs))
 	assert.NoError(t, err)
-	assert.Equal(t, time.Duration(0), res.RequeueAfter, "Once we reach the target value, we should not scale anymore")
+	assert.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter, "Once we reach the target value, we should not scale anymore")
 
 	assertCorrectNumberOfMembersAndProcesses(t, 3, rs, client, "The members should now be set to the final desired value")
 

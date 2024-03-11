@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
@@ -507,8 +509,8 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 
 	res, err := omReconciler.Reconcile(context.TODO(), requestFromObject(opsManager))
 	assert.NoError(t, err)
-	assert.Equal(t, time.Duration(0), res.RequeueAfter)
-	assert.Equal(t, false, res.Requeue)
+	ok, _ := workflow.OK().ReconcileResult()
+	assert.Equal(t, ok, res)
 
 	err = client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, opsManager)
 	assert.NoError(t, err)
@@ -749,8 +751,8 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 	res, err := reconciler.ReconcileAppDB(opsManager)
 
 	assert.NoError(t, err)
-	assert.Equal(t, time.Duration(0), res.RequeueAfter)
-	assert.Equal(t, false, res.Requeue)
+	ok, _ := workflow.OK().ReconcileResult()
+	assert.Equal(t, ok, res)
 
 	// Scale the AppDB
 	opsManager.Spec.AppDB.Members = finalMembers
@@ -779,7 +781,7 @@ func performAppDBScalingTest(t *testing.T, startingMembers, finalMembers int) {
 
 	res, err = reconciler.ReconcileAppDB(opsManager)
 	assert.NoError(t, err)
-	assert.Equal(t, time.Duration(0), res.RequeueAfter)
+	assert.Equal(t, ok, res)
 
 	err = client.Get(context.TODO(), types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, opsManager)
 	assert.NoError(t, err)

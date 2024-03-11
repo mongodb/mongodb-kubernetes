@@ -2,6 +2,7 @@ package util
 
 import (
 	"strings"
+	"time"
 )
 
 const (
@@ -304,3 +305,7 @@ var LogAutomationConfigDiff string
 func ShouldLogAutomationConfigDiff() bool {
 	return strings.EqualFold(LogAutomationConfigDiff, "true")
 }
+
+const (
+	TWENTY_FOUR_HOURS = 24 * time.Hour
+)
