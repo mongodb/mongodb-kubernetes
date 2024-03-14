@@ -31,7 +31,7 @@ func TestUniqueClusterNames(t *testing.T) {
 	}
 
 	err := mrs.ValidateCreate()
-	assert.Equal(t, "Multiple clusters with the same name (abc) are not allowed", err.Error())
+	assert.ErrorContains(t, err, "Multiple clusters with the same name (abc) are not allowed")
 }
 
 func TestUniqueExternalDomains(t *testing.T) {
@@ -56,7 +56,32 @@ func TestUniqueExternalDomains(t *testing.T) {
 	}
 
 	err := mrs.ValidateCreate()
-	assert.Equal(t, "Multiple externalDomains with the same name (test) are not allowed", err.Error())
+	assert.ErrorContains(t, err, "Multiple member clusters with the same externalDomain (test) are not allowed")
+}
+
+func TestAllExternalDomainsSet(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+	mrs.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{
+		{
+			ClusterName:                 "1",
+			Members:                     1,
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+		},
+		{
+			ClusterName:                 "2",
+			Members:                     1,
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: nil},
+		},
+		{
+			ClusterName:                 "3",
+			Members:                     1,
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+		},
+	}
+
+	err := mrs.ValidateCreate()
+	assert.ErrorContains(t, err, "The externalDomain is not set for member cluster: 2")
 }
 
 func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
@@ -77,7 +102,7 @@ func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
 	}
 
 	err := mrs.ValidateCreate()
-	assert.Equal(t, "TLS must be enabled in order to use replica set horizons", err.Error())
+	assert.ErrorContains(t, err, "TLS must be enabled in order to use replica set horizons")
 }
 
 func TestSpecProjectOnlyOneValue(t *testing.T) {

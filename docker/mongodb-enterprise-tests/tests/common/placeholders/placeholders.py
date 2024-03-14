@@ -109,5 +109,3 @@ def get_expected_annotations_multi_cluster_no_mesh(
         "clusterName": f"{prefix}value={cluster_name}",
         "clusterIndex": f"{prefix}value={cluster_index}",
     }
-
-
