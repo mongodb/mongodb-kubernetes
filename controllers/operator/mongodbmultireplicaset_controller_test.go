@@ -9,6 +9,9 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	mdbc "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -18,7 +21,6 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster/memberwatch"
 
@@ -104,7 +106,7 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 		SetExternalAccess(
 			mdb.ExternalAccessConfiguration{
 				ExternalDomain: pointer.String("cluster-%d.testing"),
-			}, "cluster-%d.testing").
+			}, pointer.String("cluster-%d.testing")).
 		Build()
 	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
 	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
@@ -131,6 +133,66 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 				err = otherCluster.GetClient().Get(context.TODO(), kube.ObjectKey(externalService.Namespace, externalService.Name), &corev1.Service{})
 				assert.Error(t, err)
 			}
+		}
+	}
+}
+
+func TestServiceCreation_WithPlaceholders(t *testing.T) {
+	annotationsWithPlaceholders := map[string]string{
+		create.PlaceholderPodIndex:            "{podIndex}",
+		create.PlaceholderNamespace:           "{namespace}",
+		create.PlaceholderResourceName:        "{resourceName}",
+		create.PlaceholderPodName:             "{podName}",
+		create.PlaceholderStatefulSetName:     "{statefulSetName}",
+		create.PlaceholderExternalServiceName: "{externalServiceName}",
+		create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+		create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+		create.PlaceholderClusterName:         "{clusterName}",
+		create.PlaceholderClusterIndex:        "{clusterIndex}",
+	}
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetExternalAccess(
+			mdb.ExternalAccessConfiguration{
+				ExternalService: mdb.ExternalServiceConfiguration{
+					Annotations: annotationsWithPlaceholders,
+				},
+			}, nil).
+		Build()
+	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(false)
+	reconciler, client, memberClusterMap := defaultMultiReplicaSetReconciler(mrs, t)
+	checkMultiReconcileSuccessful(t, reconciler, mrs, client, false)
+
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		assert.NoError(t, err)
+	}
+	clusterSpecs := clusterSpecList
+	for _, item := range clusterSpecs {
+		c := memberClusterMap[item.ClusterName]
+		for podNum := 0; podNum < item.Members; podNum++ {
+			externalServiceName := fmt.Sprintf("%s-%d-%d-svc-external", mrs.Name, mrs.ClusterNum(item.ClusterName), podNum)
+
+			svc := corev1.Service{}
+			err = c.GetClient().Get(context.TODO(), kube.ObjectKey(mrs.Namespace, externalServiceName), &svc)
+			assert.NoError(t, err)
+
+			statefulSetName := fmt.Sprintf("%s-%d", mrs.Name, mrs.ClusterNum(item.ClusterName))
+			podName := fmt.Sprintf("%s-%d", statefulSetName, podNum)
+			mongodProcessDomain := fmt.Sprintf("%s.svc.cluster.local", mrs.Namespace)
+			expectedAnnotations := map[string]string{
+				create.PlaceholderPodIndex:            fmt.Sprintf("%d", podNum),
+				create.PlaceholderNamespace:           mrs.Namespace,
+				create.PlaceholderResourceName:        mrs.Name,
+				create.PlaceholderStatefulSetName:     statefulSetName,
+				create.PlaceholderPodName:             podName,
+				create.PlaceholderExternalServiceName: fmt.Sprintf("%s-svc-external", podName),
+				create.PlaceholderMongodProcessDomain: mongodProcessDomain,
+				create.PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s-svc.%s", podName, mongodProcessDomain),
+				create.PlaceholderClusterName:         item.ClusterName,
+				create.PlaceholderClusterIndex:        fmt.Sprintf("%d", mrs.ClusterNum(item.ClusterName)),
+			}
+			assert.Equal(t, expectedAnnotations, svc.Annotations)
 		}
 	}
 }
@@ -958,22 +1020,28 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 func defaultMultiReplicaSetReconciler(m *mdbmulti.MongoDBMultiCluster, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	connection := func(ctx *om.OMContext) om.Connection {
 		ret := om.NewEmptyMockedOmConnection(ctx)
-		ret.(*om.MockedOmConnection).Hostnames = calculateHostNames(m)
+		ret.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 		return ret
 
 	}
 	return multiReplicaSetReconcilerWithConnection(m, connection, t)
 }
 
-func calculateHostNames(m *mdbmulti.MongoDBMultiCluster) []string {
-	if m.Spec.ExternalAccessConfiguration == nil || m.Spec.ExternalAccessConfiguration.ExternalDomain == nil {
+func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []string {
+	if m.Spec.GetExternalDomain() == nil {
 		return nil
 	}
 
 	var expectedHostnames []string
 	for i, cl := range m.Spec.ClusterSpecList {
 		for j := 0; j < cl.Members; j++ {
-			expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d-%d.%s", m.Name, i, j, *cl.ExternalAccessConfiguration.ExternalDomain))
+			externalDomain := m.Spec.GetExternalDomainForMemberCluster(cl.ClusterName)
+			if externalDomain == nil {
+				// we don't have all externalDomains set, so we don't calculate them here at all
+				// validation should capture invalid external domains configuration, so it must be all or nothing
+				return nil
+			}
+			expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d-%d.%s", m.Name, i, j, *externalDomain))
 		}
 	}
 	return expectedHostnames

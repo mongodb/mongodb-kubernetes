@@ -41,17 +41,17 @@ func TestUniqueExternalDomains(t *testing.T) {
 		{
 			ClusterName:                 "1",
 			Members:                     1,
-			ExternalAccessConfiguration: mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
 		},
 		{
 			ClusterName:                 "2",
 			Members:                     1,
-			ExternalAccessConfiguration: mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
 		},
 		{
 			ClusterName:                 "3",
 			Members:                     1,
-			ExternalAccessConfiguration: mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("test")},
 		},
 	}
 

@@ -605,7 +605,7 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 		hostnames := om.CurrMockedConnection.Hostnames
 		if hostnames == nil {
 			if val, ok := set.Annotations[handler.MongoDBMultiResourceAnnotation]; ok {
-				hostnames = dns.GetMultiClusterProcessHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas), "", nil)
+				hostnames = dns.GetMultiClusterProcessHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas), "cluster.local", nil)
 			} else {
 				// We also "register" automation agents.
 				// So far we don't support custom cluster name

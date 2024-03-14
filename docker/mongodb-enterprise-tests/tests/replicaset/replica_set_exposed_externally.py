@@ -1,26 +1,29 @@
 import pytest
 from kubernetes import client
-from kubetester import create_or_update
+from kubetester import create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture
+from tests.common.placeholders import placeholders
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-externally-exposed.yaml"),
         "my-replica-set-externally-exposed",
         namespace,
     )
-    resource["spec"]["members"] = 2
-    resource.set_version(custom_mdb_version)
-    create_or_update(resource)
+    try_load(resource)
     return resource
 
 
 @pytest.mark.e2e_replica_set_exposed_externally
-def test_replica_set_created(replica_set: MongoDB):
+def test_replica_set_created(replica_set: MongoDB, custom_mdb_version: str):
+    replica_set["spec"]["members"] = 2
+    replica_set.set_version(custom_mdb_version)
+    create_or_update(replica_set)
+
     replica_set.assert_reaches_phase(Phase.Running, timeout=300)
 
 
@@ -47,6 +50,24 @@ def test_service_node_port_stays_the_same(namespace: str, replica_set: MongoDB):
     service = client.CoreV1Api().read_namespaced_service("my-replica-set-externally-exposed-0-svc-external", namespace)
     assert service.spec.type == "LoadBalancer"
     assert service.spec.ports[0].node_port == node_port
+
+
+@pytest.mark.e2e_replica_set_exposed_externally
+def test_placeholders_in_external_services(namespace: str, replica_set: MongoDB):
+    external_access = replica_set["spec"].get("externalAccess", {})
+    external_service = external_access.get("externalService", {})
+    external_service["annotations"] = placeholders.get_annotations_with_placeholders_for_single_cluster()
+    external_access["externalService"] = external_service
+    replica_set["spec"]["externalAccess"] = external_access
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+
+    name = replica_set["metadata"]["name"]
+    for pod_idx in range(0, replica_set.get_members()):
+        service = client.CoreV1Api().read_namespaced_service(f"{name}-{pod_idx}-svc-external", namespace)
+        assert service.metadata.annotations == placeholders.get_expected_annotations_single_cluster(
+            name, namespace, pod_idx
+        )
 
 
 @pytest.mark.e2e_replica_set_exposed_externally

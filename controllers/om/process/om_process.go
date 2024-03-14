@@ -41,7 +41,7 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMultiCluster, cer
 	}
 
 	for _, spec := range clusterSpecList {
-		agentHostNames := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), spec.ExternalAccessConfiguration.ExternalDomain)
+		agentHostNames := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), mrs.Spec.GetExternalDomainForMemberCluster(spec.ClusterName))
 		hostnames = append(hostnames, agentHostNames...)
 		for i := 0; i < len(agentHostNames); i++ {
 			clusterNums = append(clusterNums, mrs.ClusterNum(spec.ClusterName))
