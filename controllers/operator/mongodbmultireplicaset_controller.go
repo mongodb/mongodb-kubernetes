@@ -218,7 +218,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 	return r.updateStatus(&mrs, workflow.OK(), log)
 }
 
-// needToPublishStateFirstMultiCluster returns a boolean indicating whether or not Ops Manager
+// needToPublishStateFirstMultiCluster returns a boolean indicating whether Ops Manager
 // needs to be updated before the StatefulSets are created for this resource.
 func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (bool, error) {
 	scalingDown, err := isScalingDown(mrs)
@@ -276,7 +276,7 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMultiCluster) (bool, error) {
 		reconciliationItem := specThisReconciliation[i]
 
 		if specItem.Members < reconciliationItem.Members {
-			// when failover is happening, the clusterspec list will alaways have fewer members
+			// when failover is happening, the clusterspec list will always have fewer members
 			// than the specs for the reconcile.
 			if _, ok := mdbmultiv1.HasClustersToFailOver(mrs.Annotations); ok {
 				return false, nil
@@ -616,7 +616,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(conn om.Connectio
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 	for _, spec := range clusterSpecList {
-		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), spec.ExternalAccessConfiguration.ExternalDomain)
+		hostnamesToAdd := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), mrs.Spec.GetExternalDomainForMemberCluster(spec.ClusterName))
 		if stringutil.Contains(failedClusterNames, spec.ClusterName) {
 			log.Debugf("Skipping hostnames %+v as they are part of the failed cluster %s ", hostnamesToAdd, spec.ClusterName)
 			continue
@@ -763,8 +763,8 @@ func getExternalService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string,
 	svc.Name = dns.GetMultiExternalServiceName(mrs.GetName(), clusterNum, podNum)
 	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
 
-	externalDomain := mrs.ExternalMemberClusterDomain(clusterName)
-	if externalDomain != nil {
+	externalAccessConfig := mrs.Spec.GetExternalAccessConfigurationForMemberCluster(clusterName)
+	if externalAccessConfig != nil {
 		// first we override with the Service spec from the root and then from a specific cluster.
 		if mrs.Spec.ExternalAccessConfiguration != nil {
 			globalOverrideSpecWrapper := mrs.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper
@@ -772,9 +772,8 @@ func getExternalService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string,
 				svc.Spec = merge.ServiceSpec(svc.Spec, globalOverrideSpecWrapper.Spec)
 			}
 		}
-
-		clusterLevelOverrideSpec := mrs.Spec.ClusterSpecList[clusterNum].ExternalAccessConfiguration.ExternalService.SpecWrapper
-		additionalAnnotations := mrs.Spec.ClusterSpecList[clusterNum].ExternalAccessConfiguration.ExternalService.Annotations
+		clusterLevelOverrideSpec := externalAccessConfig.ExternalService.SpecWrapper
+		additionalAnnotations := externalAccessConfig.ExternalService.Annotations
 		if clusterLevelOverrideSpec != nil {
 			svc.Spec = merge.ServiceSpec(svc.Spec, clusterLevelOverrideSpec.Spec)
 		}
@@ -826,43 +825,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	// by default, we would create the duplicate services
-	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
-	if shouldCreateDuplicates {
-		// iterate over each cluster and create service object corresponding to each of the pods in the multi-cluster RS.
-		for k, v := range r.memberClusterClientsMap {
-			for _, e := range clusterSpecList {
-				if stringutil.Contains(failedClusterNames, e.ClusterName) {
-					log.Warnf("failed to create duplicate services: cluster %s is marked as failed", e.ClusterName)
-					continue
-				}
-				for podNum := 0; podNum < e.Members; podNum++ {
-					var svc corev1.Service
-					if mrs.ExternalMemberClusterDomain(e.ClusterName) != nil {
-						svc = getExternalService(mrs, e.ClusterName, podNum)
-					} else {
-						svc = getService(mrs, e.ClusterName, podNum)
-					}
-					err := mekoService.CreateOrUpdateService(v, svc)
-					if err != nil && !apiErrors.IsAlreadyExists(err) {
-						return xerrors.Errorf("failed to created service: %s in cluster: %s, err: %w", svc.Name, k, err)
-					}
-					log.Infof("Successfully created services in cluster: %s", k)
-				}
-			}
-		}
-		return nil
-	}
-
 	for _, e := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, e.ClusterName) {
-			log.Warnf(fmt.Sprintf("failed to create services: cluster %s is marked as failed", e.ClusterName))
+			log.Warnf(fmt.Sprintf("cluster %s is marked as failed", e.ClusterName))
 			continue
 		}
 
 		client, ok := r.memberClusterClientsMap[e.ClusterName]
 		if !ok {
-			log.Warnf(fmt.Sprintf("failed to create services: cluster %s missing from client map", e.ClusterName))
+			log.Warnf(fmt.Sprintf("cluster %s missing from client map", e.ClusterName))
 			continue
 		}
 		if e.Members == 0 {
@@ -875,13 +846,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		if err := ensureSRVService(client, srvService, e.ClusterName); err != nil {
 			return err
 		}
-		log.Infof("Successfully created srv service: %s in cluster: %s", srvService.Name, e.ClusterName)
-
-		// ensure ClusterIP services
-		if err := ensureClusterIPServices(client, mrs, e); err != nil {
-			return err
-		}
-		log.Infof("Successfully created services in cluster: %s", e.ClusterName)
+		log.Infof("Successfully created SRV service %s in cluster %s", srvService.Name, e.ClusterName)
 
 		// ensure Headless service
 		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
@@ -890,32 +855,74 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(log *zap.SugaredLogg
 		if err := ensureHeadlessService(client, headlessService, e.ClusterName); err != nil {
 			return err
 		}
-		log.Infof("Successfully created headless service in cluster: %s", e.ClusterName)
-
+		log.Infof("Successfully created headless service %s in cluster: %s", headlessServiceName, e.ClusterName)
 	}
+
+	// by default, we would create the duplicate services
+	shouldCreateDuplicates := mrs.Spec.DuplicateServiceObjects == nil || *mrs.Spec.DuplicateServiceObjects
+	for memberClusterName, memberClusterClient := range r.memberClusterClientsMap {
+		if stringutil.Contains(failedClusterNames, memberClusterName) {
+			log.Warnf(fmt.Sprintf("cluster %s is marked as failed, skipping creation of services", memberClusterName))
+			continue
+		}
+
+		for _, clusterSpecItem := range clusterSpecList {
+			if !shouldCreateDuplicates && clusterSpecItem.ClusterName != memberClusterName {
+				// skip creating of other cluster's services (duplicates) in the current cluster
+				continue
+			}
+
+			if err := ensureServices(memberClusterClient, memberClusterName, mrs, clusterSpecItem, log); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
 func ensureSRVService(client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
 	err := mekoService.CreateOrUpdateService(client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
-		return xerrors.Errorf("failed to create SRVservice: % in cluster: %s, err: %w", svc.Name, clusterName, err)
+		return xerrors.Errorf("failed to create SRV service: % in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
 	return nil
 }
 
-func ensureClusterIPServices(client service.GetUpdateCreator, m *mdbmultiv1.MongoDBMultiCluster, clusterSpecItem mdb.ClusterSpecItem) error {
+// ensureServices creates pod services and/or external services.
+// If externalAccess is defined (at spec or clusterSpecItem level) then we always create an external service.
+// If externalDomain is defined then we DO NOT create pod services (service created for each pod selecting only 1 pod).
+// When there are external domains used, we don't use internal pod-service FQDNs as hostnames at all,
+// so there is no point in creating pod services.
+// But when external domains are not used, then mongod process hostnames use pod service FQDN, and
+// at the same time user might want to expose externally using external services.
+func ensureServices(client service.GetUpdateCreator, clientClusterName string, m *mdbmultiv1.MongoDBMultiCluster, clusterSpecItem mdb.ClusterSpecItem, log *zap.SugaredLogger) error {
 	for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
 		var svc corev1.Service
-		if m.ExternalMemberClusterDomain(clusterSpecItem.ClusterName) != nil {
+		if m.Spec.GetExternalAccessConfigurationForMemberCluster(clusterSpecItem.ClusterName) != nil {
 			svc = getExternalService(m, clusterSpecItem.ClusterName, podNum)
-		} else {
-			svc = getService(m, clusterSpecItem.ClusterName, podNum)
 
+			placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(m.Name, m.Namespace, clusterSpecItem.ClusterName, m.ClusterNum(clusterSpecItem.ClusterName), m, podNum)
+			if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
+				return xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, clientClusterName, err)
+			} else if replacedFlag {
+				log.Debugf("Replaced placeholders in annotations in external service %s in cluster: %s. Annotations before: %+v, annotations after: %+v", svc.Name, clientClusterName, svc.Annotations, processedAnnotations)
+				svc.Annotations = processedAnnotations
+			}
+
+			err := mekoService.CreateOrUpdateService(client, svc)
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
+			}
 		}
-		err := mekoService.CreateOrUpdateService(client, svc)
-		if err != nil && !apiErrors.IsAlreadyExists(err) {
-			return xerrors.Errorf("failed to create clusterIP service: %s in cluster: %s, err: %w", svc.Name, clusterSpecItem.ClusterName, err)
+
+		// we create regular pod-services only if we don't use external domains
+		if m.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName) == nil {
+			svc = getService(m, clusterSpecItem.ClusterName, podNum)
+			err := mekoService.CreateOrUpdateService(client, svc)
+			if err != nil && !apiErrors.IsAlreadyExists(err) {
+				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
+			}
 		}
 	}
 	return nil
@@ -932,16 +939,10 @@ func ensureHeadlessService(client service.GetUpdateCreator, svc corev1.Service, 
 func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMultiCluster, clusterNum int, clusterName string, members int) corev1.ConfigMap {
 	data := make(map[string]string)
 
-	externalDomain := mrs.ExternalMemberClusterDomain(clusterName)
+	externalDomain := mrs.Spec.GetExternalDomainForMemberCluster(clusterName)
 	for podNum := 0; podNum < members; podNum++ {
 		key := dns.GetMultiPodName(mrs.Name, clusterNum, podNum)
-		var value string
-		if externalDomain != nil {
-			value = dns.GetMultiServiceExternalDomain(mrs.Name, *externalDomain, clusterNum, podNum)
-		} else {
-			value = dns.GetMultiServiceFQDN(mrs.Name, mrs.Namespace, mrs.Spec.GetClusterDomain(), clusterNum, podNum)
-		}
-		data[key] = value
+		data[key] = dns.GetMultiClusterPodServiceFQDN(mrs.Name, mrs.Namespace, clusterNum, externalDomain, podNum, mrs.Spec.GetClusterDomain())
 	}
 
 	cm := corev1.ConfigMap{
@@ -1002,18 +1003,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.Sugare
 	if err != nil {
 		return err
 	}
-	for _, cluster := range clusterSpecList {
-		if stringutil.Contains(failedClusterNames, cluster.ClusterName) {
-			log.Warnf("failed to create configmap %s: cluster %s is marked as failed", configMapName, cluster.ClusterName)
+	for _, clusterSpecItem := range clusterSpecList {
+		if stringutil.Contains(failedClusterNames, clusterSpecItem.ClusterName) {
+			log.Warnf("failed to create configmap %s: cluster %s is marked as failed", configMapName, clusterSpecItem.ClusterName)
 			continue
 		}
-		client := r.memberClusterClientsMap[cluster.ClusterName]
+		client := r.memberClusterClientsMap[clusterSpecItem.ClusterName]
 		memberCm := configmap.Builder().SetName(configMapName).SetNamespace(mrs.Namespace).SetData(cm.Data).Build()
 		err := configmap.CreateOrUpdate(client, memberCm)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
-			return xerrors.Errorf("failed to create configmap: %s in cluster %s, err: %w", cm.Name, cluster.ClusterName, err)
+			return xerrors.Errorf("failed to create configmap: %s in cluster %s, err: %w", cm.Name, clusterSpecItem.ClusterName, err)
 		}
-		log.Infof("Sucessfully ensured configmap: %s in cluster: %s", cm.Name, cluster.ClusterName)
+		log.Infof("Sucessfully ensured configmap: %s in cluster: %s", cm.Name, clusterSpecItem.ClusterName)
 	}
 	return nil
 }
@@ -1073,7 +1074,7 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 		&handler.EnqueueRequestForObject{},
 	)
 	if err != nil {
-		zap.S().Errorf("failed to watch for member cluster healthcheck: %w", err)
+		zap.S().Errorf("failed to watch for member cluster healthcheck: %s", err)
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
@@ -1114,7 +1115,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(mrs mdbmultiv1.Mo
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.ReplicaSet{}, mrs.Name)
-			// error means that replica set is not in the deployment - it's ok and we can proceed (could happen if
+			// error means that replica set is not in the deployment - it's ok, and we can proceed (could happen if
 			// deletion cleanup happened twice and the first one cleaned OM state already)
 			if e := d.RemoveReplicaSetByName(mrs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)

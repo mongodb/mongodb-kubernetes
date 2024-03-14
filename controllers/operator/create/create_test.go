@@ -1,6 +1,7 @@
 package create
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -241,14 +242,163 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, expectedServices)
 }
 
+const defaultResourceName = "mdb"
+const defaultNamespace = "my-namespace"
+
+func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders(t *testing.T) {
+	svc := corev1.Service{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external", Annotations: map[string]string{
+			"key": "value",
+		}},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "mongodb",
+					TargetPort: intstr.IntOrString{IntVal: 27017},
+				},
+			},
+			Type:                     corev1.ServiceTypeNodePort,
+			PublishNotReadyAddresses: true,
+		},
+	}
+
+	service1 := svc
+	service1.Name = "mdb-0-svc-external"
+	service2 := svc
+	service2.Name = "mdb-1-svc-external"
+	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
+		ExternalService: mdbv1.ExternalServiceConfiguration{
+			SpecWrapper: &mdbv1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+			}},
+			Annotations: map[string]string{
+				PlaceholderPodIndex:            "{podIndex}",
+				PlaceholderNamespace:           "{namespace}",
+				PlaceholderResourceName:        "{resourceName}",
+				PlaceholderPodName:             "{podName}",
+				PlaceholderStatefulSetName:     "{statefulSetName}",
+				PlaceholderExternalServiceName: "{externalServiceName}",
+				PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+				PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+			},
+		},
+	}
+
+	podIndex := 0
+	podName := fmt.Sprintf("%s-%d", defaultResourceName, podIndex)
+	mongodProcessDomain := fmt.Sprintf("%s-svc.%s.svc.cluster.local", defaultResourceName, defaultNamespace)
+	service1.Annotations = map[string]string{
+		PlaceholderPodIndex:            fmt.Sprintf("%d", podIndex),
+		PlaceholderNamespace:           defaultNamespace,
+		PlaceholderResourceName:        defaultResourceName,
+		PlaceholderPodName:             podName,
+		PlaceholderStatefulSetName:     defaultResourceName,
+		PlaceholderExternalServiceName: fmt.Sprintf("%s-svc-external", podName),
+		PlaceholderMongodProcessDomain: mongodProcessDomain,
+		PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s.%s", podName, mongodProcessDomain),
+	}
+
+	podIndex = 1
+	podName = fmt.Sprintf("%s-%d", defaultResourceName, podIndex)
+	service2.Annotations = map[string]string{
+		PlaceholderPodIndex:            fmt.Sprintf("%d", podIndex),
+		PlaceholderNamespace:           defaultNamespace,
+		PlaceholderResourceName:        defaultResourceName,
+		PlaceholderPodName:             podName,
+		PlaceholderStatefulSetName:     defaultResourceName,
+		PlaceholderExternalServiceName: fmt.Sprintf("%s-svc-external", podName),
+		PlaceholderMongodProcessDomain: mongodProcessDomain,
+		PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s.%s", podName, mongodProcessDomain),
+	}
+
+	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, []corev1.Service{service1, service2})
+}
+
+func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomain(t *testing.T) {
+	svc := corev1.Service{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external", Annotations: map[string]string{
+			"key": "value",
+		}},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "mongodb",
+					TargetPort: intstr.IntOrString{IntVal: 27017},
+				},
+				{
+					Name:       "backup",
+					TargetPort: intstr.IntOrString{IntVal: 27018},
+				},
+			},
+			Type:                     corev1.ServiceTypeNodePort,
+			PublishNotReadyAddresses: true,
+		},
+	}
+
+	service1 := svc
+	service1.Name = "mdb-0-svc-external"
+	service2 := svc
+	service2.Name = "mdb-1-svc-external"
+	externalDomain := "external.domain.example.com"
+	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
+		ExternalDomain: &externalDomain,
+		ExternalService: mdbv1.ExternalServiceConfiguration{
+			SpecWrapper: &mdbv1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
+				Type: corev1.ServiceTypeNodePort,
+			}},
+			Annotations: map[string]string{
+				PlaceholderPodIndex:            "{podIndex}",
+				PlaceholderNamespace:           "{namespace}",
+				PlaceholderResourceName:        "{resourceName}",
+				PlaceholderPodName:             "{podName}",
+				PlaceholderStatefulSetName:     "{statefulSetName}",
+				PlaceholderExternalServiceName: "{externalServiceName}",
+				PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
+				PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
+			},
+		},
+	}
+
+	podIndex := 0
+	podName := fmt.Sprintf("%s-%d", defaultResourceName, podIndex)
+	mongodProcessDomain := externalDomain
+	service1.Annotations = map[string]string{
+		PlaceholderPodIndex:            fmt.Sprintf("%d", podIndex),
+		PlaceholderNamespace:           defaultNamespace,
+		PlaceholderResourceName:        defaultResourceName,
+		PlaceholderPodName:             podName,
+		PlaceholderStatefulSetName:     defaultResourceName,
+		PlaceholderExternalServiceName: fmt.Sprintf("%s-svc-external", podName),
+		PlaceholderMongodProcessDomain: mongodProcessDomain,
+		PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s.%s", podName, mongodProcessDomain),
+	}
+
+	podIndex = 1
+	podName = fmt.Sprintf("%s-%d", defaultResourceName, podIndex)
+	service2.Annotations = map[string]string{
+		PlaceholderPodIndex:            fmt.Sprintf("%d", podIndex),
+		PlaceholderNamespace:           defaultNamespace,
+		PlaceholderResourceName:        defaultResourceName,
+		PlaceholderPodName:             podName,
+		PlaceholderStatefulSetName:     defaultResourceName,
+		PlaceholderExternalServiceName: fmt.Sprintf("%s-svc-external", podName),
+		PlaceholderMongodProcessDomain: mongodProcessDomain,
+		PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s.%s", podName, mongodProcessDomain),
+	}
+
+	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, []corev1.Service{service1, service2})
+}
+
 func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
 	log := zap.S()
 	manager := mock.NewEmptyManager()
 	manager.Client.AddDefaultMdbConfigResources()
 
 	mdb := mdbv1.NewReplicaSetBuilder().
-		SetName("mdb").
-		SetNamespace("my-namespace").
+		SetName(defaultResourceName).
+		SetNamespace(defaultNamespace).
 		SetMembers(2).
 		Build()
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
@@ -259,7 +409,7 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
 	for _, expectedService := range expectedServices {
-		actualService, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: "my-namespace"})
+		actualService, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
 		require.NoError(t, err, "serviceName: %s", expectedService.GetName())
 		require.NotNil(t, actualService)
 		require.Len(t, actualService.Spec.Ports, len(expectedService.Spec.Ports))
@@ -281,7 +431,7 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
-		_, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: "my-namespace"})
+		_, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
 		assert.True(t, errors.IsNotFound(err))
 	}
 }

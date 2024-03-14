@@ -258,7 +258,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
 		Topology:                  omv1.ClusterTopologyMultiCluster,
 		OwnerReference:            mdbm.GetOwnerReferences(),
-		ExternalDomain:            mdbm.ExternalMemberClusterDomain(clusterName),
+		ExternalDomain:            mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
 	}
 }
 

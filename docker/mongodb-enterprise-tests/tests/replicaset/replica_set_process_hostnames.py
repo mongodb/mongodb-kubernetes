@@ -8,10 +8,12 @@
 #   om_ops_manager_backup_tls_custom_ca.py
 
 import pytest
+from kubernetes import client
 from kubetester import create_or_update, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture
+from tests.common.placeholders import placeholders
 from tests.conftest import (
     default_external_domain,
     external_domain_fqdns,
@@ -74,6 +76,29 @@ def test_replica_check_automation_config(replica_set: MongoDB):
     processes = replica_set.get_automation_config_tester().get_replica_set_processes(replica_set.name)
     hostnames = [process["hostname"] for process in processes]
     assert hostnames == external_domain_fqdns(replica_set.name, replica_set.get_members(), default_external_domain())
+
+
+@pytest.mark.e2e_replica_set_process_hostnames
+def test_placeholders_in_external_services(namespace: str, replica_set: MongoDB):
+    # we do it this way to only add annotations and not overwrite anything
+    external_access = replica_set["spec"].get("externalAccess", {})
+    external_service = external_access.get("externalService", {})
+    external_service["annotations"] = placeholders.get_annotations_with_placeholders_for_single_cluster()
+    external_access["externalService"] = external_service
+
+    replica_set["spec"]["externalAccess"] = external_access
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+
+    name = replica_set["metadata"]["name"]
+    for pod_idx in range(0, replica_set.get_members()):
+        service = client.CoreV1Api().read_namespaced_service(f"{name}-{pod_idx}-svc-external", namespace)
+        assert (
+            service.metadata.annotations
+            == placeholders.get_expected_annotations_single_cluster_with_external_domain(
+                name, namespace, pod_idx, default_external_domain()
+            )
+        )
 
 
 @pytest.mark.e2e_replica_set_process_hostnames
