@@ -70,22 +70,37 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 	return validationResults
 }
 
+// validateUniqueExternalDomains validates uniqueness of the domains if they are provided.
+// External domain might be specified at the top level in spec.externalAccess.externalDomain or in every member cluster.
+// We make sure that if external domains are used, every member cluster has unique external domain defined.
 func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {
-	if ms.ExternalAccessConfiguration != nil {
-		present := make(map[string]struct{})
+	externalDomains := make(map[string]string)
 
-		for _, e := range ms.ClusterSpecList {
-			val := e.ExternalAccessConfiguration.ExternalDomain
-			if val == nil {
-				return v1.ValidationError("The externalDomain is not set for cluster name %s", e.ClusterName)
-			}
-			valAsString := *e.ExternalAccessConfiguration.ExternalDomain
-			if _, ok := present[valAsString]; ok {
-				msg := fmt.Sprintf("Multiple externalDomains with the same name (%s) are not allowed", valAsString)
-				return v1.ValidationError(msg)
-			}
-			present[valAsString] = struct{}{}
+	for _, e := range ms.ClusterSpecList {
+		if externalDomain := ms.GetExternalDomainForMemberCluster(e.ClusterName); externalDomain != nil {
+			externalDomains[e.ClusterName] = *externalDomain
 		}
+	}
+
+	// We don't need to validate external domains if there aren't any specified.
+	// We don't have any flag that enables usage of external domains. We use them if they are provided.
+	if len(externalDomains) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	present := map[string]struct{}{}
+	for _, e := range ms.ClusterSpecList {
+		externalDomain, ok := externalDomains[e.ClusterName]
+		if !ok {
+			return v1.ValidationError("The externalDomain is not set for member cluster: %s", e.ClusterName)
+		}
+
+		if _, ok := present[externalDomain]; ok {
+			msg := fmt.Sprintf("Multiple member clusters with the same externalDomain (%s) are not allowed. "+
+				"Check if all spec.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.", externalDomain)
+			return v1.ValidationError(msg)
+		}
+		present[externalDomain] = struct{}{}
 	}
 	return v1.ValidationSuccess()
 }
