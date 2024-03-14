@@ -61,23 +61,23 @@ func (m *MongoDBMultiCluster) AddValidationToManager(mgr manager.Manager, clt ma
 	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 
-func (m MongoDBMultiCluster) GetProjectConfigMapNamespace() string {
+func (m *MongoDBMultiCluster) GetProjectConfigMapNamespace() string {
 	return m.Namespace
 }
 
-func (m MongoDBMultiCluster) GetCredentialsSecretNamespace() string {
+func (m *MongoDBMultiCluster) GetCredentialsSecretNamespace() string {
 	return m.Namespace
 }
 
-func (m MongoDBMultiCluster) GetProjectConfigMapName() string {
+func (m *MongoDBMultiCluster) GetProjectConfigMapName() string {
 	return m.Spec.OpsManagerConfig.ConfigMapRef.Name
 }
 
-func (m MongoDBMultiCluster) GetCredentialsSecretName() string {
+func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
 }
 
-func (m MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
+func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	hostnames := make([]string, 0)
 
 	clusterSpecList, err := m.GetClusterSpecItems()
@@ -91,32 +91,23 @@ func (m MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	return hostnames, nil
 }
 
-func (m MongoDBMultiCluster) MultiStatefulsetName(clusterNum int) string {
-	return fmt.Sprintf("%s-%d", m.Name, clusterNum)
+func (m *MongoDBMultiCluster) MultiStatefulsetName(clusterNum int) string {
+	return dns.GetMultiStatefulSetName(m.Name, clusterNum)
 }
 
-func (m MongoDBMultiCluster) MultiHeadlessServiceName(clusterNum int) string {
+func (m *MongoDBMultiCluster) MultiHeadlessServiceName(clusterNum int) string {
 	return fmt.Sprintf("%s-svc", m.MultiStatefulsetName(clusterNum))
 }
 
-func (m MongoDBMultiCluster) ExternalMemberClusterDomain(clusterName string) *string {
-	for _, csl := range m.Spec.ClusterSpecList {
-		if csl.ClusterName == clusterName {
-			return csl.ExternalAccessConfiguration.ExternalDomain
-		}
-	}
-	return nil
-}
-
-func (m MongoDBMultiCluster) GetBackupSpec() *mdbv1.Backup {
+func (m *MongoDBMultiCluster) GetBackupSpec() *mdbv1.Backup {
 	return m.Spec.Backup
 }
 
-func (m MongoDBMultiCluster) GetResourceType() mdbv1.ResourceType {
+func (m *MongoDBMultiCluster) GetResourceType() mdbv1.ResourceType {
 	return m.Spec.ResourceType
 }
 
-func (m MongoDBMultiCluster) GetResourceName() string {
+func (m *MongoDBMultiCluster) GetResourceName() string {
 	return m.Name
 }
 
@@ -176,11 +167,11 @@ func (m *MongoDBMultiCluster) GetLDAP(password, caContents string) *ldap.Ldap {
 	}
 }
 
-func (m MongoDBMultiCluster) GetHostNameOverrideConfigmapName() string {
+func (m *MongoDBMultiCluster) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
 }
 
-func (m MongoDBMultiCluster) ObjectKey() client.ObjectKey {
+func (m *MongoDBMultiCluster) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
@@ -191,7 +182,7 @@ type MongoDBMultiClusterList struct {
 	Items           []MongoDBMultiCluster `json:"items"`
 }
 
-func (m MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *mdbv1.ClusterSpecItem {
+func (m *MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *mdbv1.ClusterSpecItem {
 	for _, csi := range m.Spec.ClusterSpecList {
 		if csi.ClusterName == clusterName {
 			return &csi
@@ -242,7 +233,7 @@ type MongoDBMultiSpec struct {
 	Mapping map[string]int `json:"-"`
 }
 
-func (m MongoDBMultiCluster) GetPlural() string {
+func (m *MongoDBMultiCluster) GetPlural() string {
 	return "mongodbmulticluster"
 }
 
@@ -558,6 +549,35 @@ func (m *MongoDBMultiSpec) GetPersistence() bool {
 // use the GetHealthyMemberClusters() method from the reconciler.
 func (m *MongoDBMultiSpec) GetClusterSpecList() []mdbv1.ClusterSpecItem {
 	return m.ClusterSpecList
+}
+
+func (m *MongoDBMultiSpec) GetExternalAccessConfigurationForMemberCluster(clusterName string) *mdbv1.ExternalAccessConfiguration {
+	var externalAccessConfiguration *mdbv1.ExternalAccessConfiguration
+	for _, csl := range m.ClusterSpecList {
+		if csl.ClusterName == clusterName {
+			externalAccessConfiguration = csl.ExternalAccessConfiguration
+			break
+		}
+	}
+
+	if externalAccessConfiguration == nil {
+		externalAccessConfiguration = m.ExternalAccessConfiguration
+	}
+
+	return externalAccessConfiguration
+}
+
+func (m *MongoDBMultiSpec) GetExternalDomainForMemberCluster(clusterName string) *string {
+	var externalDomain *string
+	if cfg := m.GetExternalAccessConfigurationForMemberCluster(clusterName); cfg != nil {
+		externalDomain = cfg.ExternalDomain
+	}
+
+	if externalDomain == nil {
+		externalDomain = m.GetExternalDomain()
+	}
+
+	return externalDomain
 }
 
 // GetDesiredSpecList returns the desired cluster spec list for a given reconcile operation.

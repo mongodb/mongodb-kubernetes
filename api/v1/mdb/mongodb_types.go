@@ -219,7 +219,7 @@ type ClusterSpecItem struct {
 	Service string `json:"service,omitempty"`
 	// ExternalAccessConfiguration provides external access configuration for Multi-Cluster.
 	// +optional
-	ExternalAccessConfiguration ExternalAccessConfiguration `json:"externalAccess,omitempty"`
+	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	Members int `json:"members"`
 	// MemberConfig

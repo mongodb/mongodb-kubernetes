@@ -2,8 +2,19 @@
 # MongoDB Enterprise Kubernetes Operator 1.25.0
 
 ## New Features
-**MongoDB**: The Automatic Recovery mechanism introduced for Replicasets in release 1.22 has been generalized to all types of MongoDB resources.
-* Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
+
+* * Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
+* **MongoDB**: The Automatic Recovery mechanism introduced for replica sets in release 1.22 has been generalized to all types of MongoDB resources.
+* **MongoDB, MongoDBMultiCluster**: Placeholders in external services.
+    * You can now define annotations for external services managed by the operator that contain placeholders which will be automatically replaced to the proper values.
+    * Previously, the operator was configuring the same annotations for all external services created for each pod. Now, with placeholders the operator is able to customize
+      annotations in each service with values that are relevant and different for the particular pod.
+    * To learn more please see the relevant documentation:
+      * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
+        * MongoDB: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+        * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations), [spec.clusterSpecList.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+
+## Bug Fixes
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.24.0

@@ -623,6 +623,10 @@ func (om *MongoDBOpsManager) SvcName() string {
 	return om.Name + "-svc"
 }
 
+func (om *MongoDBOpsManager) ExternalSvcName() string {
+	return om.SvcName() + "-ext"
+}
+
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
 	return om.Spec.AppDB.Name() + "-connection-string"
 }

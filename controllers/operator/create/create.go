@@ -2,6 +2,9 @@ package create
 
 import (
 	"errors"
+	"fmt"
+
+	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
@@ -11,6 +14,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/placeholders"
 	enterprisests "github.com/10gen/ops-manager-kubernetes/pkg/statefulset"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
@@ -73,7 +77,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 
 		if mdb.Spec.ExternalAccessConfiguration != nil {
 			// we only need an external service for mongos
-			if err = createExternalServices(client, mdb, opts, namespacedName, set, podNum); err != nil {
+			if err = createExternalServices(client, mdb, opts, namespacedName, set, podNum, log); err != nil {
 				return err
 			}
 		}
@@ -83,7 +87,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 }
 
 // createExternalServices creates the external services. The function does not create external services for sharded clusters which given stateful-sets are not mongos.
-func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int) error {
+func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
 	if mdb.IsShardedCluster() && !opts.IsMongos() {
 		return nil
 	}
@@ -93,9 +97,9 @@ func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, o
 		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
 		// This backup port is not needed when we use headless service, because then agent is resolving DNS directly to pod's IP and that allows to connect
 		// to any port in a pod, even ephemeral one.
-		// When we put any other address than headless service into process.hostname: non-headles service fqdn (e.g. in multi cluster using service mesh) or
+		// When we put any other address than headless service into process.hostname: non-headless service fqdn (e.g. in multi cluster using service mesh) or
 		// external domain (e.g. for multi-cluster no-mesh), then we need to define backup port.
-		// In the agent process, we pass -ephemeralPortOffset 1 argument to define, that backup port should be a starndard port+1.
+		// In the agent process, we pass -ephemeralPortOffset 1 argument to define, that backup port should be a standard port+1.
 		backupPort := GetNonEphemeralBackupPort(opts.ServicePort)
 		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt(int(backupPort)), Name: "backup"})
 	}
@@ -105,11 +109,72 @@ func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, o
 	}
 	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
 
+	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, mdb.Namespace, mdb.ServiceName(), &mdb.Spec, podNum)
+	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(externalService.Annotations); err != nil {
+		return xerrors.Errorf("failed to process annotations in service %s: %w", externalService.Name, err)
+	} else if replacedFlag {
+		log.Debugf("Replaced placeholders in annotations in external service: %s. Annotations before: %+v, annotations after: %+v", externalService.Name, externalService.Annotations, processedAnnotations)
+		externalService.Annotations = processedAnnotations
+	}
+
 	err := mekoService.CreateOrUpdateService(client, externalService)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
 	}
 	return nil
+}
+
+const (
+	PlaceholderPodIndex            = "podIndex"
+	PlaceholderNamespace           = "namespace"
+	PlaceholderResourceName        = "resourceName"
+	PlaceholderPodName             = "podName"
+	PlaceholderStatefulSetName     = "statefulSetName"
+	PlaceholderExternalServiceName = "externalServiceName"
+	PlaceholderMongodProcessDomain = "mongodProcessDomain"
+	PlaceholderMongodProcessFQDN   = "mongodProcessFQDN"
+	PlaceholderClusterName         = "clusterName"
+	PlaceholderClusterIndex        = "clusterIndex"
+)
+
+func GetSingleClusterMongoDBPlaceholderReplacer(name string, namespace string, serviceName string, dbSpec mdbv1.DbSpec, podIdx int) *placeholders.Replacer {
+	podName := dns.GetPodName(name, podIdx)
+	placeholderValues := map[string]string{
+		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
+		PlaceholderNamespace:           namespace,
+		PlaceholderResourceName:        name,
+		PlaceholderPodName:             podName,
+		PlaceholderStatefulSetName:     name,
+		PlaceholderExternalServiceName: dns.GetExternalServiceName(name, podIdx),
+		PlaceholderMongodProcessDomain: dns.GetServiceFQDN(serviceName, namespace, dbSpec.GetClusterDomain()),
+		PlaceholderMongodProcessFQDN:   dns.GetPodFQDN(podName, serviceName, namespace, dbSpec.GetClusterDomain(), dbSpec.GetExternalDomain()),
+	}
+
+	if dbSpec.GetExternalDomain() != nil {
+		placeholderValues[PlaceholderMongodProcessDomain] = *dbSpec.GetExternalDomain()
+	}
+
+	return placeholders.New(placeholderValues)
+}
+
+func GetMultiClusterMongoDBPlaceholderReplacer(name string, namespace string, clusterName string, clusterNum int, mdbmc *mdbmultiv1.MongoDBMultiCluster, podIdx int) *placeholders.Replacer {
+	podName := dns.GetMultiPodName(name, clusterNum, podIdx)
+	externalDomain := mdbmc.Spec.GetExternalDomainForMemberCluster(clusterName)
+	serviceDomain := dns.GetServiceDomain(namespace, mdbmc.Spec.GetClusterDomain(), externalDomain)
+	placeholderValues := map[string]string{
+		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
+		PlaceholderNamespace:           namespace,
+		PlaceholderResourceName:        name,
+		PlaceholderPodName:             podName,
+		PlaceholderStatefulSetName:     dns.GetMultiStatefulSetName(name, clusterNum),
+		PlaceholderExternalServiceName: dns.GetMultiExternalServiceName(name, clusterNum, podIdx),
+		PlaceholderMongodProcessDomain: serviceDomain,
+		PlaceholderMongodProcessFQDN:   dns.GetMultiClusterPodServiceFQDN(name, namespace, clusterNum, externalDomain, podIdx, mdbmc.Spec.GetClusterDomain()),
+		PlaceholderClusterName:         clusterName,
+		PlaceholderClusterIndex:        fmt.Sprintf("%d", clusterNum),
+	}
+
+	return placeholders.New(placeholderValues)
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
@@ -196,7 +261,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 		return err
 	}
 
-	namespacedName = kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName+"-ext")
+	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
 	var externalService *corev1.Service = nil
 	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil {
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)

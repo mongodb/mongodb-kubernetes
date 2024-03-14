@@ -31,8 +31,13 @@ func GetMultiExternalServiceName(mdbmName string, clusterNum, podNum int) string
 	return fmt.Sprintf("%s-external", GetMultiServiceName(mdbmName, clusterNum, podNum))
 }
 
-func GetMultiServiceFQDN(mdbmName, namespace, clusterDomain string, clusterNum, podNum int) string {
-	return fmt.Sprintf("%s.%s.svc.%s", GetMultiServiceName(mdbmName, clusterNum, podNum), namespace, clusterDomain)
+func GetMultiServiceFQDN(mdbmName string, namespace string, clusterNum int, podNum int, clusterDomain string) string {
+	domain := "cluster.local"
+	if len(clusterDomain) > 0 {
+		domain = strings.TrimPrefix(clusterDomain, ".")
+	}
+
+	return fmt.Sprintf("%s.%s.svc.%s", GetMultiServiceName(mdbmName, clusterNum, podNum), namespace, domain)
 }
 
 func GetMultiServiceExternalDomain(mdbmName, externalDomain string, clusterNum, podNum int) string {
@@ -44,21 +49,27 @@ func GetMultiClusterProcessHostnames(mdbmName, namespace string, clusterNum, mem
 	hostnames := make([]string, 0)
 
 	for podNum := 0; podNum < members; podNum++ {
-		var hostname string
-		if externalDomain != nil {
-			hostname = GetMultiServiceExternalDomain(mdbmName, *externalDomain, clusterNum, podNum)
-		} else {
-			domain := "cluster.local"
-			if len(clusterDomain) > 0 {
-				domain = strings.TrimPrefix(clusterDomain, ".")
-			}
-
-			hostname = GetMultiServiceFQDN(mdbmName, namespace, domain, clusterNum, podNum)
-		}
-		hostnames = append(hostnames, hostname)
+		hostnames = append(hostnames, GetMultiClusterPodServiceFQDN(mdbmName, namespace, clusterNum, externalDomain, podNum, clusterDomain))
 	}
 
 	return hostnames
+}
+
+func GetMultiClusterPodServiceFQDN(mdbmName string, namespace string, clusterNum int, externalDomain *string, podNum int, clusterDomain string) string {
+	if externalDomain != nil {
+		return GetMultiServiceExternalDomain(mdbmName, *externalDomain, clusterNum, podNum)
+	}
+	return GetMultiServiceFQDN(mdbmName, namespace, clusterNum, podNum, clusterDomain)
+}
+
+func GetServiceDomain(namespace string, clusterDomain string, externalDomain *string) string {
+	if externalDomain != nil {
+		return *externalDomain
+	}
+	if clusterDomain == "" {
+		clusterDomain = "cluster.local"
+	}
+	return fmt.Sprintf("%s.svc.%s", namespace, clusterDomain)
 }
 
 // GetMultiClusterHostnamesForMonitoring returns list of "headless fqdn" (equivalent to hostname -f on a pod) hostnames that are required for registering AppDB hosts for monitoring in OM.
@@ -75,71 +86,50 @@ func GetMultiClusterHostnamesForMonitoring(mdbmName, namespace string, clusterNu
 
 // GetDnsForStatefulSet returns hostnames and names of pods in stateful set "set". This is a preferred way of getting hostnames
 // it must be always used if it's possible to read the statefulset from Kubernetes
-func GetDnsForStatefulSet(set appsv1.StatefulSet, clusterName string, externalDomain *string) ([]string, []string) {
-	return GetDnsForStatefulSetReplicasSpecified(set, clusterName, 0, externalDomain)
+func GetDnsForStatefulSet(set appsv1.StatefulSet, clusterDomain string, externalDomain *string) ([]string, []string) {
+	return GetDnsForStatefulSetReplicasSpecified(set, clusterDomain, 0, externalDomain)
 }
 
 // GetDnsForStatefulSetReplicasSpecified is similar to GetDnsForStatefulSet but expects the number of replicas to be specified
 // (important for scale-down operations to support hostnames for old statefulset)
-func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterName string, replicas int, externalDomain *string) ([]string, []string) {
+func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterDomain string, replicas int, externalDomain *string) ([]string, []string) {
 	if replicas == 0 {
 		replicas = int(*set.Spec.Replicas)
 	}
-	return GetDNSNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterName, replicas, externalDomain)
+	return GetDNSNames(set.Name, set.Spec.ServiceName, set.Namespace, clusterDomain, replicas, externalDomain)
 }
 
 // GetDnsNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
 // should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
 // resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
-func GetDNSNames(statefulSetName, service, namespace, clusterName string, replicas int, externalDomain *string) (hostnames, names []string) {
+func GetDNSNames(statefulSetName, service, namespace, clusterDomain string, replicas int, externalDomain *string) (hostnames, names []string) {
 	names = make([]string, replicas)
 	hostnames = make([]string, replicas)
 
-	if externalDomain != nil && len(*externalDomain) > 0 {
-		for i := 0; i < replicas; i++ {
-			names[i] = GetPodName(statefulSetName, i)
-			hostnames[i] = fmt.Sprintf("%s.%s", names[i], *externalDomain)
-		}
-	} else {
-		mName := getDnsTemplateFor(statefulSetName, service, namespace, clusterName)
-
-		for i := 0; i < replicas; i++ {
-			hostnames[i] = fmt.Sprintf(mName, i)
-			names[i] = GetPodName(statefulSetName, i)
-		}
+	for i := 0; i < replicas; i++ {
+		names[i] = GetPodName(statefulSetName, i)
+		hostnames[i] = GetPodFQDN(names[i], service, namespace, clusterDomain, externalDomain)
 	}
-
 	return hostnames, names
 }
 
-// GetServiceFQDN returns the FQDN for the service inside Kubernetes
-func GetServiceFQDN(service, namespace, clusterDomain string) string {
-	if clusterDomain == "" {
-		clusterDomain = "cluster.local"
+func GetPodFQDN(podName string, serviceName string, namespace string, clusterDomain string, externalDomain *string) string {
+	if externalDomain != nil && len(*externalDomain) > 0 {
+		return fmt.Sprintf("%s.%s", podName, *externalDomain)
+	} else {
+		return fmt.Sprintf("%s.%s", podName, GetServiceFQDN(serviceName, namespace, clusterDomain))
 	}
-	return fmt.Sprintf("%s.%s.svc.%s", service, namespace, clusterDomain)
 }
 
-// getDnsTemplateFor returns a template-FQDN for a StatefulSet. This
-// name will lack one parameter: the index for a given Pod, so the form of
-// the returned fqdn will be:
-//
-// <name>-%d.<service>.<namespace>.svc.<cluster>
-//
-// The calling code is responsible for interpolating the right index when
-// necessary.
-//
-// TODO: The cluster domain is not known inside the Kubernetes cluster,
-// so there is no API to obtain this name from the operator.
-// * See: https://github.com/kubernetes/kubernetes/issues/44954
-func getDnsTemplateFor(name, service, namespace, clusterDomain string) string {
-	if clusterDomain == "" {
-		clusterDomain = "cluster.local"
-	}
-	dnsTemplate := fmt.Sprintf("%s-{}.%s.%s.svc.%s", name, service, namespace, clusterDomain)
-	return strings.Replace(dnsTemplate, "{}", "%d", 1)
+// GetServiceFQDN returns the FQDN for the service inside Kubernetes
+func GetServiceFQDN(serviceName string, namespace string, clusterDomain string) string {
+	return fmt.Sprintf("%s.%s", serviceName, GetServiceDomain(namespace, clusterDomain, nil))
 }
 
 func GetPodName(name string, idx int) string {
 	return fmt.Sprintf("%s-%d", name, idx)
+}
+
+func GetMultiStatefulSetName(name string, clusterNum int) string {
+	return fmt.Sprintf("%s-%d", name, clusterNum)
 }
