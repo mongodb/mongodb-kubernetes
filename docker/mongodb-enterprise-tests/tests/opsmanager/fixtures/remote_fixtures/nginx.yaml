@@ -86,7 +86,7 @@ spec:
           command:
             - sh
             - -c
-            - curl -LO https://downloads.mongodb.com/compass/mongosh-2.1.5-linux-x64.tgz --output-dir /mongodb-ops-manager/mongodb-releases/compass && true
+            - curl -LO https://downloads.mongodb.com/compass/mongosh-2.1.5-linux-x64-openssl11.tgz --output-dir /mongodb-ops-manager/mongodb-releases/compass && true
           volumeMounts:
             - name: mongosh-versions
               mountPath: /mongodb-ops-manager/mongodb-releases/compass
