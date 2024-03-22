@@ -69,6 +69,7 @@ spec:
   tag: ${VERSION}
   meshConfig:
     defaultConfig:
+      terminationDrainDuration: 30s
       proxyMetadata:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
@@ -89,6 +90,7 @@ spec:
   tag: ${VERSION}
   meshConfig:
     defaultConfig:
+      terminationDrainDuration: 30s
       proxyMetadata:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
@@ -109,6 +111,7 @@ spec:
   tag: ${VERSION}
   meshConfig:
     defaultConfig:
+      terminationDrainDuration: 30s
       proxyMetadata:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
