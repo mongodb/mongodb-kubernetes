@@ -46,7 +46,7 @@ spec:
         app: echoserver${cluster_no}
     spec:
       containers:
-        - image: gcr.io/google_containers/echoserver:1.0
+        - image: k8s.gcr.io/echoserver:1.10
           imagePullPolicy: Always
           name: echoserver${cluster_no}
           ports:
