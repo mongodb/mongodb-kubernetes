@@ -34,6 +34,11 @@ scripts/dev/contexts/private-context-*
 
 public/support/*.gz
 public/support/logs*
+public/samples/**/log
+public/samples/**/*.run.log
+public/samples/**/.generated
+public/samples/**/certs/*
+
 docker/mongodb-enterprise-appdb/content/readinessprobe
 ops-manager-kubernetes
 docker/mongodb-enterprise-operator/Dockerfile
