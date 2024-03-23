@@ -19,6 +19,12 @@
       * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
         * MongoDB: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
         * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations), [spec.clusterSpecList.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+*  `kubectl mongodb`:
+  * Added printing build info when using the plugin.
+  * `setup` command: 
+    * Added `--image-pull-secrets` parameter. If specified, created service accounts will reference the specified secret on `ImagePullSecrets` field.
+    * Improved handling of configurations when the operator is installed in a separate namespace than the resources it's watching and when the operator is watching more than one namespace. 
+    * Optimized roles and permissions setup in member clusters, using a single service account per cluster with correctly configured Role and RoleBinding (no ClusterRoles necessary) for each watched namespace.
 * **OpsManager**: Added the `spec.internalConnectivity` field to allow overrides for the service used by the operator to ensure internal connectivity to the `OpsManager` pods.
 * Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
 
