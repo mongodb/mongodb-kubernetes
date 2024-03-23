@@ -1,3 +1,5 @@
+{{ if .Values.operator.createResourcesServiceAccountsAndRoles }}
+
 {{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
@@ -81,3 +83,4 @@ subjects:
     {{ $namespaceBlock }}
 
 {{- end }}
+{{- end }}{{/* if .Values.operator.createResourcesServiceAccountsAndRoles */}}

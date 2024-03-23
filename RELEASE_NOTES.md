@@ -24,11 +24,16 @@
 
 ## Bug Fixes
 
-**MongoDBMultiCluster**: Fields `spec.externalAccess.externalDomain` and `spec.clusterSpecList[*].externalAccess.externalDomains` were reported as required even though they weren't
+* **MongoDBMultiCluster**: Fields `spec.externalAccess.externalDomain` and `spec.clusterSpecList[*].externalAccess.externalDomains` were reported as required even though they weren't
 used. Validation was triggered prematurely when structure `spec.externalAccess` was defined. Now, uniqueness of external domains will only be checked when the external domains are
 actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecList[*].externalAccess.externalDomains`.
 
-**MongoDB ReadinessProbe** Fixed the miss-leading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
+* **MongoDB ReadinessProbe** Fixed the miss-leading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
+
+## Helm Chart
+* Added `operator.additionalArguments` (default: []) allowing to pass additional arguments for the operator binary.
+* Added `operator.createResourcesServiceAccountsAndRoles` (default: true) to control whether to install roles and service accounts for MongoDB and Ops Manager resources. When `mongodb kubectl` plugin is used to configure the operator for multi-cluster deployment, it installs all necessary roles and service accounts. Therefore, in some cases it is required to not install those roles using the operator's helm chart to avoid clashes.
+
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.24.0
 
