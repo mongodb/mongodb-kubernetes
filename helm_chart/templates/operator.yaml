@@ -50,8 +50,11 @@ spec:
             {{- range .Values.operator.watchedResources }}
             - -watch-resource={{ . }}
             {{- end }}
-          {{- if .Values.multiCluster.clusters }}
+            {{- if .Values.multiCluster.clusters }}
             - -watch-resource=mongodbmulticluster
+            {{- end }}
+            {{- range .Values.operator.additionalArguments }}
+            - {{ . }}
             {{- end }}
           command:
             - /usr/local/bin/mongodb-enterprise-operator

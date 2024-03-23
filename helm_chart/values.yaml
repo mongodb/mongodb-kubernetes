@@ -47,12 +47,19 @@ operator:
   # if false, then templates/operator-roles.yaml is excluded
   createOperatorServiceAccount: true
 
+  # Set to false to NOT create service accounts and roles for the resources managed by the operator
+  # It might be necessary to disable it to avoid conflicts when
+  # kubectl mongodb plugin is used to configure multi-cluster resources
+  createResourcesServiceAccountsAndRoles: true
+
   vaultSecretBackend:
     # set to true if you want the operator to store secrets in Vault
     enabled: false
     tlsSecretRef: ''
 
   replicas: 1
+  # additional arguments to pass on the operator's binary arguments, e.g. operator.additionalArguments={--v=9} to dump debug k8s networking to logs
+  additionalArguments: []
 
 ## Database
 database:
