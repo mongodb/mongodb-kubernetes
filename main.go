@@ -106,17 +106,18 @@ func main() {
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 
 	namespacesToWatch := operator.GetWatchedNamespace()
-	if len(namespacesToWatch) == 1 {
+	if len(namespacesToWatch) == 1 && (namespacesToWatch[0] == "" || currentNamespace == namespacesToWatch[0]) {
 		// This will be the name of 1 namespace to watch, or the empty string
 		// for an operator that watches the whole cluster
 		managerOptions.Namespace = namespacesToWatch[0]
 	} else {
+		namespacesForCacheBuilder := namespacesToWatch
 		if !stringutil.Contains(namespacesToWatch, currentNamespace) {
-			namespacesToWatch = append(namespacesToWatch, currentNamespace)
+			namespacesForCacheBuilder = append(namespacesForCacheBuilder, currentNamespace)
 		}
 		// In multi-namespace scenarios, the namespace where the Operator
 		// resides needs to be part of the Cache as well.
-		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
+		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesForCacheBuilder)
 	}
 
 	if isInLocalMode() {
