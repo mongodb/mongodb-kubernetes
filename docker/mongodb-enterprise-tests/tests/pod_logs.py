@@ -1,8 +1,9 @@
 import json
+import logging
 from typing import Optional
 
 import kubernetes
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, is_static_containers_architecture
 
 
 def parse_pod_logs(pod_logs: str) -> list[dict[str, any]]:
@@ -13,16 +14,21 @@ def parse_pod_logs(pod_logs: str) -> list[dict[str, any]]:
         try:
             log_lines.append(json.loads(line))
         except json.JSONDecodeError as e:
-            raise Exception(f"error parsing log line: {line}: {e}")
-
+            # Even though throwing may seem like a good idea, this way we don't have any way to debug the
+            # Agent bootstrap script (which uses set -x). Loosen this up here makes a bit more sense
+            # as we check what lines we do want and what we can't have.
+            logging.warning(f"Ignoring the following log line {line} because of {e}")
     return log_lines
 
 
 def get_structured_json_pod_logs(
-    namespace: str, pod_name: str, api_client: kubernetes.client.ApiClient
+    namespace: str,
+    pod_name: str,
+    container_name: str,
+    api_client: kubernetes.client.ApiClient,
 ) -> dict[str, list[str]]:
     """Read logs from pod_name and groups the lines by logType."""
-    pod_logs_str = KubernetesTester.read_pod_logs(namespace, pod_name, api_client=api_client)
+    pod_logs_str = KubernetesTester.read_pod_logs(namespace, pod_name, container_name, api_client=api_client)
     log_lines = parse_pod_logs(pod_logs_str)
 
     log_contents_by_type = {}
@@ -64,12 +70,17 @@ def assert_log_types_in_structured_json_pod_log(
     pod_name: str,
     expected_log_types: Optional[set[str]],
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    container_name: str = "mongodb-agent",
 ):
     """
     Checks pod logs if all expected_log_types are present in structured json logs.
     It fails when there are any unexpected log types in logs.
     """
-    pod_logs = get_structured_json_pod_logs(namespace, pod_name, api_client=api_client)
+
+    container_name = "mongodb-agent"
+    if not is_static_containers_architecture():
+        container_name = None
+    pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)
 
     unwanted_log_types = pod_logs.keys() - expected_log_types
     missing_log_types = expected_log_types - pod_logs.keys()

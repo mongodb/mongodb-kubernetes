@@ -55,6 +55,8 @@ type Connection interface {
 	CreateProject(project *Project) (*Project, error)
 	UpdateProject(project *Project) (*Project, error)
 
+	ReadAgentVersion() (AgentsVersionsResponse, error)
+
 	backup.GroupConfigReader
 	backup.GroupConfigUpdater
 
@@ -830,6 +832,24 @@ func (oc *HTTPOmConnection) UpdateSnapshotSchedule(clusterID string, snapshotSch
 		return apierror.New(err)
 	}
 	return nil
+}
+
+type AgentsVersionsResponse struct {
+	AutomationVersion        string `json:"automationVersion"`
+	AutomationMinimumVersion string `json:"automationMinimumVersion"`
+}
+
+// ReadAgentVersion reads the versions from OM API
+func (oc *HTTPOmConnection) ReadAgentVersion() (AgentsVersionsResponse, error) {
+	body, err := oc.get("/api/public/v1.0/softwareComponents/versions/")
+	if err != nil {
+		return AgentsVersionsResponse{}, err
+	}
+	agentsVersions := &AgentsVersionsResponse{}
+	if err := json.Unmarshal(body, agentsVersions); err != nil {
+		return AgentsVersionsResponse{}, err
+	}
+	return *agentsVersions, nil
 }
 
 //********************************** Private methods *******************************************************************

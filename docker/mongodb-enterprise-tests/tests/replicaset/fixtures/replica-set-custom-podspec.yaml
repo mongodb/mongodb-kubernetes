@@ -25,7 +25,7 @@ spec:
           - name: side-car
             image: busybox:latest
             command: ["/bin/sh"]
-            args: ["-c", "echo ok > /somewhere/busybox_file && sleep infinity"]
+            args: ["-c", "echo ok > /somewhere/busybox_file && sleep 86400"]
             volumeMounts:
               - mountPath: /somewhere
                 name: test-volume

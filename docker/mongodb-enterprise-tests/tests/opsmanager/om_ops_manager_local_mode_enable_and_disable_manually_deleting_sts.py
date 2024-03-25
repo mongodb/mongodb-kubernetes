@@ -9,6 +9,7 @@ from kubetester import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_static_containers
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
@@ -49,12 +50,14 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     return resource
 
 
+@skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
 
+@skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
 
@@ -83,11 +86,13 @@ def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
+@skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_add_mongodb_distros(ops_manager: MongoDBOpsManager, custom_mdb_version: str):
     ops_manager.download_mongodb_binaries(custom_mdb_version)
 
 
+@skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_new_binaries_are_present(ops_manager: MongoDBOpsManager, namespace: str):
     cmd = [
@@ -106,6 +111,7 @@ def test_new_binaries_are_present(ops_manager: MongoDBOpsManager, namespace: str
         assert result != "0"
 
 
+@skip_if_static_containers
 @mark.e2e_om_ops_manager_enable_local_mode_running_om
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)

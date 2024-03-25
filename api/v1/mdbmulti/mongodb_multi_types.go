@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/connectionstring"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
@@ -492,8 +494,8 @@ func (m *MongoDBMultiSpec) GetClusterDomain() string {
 	return "cluster.local"
 }
 
-func (m *MongoDBMultiSpec) GetMongoDBVersion(map[string]string) string {
-	return m.Version
+func (m *MongoDBMultiSpec) GetMongoDBVersion(annotations map[string]string) string {
+	return architectures.GetMongoVersionForAutomationConfig(m.Version, annotations)
 }
 
 func (m *MongoDBMultiSpec) GetSecurityAuthenticationModes() []string {
@@ -663,4 +665,15 @@ func getNextIndex(m map[string]int) int {
 		maxi = intp.Max(maxi, val)
 	}
 	return maxi + 1
+}
+
+func (m *MongoDBMultiCluster) IsInChangeVersion() bool {
+	spec, err := m.ReadLastAchievedSpec()
+	if err != nil {
+		return false
+	}
+	if spec != nil && (spec.Version != m.Spec.Version) {
+		return true
+	}
+	return false
 }

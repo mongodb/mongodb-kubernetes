@@ -447,7 +447,7 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 	return nil
 }
 
-// returns an array of all the process names relevant to the given deployment
+// GetProcessNames returns an array of all the process names relevant to the given deployment
 // these processes are the only ones checked for goal state when updating the
 // deployment
 func (d Deployment) GetProcessNames(kind interface{}, name string) []string {

@@ -5,6 +5,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
@@ -86,11 +87,15 @@ def mdb_latest(
     namespace,
     custom_mdb_version: str,
 ):
+    fixture_file_name = "replica-set-kmip.yaml"
+    if is_static_containers_architecture():
+        fixture_file_name = "replica-set-kmip-static.yaml"
     resource = MongoDB.from_yaml(
-        yaml_fixture("replica-set-kmip.yaml"),
+        yaml_fixture(fixture_file_name),
         namespace=namespace,
         name=MONGODB_CR_NAME,
     ).configure(ops_manager, "mdbLatestProject")
+
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
     return resource.create()

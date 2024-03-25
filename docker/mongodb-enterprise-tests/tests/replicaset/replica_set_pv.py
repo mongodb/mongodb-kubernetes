@@ -2,7 +2,7 @@ import time
 
 import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, is_static_containers_architecture
 
 
 @pytest.mark.e2e_replica_set_pv
@@ -72,54 +72,20 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
     def test_om_processes(self):
         config = self.get_automation_config()
         processes = config["processes"]
-        p0 = processes[0]
-        p1 = processes[1]
-        p2 = processes[2]
-
-        # First Process
-        assert p0["name"] == "rs001-pv-0"
-        assert p0["processType"] == "mongod"
-        assert p0["version"] == "4.4.0"
-        assert p0["authSchemaVersion"] == 5
-        assert p0["featureCompatibilityVersion"] == "4.4"
-        assert p0["hostname"] == "rs001-pv-0.rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
-        assert p0["args2_6"]["net"]["port"] == 27017
-        assert p0["args2_6"]["replication"]["replSetName"] == "rs001-pv"
-        assert p0["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p0["args2_6"]["systemLog"]["destination"] == "file"
-        assert p0["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
-        assert p0["logRotate"]["sizeThresholdMB"] == 1000
-        assert p0["logRotate"]["timeThresholdHrs"] == 24
-
-        # Second Process
-        assert p1["name"] == "rs001-pv-1"
-        assert p1["processType"] == "mongod"
-        assert p1["version"] == "4.4.0"
-        assert p1["authSchemaVersion"] == 5
-        assert p1["featureCompatibilityVersion"] == "4.4"
-        assert p1["hostname"] == "rs001-pv-1.rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
-        assert p1["args2_6"]["net"]["port"] == 27017
-        assert p1["args2_6"]["replication"]["replSetName"] == "rs001-pv"
-        assert p1["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p1["args2_6"]["systemLog"]["destination"] == "file"
-        assert p1["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
-        assert p1["logRotate"]["sizeThresholdMB"] == 1000
-        assert p1["logRotate"]["timeThresholdHrs"] == 24
-
-        # Third Process
-        assert p2["name"] == "rs001-pv-2"
-        assert p2["processType"] == "mongod"
-        assert p2["version"] == "4.4.0"
-        assert p2["authSchemaVersion"] == 5
-        assert p2["featureCompatibilityVersion"] == "4.4"
-        assert p2["hostname"] == "rs001-pv-2.rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
-        assert p2["args2_6"]["net"]["port"] == 27017
-        assert p2["args2_6"]["replication"]["replSetName"] == "rs001-pv"
-        assert p2["args2_6"]["storage"]["dbPath"] == "/data"
-        assert p2["args2_6"]["systemLog"]["destination"] == "file"
-        assert p2["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
-        assert p2["logRotate"]["sizeThresholdMB"] == 1000
-        assert p2["logRotate"]["timeThresholdHrs"] == 24
+        for idx, p in enumerate(processes):
+            assert "4.4.0" in p["version"]
+            assert p["name"] == f"rs001-pv-{idx}"
+            assert p["processType"] == "mongod"
+            assert p["authSchemaVersion"] == 5
+            assert p["featureCompatibilityVersion"] == "4.4"
+            assert p["hostname"] == "rs001-pv-" + f"{idx}" + ".rs001-pv-svc.{}.svc.cluster.local".format(self.namespace)
+            assert p["args2_6"]["net"]["port"] == 27017
+            assert p["args2_6"]["replication"]["replSetName"] == "rs001-pv"
+            assert p["args2_6"]["storage"]["dbPath"] == "/data"
+            assert p["args2_6"]["systemLog"]["destination"] == "file"
+            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+            assert p["logRotate"]["sizeThresholdMB"] == 1000
+            assert p["logRotate"]["timeThresholdHrs"] == 24
 
     def test_replica_set_was_configured(self):
         "Should connect to one of the mongods and check the replica set was correctly configured."

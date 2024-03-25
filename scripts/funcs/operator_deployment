@@ -15,6 +15,7 @@ get_operator_helm_values() {
     "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY}"
     "registry.initAppDb=${INIT_APPDB_REGISTRY}"
     "registry.initDatabase=${INIT_DATABASE_REGISTRY}"
+    "registry.agentRepository=${MDB_AGENT_IMAGE_REPOSITORY}"
     "registry.opsManager=${OPS_MANAGER_REGISTRY}"
     "registry.appDb=${APPDB_REGISTRY}"
     "registry.database=${database_registry}"
@@ -27,6 +28,7 @@ get_operator_helm_values() {
     "database.version=${DATABASE_VERSION:-${VERSION_ID}}"
     "agent.version=${AGENT_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
+    "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
   )
 
   if [[ ${IMAGE_TYPE} == "ubi" ]]; then

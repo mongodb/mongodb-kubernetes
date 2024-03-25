@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"slices"
 	"syscall"
@@ -19,6 +18,8 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"k8s.io/utils/pointer"
 
@@ -80,6 +81,8 @@ import (
 	"github.com/blang/semver"
 )
 
+var OmUpdateChannel chan event.GenericEvent
+
 const (
 	oldestSupportedOpsManagerVersion = "5.0.0"
 	programmaticKeyVersion           = "5.0.0"
@@ -99,7 +102,6 @@ type OpsManagerReconciler struct {
 	omInitializer          api.Initializer
 	omAdminProvider        api.AdminProvider
 	omConnectionFactory    om.ConnectionFactory
-	versionMappingProvider func(string) ([]byte, error)
 	oldestSupportedVersion semver.Version
 	programmaticKeyVersion semver.Version
 
@@ -108,13 +110,12 @@ type OpsManagerReconciler struct {
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func newOpsManagerReconciler(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider, versionMappingProvider func(string) ([]byte, error)) *OpsManagerReconciler {
+func newOpsManagerReconciler(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController: newReconcileCommonController(mgr),
 		omConnectionFactory:       omFunc,
 		omInitializer:             initializer,
 		omAdminProvider:           adminProvider,
-		versionMappingProvider:    versionMappingProvider,
 		oldestSupportedVersion:    semver.MustParse(oldestSupportedOpsManagerVersion),
 		programmaticKeyVersion:    semver.MustParse(programmaticKeyVersion),
 		memberClustersMap:         memberClustersMap,
@@ -311,6 +312,7 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 		return r.updateStatus(opsManager, workflow.Unsupported("Ops Manager Version %s is not supported by this version of the operator. Please upgrade to a version >=%s", opsManager.Spec.Version, oldestSupportedOpsManagerVersion), log, opsManagerExtraStatusParams)
 	}
 
+	// AppDB Reconciler will be created with a nil OmAdmin, which is set below after initialization
 	appDbReconciler, err := r.createNewAppDBReconciler(opsManager, log)
 	if err != nil {
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
@@ -414,39 +416,6 @@ func (r *OpsManagerReconciler) Reconcile(_ context.Context, request reconcile.Re
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
 	return workflow.OK().ReconcileResult()
-}
-
-// getMonitoringAgentVersion returns the minimum supported agent version for the given version of Ops Manager.
-func getMonitoringAgentVersion(opsManager *omv1.MongoDBOpsManager, readFile func(filename string) ([]byte, error)) (string, error) {
-	// For local development we use an environment variable to locate the mapping file
-	opsManagerToVersionMappingJsonFilePath := env.ReadOrDefault("OM_VERSION_MAPPING_PATH", "/usr/local/om_version_mapping.json")
-	version, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
-	if err != nil {
-		return "", xerrors.Errorf("failed extracting semver version from Ops Manager version %s: %w", opsManager.Spec.Version, err)
-	}
-
-	majorMinor := fmt.Sprintf("%d.%d", version.Major, version.Minor)
-	fileContainingMappingsBytes, err := readFile(opsManagerToVersionMappingJsonFilePath)
-	if err != nil {
-		return "", xerrors.Errorf("failed reading file %s: %w", opsManagerToVersionMappingJsonFilePath, err)
-	}
-
-	// no bytes but no error, with an empty string we will use the same version as automation agent.
-	if fileContainingMappingsBytes == nil {
-		return "", nil
-	}
-
-	m := omv1.OpsManagerAgentVersionMapping{}
-	if err := json.Unmarshal(fileContainingMappingsBytes, &m); err != nil {
-		return "", xerrors.Errorf("failed unmarshalling bytes: %w", err)
-	}
-
-	agentVersion := m.FindAgentVersionForOpsManager(majorMinor)
-	if agentVersion == "" {
-		return "", xerrors.Errorf("agent version not present in the mapping file %s", opsManagerToVersionMappingJsonFilePath)
-	} else {
-		return agentVersion, nil
-	}
 }
 
 // ensureSharedGlobalResources ensures that resources that are shared across watched namespaces (e.g. secrets) are in sync
@@ -631,7 +600,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(reconcilerHelper *OpsManagerR
 	}
 
 	// 4. Trigger agents upgrade if necessary
-	if err := triggerOmChangedEventIfNeeded(opsManager, log); err != nil {
+	if err := triggerOmChangedEventIfNeeded(opsManager, r.client, log); err != nil {
 		log.Warn("Not triggering an Ops Manager version changed event: %s", err)
 	}
 
@@ -650,7 +619,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(reconcilerHelper *OpsManagerR
 
 // triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
 // happened for Ops Manager
-func triggerOmChangedEventIfNeeded(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func triggerOmChangedEventIfNeeded(opsManager *omv1.MongoDBOpsManager, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
 		return nil
 	}
@@ -664,7 +633,30 @@ func triggerOmChangedEventIfNeeded(opsManager *omv1.MongoDBOpsManager, log *zap.
 	}
 	if newVersion.Major != oldVersion.Major || newVersion.Minor != oldVersion.Minor {
 		log.Infof("Ops Manager version has upgraded from %s to %s - scheduling the upgrade for all the Agents in the system", oldVersion, newVersion)
-		agents.ScheduleUpgrade()
+		if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
+			mdbList := &mdbv1.MongoDBList{}
+			err := c.List(context.TODO(), mdbList)
+			if err != nil {
+				return err
+			}
+			for _, m := range mdbList.Items {
+				OmUpdateChannel <- event.GenericEvent{Object: &m}
+			}
+
+			multiList := &mdbmulti.MongoDBMultiClusterList{}
+			err = c.List(context.TODO(), multiList)
+			if err != nil {
+				return err
+			}
+			for _, m := range multiList.Items {
+				OmUpdateChannel <- event.GenericEvent{Object: &m}
+			}
+
+		} else {
+			// This is a noop in static-architecture world
+			agents.ScheduleUpgrade()
+
+		}
 	}
 
 	return nil
@@ -840,7 +832,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(reconc
 }
 
 func AddOpsManagerController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newOpsManagerReconciler(mgr, memberClustersMap, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin, os.ReadFile)
+	reconciler := newOpsManagerReconciler(mgr, memberClustersMap, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -2058,7 +2050,7 @@ func (r *OpsManagerReconciler) OnDelete(obj interface{}, log *zap.SugaredLogger)
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, r.versionMappingProvider, r.memberClustersMap, log)
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
+	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 	"golang.org/x/xerrors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,7 +93,6 @@ func newReplicaSetReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
@@ -102,6 +102,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if !architectures.IsRunningStaticArchitecture(rs.Annotations) {
+		agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
 	log.Info("-> ReplicaSet.Reconcile")
@@ -172,6 +176,20 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
 
+	var automationAgentVersion string
+	if architectures.IsRunningStaticArchitecture(rs.Annotations) {
+		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
+		// happens after creating the StatefulSet definition.
+		if !rs.IsAgentImageOverridden() {
+			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			if err != nil {
+				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
+				status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
+				return r.updateStatus(rs, status, log)
+			}
+		}
+	}
+
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.ConnectionSpec)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
@@ -181,6 +199,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
 		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
+		WithAgentVersion(automationAgentVersion),
 	)
 
 	caFilePath := util.CAFilePathInContainer
@@ -323,9 +342,17 @@ func AddReplicaSetController(mgr manager.Manager, memberClustersMap map[string]c
 	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
 	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet))
-
 	if err != nil {
 		return err
+	}
+
+	err = c.Watch(
+		&source.Channel{Source: OmUpdateChannel},
+		&handler.EnqueueRequestForObject{},
+		watch.PredicatesForMongoDB(mdbv1.ReplicaSet),
+	)
+	if err != nil {
+		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
 	err = c.Watch(&source.Kind{Type: &appsv1.StatefulSet{}}, &handler.EnqueueRequestForOwner{

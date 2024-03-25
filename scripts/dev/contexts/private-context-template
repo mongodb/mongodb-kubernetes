@@ -65,11 +65,11 @@ export CLUSTER_TYPE=${CLUSTER_TYPE-"###undefined-CLUSTER_TYPE"}
 
 # The main cluster name for setting the kubectl context
 # Allowed values:
-#   kind - for single cluster kind
+#   kind-kind - for single cluster kind
 #   kind-e2e-operator - for multicluster
 # Sensible default
 # - kind-e2e-operator - when you're using EVG Host
-# - kind - otherwise
+# - kind-kind - otherwise
 export CLUSTER_NAME="kind"
 
 # Your AWS credentials. Talk to your managed if you don't have them.
@@ -105,7 +105,7 @@ export NAMESPACE_FILE="$workdir/.namespace"
 # Environment variable needed for local development
 # Used in controllers/operator/mongodbopsmanager_controller.go
 # The file is created by scripts/dev/prepare_local_e2e_run.sh
-export OM_VERSION_MAPPING_PATH="$workdir/.generated/om_version_mapping.json"
+export MDB_OM_VERSION_MAPPING_PATH="$workdir/release.json"
 
 # TO ensure we don't release by accident via pipeline.py
 export skip_tags="release"
@@ -133,7 +133,7 @@ export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
 export APPDB_REGISTRY=${QUAY_REGISTRY}
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
 export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
-
+export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent-ubi"
 # these are needed to deploy OM
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
 export OPS_MANAGER_IMAGE_REPOSITORY="${QUAY_REGISTRY}/mongodb-enterprise-ops-manager-ubi"

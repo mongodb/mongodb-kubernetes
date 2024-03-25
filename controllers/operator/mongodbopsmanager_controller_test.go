@@ -590,22 +590,22 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("5.2.13").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.0").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event got triggered, minor version update, candidate version", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.0-rc2").SetOMStatusVersion("4.2.13").Build(), nil, zap.S()))
 		assert.NotEqual(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 	t.Run("Om changed event not triggered, patch version update", func(t *testing.T) {
 		nextScheduledTime := agents.NextScheduledUpgradeTime()
-		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), zap.S()))
+		assert.NoError(t, triggerOmChangedEventIfNeeded(omv1.NewOpsManagerBuilder().SetVersion("4.4.10").SetOMStatusVersion("4.4.0").Build(), nil, zap.S()))
 		assert.Equal(t, nextScheduledTime, agents.NextScheduledUpgradeTime())
 	})
 }
@@ -1027,8 +1027,6 @@ func defaultTestOmReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, g
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey).(*api.MockedOmAdmin)
 		}
 		return api.CurrMockedAdmin
-	}, func(s string) ([]byte, error) {
-		return nil, nil
 	})
 
 	assert.NoError(t, reconciler.client.CreateSecret(s))
@@ -1037,7 +1035,7 @@ func defaultTestOmReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, g
 
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 	spec := omv1.MongoDBOpsManagerSpec{
-		Version:     "5.0.0",
+		Version:     "7.0.0",
 		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}

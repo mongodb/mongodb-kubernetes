@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
@@ -74,6 +76,31 @@ type MongoDB struct {
 	// +optional
 	Status MongoDbStatus `json:"status"`
 	Spec   MongoDbSpec   `json:"spec"`
+}
+
+func (m *MongoDB) IsAgentImageOverridden() bool {
+	if m.Spec.PodSpec.IsAgentImageOverridden() {
+		return true
+	}
+
+	if m.Spec.ShardPodSpec != nil && m.Spec.ShardPodSpec.IsAgentImageOverridden() {
+		return true
+	}
+
+	if m.Spec.IsAgentImageOverridden() {
+		return true
+	}
+
+	return false
+}
+
+func isAgentImageOverriden(containers []corev1.Container) bool {
+	for _, c := range containers {
+		if c.Name == util.AgentContainerName && c.Image != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MongoDB) ForcedIndividualScaling() bool {
@@ -319,7 +346,7 @@ type DbCommonSpec struct {
 
 	// +optional
 	// StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
-	// if  "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
+	// if "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
 	// the global one
 	StatefulSetConfiguration *mdbcv1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 
@@ -527,8 +554,8 @@ func (m *MongoDB) CurrentReplicas() int {
 }
 
 // GetMongoDBVersion returns the version of the MongoDB.
-func (ms MongoDbSpec) GetMongoDBVersion(map[string]string) string {
-	return ms.Version
+func (ms MongoDbSpec) GetMongoDBVersion(annotations map[string]string) string {
+	return architectures.GetMongoVersionForAutomationConfig(ms.Version, annotations)
 }
 
 func (ms MongoDbSpec) GetClusterDomain() string {
@@ -622,6 +649,14 @@ func (s Security) MemberCertificateSecretName(defaultName string) string {
 
 	// The default behaviour is to use the `defaultname-cert` format
 	return fmt.Sprintf("%s-cert", defaultName)
+}
+
+func (d DbCommonSpec) IsAgentImageOverridden() bool {
+	if d.StatefulSetConfiguration != nil && isAgentImageOverriden(d.StatefulSetConfiguration.SpecWrapper.Spec.Template.Spec.Containers) {
+		return true
+	}
+
+	return false
 }
 
 func (d DbCommonSpec) GetSecurity() *Security {
@@ -1246,6 +1281,13 @@ type MongoDbPodSpec struct {
 	Persistence *Persistence `json:"persistence,omitempty"`
 }
 
+func (m MongoDbPodSpec) IsAgentImageOverridden() bool {
+	if m.PodTemplateWrapper.PodTemplate != nil && isAgentImageOverriden(m.PodTemplateWrapper.PodTemplate.Spec.Containers) {
+		return true
+	}
+	return false
+}
+
 type ContainerResourceRequirements struct {
 	CpuLimit       string
 	CpuRequests    string
@@ -1442,4 +1484,15 @@ func (m *MongoDB) BuildConnectionString(username, password string, scheme connec
 
 func (m *MongoDB) GetAuthenticationModes() []string {
 	return m.Spec.Security.Authentication.GetModes()
+}
+
+func (m *MongoDB) IsInChangeVersion() bool {
+	spec, err := m.GetLastSpec()
+	if err != nil {
+		return false
+	}
+	if spec != nil && (spec.Version != m.Spec.Version) {
+		return true
+	}
+	return false
 }

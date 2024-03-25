@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -274,7 +276,14 @@ type AppDbBuilder struct {
 	appDb *AppDBSpec
 }
 
+// GetMongoDBVersionStatic returns the version of the MongoDB.
+func (m *AppDBSpec) GetMongoDBVersionStatic() string {
+	return architectures.GetMongoVersionForAutomationConfig(m.Version, nil)
+}
+
 // GetMongoDBVersion returns the version of the MongoDB.
+// For AppDB we directly rely on the version field which can
+// contain -ent or not for enterprise and static containers.
 func (m *AppDBSpec) GetMongoDBVersion(map[string]string) string {
 	return m.Version
 }

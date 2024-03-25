@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-set -Eeou pipefail
-
-# This is a file containing all the functions which may be needed for other shell scripts
 
 # see if jq is available for json logging
 use_jq="$(command -v jq)"
@@ -11,7 +8,7 @@ json_log() {
     if [ "$use_jq" ]; then
         jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
     else
-        echo "$1"
+    echo "$1"
     fi
 }
 
@@ -84,24 +81,9 @@ ensure_certs_symlinks() {
 }
 
 # download_agent function downloads and unpacks the Mongodb Agent
-# if ${MDB_AGENT_DEBUG} is provided we will download dlv
 download_agent() {
-    debug="${MDB_AGENT_DEBUG-}"
+    pushd /tmp >/dev/null || true
 
-    pushd /tmp >/dev/null
-
-    if [ "${debug}" = "true" ]; then
-      (
-      cd /var/lib/mongodb-mms-automation
-      curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-      tar -xzf go1.20.1.linux-amd64.tar.gz
-      mkdir -p /var/lib/mongodb-mms-automation/gopath
-      export GOPATH=/var/lib/mongodb-mms-automation/gopath
-      export GOCACHE=/var/lib/mongodb-mms-automation/.cache
-      export PATH=$PATH:/var/lib/mongodb-mms-automation/go/bin
-      go install github.com/go-delve/delve/cmd/dlv@latest
-      )
-    fi
 
     if [[ -z "${MDB_AGENT_VERSION-}" ]]; then
       AGENT_VERSION="latest"
@@ -144,5 +126,5 @@ download_agent() {
     rm -rf automation-agent.tar.gz mongodb-mms-automation-agent-*.linux_x86_64
     script_log "The Automation Agent was deployed at ${MMS_HOME}/files/mongodb-mms-automation-agent"
 
-    popd >/dev/null
+    popd >/dev/null || true
 }

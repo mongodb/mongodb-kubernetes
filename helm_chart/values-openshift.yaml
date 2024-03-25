@@ -9,6 +9,10 @@ operator:
   # Execution environment for the operator, dev or prod. Use dev for more verbose logging
   env: prod
 
+  # Default architecture for the operator.
+  # Values are "static" and "non-static:
+  mdbDefaultArchitecture: non-static
+
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-enterprise-operator
 

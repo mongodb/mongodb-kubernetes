@@ -17,7 +17,11 @@ from kubetester import (
     read_secret,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts
+from kubetester.kubetester import (
+    KubernetesTester,
+    build_list_of_hosts,
+    is_static_containers_architecture,
+)
 from kubetester.mongodb import MongoDB, MongoDBCommon, Phase, get_pods, in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
 from kubetester.omtester import OMContext, OMTester
@@ -45,6 +49,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         }
         with_defaults.update(kwargs)
         super(MongoDBOpsManager, self).__init__(*args, **with_defaults)
+
+    def trigger_architecture_migration(self):
+        self.load()
+
+        if is_static_containers_architecture():
+            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
+            self.update()
+        else:
+            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
+            self.update()
 
     def appdb_status(self) -> MongoDBOpsManager.AppDbStatus:
         return self.AppDbStatus(self)
@@ -82,6 +96,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 appdb_hostnames.append(hostname)
         else:
             for index in range(appdb_resource["spec"]["members"]):
+                appdb_hostnames.append(f"{service_name}.{namespace}.svc.cluster.local")
                 appdb_hostnames.append(f"{resource_name}-{index}.{service_name}.{namespace}.svc.cluster.local")
 
         def agents_have_registered() -> bool:
@@ -101,10 +116,6 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             registered_automation_agents = tester.api_read_automation_agents()
             assert len(registered_automation_agents) == 0
             registered_agents = tester.api_read_monitoring_agents()
-            hostnames = [host["hostname"] for host in hosts]
-            for hn in appdb_hostnames:
-                if hn not in hostnames:
-                    return False
             for ra in registered_agents:
                 if ra["hostname"] not in appdb_hostnames:
                     return False
@@ -364,6 +375,17 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                     (
                         cluster_name,
                         f"{pod_name}.{self.app_db_sts_name(cluster_name)}-svc.{self.namespace}.svc.cluster.local",
+                    )
+                    for pod_name in pod_names
+                ]
+            )
+            # Some Automation Agent's version tend to ignore the "overrideLocalHost" parameter. That's why
+            # we need to append all items in both formats (respecting and not respecting it)
+            hostnames_per_cluster.extend(
+                [
+                    (
+                        cluster_name,
+                        f"{pod_name}-svc.{self.namespace}.svc.cluster.local",
                     )
                     for pod_name in pod_names
                 ]

@@ -5,6 +5,8 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct/scalers"
@@ -21,7 +23,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
+	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
+
+	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
+	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
+
+	// If no persistence is set then we still mount init scripts
+	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
+	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
+	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 7)
+	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
+}
+
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), nil)
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
@@ -42,6 +69,8 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
 // 3 points
 func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
 	labels := map[string]string{"app": "foo"}
 	persistence := mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast").SetLabelSelector(labels)
 	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build().MongoDbPodSpec
@@ -59,6 +88,30 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
+	})
+}
+
+// TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
+// 3 points
+func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	labels := map[string]string{"app": "foo"}
+	persistence := mdbv1.NewPersistenceBuilder("40G").SetStorageClass("fast").SetLabelSelector(labels)
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().SetSinglePersistence(persistence).Build().MongoDbPodSpec
+	rs := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec).Build()
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
+
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
+
+	checkMounts(t, set, []corev1.VolumeMount{
+		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
+		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
+		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
+		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
 	})
 }
 

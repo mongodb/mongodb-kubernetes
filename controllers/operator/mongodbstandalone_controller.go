@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/util/merge"
 	"golang.org/x/xerrors"
@@ -68,6 +70,15 @@ func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]c
 		return err
 	}
 
+	err = c.Watch(
+		&source.Channel{Source: OmUpdateChannel},
+		&handler.EnqueueRequestForObject{},
+		watch.PredicatesForMongoDB(mdbv1.Standalone),
+	)
+	if err != nil {
+		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
+	}
+
 	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
@@ -112,7 +123,6 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
@@ -122,6 +132,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
+		agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
@@ -199,12 +213,28 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
+
+	var automationAgentVersion string
+	if architectures.IsRunningStaticArchitecture(s.Annotations) {
+		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
+		// happens after creating the StatefulSet definition.
+		if !s.IsAgentImageOverridden() {
+			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			if err != nil {
+				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
+				status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
+				return r.updateStatus(s, status, log)
+			}
+		}
+	}
+
 	standaloneOpts := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
+		WithAgentVersion(automationAgentVersion),
 	)
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, nil)
@@ -361,6 +391,6 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 
 func createProcess(set appsv1.StatefulSet, containerName string, s *mdbv1.MongoDB) om.Process {
 	hostnames, _ := dns.GetDnsForStatefulSet(set, s.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(0, s.Name, hostnames[0], s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "")
+	process := om.NewMongodProcess(s.Name, hostnames[0], s.Spec.GetAdditionalMongodConfig(), s.GetSpec(), "", s.Annotations)
 	return process
 }

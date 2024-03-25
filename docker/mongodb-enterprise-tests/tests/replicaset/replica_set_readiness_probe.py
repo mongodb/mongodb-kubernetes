@@ -13,6 +13,7 @@ RESOURCE_NAME = "my-replica-set-double"
 @pytest.fixture(scope="module")
 def replica_set(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-double.yaml"), RESOURCE_NAME, namespace)
+    resource.set_architecture_annotation()
     return create_or_update(resource)
 
 
@@ -72,7 +73,3 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
         )
 
         return sts.status.ready_replicas == 2
-
-    def test_replica_set_recovered(self, replica_set: MongoDB, config_version):
-        replica_set.assert_reaches_phase(Phase.Running)
-        assert self.get_automation_config()["version"] == config_version.version

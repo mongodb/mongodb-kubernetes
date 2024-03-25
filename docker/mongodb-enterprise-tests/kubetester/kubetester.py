@@ -51,6 +51,15 @@ def running_locally():
     return os.getenv("POD_NAME", "local") == "local"
 
 
+def is_static_containers_architecture():
+    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
+
+
+skip_if_static_containers = pytest.mark.skipif(
+    is_static_containers_architecture(),
+    reason="Skip if this test is executed using the Static Containers architecture",
+)
+
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 # time to sleep between retries
 SLEEP_TIME = 2
@@ -154,12 +163,20 @@ class KubernetesTester(object):
 
     @classmethod
     def read_pod(cls, namespace: str, name: str) -> Dict[str, str]:
-        """Reads a ConfigMap and returns its contents"""
+        """Reads a Pod and returns its contents"""
         return cls.clients("corev1").read_namespaced_pod(name, namespace)
 
     @classmethod
-    def read_pod_logs(cls, namespace: str, name: str, api_client: Optional[client.ApiClient] = None) -> str:
-        return cls.clients("corev1", api_client=api_client).read_namespaced_pod_log(name=name, namespace=namespace)
+    def read_pod_logs(
+        cls,
+        namespace: str,
+        name: str,
+        container: str = None,
+        api_client: Optional[client.ApiClient] = None,
+    ) -> str:
+        return cls.clients("corev1", api_client=api_client).read_namespaced_pod_log(
+            name=name, namespace=namespace, container=container
+        )
 
     @classmethod
     def read_operator_pod(cls, namespace: str) -> Dict[str, str]:
@@ -1036,7 +1053,7 @@ class KubernetesTester(object):
         pod_name: str,
         namespace: str,
         cmd: List[str],
-        container: str = "",
+        container: str = "mongodb-enterprise-database",
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ) -> str:
         api_client = client.CoreV1Api(api_client=api_client)

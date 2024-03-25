@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
 )
@@ -29,6 +31,15 @@ func StringToSemverVersion(version string) (semver.Version, error) {
 		v, err = semver.Make(result[1] + "." + result[2] + "." + result[3])
 	}
 	return v, err
+}
+
+// StaticContainersOperatorVersion gets the Operator version for the Static Containers Architecture based on
+// util.OperatorVersion variable which is set during the build time. For development, it's "latest".
+func StaticContainersOperatorVersion() string {
+	if len(util.OperatorVersion) == 0 {
+		return "latest"
+	}
+	return util.OperatorVersion
 }
 
 type OpsManagerVersion struct {
