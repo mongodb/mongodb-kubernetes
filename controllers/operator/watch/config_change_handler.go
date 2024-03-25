@@ -24,7 +24,7 @@ const (
 	MongoDB   Type = "MongoDB"
 )
 
-// the  object watched by controller. Includes its type and namespace+name
+// the Object watched by controller. Includes its type and namespace+name
 type Object struct {
 	ResourceType Type
 	Resource     types.NamespacedName
@@ -36,7 +36,7 @@ func (w Object) String() string {
 
 // ResourcesHandler is a special implementation of 'handler.EventHandler' that checks if the event for
 // K8s Resource must trigger reconciliation for any Operator managed Resource (MongoDB, MongoDBOpsManager). This is
-// done via consulting the 'TrackedResources' map. The map is stored in relevant reconciler which puts pairs
+// done via consulting the 'TrackedResources' map. The map is stored in the relevant reconciler which puts pairs
 // [K8s_resource_name -> operator_managed_resource_name] there as
 // soon as reconciliation happens for the Resource
 type ResourcesHandler struct {

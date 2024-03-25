@@ -2,10 +2,11 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 
@@ -47,9 +48,9 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
+	// NonStaticDatabaseEnterpriseImage is filled in static container
 	t.Run("Empty Agent Image", func(t *testing.T) {
-		defer mock.InitDefaultEnvVariables()
-		os.Setenv(util.AutomationAgentImage, "")
+		t.Setenv(util.NonStaticDatabaseEnterpriseImage, "")
 		rs := mdbv1.NewReplicaSetBuilder().Build()
 		assert.Panics(t, func() {
 			DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), nil)
@@ -57,8 +58,23 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	})
 
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
-		defer mock.InitDefaultEnvVariables()
-		os.Setenv(util.AutomationAgentImagePullPolicy, "")
+		t.Setenv(util.AutomationAgentImagePullPolicy, "")
+		sc := mdbv1.NewClusterBuilder().Build()
+		assert.Panics(t, func() {
+			DatabaseStatefulSet(*sc, ShardOptions(0), nil)
+		})
+		assert.Panics(t, func() {
+			DatabaseStatefulSet(*sc, ConfigServerOptions(), nil)
+		})
+		assert.Panics(t, func() {
+			DatabaseStatefulSet(*sc, MongosOptions(), nil)
+		})
+	})
+}
+func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+	t.Run("Empty Image Pull Policy", func(t *testing.T) {
+		t.Setenv(util.AutomationAgentImagePullPolicy, "")
 		sc := mdbv1.NewClusterBuilder().Build()
 		assert.Panics(t, func() {
 			DatabaseStatefulSet(*sc, ShardOptions(0), nil)
@@ -207,10 +223,10 @@ func TestContainerImage(t *testing.T) {
 }
 
 func Test_DatabaseStatefulSetWithRelatedImages(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.AutomationAgentImage)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
 
-	t.Setenv(util.AutomationAgentImage, "quay.io/mongodb/mongodb-enterprise-database")
+	t.Setenv(util.NonStaticDatabaseEnterpriseImage, "quay.io/mongodb/mongodb-enterprise-database")
 	t.Setenv(DatabaseVersionEnv, "1.0.0")
 	t.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-enterprise-init-database")
 	t.Setenv(InitDatabaseVersionEnv, "2.0.0")
@@ -324,7 +340,7 @@ func TestGetAppDBImage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupEnvs(t)
-			assert.Equalf(t, tt.want, getAppDBImage(tt.input), "getAppDBImage(%v)", tt.input)
+			assert.Equalf(t, tt.want, getOfficialImage(tt.input), "getOfficialImage(%v)", tt.input)
 		})
 	}
 }

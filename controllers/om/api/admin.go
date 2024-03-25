@@ -119,7 +119,7 @@ type OpsManagerAdmin interface {
 	// CreateGlobalAPIKey creates a new Global API Key in Ops Manager
 	CreateGlobalAPIKey(description string) (Key, error)
 
-	// ReadOpsManagerVersion read the version returned in the Header
+	// ReadOpsManagerVersion reads the version returned in the Header
 	ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error)
 }
 
@@ -129,17 +129,17 @@ type AdminProvider func(baseUrl, user, publicApiKey string, ca *string) OpsManag
 
 // DefaultOmAdmin is the default (production) implementation of OpsManagerAdmin interface
 type DefaultOmAdmin struct {
-	BaseURL      string
-	User         string
-	PublicAPIKey string
-	CA           *string
+	BaseURL       string
+	User          string
+	PrivateAPIKey string
+	CA            *string
 }
 
 var _ OpsManagerAdmin = &DefaultOmAdmin{}
 var _ OpsManagerAdmin = &MockedOmAdmin{}
 
-func NewOmAdmin(baseUrl, user, publicApiKey string, ca *string) OpsManagerAdmin {
-	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PublicAPIKey: publicApiKey, CA: ca}
+func NewOmAdmin(baseUrl, user, privateKey string, ca *string) OpsManagerAdmin {
+	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PrivateAPIKey: privateKey, CA: ca}
 }
 
 func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error) {
@@ -394,7 +394,7 @@ func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
 }
 
 func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
-	client, err := CreateOMHttpClient(a.CA, &a.User, &a.PublicAPIKey)
+	client, err := CreateOMHttpClient(a.CA, &a.User, &a.PrivateAPIKey)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}

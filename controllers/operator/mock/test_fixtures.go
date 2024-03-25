@@ -7,7 +7,7 @@ import (
 )
 
 func InitDefaultEnvVariables() {
-	os.Setenv(util.AutomationAgentImage, "mongodb-enterprise-database")
+	os.Setenv(util.NonStaticDatabaseEnterpriseImage, "mongodb-enterprise-database")
 	os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
 	os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
 	os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-init-ops-manager")

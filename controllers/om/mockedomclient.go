@@ -84,6 +84,9 @@ type MockedOmConnection struct {
 	SnapshotSchedules       map[string]*backup.SnapshotSchedule
 	Hostnames               []string
 
+	agentVersion        string
+	agentMinimumVersion string
+
 	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
 	UpdateMonitoringAgentConfigFunc func(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
 	// AgentsDelayCount is the number of loops to wait until the agents reach the goal
@@ -95,7 +98,7 @@ type MockedOmConnection struct {
 
 var _ Connection = &MockedOmConnection{}
 
-// NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
+// NewEmptyMockedOmConnection is the standard function for creating mocked connections that is usually used for testing
 // "full cycle" mocked controller. It has group created already, but doesn't have the deployment. Also it "survives"
 // recreations (as this is what we do in 'ReconcileCommonController.prepareConnection')
 func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
@@ -169,6 +172,13 @@ func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
 
 	CurrMockedConnection = connection
 
+	return connection
+}
+
+func NewEmptyMockedOmConnectionWithAgentVersion(agentVersion string, agentMinimumVersion string) Connection {
+	connection := NewMockedOmConnection(nil)
+	connection.agentVersion = agentVersion
+	connection.agentMinimumVersion = agentMinimumVersion
 	return connection
 }
 
@@ -518,6 +528,17 @@ func (oc *MockedOmConnection) UpdateSnapshotSchedule(clusterID string, snapshotS
 	return nil
 }
 
+// SetAgentVersion updates the versions returned by ReadAgentVersion method
+func (oc *MockedOmConnection) SetAgentVersion(agentVersion string, agentMinimumVersion string) {
+	oc.agentVersion = agentVersion
+	oc.agentMinimumVersion = agentMinimumVersion
+}
+
+// ReadAgentVersion reads the versions from OM API
+func (oc *MockedOmConnection) ReadAgentVersion() (AgentsVersionsResponse, error) {
+	return AgentsVersionsResponse{oc.agentVersion, oc.agentMinimumVersion}, nil
+}
+
 // ************* These are native methods of Mocked client (not implementation of OmConnection)
 
 func (oc *MockedOmConnection) CheckMonitoredHostsRemoved(t *testing.T, removedHosts []string) {
@@ -724,7 +745,7 @@ func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion 
 	if oc.context.Version.VersionString != "" {
 		return oc.context.Version
 	}
-	return versionutil.OpsManagerVersion{VersionString: "5.0.0"}
+	return versionutil.OpsManagerVersion{VersionString: "7.0.0"}
 }
 
 // updateAutoAuthMechanism simulates the changes made by Ops Manager and the agents in deciding which

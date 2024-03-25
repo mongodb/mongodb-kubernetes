@@ -64,6 +64,7 @@ def replica_set(
     resource["spec"]["externalAccess"]["externalDomain"] = default_external_domain()
     resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
     resource.set_version(custom_mdb_version)
+    resource.set_architecture_annotation()
 
     return resource
 
@@ -99,5 +100,18 @@ def test_automation_config_contains_external_domains_in_hostnames(replica_set: M
 
 @pytest.mark.e2e_replica_set_tls_process_hostnames
 def test_connectivity(replica_set: MongoDB, ca_path: str):
+    tester = replica_set.tester(ca_path=ca_path)
+    tester.assert_connectivity()
+
+
+@pytest.mark.e2e_replica_set_tls_process_hostnames
+def test_migrate_architecture(replica_set: MongoDB):
+    replica_set.trigger_architecture_migration()
+    replica_set.assert_abandons_phase(Phase.Running, timeout=1000)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
+
+
+@pytest.mark.e2e_replica_set_tls_process_hostnames
+def test_db_connectable_after_architecture_change(replica_set: MongoDB, ca_path: str):
     tester = replica_set.tester(ca_path=ca_path)
     tester.assert_connectivity()

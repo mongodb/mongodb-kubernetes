@@ -6,6 +6,10 @@ variables:
 
   - &ops_manager_70_latest 7.0.3 # The order/index is important, since these are anchors. Please do not change
 
+# The dependency unification between static and non-static is intentional here.
+# Even though some images are exclusive, in EVG they all are built once and in parallel.
+# It is not worth the effort of splitting them out.
+# Once Static Containers are default, this piece can be cleaned up.
   - &base_om6_dependency
     depends_on:
       - name: build_om_images
@@ -22,6 +26,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
 
   - &base_no_om_image_dependency
     depends_on:
@@ -36,6 +42,8 @@ variables:
       - name: build_test_image
         variant: init_test_run
       - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
         variant: init_test_run
 
   - &base_om7_dependency
@@ -53,6 +61,8 @@ variables:
       - name: build_init_appdb_images_ubi
         variant: init_test_run
       - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
         variant: init_test_run
 
   - &e2e_include_expansions_in_env
@@ -458,6 +468,7 @@ functions:
         - github_commit
         - revision
         - github_pr_number
+        - revision_order_id
         add_to_path:
         - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
@@ -885,6 +896,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_replica_set_migration
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_replication_state_awareness
   tags: ["patch-run"]
   commands:
@@ -906,6 +922,11 @@ tasks:
     - func: "e2e_test"
 
 - name: e2e_tls_sharded_cluster_certs_prefix
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
+- name: e2e_sharded_cluster_migration
   tags: ["patch-run"]
   commands:
     - func: "e2e_test"
@@ -1448,6 +1469,11 @@ tasks:
   commands:
     - func: e2e_test
 
+- name: e2e_om_migration
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: e2e_om_localmode
   tags: ["patch-run"]
   commands:
@@ -1474,6 +1500,11 @@ tasks:
     - func: e2e_test
 
 - name: e2e_multi_cluster_replica_set
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
+- name: e2e_multi_cluster_replica_set_migration
   tags: ["patch-run"]
   commands:
     - func: e2e_test
@@ -1819,6 +1850,7 @@ task_groups:
     - e2e_tls_sc_additional_certs
     - e2e_tls_rs_intermediate_ca
     - e2e_tls_sharded_cluster_certs_prefix
+    - e2e_sharded_cluster_migration
     - e2e_standalone_no_tls_no_status_is_set
     - e2e_feature_controls_authentication
     - e2e_replica_set
@@ -1877,6 +1909,8 @@ task_groups:
     - e2e_mongodb_roles_validation_webhook
     - e2e_vault_setup
     - e2e_vault_setup_tls
+    # this test will either migrate from static to non-static or the other way around
+    - e2e_replica_set_migration
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -1913,7 +1947,34 @@ task_groups:
 # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
 # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
 - name: e2e_operator_task_group
-  max_hosts: 2
+  max_hosts: -1
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_operator_upgrade_replica_set
+    - e2e_operator_upgrade_ops_manager
+    - e2e_operator_partial_crd
+    - e2e_operator_clusterwide
+    - e2e_operator_multi_namespaces
+    - e2e_operator_upgrade_appdb_tls
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+
+# e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
+# cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
+- name: e2e_static_operator_task_group
   setup_group:
     - func: clone
     - func: download_kube_tools
@@ -1949,6 +2010,7 @@ task_groups:
     - func: setup_cloud_qa
   tasks:
     - e2e_multi_cluster_replica_set
+    - e2e_multi_cluster_replica_set_migration
     - e2e_multi_cluster_replica_set_member_options
     - e2e_multi_cluster_recover
     - e2e_multi_cluster_recover_clusterwide
@@ -2038,6 +2100,7 @@ task_groups:
     - e2e_om_appdb_scram
     - e2e_om_external_connectivity
     - e2e_om_jvm_params
+    - e2e_om_migration
     - e2e_om_localmode
     - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_localmode_multiple_pv
@@ -2059,6 +2122,67 @@ task_groups:
 # disabled tests:
 #    - e2e_om_multiple # multi-cluster failures in EVG
 #    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+- name: e2e_static_multi_cluster_om_appdb_task_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+    - func: build_multi_cluster_binary
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    # Dedicated AppDB Multi-Cluster tests
+    - e2e_multi_cluster_appdb_validation
+    - e2e_multi_cluster_om_validation
+    - e2e_multi_cluster_appdb
+    - e2e_multi_cluster_appdb_s3_based_backup_restore
+    - e2e_multi_cluster_appdb_disaster_recovery
+    - e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+    - e2e_multi_cluster_om_networking_clusterwide
+    # Reused OM tests with AppDB Multi-Cluster topology
+    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_upgrade
+    - e2e_om_appdb_monitoring_tls
+    - e2e_om_ops_manager_backup
+    - e2e_om_ops_manager_backup_light
+    - e2e_om_ops_manager_backup_liveness_probe
+    - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_secure_config
+    - e2e_om_appdb_validation
+    - e2e_om_appdb_scram
+    - e2e_om_external_connectivity
+    - e2e_om_jvm_params
+    - e2e_om_migration
+#  Deactivated tests
+#    - e2e_om_localmode
+#    - e2e_om_localmode_multiple_pv
+#    - e2e_om_ops_manager_https_enabled
+#    - e2e_om_ops_manager_https_enabled_hybrid
+#    - e2e_om_ops_manager_https_enabled_internet_mode
+    - e2e_om_ops_manager_https_enabled_prefix
+    - e2e_om_ops_manager_enable_local_mode_running_om
+    - e2e_om_weak_password
+    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_tls
+    - e2e_om_ops_manager_backup_s3_tls
+    - e2e_om_ops_manager_backup_tls_custom_ca
+    - e2e_om_ops_manager_backup_sharded_cluster
+    - e2e_om_ops_manager_backup_kmip
+    - e2e_om_ops_manager_scale
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_update_before_reconciliation
+    - e2e_om_feature_controls
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2113,6 +2237,7 @@ task_groups:
     - e2e_om_appdb_scram
     - e2e_om_external_connectivity
     - e2e_om_jvm_params
+    - e2e_om_migration
     - e2e_om_localmode
     - e2e_om_ops_manager_enable_local_mode_running_om
     - e2e_om_localmode_multiple_pv
@@ -2140,6 +2265,61 @@ task_groups:
     - e2e_om_feature_controls
     - e2e_vault_setup_om
     - e2e_vault_setup_om_backup
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+- name: e2e_static_ops_manager_kind_only_task_group
+  max_hosts: 15
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_om_appdb_agent_flags
+    - e2e_om_appdb_monitoring_tls
+    - e2e_om_appdb_multi_change
+    - e2e_om_appdb_scale_up_down
+    - e2e_om_appdb_upgrade
+    - e2e_om_appdb_validation
+    - e2e_om_appdb_scram
+    - e2e_om_external_connectivity
+    - e2e_om_jvm_params
+    - e2e_om_weak_password
+    - e2e_om_ops_manager_backup_delete_sts
+    - e2e_om_ops_manager_backup_light
+    - e2e_om_ops_manager_backup_tls
+    - e2e_om_ops_manager_backup_s3_tls
+    - e2e_om_ops_manager_backup_restore_minio
+    - e2e_om_ops_manager_backup_tls_custom_ca
+    - e2e_om_ops_manager_backup_liveness_probe
+    - e2e_om_ops_manager_backup_sharded_cluster
+    - e2e_om_ops_manager_backup_kmip
+    - e2e_om_ops_manager_pod_spec
+    - e2e_om_ops_manager_scale
+    - e2e_om_ops_manager_upgrade
+    - e2e_om_validation_webhook
+    - e2e_om_ops_manager_secure_config
+    - e2e_om_update_before_reconciliation
+    - e2e_om_multiple
+    - e2e_om_feature_controls
+    - e2e_vault_setup_om
+    - e2e_vault_setup_om_backup
+#   Deactivated tests
+#    - e2e_om_localmode_multiple_pv
+#    - e2e_om_localmode
+#    - e2e_om_ops_manager_https_enabled_hybrid
+#    - e2e_om_ops_manager_https_enabled_internet_mode
+#    - e2e_om_ops_manager_https_enabled
+#    - e2e_om_ops_manager_https_enabled_prefix
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2209,6 +2389,25 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
+# Tests features only supported on OM60
+- name: e2e_static_ops_manager_kind_6_0_only_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_ops_manager_prometheus
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
 - name: e2e_kind_olm_group
   max_hosts: 30
   setup_group:
@@ -2252,6 +2451,24 @@ buildvariants:
   tasks:
     - name: e2e_mdb_kind_cloudqa_task_group
 
+- name: e2e_static_mdb_kind_ubi_cloudqa
+  display_name: e2e_static_mdb_kind_ubi_cloudqa
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_agent_images_ubi
+      variant: init_test_run
+  tasks:
+    - name: e2e_mdb_kind_cloudqa_task_group
+
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
   depends_on:
@@ -2262,6 +2479,20 @@ buildvariants:
     - name: build_database_image_ubi
       variant: init_test_run
     - name: build_test_image
+      variant: init_test_run
+  run_on:
+  - ubuntu2204-small
+  tasks:
+  - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+
+- name: e2e_static_mdb_openshift_ubi_cloudqa
+  display_name: e2e_static_mdb_openshift_ubi_cloudqa
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_agent_images_ubi
       variant: init_test_run
   run_on:
   - ubuntu2204-small
@@ -2281,6 +2512,16 @@ buildvariants:
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
 
+# Isolated Ops Manager Tests for 6.0 version
+- name: e2e_static_om60_kind_ubi
+  display_name: e2e_static_om60_kind_ubi
+  run_on:
+  - ubuntu2204-large
+  <<: *base_om6_dependency
+  tasks:
+  - name: e2e_static_ops_manager_kind_only_task_group
+  - name: e2e_static_ops_manager_kind_6_0_only_task_group
+
 # Isolated Ops Manager Tests for 7.0 version
 - name: e2e_om70_kind_ubi
   display_name: e2e_om70_kind_ubi
@@ -2292,8 +2533,28 @@ buildvariants:
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
 
+# Isolated Ops Manager Tests for 7.0 version
+- name: e2e_static_om70_kind_ubi
+  display_name: e2e_static_om70_kind_ubi
+  run_on:
+  - ubuntu2204-large
+  <<: *base_om7_dependency
+  tasks:
+    - name: e2e_static_ops_manager_kind_only_task_group
+    - name: e2e_static_ops_manager_kind_6_0_only_task_group
+
 - name: e2e_smoke
   display_name: e2e_smoke
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - name: build_test_image
+      variant: init_test_run
+  tasks:
+    - name: e2e_smoke_task_group
+
+- name: e2e_static_smoke
+  display_name: e2e_static_smoke
   run_on:
     - ubuntu2204-large
   depends_on:
@@ -2318,6 +2579,14 @@ buildvariants:
   tasks:
     - name: e2e_multi_cluster_2_clusters_task_group
 
+- name: e2e_static_multi_cluster_2_clusters
+  display_name: e2e_static_multi_cluster_2_clusters
+  run_on:
+    - ubuntu1804-xlarge
+  <<: *base_om6_dependency
+  tasks:
+    - name: e2e_multi_cluster_2_clusters_task_group
+
 - name: e2e_multi_cluster_om_appdb
   display_name: e2e_multi_cluster_om_appdb
   run_on:
@@ -2325,6 +2594,14 @@ buildvariants:
   <<: *base_om6_dependency
   tasks:
     - name: e2e_multi_cluster_om_appdb_task_group
+
+- name: e2e_static_multi_cluster_om_appdb
+  display_name: e2e_static_multi_cluster_om_appdb
+  run_on:
+    - ubuntu1804-xlarge
+  <<: *base_om6_dependency
+  tasks:
+    - name: e2e_static_multi_cluster_om_appdb_task_group
 
 - name: e2e_multi_cluster_om_operator_not_in_mesh
   display_name: e2e_multi_cluster_om_operator_not_in_mesh
@@ -2344,6 +2621,14 @@ buildvariants:
   <<: *base_no_om_image_dependency
   tasks:
     - name: e2e_operator_task_group
+
+- name: e2e_static_operator_kind_ubi_cloudqa
+  display_name: e2e_static_operator_kind_ubi_cloudqa
+  run_on:
+    - ubuntu2204-large
+  <<: *base_no_om_image_dependency
+  tasks:
+    - name: e2e_static_operator_task_group
 
 - name: e2e_kind_olm_ubi
   display_name: e2e_kind_olm_ubi
@@ -2366,6 +2651,28 @@ buildvariants:
       variant: init_test_run
     - name: prepare_and_upload_openshift_bundles_for_e2e
       variant: init_tests_with_olm
+  tasks:
+    - name: e2e_kind_olm_group
+
+- name: e2e_static_kind_olm_ubi
+  display_name: e2e_static_kind_olm_ubi
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - name: build_om_images
+      variant: build_om60_images
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: prepare_and_upload_openshift_bundles_for_e2e
+      variant: init_tests_with_olm
+    - name: build_agent_images_ubi
+      variant: init_test_run
   tasks:
     - name: e2e_kind_olm_group
 

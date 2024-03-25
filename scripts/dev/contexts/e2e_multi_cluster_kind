@@ -7,6 +7,8 @@ script_dir=$(dirname "${script_name}")
 
 # shellcheck disable=SC1091
 source "$script_dir/root-context"
+# shellcheck disable=SC1091
+source "$script_dir/variables/om60"
 
 export KUBE_ENVIRONMENT_NAME=multi
 export CLUSTER_NAME="kind-e2e-operator"

@@ -159,6 +159,8 @@ spec:
     - name: LOCAL_OPERATOR
       value: "{{ .Values.localOperator }}"
     {{ end }}
+    - name: MDB_DEFAULT_ARCHITECTURE
+      value: {{ .Values.mdbDefaultArchitecture }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]

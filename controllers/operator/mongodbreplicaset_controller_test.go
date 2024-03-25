@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/deployment"
 
 	"github.com/stretchr/testify/require"
@@ -382,6 +386,42 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[1].Name, "Custom container should be second")
 }
 
+func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	podSpec := corev1.PodSpec{NodeName: "some-node-name",
+		Hostname: "some-host-name",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyAlways}
+
+	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").SetPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: podSpec,
+	}).Build()
+
+	reconciler, client := defaultReplicaSetReconciler(rs)
+
+	addKubernetesTlsResources(client, rs)
+
+	checkReconcileSuccessful(t, reconciler, rs, client)
+
+	// read the stateful set that was created by the operator
+	statefulSet, err := client.GetStatefulSet(mock.ObjectKeyFromApiObject(rs))
+	assert.NoError(t, err)
+
+	assertPodSpecSts(t, &statefulSet, podSpec.NodeName, podSpec.Hostname, podSpec.RestartPolicy)
+
+	podSpecTemplate := statefulSet.Spec.Template.Spec
+	assert.Len(t, podSpecTemplate.Containers, 3, "Should have 3 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[2].Name, "Custom container should be second")
+}
+
 func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().Build()
 
@@ -625,6 +665,37 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 		assert.Equal(t, uuidStr, config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
+}
+
+func TestReplicaSetAgentVersionMapping(t *testing.T) {
+	defaultResource := DefaultReplicaSetBuilder().Build()
+	// Go couldn't infer correctly that *ReconcileMongoDbReplicaset implemented *reconciler.Reconciler interface
+	// without this anonymous function
+	reconcilerFactory := func(rs *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
+		// Call the original defaultReplicaSetReconciler, which returns a *ReconcileMongoDbReplicaSet that implements reconcile.Reconciler
+		reconciler, mockClient := defaultReplicaSetReconciler(rs)
+		// Return the reconciler as is, because it implements the reconcile.Reconciler interface
+		return reconciler, mockClient
+	}
+	defaultResources := testReconciliationResources{
+		Resource:          defaultResource,
+		ReconcilerFactory: reconcilerFactory,
+	}
+
+	containers := []corev1.Container{{Name: util.AgentContainerName, Image: "foo"}}
+	podTemplate := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: containers,
+		},
+	}
+
+	overridenResource := DefaultReplicaSetBuilder().SetPodSpecTemplate(podTemplate).Build()
+	overridenResources := testReconciliationResources{
+		Resource:          overridenResource,
+		ReconcilerFactory: reconcilerFactory,
+	}
+
+	agentVersionMappingTest(t, defaultResources, overridenResources)
 }
 
 // assertCorrectNumberOfMembersAndProcesses ensures that both the mongodb resource and the Ops Manager deployment

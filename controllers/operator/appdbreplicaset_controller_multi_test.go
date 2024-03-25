@@ -54,7 +54,8 @@ func TestAppDB_MultiCluster(t *testing.T) {
 		{
 			ClusterName: memberClusterName2,
 			Members:     3,
-		}}
+		},
+	}
 
 	builder := DefaultOpsManagerBuilder().
 		SetAppDBClusterSpecList(clusterSpecItems).

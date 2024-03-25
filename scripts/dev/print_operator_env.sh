@@ -23,8 +23,11 @@ INIT_APPDB_IMAGE_REPOSITORY=\"${INIT_APPDB_REGISTRY}/mongodb-enterprise-init-app
 INIT_APPDB_VERSION=\"${INIT_APPDB_VERSION}\"
 OPS_MANAGER_IMAGE_PULL_POLICY=\"Always\"
 MONGODB_IMAGE=\"mongodb-enterprise-server\"
-MONGODB_REPO_URL=\"quay.io/mongodb\"
-IMAGE_PULL_SECRETS=\"image-registries-secret\""
+MONGODB_AGENT_VERSION=\"${MONGODB_AGENT_VERSION:-}\"
+MONGODB_REPO_URL=\"${MONGODB_REPO_URL:-}\"
+IMAGE_PULL_SECRETS=\"image-registries-secret\"
+MDB_DEFAULT_ARCHITECTURE=\"${MDB_DEFAULT_ARCHITECTURE:-non-static}\"
+"
 
 if [[ "${AGENT_IMAGE:-}" != "" ]]; then
   echo "AGENT_IMAGE=${AGENT_IMAGE}"
@@ -64,8 +67,12 @@ if [[ "${OPERATOR_ENV:-""}" != "" ]]; then
   echo "OPERATOR_ENV=${OPERATOR_ENV}"
 fi
 
-if [[ "${OM_VERSION_MAPPING_PATH:-""}" != "" ]]; then
-  echo "OM_VERSION_MAPPING_PATH=${OM_VERSION_MAPPING_PATH}"
+if [[ "${MDB_OM_VERSION_MAPPING_PATH:-""}" != "" ]]; then
+  echo "MDB_OM_VERSION_MAPPING_PATH=${MDB_OM_VERSION_MAPPING_PATH}"
+fi
+
+if [[ "${MDB_AGENT_IMAGE_REPOSITORY:-""}" != "" ]]; then
+  echo "MDB_AGENT_IMAGE_REPOSITORY=${MDB_AGENT_IMAGE_REPOSITORY}"
 fi
 
 }

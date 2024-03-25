@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/event"
+
 	"k8s.io/klog/v2"
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -88,6 +90,8 @@ func parseCommandLineArgs() commandLineFlags {
 }
 
 func main() {
+	operator.OmUpdateChannel = make(chan event.GenericEvent)
+
 	klog.InitFlags(nil)
 	initializeEnvironment()
 
@@ -312,6 +316,7 @@ func initializeEnvironment() {
 		"AGENT_IMAGE",
 		"MONGODB_",
 		"INIT_",
+		"MDB_",
 	}
 
 	// Only env variables with one of these prefixes will be printed

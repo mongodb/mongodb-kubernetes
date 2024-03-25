@@ -2,7 +2,7 @@ from kubetester import create_or_update, try_load
 from kubetester.certs import Certificate, SetProperties, create_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import is_static_containers_architecture, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
@@ -55,6 +55,7 @@ def sharded_cluster(
         },
         "certsSecretPrefix": "prefix",
     }
+    mdb.set_architecture_annotation()
 
     try_load(mdb)
     return mdb

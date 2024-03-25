@@ -3,6 +3,10 @@ package om
 import (
 	"testing"
 
+	"github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -19,6 +23,24 @@ func defaultMongoDBAppDBVersioned(version string) *omv1.AppDBSpec {
 func TestCreateMongodProcessAppDB(t *testing.T) {
 	process := NewMongodProcessAppDB("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBAppDBVersioned("4.0.5"))
 
+	assert.Equal(t, "trinity", process.Name())
+	assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
+	assert.Equal(t, "4.0.5", process.Version())
+	assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
+	assert.Equal(t, "/data", process.DbPath())
+	assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
+	assert.Equal(t, 5, process.authSchemaVersion())
+	assert.Equal(t, "", process.replicaSetName())
+
+	expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort)}
+	assert.Equal(t, expectedMap, process.EnsureNetConfig())
+}
+
+func TestCreateMongodProcessAppDBStatic(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+	t.Setenv(construct.MongodbImageEnv, "mongodb/mongodb-community-server")
+
+	process := NewMongodProcessAppDB("trinity", "trinity-0.trinity-svc.svc.cluster.local", defaultMongoDBAppDBVersioned("4.0.5"))
 	assert.Equal(t, "trinity", process.Name())
 	assert.Equal(t, "trinity-0.trinity-svc.svc.cluster.local", process.HostName())
 	assert.Equal(t, "4.0.5", process.Version())

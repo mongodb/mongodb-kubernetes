@@ -67,3 +67,9 @@ func WithAdditionalMongodConfig(additionalMongodConfig *mdbv1.AdditionalMongodCo
 		options.AdditionalMongodConfig = additionalMongodConfig
 	}
 }
+
+func WithAgentVersion(agentVersion string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AutomationAgentVersion = agentVersion
+	}
+}

@@ -27,7 +27,7 @@ ADD https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 /usr/loca
 RUN chmod +x /usr/local/bin/jq
 
 RUN mkdir -p /data
-RUN cat release.json | jq -r '."supportedImages"."mongodb-agent"."opsManagerMapping"."ops_manager"' > /data/om_version_mapping.json
+RUN cat release.json | jq -r '.supportedImages."mongodb-agent" | { "supportedImages": { "mongodb-agent": . } }' > /data/om_version_mapping.json
 RUN chmod +r /data/om_version_mapping.json
 
 RUN go install github.com/go-delve/delve/cmd/dlv@latest

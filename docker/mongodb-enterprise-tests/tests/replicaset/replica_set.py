@@ -11,10 +11,11 @@ from kubetester import (
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import is_static_containers_architecture, skip_if_local
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongotester import ReplicaSetTester
 from pytest import fixture
+from tests.opsmanager.conftest import ensure_ent_version
 
 DEFAULT_BACKUP_VERSION = "11.12.0.7388-1"
 DEFAULT_MONITORING_AGENT_VERSION = "11.12.0.7388-1"
@@ -35,24 +36,44 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
     # Setting podSpec shortcut values here to test they are still
     # added as resources when needed.
-    resource["spec"]["podSpec"] = {
-        "podTemplate": {
-            "spec": {
-                "containers": [
-                    {
-                        "name": "mongodb-enterprise-database",
-                        "resources": {
-                            "limits": {
-                                "cpu": "1",
-                                "memory": "1Gi",
+    if is_static_containers_architecture():
+        resource["spec"]["podSpec"] = {
+            "podTemplate": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "mongodb-agent",
+                            "resources": {
+                                "limits": {
+                                    "cpu": "1",
+                                    "memory": "1Gi",
+                                },
+                                "requests": {"cpu": "0.2", "memory": "300M"},
                             },
-                            "requests": {"cpu": "0.2", "memory": "300M"},
-                        },
-                    }
-                ]
+                        }
+                    ]
+                }
             }
         }
-    }
+    else:
+        resource["spec"]["podSpec"] = {
+            "podTemplate": {
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "mongodb-enterprise-database",
+                            "resources": {
+                                "limits": {
+                                    "cpu": "1",
+                                    "memory": "1Gi",
+                                },
+                                "requests": {"cpu": "0.2", "memory": "300M"},
+                            },
+                        }
+                    ]
+                }
+            }
+        }
     create_or_update(resource)
 
     return resource
@@ -132,7 +153,10 @@ class TestReplicaSetCreation(KubernetesTester):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            assert c0.name == "mongodb-enterprise-database"
+            if is_static_containers_architecture():
+                assert c0.name == "mongodb-agent"
+            else:
+                assert c0.name == "mongodb-enterprise-database"
 
     def test_pods_containers_ports(self):
         for podname in self._get_pods("my-replica-set-{}", 3):
@@ -217,7 +241,7 @@ class TestReplicaSetCreation(KubernetesTester):
             p = processes[idx]
             assert p["name"] == name
             assert p["processType"] == "mongod"
-            assert p["version"] == custom_mdb_version
+            assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
             assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(name, self.namespace)
@@ -270,12 +294,14 @@ class TestReplicaSetCreation(KubernetesTester):
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
-    @skip_if_local
     def test_proper_automation_config_version(self, config_version):
         config = self.get_automation_config()
         # We create 3 members of the replicaset here, so there will be 2 changes.
         # Anything more than 2 changes indicates that we're sending more things to the Ops/Cloud Manager than we should.
-        assert (config["version"] - config_version.version) == 2
+        if is_static_containers_architecture():
+            assert (config["version"] - config_version.version) == 1
+        else:
+            assert (config["version"] - config_version.version) == 2
 
     @skip_if_local
     def test_replica_set_was_configured(self):
@@ -358,7 +384,10 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for podname in self._get_pods("my-replica-set-{}", 5):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             c0 = pod.spec.containers[0]
-            assert c0.name == "mongodb-enterprise-database"
+            if is_static_containers_architecture():
+                assert c0.name == "mongodb-agent"
+            else:
+                assert c0.name == "mongodb-enterprise-database"
 
     def test_pods_containers_ports(self):
         for podname in self._get_pods("my-replica-set-{}", 5):
@@ -393,7 +422,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             p = processes[idx]
             assert p["name"] == name
             assert p["processType"] == "mongod"
-            assert p["version"] == custom_mdb_version
+            assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
             assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(name, self.namespace)
@@ -515,5 +544,6 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "MDB_LOG_FILE_BACKUP_AGENT",
             "MDB_LOG_FILE_MONGODB",
             "MDB_LOG_FILE_MONGODB_AUDIT",
+            "MDB_STATIC_CONTAINERS_ARCHITECTURE",
         ]
         assert envvar.value is not None or envvar.name == "AGENT_FLAGS"

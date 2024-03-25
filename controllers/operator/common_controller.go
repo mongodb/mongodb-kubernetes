@@ -5,6 +5,12 @@ import (
 	"encoding/json"
 	"reflect"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	"golang.org/x/xerrors"
 
@@ -754,6 +760,34 @@ func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn 
 	return err
 }
 
+// getAgentVersion handles the common logic for error handling and instance initialisation
+// when retrieving the agent version from a controller
+func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
+	m, err := agentVersionManagement.GetAgentVersionManager()
+	if err != nil || m == nil {
+		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
+	}
+
+	if agentVersion, err := m.GetAgentVersion(conn, omVersion, isAppDB); err != nil {
+		log.Errorf("Failed to get the agent version from the Agent Version manager: %s", err)
+		return "", err
+	} else {
+		log.Debugf("Using agent version %s", agentVersion)
+		currentOperatorVersion := versionutil.StaticContainersOperatorVersion()
+		log.Debugf("Using Operator version: %s", currentOperatorVersion)
+		return agentVersion + "_" + currentOperatorVersion, nil
+	}
+}
+
+func (r *ReconcileCommonController) getLegacyMonitoringAgentVersion(omVersion string) (string, error) {
+	m, err := agentVersionManagement.GetAgentVersionManager()
+	if err != nil || m == nil {
+		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
+	}
+
+	return m.GetAgentVersionForLegacyMonitoringAgent(omVersion)
+}
+
 // isPrometheusSupported checks if Prometheus integration can be enabled.
 //
 // Prometheus is only enabled in Cloud Manager and Ops Manager 5.9 (6.0) and above.
@@ -965,6 +999,12 @@ func needToPublishStateFirst(getter ConfigMapStatefulSetSecretGetter, mdb mdbv1.
 	if int32(opts.Replicas) < *currentSts.Spec.Replicas {
 		log.Debug("Scaling down operation. automationConfig needs to be updated first")
 		return true
+	}
+
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+		if mdb.IsInChangeVersion() {
+			return true
+		}
 	}
 
 	return false

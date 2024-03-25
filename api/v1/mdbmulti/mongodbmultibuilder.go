@@ -5,6 +5,9 @@ import (
 	"math/rand"
 	"time"
 
+	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
+	corev1 "k8s.io/api/core/v1"
+
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -19,7 +22,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 	spec := MongoDBMultiSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Connectivity: &mdbv1.MongoDBConnectivity{},
-			Version:      "5.0.0",
+			Version:      "7.0.0",
 			Persistent:   util.BooleanRef(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
@@ -93,5 +96,13 @@ func (m *MultiReplicaSetBuilder) SetConnectionSpec(spec mdbv1.ConnectionSpec) *M
 
 func (m *MultiReplicaSetBuilder) SetBackup(backupSpec mdbv1.Backup) *MultiReplicaSetBuilder {
 	m.Spec.Backup = &backupSpec
+	return m
+}
+
+func (m *MultiReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec) *MultiReplicaSetBuilder {
+	if m.Spec.StatefulSetConfiguration == nil {
+		m.Spec.StatefulSetConfiguration = &v1.StatefulSetConfiguration{}
+	}
+	m.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template = spec
 	return m
 }

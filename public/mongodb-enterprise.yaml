@@ -237,6 +237,8 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: prod
+            - name: MDB_DEFAULT_ARCHITECTURE
+              value: non-static
             - name: WATCH_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -274,6 +276,8 @@ spec:
               value: Always
             - name: AGENT_IMAGE
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.29.7785-1"
+            - name: MDB_AGENT_IMAGE_REPOSITORY
+              value: "quay.io/mongodb/mongodb-agent-ubi"
             - name: MONGODB_IMAGE
               value: mongodb-enterprise-server
             - name: MONGODB_REPO_URL

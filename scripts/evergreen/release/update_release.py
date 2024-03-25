@@ -42,7 +42,7 @@ def update_release_json():
 
     # PCT already bumps the release.json, such that the last element contains the newest version, since they are sorted
     newest_version = data["supportedImages"]["ops-manager"]["versions"][-1]
-    update_tools_version(data, newest_version)
+    update_agent_and_tools_version(data, newest_version)
 
     with open(release, "w") as f:
         json.dump(
@@ -53,7 +53,7 @@ def update_release_json():
         f.write("\n")
 
 
-def update_tools_version(data, missing_version):
+def update_agent_and_tools_version(data, missing_version):
     repo_owner = "10gen"
     repo_name = "mms"
     file_path = "server/conf/conf-hosted.properties"
@@ -72,6 +72,9 @@ def update_tools_version(data, missing_version):
         )  # configparser needs a section, but our properties do not contain one.
         config.read_string(input_data)
         mongo_tool_version = config.get("DEFAULT", "mongotools.version")
+        agent_version = config.get("DEFAULT", "automation.agent.version")
+        update_om_mapping(agent_version, data, missing_version, mongo_tool_version)
+
         version_name = f"mongodb-database-tools-rhel80-x86_64-{mongo_tool_version}.tgz"
         data["mongodbToolsBundle"]["ubi"] = version_name
     else:
@@ -79,5 +82,11 @@ def update_tools_version(data, missing_version):
         sys.exit(1)
 
 
-latest_5, latest_6 = get_latest_om_versions_from_evergreen_yml()
+def update_om_mapping(agent_version, data, missing_version, mongo_tool_version):
+    data["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][missing_version] = {
+        "agent_version": f"{agent_version}",
+        "tools_version": f"{mongo_tool_version}",
+    }
+
+
 update_release_json()

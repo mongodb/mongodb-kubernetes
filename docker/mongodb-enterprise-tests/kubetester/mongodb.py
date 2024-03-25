@@ -12,6 +12,7 @@ from kubetester.kubetester import (
     KubernetesTester,
     build_host_fqdn,
     ensure_nested_objects,
+    is_static_containers_architecture,
 )
 from kubetester.omtester import OMContext, OMTester
 from opentelemetry import trace
@@ -181,6 +182,24 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     def assert_connectivity(self, ca_path: Optional[str] = None):
         return self.tester(ca_path=ca_path).assert_connectivity()
+
+    def set_architecture_annotation(self):
+        if "annotations" not in self["metadata"]:
+            self["metadata"]["annotations"] = {}
+        if is_static_containers_architecture():
+            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
+        else:
+            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
+
+    def trigger_architecture_migration(self):
+        self.load()
+
+        if is_static_containers_architecture():
+            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
+            self.update()
+        else:
+            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
+            self.update()
 
     def assert_connectivity_from_connection_string(self, cnx_string: str, tls: bool, ca_path: Optional[str] = None):
         """

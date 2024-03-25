@@ -875,7 +875,7 @@ spec:
                 type: array
               statefulSet:
                 description: StatefulSetConfiguration provides the statefulset override
-                  for each of the cluster's statefulset if  "StatefulSetConfiguration"
+                  for each of the cluster's statefulset if "StatefulSetConfiguration"
                   is specified at cluster level under "clusterSpecList" that takes
                   precedence over the global one
                 properties:

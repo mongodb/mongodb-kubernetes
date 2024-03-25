@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"sort"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	mdbstatus "github.com/10gen/ops-manager-kubernetes/api/v1/status"
@@ -115,9 +117,6 @@ func newMultiClusterReplicaSetReconciler(mgr manager.Manager, omFunc om.Connecti
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 
-	// central clusters pertains all mdbms
-	agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), true)
-
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
 
@@ -129,6 +128,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 		}
 		log.Errorf("error preparing resource for reconciliation: %s", err)
 		return reconcileResult, err
+	}
+
+	if !architectures.IsRunningStaticArchitecture(mrs.Annotations) {
+		agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), true)
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, &mrs, log)
@@ -221,6 +224,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 // needToPublishStateFirstMultiCluster returns a boolean indicating whether Ops Manager
 // needs to be updated before the StatefulSets are created for this resource.
 func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (bool, error) {
+
+	if architectures.IsRunningStaticArchitecture(mrs.Annotations) {
+		if mrs.IsInChangeVersion() {
+			return true, nil
+		}
+	}
+
 	scalingDown, err := isScalingDown(mrs)
 	if err != nil {
 		return false, xerrors.Errorf("failed determining if the resource is scaling down: %w", err)
@@ -459,6 +469,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			stsOverride = item.StatefulSetConfiguration.SpecWrapper.Spec
 		}
 
+		var automationAgentVersion string
+		if architectures.IsRunningStaticArchitecture(mrs.Annotations) {
+			if !mrs.Spec.IsAgentImageOverridden() {
+				automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+				if err != nil {
+					log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
+					status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
+					return status
+				}
+			}
+		}
+
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
 			mconstruct.WithMemberCount(replicasThisReconciliation),
@@ -471,6 +493,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(mrs mdbmultiv1.M
 			InternalClusterHash(internalCertHash),
 			WithLabels(mongoDBMultiLabels(mrs.Name, mrs.Namespace)),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
+			WithAgentVersion(automationAgentVersion),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(mrs, opts)
@@ -1022,6 +1045,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(log *zap.Sugare
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
@@ -1048,6 +1072,14 @@ func AddMultiReplicaSetController(mgr manager.Manager, memberClustersMap map[str
 	})
 	if err != nil {
 		return err
+	}
+
+	err = c.Watch(
+		&source.Channel{Source: OmUpdateChannel},
+		&handler.EnqueueRequestForObject{},
+	)
+	if err != nil {
+		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
 	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},

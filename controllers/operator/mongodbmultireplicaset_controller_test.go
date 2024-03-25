@@ -9,6 +9,9 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/create"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
@@ -959,6 +962,45 @@ func TestMultiClusterFailover(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedNodeCount, currentNodeCount)
+}
+
+func TestMultiReplicaSet_AgentVersionMapping(t *testing.T) {
+	defaultResource := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	containers := []corev1.Container{{Name: util.AgentContainerName, Image: "foo"}}
+	podTemplate := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: containers,
+		},
+	}
+	overridenResource := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetPodSpecTemplate(podTemplate).Build()
+	nonExistingPath := "/foo/bar/foo"
+
+	t.Run("Static architecture, version retrieving fails, image is overriden, reconciliation should succeeds", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
+		overridenReconciler, overridenClient, _ := defaultMultiReplicaSetReconciler(overridenResource, t)
+		checkMultiReconcileSuccessful(t, overridenReconciler, overridenResource, overridenClient, false)
+	})
+
+	t.Run("Static architecture, version retrieving fails, image is not overriden, reconciliation should fail", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
+		reconciler, client, _ := defaultMultiReplicaSetReconciler(defaultResource, t)
+		checkMultiReconcileSuccessful(t, reconciler, defaultResource, client, true)
+	})
+
+	t.Run("Static architecture, version retrieving succeeds, image is not overriden, reconciliation should succeed", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+		reconciler, client, _ := defaultMultiReplicaSetReconciler(defaultResource, t)
+		checkMultiReconcileSuccessful(t, reconciler, defaultResource, client, false)
+	})
+
+	t.Run("Non-Static architecture, version retrieving fails, image is not overriden, reconciliation should succeed", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
+		reconciler, client, _ := defaultMultiReplicaSetReconciler(defaultResource, t)
+		checkMultiReconcileSuccessful(t, reconciler, defaultResource, client, false)
+	})
 }
 
 func assertClusterpresent(t *testing.T, m map[string]int, specs []mdb.ClusterSpecItem, arr []int) {

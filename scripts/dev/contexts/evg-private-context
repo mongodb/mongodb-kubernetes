@@ -46,6 +46,7 @@ export OPS_MANAGER_REGISTRY=${QUAY_REGISTRY}
 export APPDB_REGISTRY=${QUAY_REGISTRY}
 export MONGODB_ENTERPRISE_DATABASE_IMAGE="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-database"
 export INIT_DATABASE_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-database"
+export MDB_AGENT_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-agent-ubi"
 
 # these are needed to deploy OM
 export INIT_APPDB_IMAGE_REPOSITORY="${INIT_IMAGES_REGISTRY}/mongodb-enterprise-init-appdb"
@@ -72,12 +73,16 @@ export AWS_DEFAULT_REGION="$mms_eng_test_aws_region"
 
 # setup_cloud_qa.py
 # In EVG we use two sorts of credentials to avoid 200 org and keys limitation.
-if [[ $context == "e2e_mdb_kind_ubi_cloudqa" ]]; then
+if [[ ${context:-} == "e2e_mdb_kind_ubi_cloudqa" ]]; then
   export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa}"
   export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa}"
   export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_ubi_cloudqa}"
 elif [[ $context == "root-context" ]]; then
   echo "Skipping setting Cloud QA credentials for root builds"
+elif [[ $context == "e2e_static_mdb_kind_ubi_cloudqa" ]]; then
+  export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_static}"
+  export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_static}"
+  export e2e_cloud_qa_user_owner="${e2e_cloud_qa_user_owner_static}"
 else
   export e2e_cloud_qa_orgid_owner="${e2e_cloud_qa_orgid_owner_ubi_cloudqa_2}"
   export e2e_cloud_qa_apikey_owner="${e2e_cloud_qa_apikey_owner_ubi_cloudqa_2}"

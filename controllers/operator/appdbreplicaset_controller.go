@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -97,8 +99,7 @@ const (
 // ReconcileAppDbReplicaSet reconciles a MongoDB with a type of ReplicaSet
 type ReconcileAppDbReplicaSet struct {
 	*ReconcileCommonController
-	omConnectionFactory    om.ConnectionFactory
-	versionMappingProvider func(string) ([]byte, error)
+	omConnectionFactory om.ConnectionFactory
 
 	centralClient kubernetesClient.Client
 	// ordered list of member clusters; order in this list is preserved across runs using memberClusterIndex
@@ -106,12 +107,11 @@ type ReconcileAppDbReplicaSet struct {
 	currentClusterSpecs map[string]int
 }
 
-func newAppDBReplicaSetReconciler(appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, versionMappingProvider func(string) ([]byte, error), globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func newAppDBReplicaSetReconciler(appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
-		versionMappingProvider:    versionMappingProvider,
 		currentClusterSpecs:       make(map[string]int),
 	}
 
@@ -550,9 +550,23 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		}
 	}
 
-	monitoringAgentVersion, err := getMonitoringAgentVersion(opsManager, r.versionMappingProvider)
-	if err != nil {
-		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
+	appdbOpts := construct.AppDBStatefulSetOptions{}
+	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
+		if !rs.PodSpec.IsAgentImageOverridden() {
+			// Because OM is not available when starting AppDB, we read the version from the mapping
+			// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
+			// It avoids unnecessary reconciles, race conditions...
+			appdbOpts.AgentVersion, err = r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+			if err != nil {
+				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
+				return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
+			}
+		}
+	} else {
+		appdbOpts.LegacyMonitoringAgent, err = r.getLegacyMonitoringAgentVersion(opsManager.Spec.Version)
+		if err != nil {
+			return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
+		}
 	}
 
 	workflowStatus := r.ensureTLSSecretAndCreatePEMIfNeeded(opsManager, log)
@@ -575,9 +589,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 	tlsSecretName := opsManager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(opsManager.Spec.AppDB.Name())
 	certHash := enterprisepem.ReadHashFromSecret(r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
-	appdbOpts := construct.AppDBStatefulSetOptions{}
 	appdbOpts.CertHash = certHash
-	appdbOpts.MonitoringAgentVersion = monitoringAgentVersion
 
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
@@ -1465,6 +1477,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(opsManager
 	}
 
 	_, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
+
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error reading/creating project: %w", err)
 	}

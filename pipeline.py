@@ -184,6 +184,10 @@ def get_git_release_tag() -> str:
     if release_env_var is not None:
         return release_env_var
 
+    version_id = os.environ.get("version_id")
+    if version_id is not None:
+        return version_id
+
     output = subprocess.check_output(
         ["git", "describe", "--tags"],
     )
@@ -775,11 +779,7 @@ def build_agent_gather_versions(release: Dict[str, str]):
             release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
         )
     )
-    for om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"]:
-        # This piece might be removed after 1.25 release.
-        if om["agent_version"].startswith("11"):
-            logger.info(f"Ignoring Ops Manager {om} as not supported")
-            continue
+    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
         agent_versions_to_be_build.append((om["agent_version"], om["tools_version"]))
     return agent_versions_to_be_build
 
@@ -824,6 +824,7 @@ def get_builder_function_for_image_name():
     }
 
 
+# TODO: nam static: remove this once static containers becomes the default
 def build_init_database(build_configuration: BuildConfiguration):
     image_name = "init-database"
 
