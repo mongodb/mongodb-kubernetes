@@ -24,7 +24,7 @@ func CreateMongodProcessesWithLimit(set appsv1.StatefulSet, dbSpec mdbv1.DbSpec,
 	}
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(idx, names[idx], hostname, dbSpec.GetAdditionalMongodConfig(), dbSpec, certificateFileName)
+		processes[idx] = om.NewMongodProcess(names[idx], hostname, dbSpec.GetAdditionalMongodConfig(), dbSpec, certificateFileName, set.Annotations)
 	}
 
 	return processes
@@ -51,7 +51,7 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMultiCluster, cer
 
 	processes := make([]om.Process, len(hostnames))
 	for idx := range hostnames {
-		processes[idx] = om.NewMongodProcess(idx, fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName)
+		processes[idx] = om.NewMongodProcess(fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx]), hostnames[idx], mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations)
 	}
 
 	return processes, nil

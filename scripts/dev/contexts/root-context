@@ -37,7 +37,7 @@ fi
 
 export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
-export AGENT_VERSION=12.0.29.7785-1
+export AGENT_VERSION=12.0.30.7791-1
 
 # values from .evergreen.yml
 export CUSTOM_OM_PREV_VERSION=5.0.1
@@ -79,3 +79,4 @@ if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.21
 fi
 
+export MONGODB_REPO_URL="quay.io/mongodb"

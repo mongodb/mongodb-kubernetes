@@ -1,6 +1,8 @@
+from kubetester import create_or_update, try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_static_containers
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
@@ -9,14 +11,18 @@ from pytest import fixture, mark
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-custom-podspec.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    yield resource.create()
+    try_load(resource)
+    return resource
 
 
+@skip_if_static_containers
 @mark.e2e_replica_set_custom_podspec
 def test_replica_set_reaches_running_phase(replica_set):
+    create_or_update(replica_set)
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
+@skip_if_static_containers
 @mark.e2e_replica_set_custom_podspec
 def test_stateful_set_spec_updated(replica_set, namespace):
     appsv1 = KubernetesTester.clients("appsv1")
@@ -121,7 +127,7 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                 }
             ],
             "command": ["/bin/sh"],
-            "args": ["-c", "echo ok > /somewhere/busybox_file && sleep infinity"],
+            "args": ["-c", "echo ok > /somewhere/busybox_file && sleep 86400"],
         },
     ]
 

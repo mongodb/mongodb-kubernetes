@@ -125,7 +125,7 @@ func buildOMUnauthEndpoint(baseUrl string) string {
 // pre-5.0 OM versions.
 //
 // One important detail about the returned value is that in the old-style user
-// APIs, the entry called `PublicAPIKey` corresponds to `PrivateAPIKey` in
+// APIs, the entry called `PrivateAPIKey` corresponds to `PrivateAPIKey` in
 // programmatic key, and `Username` corresponds to `PublicAPIKey`.
 func fetchOMCredentialsFromResponse(body []byte, omVersion string, user User) (OpsManagerKeyPair, error) {
 	version, err := versionutil.StringToSemverVersion(omVersion)

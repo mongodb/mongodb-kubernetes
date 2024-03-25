@@ -8,15 +8,18 @@ from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically, skip_if_local
-from kubetester.mongodb import Phase
+from kubetester.kubetester import (
+    is_static_containers_architecture,
+    run_periodically,
+    skip_if_local,
+)
+from kubetester.mongodb import Phase, get_pods
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
 from tests.opsmanager.om_appdb_scram import OM_USER_NAME
 from tests.opsmanager.om_ops_manager_backup import (
-    HEAD_PATH,
     OPLOG_RS_NAME,
     S3_SECRET_NAME,
     create_aws_secret,
@@ -26,7 +29,7 @@ from tests.opsmanager.om_ops_manager_backup import (
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 # Current test focuses on Ops Manager upgrade which involves upgrade for both OpsManager and AppDB.
-# MongoDBs are also upgraded. In case of minor OM version upgrade (5.x -> 6.x) agents are expected to be upgraded
+# MongoDBs are also upgraded. In case of major OM version upgrade (5.x -> 6.x) agents are expected to be upgraded
 # for the existing MongoDBs.
 
 
@@ -269,7 +272,14 @@ class TestOpsManagerVersionUpgrade:
     agent_version = None
 
     def test_agent_version(self, mdb: MongoDB):
-        TestOpsManagerVersionUpgrade.agent_version = mdb.get_automation_config_tester().get_agent_version()
+        if is_static_containers_architecture:
+            # Containers will not call the upgrade endpoint. Therefore, agent_version is not part of AC
+            pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
+            image_tag = pod.spec.containers[0].image.split(":")[-1]
+            TestOpsManagerVersionUpgrade.agent_version = image_tag
+
+        else:
+            TestOpsManagerVersionUpgrade.agent_version = mdb.get_automation_config_tester().get_agent_version()
 
     def test_upgrade_om_version(
         self,
@@ -343,8 +353,16 @@ class TestMongoDbsVersionUpgrade:
         # Note, that this happens only for OM major/minor upgrade, so we need to check only this case
         prev_version = semver.VersionInfo.parse(custom_om_prev_version)
         new_version = semver.VersionInfo.parse(ops_manager.get_version())
-        if prev_version.major != new_version.major or prev_version.minor != new_version.minor:
-            assert TestOpsManagerVersionUpgrade.agent_version != mdb.get_automation_config_tester().get_agent_version()
+        if is_static_containers_architecture():
+            pod = client.CoreV1Api().read_namespaced_pod(mdb.name + "-0", mdb.namespace)
+            image_tag = pod.spec.containers[0].image.split(":")[-1]
+            if prev_version.major != new_version.major:
+                assert TestOpsManagerVersionUpgrade.agent_version != image_tag
+        else:
+            if prev_version.major != new_version.major or prev_version.minor != new_version.minor:
+                assert (
+                    TestOpsManagerVersionUpgrade.agent_version != mdb.get_automation_config_tester().get_agent_version()
+                )
 
 
 @pytest.mark.e2e_om_ops_manager_upgrade

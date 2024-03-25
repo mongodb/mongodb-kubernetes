@@ -1,16 +1,23 @@
 #!/bin/bash
 set -Eeou pipefail
 
+check_process() {
+  local check_process=$1
+  # shellcheck disable=SC2009
+  ps -ax | grep -v " grep " | grep -v jq | grep -v tail | grep "$check_process"
+  return $?
+}
+
 check_agent_alive() {
-    pgrep --exact 'mongodb-mms-aut'
+    check_process 'mongodb-mms-aut'
 }
 
 check_mongod_alive() {
-    pgrep --exact 'mongod'
+  check_process 'mongod'
 }
 
 check_mongos_alive() {
-    pgrep --exact 'mongos'
+    check_process 'mongos'
 }
 
 check_mongo_process_alive() {

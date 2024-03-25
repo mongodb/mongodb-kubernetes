@@ -2,7 +2,6 @@ package replicaset
 
 import (
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
-	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/process"
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
@@ -26,15 +25,6 @@ func BuildFromStatefulSetWithReplicas(set appsv1.StatefulSet, dbSpec mdbv1.DbSpe
 	replicaSet := om.NewReplicaSet(set.Name, dbSpec.GetMongoDBVersion(nil))
 	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, dbSpec.GetMemberOptions())
 	rsWithProcesses.SetHorizons(dbSpec.GetHorizonConfig())
-	return rsWithProcesses
-}
-
-// BuildAppDBFromStatefulSet builds replica set that will represent the AppDB
-// based on the StatefulSet and AppDB provided.
-func BuildAppDBFromStatefulSet(set appsv1.StatefulSet, mdb omv1.AppDBSpec) om.ReplicaSetWithProcesses {
-	members := process.CreateAppDBProcesses(set, om.ProcessTypeMongod, mdb)
-	replicaSet := om.NewReplicaSet(set.Name, mdb.GetMongoDBVersion(nil))
-	rsWithProcesses := om.NewReplicaSetWithProcesses(replicaSet, members, mdb.GetMemberOptions())
 	return rsWithProcesses
 }
 

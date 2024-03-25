@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 
@@ -53,6 +58,35 @@ import (
 
 func init() {
 	mock.InitDefaultEnvVariables()
+}
+
+// getReleaseJsonPath searches for a specified target directory by traversing the directory tree backwards from the current working directory
+func getReleaseJsonPath() (string, error) {
+	repositoryRootDirName := "ops-manager-kubernetes"
+	releaseFileName := "release.json"
+
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for currentDir != "/" {
+		if strings.HasSuffix(currentDir, repositoryRootDirName) {
+			return filepath.Join(currentDir, releaseFileName), nil
+		}
+		currentDir = filepath.Dir(currentDir)
+	}
+	return currentDir, err
+}
+
+// This approach ensures all test methods in this file have properly defined variables.
+func TestMain(m *testing.M) {
+	path, _ := getReleaseJsonPath()
+	_ = os.Setenv(agentVersionManagement.MappingFilePathEnv, path)
+	defer func(key string) {
+		_ = os.Unsetenv(key)
+	}(agentVersionManagement.MappingFilePathEnv)
+	code := m.Run()
+	os.Exit(code)
 }
 
 func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
@@ -486,7 +520,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 	opsManager := DefaultOpsManagerBuilder().
 		SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
 		SetAppDbMembers(1).
-		SetVersion("5.0.0").
+		SetVersion("7.0.0").
 		Build()
 	omReconciler, client, _ := defaultTestOmReconciler(t, opsManager, nil)
 
@@ -532,39 +566,6 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	appdbSvc, err := client.GetService(kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.ServiceName()))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(30000), appdbSvc.Spec.Ports[0].Port)
-}
-
-func TestGetMonitoringAgentVersion(t *testing.T) {
-	jsonContents := `
-[
-	{"ops_manager_version": "4.2", "agent_version": "version0"},
-	{"ops_manager_version": "4.4", "agent_version": "version1"}
-]`
-	t.Run("The version returned for the agent 4.2 when OM is 4.2", func(t *testing.T) {
-		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.2.0").Build()
-		version, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {
-			return []byte(jsonContents), nil
-		})
-		assert.Nil(t, err)
-		assert.Equal(t, "version0", version)
-	})
-
-	t.Run("The version returned for the agent 4.4 when OM is 4.4", func(t *testing.T) {
-		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.4.6").Build()
-		version, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {
-			return []byte(jsonContents), nil
-		})
-		assert.Nil(t, err)
-		assert.Equal(t, "version1", version)
-	})
-
-	t.Run("There is an error when the version is not present", func(t *testing.T) {
-		opsManager := omv1.NewOpsManagerBuilderDefault().SetVersion("4.0.6").Build()
-		_, err := getMonitoringAgentVersion(opsManager, func(string) ([]byte, error) {
-			return []byte(jsonContents), nil
-		})
-		assert.Error(t, err)
-	})
 }
 
 func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
@@ -819,19 +820,13 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 
 func newAppDbReconciler(mgr manager.Manager, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := newReconcileCommonController(mgr)
-	versionMappingProvider := func(s string) ([]byte, error) {
-		return nil, nil
-	}
-	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, versionMappingProvider, nil, zap.S())
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, nil, zap.S())
 }
 
 func newAppDbMultiReconciler(mgr manager.Manager, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := newReconcileCommonController(mgr)
-	versionMappingProvider := func(s string) ([]byte, error) {
-		return nil, nil
-	}
 
-	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, versionMappingProvider, memberClusterMap, log)
+	return newAppDBReplicaSetReconciler(opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, memberClusterMap, log)
 }
 
 // createOpsManagerUserPasswordSecret creates the secret which holds the password that will be used for the Ops Manager user.

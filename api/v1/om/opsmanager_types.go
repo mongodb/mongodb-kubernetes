@@ -444,21 +444,15 @@ type OpsManagerStatus struct {
 	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
 }
 
-type OpsManagerAgentVersionMapping []struct {
-	OpsManagerVersion string `json:"ops_manager_version"`
-	AgentVersion      string `json:"agent_version"`
+type AgentVersion struct {
+	AgentVersion string `json:"agent_version"`
 }
 
-// FindAgentVersionForOpsManager finds an agent version that corresponds to a version
-// of Ops Manager passed as parameter.
-func (m OpsManagerAgentVersionMapping) FindAgentVersionForOpsManager(omVersion string) string {
-	for _, v := range m {
-		if v.OpsManagerVersion == omVersion {
-			return v.AgentVersion
-		}
-	}
+type OpsManagerVersion string
 
-	return ""
+type OpsManagerVersionMapping struct {
+	OpsManager   map[OpsManagerVersion]AgentVersion `json:"ops_manager"`
+	CloudManager string                             `json:"cloud_manager"`
 }
 
 type AppDbStatus struct {

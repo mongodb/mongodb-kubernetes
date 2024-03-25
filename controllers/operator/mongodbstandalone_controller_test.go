@@ -4,6 +4,10 @@ import (
 	"reflect"
 	"testing"
 
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/watch"
@@ -27,11 +31,23 @@ import (
 
 func TestCreateOmProcess(t *testing.T) {
 	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), nil)
-	process := createProcess(sts, util.DatabaseContainerName, DefaultStandaloneBuilder().Build())
+	process := createProcess(sts, util.AgentContainerName, DefaultStandaloneBuilder().Build())
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
 	assert.Equal(t, "dublin-0.dublin-svc.my-namespace.svc.cluster.local", process.HostName())
 	assert.Equal(t, "4.0.0", process.Version())
+}
+
+func TestCreateOmProcesStatic(t *testing.T) {
+	t.Setenv("MONGODB_IMAGE", "quay.io/mongodb/mongodb-enterprise-server")
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), nil)
+	process := createProcess(sts, util.AgentContainerName, DefaultStandaloneBuilder().Build())
+	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
+	assert.Equal(t, "dublin", process.Name())
+	assert.Equal(t, "dublin-0.dublin-svc.my-namespace.svc.cluster.local", process.HostName())
+	assert.Equal(t, "4.0.0-ent", process.Version())
 }
 
 func TestOnAddStandalone(t *testing.T) {
@@ -200,6 +216,37 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, expected, actual)
 }
 
+func TestStandaloneAgentVersionMapping(t *testing.T) {
+	defaultResource := DefaultStandaloneBuilder().Build()
+	// Go couldn't infer correctly that *ReconcileMongoDbReplicaset implemented *reconciler.Reconciler interface
+	// without this anonymous function
+	reconcilerFactory := func(s *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
+		// Call the original defaultReplicaSetReconciler, which returns a *ReconcileMongoDbReplicaSet that implements reconcile.Reconciler
+		reconciler, mockClient := defaultStandaloneReconciler(s)
+		// Return the reconciler as is, because it implements the reconcile.Reconciler interface
+		return reconciler, mockClient
+	}
+	defaultResources := testReconciliationResources{
+		Resource:          defaultResource,
+		ReconcilerFactory: reconcilerFactory,
+	}
+
+	containers := []corev1.Container{{Name: util.AgentContainerName, Image: "foo"}}
+	podTemplate := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: containers,
+		},
+	}
+
+	overridenResource := DefaultStandaloneBuilder().SetPodSpecTemplate(podTemplate).Build()
+	overridenResources := testReconciliationResources{
+		Resource:          overridenResource,
+		ReconcilerFactory: reconcilerFactory,
+	}
+
+	agentVersionMappingTest(t, defaultResources, overridenResources)
+}
+
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
@@ -278,7 +325,7 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
 	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetPodEnvOptions()), nil)
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(0, st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "")
+	process := om.NewMongodProcess(st.Name, hostnames[0], st.Spec.AdditionalMongodConfig, st.GetSpec(), "", nil)
 
 	lastConfig, err := st.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
 	if err != nil {

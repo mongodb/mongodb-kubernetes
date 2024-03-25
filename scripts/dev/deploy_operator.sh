@@ -65,6 +65,7 @@ helm_params=(
      "--set" "registry.initOpsManager=${INIT_OPS_MANAGER_REGISTRY:?}"
      "--set" "registry.initAppDb=${INIT_APPDB_REGISTRY:?}"
      "--set" "registry.initDatabase=${INIT_DATABASE_REGISTRY:?}"
+     "--set" "registry.agentRepository=${MDB_AGENT_IMAGE_REPOSITORY:?}"
      "--set" "registry.pullPolicy=${pull_policy:-Always}"
      "--set" "operator.env=dev"
      "--set" "operator.version=${OPERATOR_VERSION:-latest}"

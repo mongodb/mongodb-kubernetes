@@ -24,7 +24,10 @@ func NewMongodProcessAppDB(name, hostName string, appdb *omv1.AppDBSpec) Process
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
 		WithAdditionalMongodConfig(*appdb.GetAdditionalMongodConfig()),
-		WithResourceSpec(appdb),
+		// -ent suffix is later added by community code where we create the AC, therefore, we don't need to append
+		// the annotations here
+		// We should look into unifying this
+		WithResourceSpec(appdb, nil),
 	)
 
 	if appdb.GetSecurity().IsTLSEnabled() {

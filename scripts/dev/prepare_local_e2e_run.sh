@@ -76,6 +76,3 @@ if [[ "$KUBE_ENVIRONMENT_NAME" == "kind" ]]; then
     kubectl patch serviceaccount "$service_account" -n "${NAMESPACE}" -p "{\"imagePullSecrets\": [{\"name\": \"image-registries-secret\"}]}"
   done
 fi
-
-# Generating om version mapping from release.json
-cat release.json | jq -r '.supportedImages."mongodb-agent".opsManagerMapping.ops_manager' > .generated/om_version_mapping.json

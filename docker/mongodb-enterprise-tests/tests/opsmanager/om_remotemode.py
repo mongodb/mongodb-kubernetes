@@ -2,7 +2,7 @@ import time
 from typing import Any, Dict, Optional
 
 import yaml
-from kubetester import create_or_update, create_or_update_configmap
+from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local

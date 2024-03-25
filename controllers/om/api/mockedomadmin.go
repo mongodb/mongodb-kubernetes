@@ -35,6 +35,7 @@ type MockedOmAdmin struct {
 	blockStoreConfigs      map[string]backup.DataStoreConfig
 	fileSystemStoreConfigs map[string]backup.DataStoreConfig
 	apiKeys                []Key
+	agentVersion           string
 }
 
 func (a *MockedOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
@@ -243,4 +244,11 @@ func (a *MockedOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
 
 func (a *MockedOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error) {
 	return versionutil.OpsManagerVersion{}, nil
+}
+
+func (a *MockedOmAdmin) UpdateAgentVersion(version string) {
+	a.agentVersion = version
+}
+func (a *MockedOmAdmin) ReadAgentVersion() (string, error) {
+	return a.agentVersion, nil
 }

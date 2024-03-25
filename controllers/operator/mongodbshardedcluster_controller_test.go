@@ -5,11 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/workflow"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
 
@@ -340,9 +342,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	allConfigs := reconciler.getAllConfigs(*sc, getEmptyDeploymentOptions(), zap.S())
+	allConfigs := reconciler.getAllConfigs(*sc, getEmptyDeploymentOptions(), om.CurrMockedConnection, zap.S())
 
-	assert.False(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
+	assert.False(t, anyStatefulSetNeedsToPublishStateToOM(*sc, client, allConfigs, zap.S()))
 
 	// attempting to set tls to false
 	sc.Spec.Security.TLSConfig.Enabled = false
@@ -351,8 +353,8 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	allConfigs = reconciler.getAllConfigs(*sc, getEmptyDeploymentOptions(), zap.S())
-	assert.True(t, anyStatefulSetNeedsToPublishState(*sc, client, allConfigs, zap.S()))
+	allConfigs = reconciler.getAllConfigs(*sc, getEmptyDeploymentOptions(), om.CurrMockedConnection, zap.S())
+	assert.True(t, anyStatefulSetNeedsToPublishStateToOM(*sc, client, allConfigs, zap.S()))
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {
@@ -449,6 +451,102 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	assert.Len(t, podSpecTemplateScConfig.Containers, 2, "Should have 2 containers now")
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
+}
+func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+	shardPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name",
+		Hostname: "some-host-name",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-sc",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
+
+	mongosPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name-mongos",
+		Hostname: "some-host-name-mongos",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-mongos",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyNever,
+	}
+
+	configSrvPodSpec := corev1.PodSpec{
+		NodeName: "some-node-name-config",
+		Hostname: "some-host-name-config",
+		Containers: []corev1.Container{{
+			Name:  "my-custom-container-config",
+			Image: "my-custom-image",
+			VolumeMounts: []corev1.VolumeMount{{
+				Name: "my-volume-mount",
+			}},
+		}},
+		RestartPolicy: corev1.RestartPolicyOnFailure,
+	}
+
+	sc := DefaultClusterBuilder().SetName("pod-spec-sc").EnableTLS().SetTLSCA("custom-ca").
+		SetShardPodSpec(corev1.PodTemplateSpec{
+			Spec: shardPodSpec,
+		}).SetMongosPodSpecTemplate(corev1.PodTemplateSpec{
+		Spec: mongosPodSpec,
+	}).SetPodConfigSvrSpecTemplate(corev1.PodTemplateSpec{
+		Spec: configSrvPodSpec,
+	}).Build()
+
+	reconciler, client := defaultClusterReconciler(sc)
+
+	addKubernetesTlsResources(client, sc)
+
+	checkReconcileSuccessful(t, reconciler, sc, client)
+
+	// read the stateful sets that were created by the operator
+	statefulSetSc0, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-0"))
+	assert.NoError(t, err)
+	statefulSetSc1, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-1"))
+	assert.NoError(t, err)
+	statefulSetScConfig, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-config"))
+	assert.NoError(t, err)
+	statefulSetMongoS, err := client.GetStatefulSet(kube.ObjectKey(mock.TestNamespace, "pod-spec-sc-mongos"))
+	assert.NoError(t, err)
+
+	// assert Pod Spec for Sharded cluster
+	assertPodSpecSts(t, &statefulSetSc0, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy)
+	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy)
+
+	// assert Pod Spec for Mongos
+	assertPodSpecSts(t, &statefulSetMongoS, mongosPodSpec.NodeName, mongosPodSpec.Hostname, mongosPodSpec.RestartPolicy)
+
+	// assert Pod Spec for ConfigServer
+	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy)
+
+	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateSc0.Containers, 3, "Should have 2 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[2].Name, "Custom container should be second")
+
+	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateSc1.Containers, 3, "Should have 2 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[2].Name, "Custom container should be second")
+
+	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateMongoS.Containers, 3, "Should have 2 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[2].Name, "Custom container should be second")
+
+	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
+	assert.Len(t, podSpecTemplateScConfig.Containers, 3, "Should have 2 containers now")
+	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
+	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[2].Name, "Custom container should be second")
 }
 
 func TestFeatureControlsNoAuth(t *testing.T) {
@@ -950,6 +1048,37 @@ func TestShardSpecificPodSpec(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy)
 }
 
+func TestShardedClusterAgentVersionMapping(t *testing.T) {
+	defaultResource := DefaultClusterBuilder().Build()
+	reconcilerFactory := func(sc *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
+		// Go couldn't infer correctly that *ReconcileMongoDbShardedCluster implemented *reconciler.Reconciler interface
+		// without this anonymous function
+		reconciler, mockClient := defaultClusterReconciler(sc)
+		return reconciler, mockClient
+	}
+
+	defaultResources := testReconciliationResources{
+		Resource:          defaultResource,
+		ReconcilerFactory: reconcilerFactory,
+	}
+
+	containers := []corev1.Container{{Name: util.AgentContainerName, Image: "foo"}}
+	podTemplate := corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{
+			Containers: containers,
+		},
+	}
+
+	// Override each sts of the sharded cluster
+	overridenResource := DefaultClusterBuilder().SetMongosPodSpecTemplate(podTemplate).SetPodConfigSvrSpecTemplate(podTemplate).SetShardPodSpec(podTemplate).Build()
+	overridenResources := testReconciliationResources{
+		Resource:          overridenResource,
+		ReconcilerFactory: reconcilerFactory,
+	}
+
+	agentVersionMappingTest(t, defaultResources, overridenResources)
+}
+
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName string, restartPolicy corev1.RestartPolicy) {
 
 	podSpecTemplate := sts.Spec.Template.Spec
@@ -958,8 +1087,13 @@ func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName 
 	assert.Equal(t, hostName, podSpecTemplate.Hostname)
 	assert.Equal(t, restartPolicy, podSpecTemplate.RestartPolicy)
 
-	assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
-	assert.True(t, statefulset.VolumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
+	if architectures.IsRunningStaticArchitecture(nil) {
+		assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
+	} else {
+		assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
+		assert.True(t, statefulset.VolumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
+	}
+
 }
 
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {

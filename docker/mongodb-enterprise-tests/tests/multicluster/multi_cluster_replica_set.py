@@ -42,6 +42,8 @@ def mongodb_multi(
     # TODO: incorporate this into the base class.
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
+    resource.set_architecture_annotation()
+
     create_or_update(resource)
     return resource
 

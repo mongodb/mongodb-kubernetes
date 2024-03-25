@@ -10,8 +10,6 @@ operator:
 
   # Default architecture for the operator.
   # Values are "static" and "non-static:
-  # More here:
-  # https://docs.google.com/document/d/1rsj_Ng3IRGv74y1yMTiztfc0LEpBVizjGWFQTaYBz60/edit#heading=h.yo9zdwx5vqnk
   mdbDefaultArchitecture: non-static
 
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.

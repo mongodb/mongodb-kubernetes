@@ -6,6 +6,7 @@ from kubernetes import client
 from kubetester import create_or_update
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_static_containers
 from kubetester.mongodb import MongoDB
 from pytest import fixture
 
@@ -23,6 +24,7 @@ def _get_pods(podname_template: str, qty: int = 3):
     return [podname_template.format(i) for i in range(qty)]
 
 
+@skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
 def test_pods_are_running(replica_set: MongoDB, namespace: str):
     corev1_client = client.CoreV1Api()
@@ -47,6 +49,7 @@ def test_pods_are_running(replica_set: MongoDB, namespace: str):
     assert len(running_pods) == 3
 
 
+@skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
 def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
     corev1_client = client.CoreV1Api()
@@ -63,6 +66,7 @@ def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
         assert pod.status.container_statuses[0].restart_count == 0
 
 
+@skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
 def test_pods_are_restarted_if_agent_process_is_terminated(replica_set: MongoDB, namespace: str):
     corev1_client = client.CoreV1Api()

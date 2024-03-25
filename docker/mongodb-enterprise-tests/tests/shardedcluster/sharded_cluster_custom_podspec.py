@@ -1,6 +1,8 @@
+from kubetester import create_or_update, try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import MongoDB, Phase
 from pytest import fixture, mark
 
@@ -24,11 +26,15 @@ SHARD0_TOPLOGY_KEY = "shardoverride"
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-custom-podspec.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
-    return resource.create()
+
+    try_load(resource)
+
+    return resource
 
 
 @mark.e2e_sharded_cluster_custom_podspec
 def test_replica_set_reaches_running_phase(sharded_cluster):
+    create_or_update(sharded_cluster)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
 
@@ -67,16 +73,28 @@ def test_stateful_sets_spec_updated(sharded_cluster, namespace):
     )
     containers = shard_sts.spec.template.spec.containers
 
-    assert len(containers) == 2
-    assert containers[0].name == "mongodb-enterprise-database"
-    assert containers[1].name == "sharded-cluster-sidecar"
+    if is_static_containers_architecture():
+        assert len(containers) == 3
+        assert containers[0].name == "mongodb-agent"
+        assert containers[1].name == "mongodb-enterprise-database"
+        assert containers[2].name == "sharded-cluster-sidecar"
 
-    containers = shard0_sts.spec.template.spec.containers
-    assert len(containers) == 2
-    assert containers[0].name == "mongodb-enterprise-database"
-    assert containers[1].name == "sharded-cluster-sidecar-override"
+        containers = shard0_sts.spec.template.spec.containers
+        assert len(containers) == 3
+        assert containers[0].name == "mongodb-agent"
+        assert containers[1].name == "mongodb-enterprise-database"
+        assert containers[2].name == "sharded-cluster-sidecar-override"
+        resources = containers[2].resources
+    else:
+        assert len(containers) == 2
+        assert containers[0].name == "mongodb-enterprise-database"
+        assert containers[1].name == "sharded-cluster-sidecar"
 
-    resources = containers[1].resources
+        containers = shard0_sts.spec.template.spec.containers
+        assert len(containers) == 2
+        assert containers[0].name == "mongodb-enterprise-database"
+        assert containers[1].name == "sharded-cluster-sidecar-override"
+        resources = containers[1].resources
 
     assert resources.limits["cpu"] == "1"
     assert resources.requests["cpu"] == "500m"

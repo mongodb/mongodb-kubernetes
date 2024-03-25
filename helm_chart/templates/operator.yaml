@@ -71,6 +71,8 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
+            - name: MDB_DEFAULT_ARCHITECTURE
+              value: {{ .Values.operator.mdbDefaultArchitecture }}
     {{- if .Values.operator.vaultSecretBackend }}
       {{- if .Values.operator.vaultSecretBackend.enabled }}
             - name: SECRET_BACKEND
@@ -100,6 +102,7 @@ spec:
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
+    {{- $agentImageRepository := "MDB_AGENT_IMAGE_REPOSITORY" -}}
     {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
     {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
@@ -136,6 +139,8 @@ spec:
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
               value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ $agentVersion }}"
+            - name: {{ $agentImageRepository }}
+              value: "{{ .Values.registry.agentRepository }}"
             - name: {{ $mongodbImageEnv }}
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL

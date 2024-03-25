@@ -92,7 +92,7 @@ func NewProcessFromInterface(i interface{}) Process {
 	return i.(map[string]interface{})
 }
 
-func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string) Process {
 	if additionalMongodConfig == nil {
 		additionalMongodConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
@@ -102,7 +102,7 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.Addit
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongos),
 		WithAdditionalMongodConfig(*additionalMongodConfig),
-		WithResourceSpec(spec),
+		WithResourceSpec(spec, annotations),
 	)
 
 	// default values for configurable values
@@ -116,7 +116,7 @@ func NewMongosProcess(name, hostName string, additionalMongodConfig *mdbv1.Addit
 	return p
 }
 
-func NewMongodProcess(idx int, name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string) Process {
+func NewMongodProcess(name, hostName string, additionalConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string) Process {
 	if additionalConfig == nil {
 		additionalConfig = mdbv1.NewEmptyAdditionalMongodConfig()
 	}
@@ -126,7 +126,7 @@ func NewMongodProcess(idx int, name, hostName string, additionalConfig *mdbv1.Ad
 		WithHostname(hostName),
 		WithProcessType(ProcessTypeMongod),
 		WithAdditionalMongodConfig(*additionalConfig),
-		WithResourceSpec(spec),
+		WithResourceSpec(spec, annotations),
 	)
 
 	// default values for configurable values
@@ -362,9 +362,9 @@ func createProcess(opts ...ProcessOption) Process {
 
 type ProcessOption func(process Process)
 
-func WithResourceSpec(resourceSpec mdbv1.DbSpec) ProcessOption {
+func WithResourceSpec(resourceSpec mdbv1.DbSpec, annotations map[string]string) ProcessOption {
 	return func(process Process) {
-		processVersion := resourceSpec.GetMongoDBVersion(nil)
+		processVersion := resourceSpec.GetMongoDBVersion(annotations)
 		process["version"] = processVersion
 		process["authSchemaVersion"] = CalculateAuthSchemaVersion(processVersion)
 		featureCompatibilityVersion := resourceSpec.GetFeatureCompatibilityVersion()

@@ -13,6 +13,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const automationAgentKubeUpgradePlan = "ChangeVersionKube"
+
 // AutomationStatus represents the status of automation agents registered with Ops Manager
 type AutomationStatus struct {
 	GoalVersion int             `json:"goalVersion"`
@@ -36,7 +38,7 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 	return as, nil
 }
 
-// Waits until the agents for relevant processes reach their state
+// WaitForReadyState waits until the agents for relevant processes reach their state
 func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
 
@@ -70,10 +72,28 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 // (maybe we are doing the scale down for the RS and some members were removed from OM manually - this is ok as the Operator
 // will fix this later)
 func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string) bool {
+
 	for _, p := range as.Processes {
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
+		for _, plan := range p.Plan {
+			// This means the following:
+			// - the cluster is in static architecture
+			// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
+			// - this can only happen if the statefulset is ready, therefore we are returning ready here
+			if plan == automationAgentKubeUpgradePlan {
+				zap.S().Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+				return true
+			}
+		}
+	}
+
+	for _, p := range as.Processes {
+		if !stringutil.Contains(relevantProcesses, p.Name) {
+			continue
+		}
+
 		if p.LastGoalVersionAchieved != as.GoalVersion {
 			return false
 		}
