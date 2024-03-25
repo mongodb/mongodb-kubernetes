@@ -183,6 +183,7 @@ functions:
     - *python_requirements
     - *switch_context
     - command: subprocess.exec
+      retry_on_failure: true
       type: setup
       params:
         shell: bash
