@@ -20,6 +20,7 @@
 used. Validation was triggered prematurely when structure `spec.externalAccess` was defined. Now, uniqueness of external domains will only be checked when the external domains are
 actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecList[*].externalAccess.externalDomains`.
 
+**MongoDB ReadinessProbe** Fixed the miss-leading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.24.0
 
