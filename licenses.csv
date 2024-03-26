@@ -21,7 +21,7 @@ github.com/golang/protobuf,v1.5.3,https://github.com/golang/protobuf/blob/v1.5.3
 github.com/google/gnostic,v0.5.7-v3refs,https://github.com/google/gnostic/blob/v0.5.7-v3refs/LICENSE,Apache-2.0
 github.com/google/go-cmp/cmp,v0.6.0,https://github.com/google/go-cmp/blob/v0.6.0/LICENSE,BSD-3-Clause
 github.com/google/gofuzz,v1.1.0,https://github.com/google/gofuzz/blob/v1.1.0/LICENSE,Apache-2.0
-github.com/google/uuid,v1.5.0,https://github.com/google/uuid/blob/v1.5.0/LICENSE,BSD-3-Clause
+github.com/google/uuid,v1.6.0,https://github.com/google/uuid/blob/v1.6.0/LICENSE,BSD-3-Clause
 github.com/hashicorp/errwrap,v1.1.0,https://github.com/hashicorp/errwrap/blob/v1.1.0/LICENSE,MPL-2.0
 github.com/hashicorp/go-cleanhttp,v0.5.2,https://github.com/hashicorp/go-cleanhttp/blob/v0.5.2/LICENSE,MPL-2.0
 github.com/hashicorp/go-multierror,v1.1.1,https://github.com/hashicorp/go-multierror/blob/v1.1.1/LICENSE,MPL-2.0
