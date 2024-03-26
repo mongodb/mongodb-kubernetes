@@ -121,7 +121,7 @@
         "107.0.1.8507-1"
       ],
       "opsManagerMapping": {
-        "cloud_manager": "13.13.1.8741-1",
+        "cloud_manager": "13.14.0.8757-1",
         "cloud_manager_tools": "100.9.4",
         "ops_manager": {
           "6.0.0": {
