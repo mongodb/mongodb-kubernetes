@@ -3,7 +3,13 @@
 
 ## New Features
 
-* * Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
+* (Public Preview) **MongoDB, OpsManager**: Introduced the Static Architecture for all types of deployments that avoids pulling any binaries at runtime. 
+    * You can activate this mode by setting the `MDB_DEFAULT_ARCHITECTURE` environment variable at the Operator level to `static`. Alternatively, you can annotate a specific `MongoDB` or `OpsManager` Custom Resource with `mongodb.com/v1.architecture: "static"`.
+    * The Operator supports seamless migration between the Static and non-Static architectures.
+    ** To learn more please see the relevant documentation:
+      * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
+        * [Use Static Containers](https://preview-mongodberabilmdb.gatsbyjs.io/docs-k8s-operator/DOCSP-35095/tutorial/plan-k8s-op-considerations/#use-static-containers--beta-)
+        * [Migrate to Static Containers](https://preview-mongodberabilmdb.gatsbyjs.io/docs-k8s-operator/DOCSP-35095/tutorial/plan-k8s-op-container-images/#migrate-to-static-containers) 
 * **MongoDB**: The Automatic Recovery mechanism introduced for replica sets in release 1.22 has been generalized to all types of MongoDB resources.
 * **MongoDB, MongoDBMultiCluster**: Placeholders in external services.
     * You can now define annotations for external services managed by the operator that contain placeholders which will be automatically replaced to the proper values.
@@ -13,6 +19,7 @@
       * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
         * MongoDB: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
         * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations), [spec.clusterSpecList.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+* Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
 
 ## Bug Fixes
 
