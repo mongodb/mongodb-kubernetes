@@ -48,7 +48,7 @@ operator:
   createOperatorServiceAccount: true
 
   vaultSecretBackend:
-  # set to true if you want the operator to store secrets in Vault
+    # set to true if you want the operator to store secrets in Vault
     enabled: false
     tlsSecretRef: ''
 
@@ -112,7 +112,6 @@ multiCluster:
   kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
   clusterClientTimeout: 10
-
 # Set this to false to disable subresource utilization
 # It might be required on some versions of Openshift
 subresourceEnabled: true

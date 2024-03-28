@@ -34,8 +34,7 @@ function generate_standalone_yaml() {
   cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} >public/mongodb-enterprise-openshift.yaml
 
   # generate multi-cluster public example
-  helm template --namespace mongodb -f helm_chart/values-multi-cluster.yaml helm_chart ${HELM_OPTS[@]} >public/mongodb-enterprise-multi-cluster.yaml
-
+  helm template --namespace mongodb -f helm_chart/values-multi-cluster.yaml helm_chart ${HELM_OPTS[@]} | yq e 'select(.kind != "ConfigMap" or .metadata.name != "mongodb-enterprise-operator-member-list")' >public/mongodb-enterprise-multi-cluster.yaml
 }
 
 function python_formatting() {
