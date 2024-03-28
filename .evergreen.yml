@@ -292,6 +292,14 @@ functions:
   - *python_venv
   - *python_requirements
   - command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      command: scripts/evergreen/setup_yq.sh
+
+  - command: subprocess.exec
     type: test
     params:
       add_to_path:

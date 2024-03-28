@@ -27,19 +27,6 @@ metadata:
   name: mongodb-enterprise-operator-multi-cluster
   namespace: mongodb
 ---
-# Source: enterprise-operator/templates/operator.yaml
-apiVersion: v1
-kind: ConfigMap
-data:
-  MDB_CLUSTER_1_FULL_NAME: ""
-  MDB_CLUSTER_2_FULL_NAME: ""
-  MDB_CLUSTER_3_FULL_NAME: ""
-metadata:
-  namespace: mongodb
-  name: mongodb-enterprise-operator-member-list
-  labels:
-    multi-cluster: "true"
----
 # Source: enterprise-operator/templates/operator-roles.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -200,7 +187,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-enterprise-operator-multi-cluster
     namespace: mongodb
-
 # This ClusterRoleBinding is necessary in order to use validating
 # webhooks—these will prevent you from applying a variety of invalid resource
 # definitions. The validating webhooks are optional so this can be removed if
