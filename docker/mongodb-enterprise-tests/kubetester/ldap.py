@@ -141,7 +141,7 @@ def add_user_to_group(
         pass
 
 
-def ldap_initialize(server: OpenLDAP, ca_path: Optional[str] = None, retries=0):
+def ldap_initialize(server: OpenLDAP, ca_path: Optional[str] = None, retries=5):
     con = ldap.initialize(server.host)
 
     if server.host.startswith("ldaps://") and ca_path is not None:
