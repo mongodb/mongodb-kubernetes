@@ -2494,8 +2494,11 @@ buildvariants:
   tasks:
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
 
-- name: e2e_static_mdb_openshift_ubi_cloudqa
-  display_name: e2e_static_mdb_openshift_ubi_cloudqa
+# This name is on purpose reversed from e2e_static_openshift to e2e_openshift_static.
+# That is because we run a regex
+# in evergreen for all variants matching e2e_static-*, but we do not want to run openshift variants on every pr.
+- name: e2e_openshift_static_mdb_ubi_cloudqa
+  display_name: e2e_openshift_static_mdb_ubi_cloudqa
   depends_on:
     - name: build_operator_ubi
       variant: init_test_run
