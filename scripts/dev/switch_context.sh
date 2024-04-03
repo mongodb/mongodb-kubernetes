@@ -12,7 +12,11 @@ destination_envs_dir="$script_dir/../../.generated"
 destination_envs_file="$destination_envs_dir/context"
 
 context="$1"
+additional_override="${2:-}"
+
 context_file="scripts/dev/contexts/${context}"
+override_context_file="scripts/dev/contexts/private-context-override"
+additional_override_file="scripts/dev/contexts/private-context-${additional_override}"
 
 mkdir -p "$destination_envs_dir"
 
@@ -34,7 +38,15 @@ if [ -n "${EVR_TASK_ID-}" ]; then
 else
   # env -i makes sure to start the shell with an empty shell, such that we only save into context.env the env vars we have
   # defined.
-  current_envs=$(env -i bash -c "source ${context_file} && env")
+  if [ -n "$additional_override" ]; then
+      echo "Using additional override file: $additional_override_file."
+      current_envs=$(env -i bash -c "source ${context_file} && source ${additional_override_file} && env")
+  elif [ -f "$override_context_file" ]; then
+      echo "Using override file: $override_context_file. If you do not want to use one, remove the file or content."
+      current_envs=$(env -i bash -c "source ${context_file} && source ${override_context_file} && env")
+  else
+      current_envs=$(env -i bash -c "source ${context_file} && env")
+  fi
 fi
 
 added_envs=$(echo "${current_envs[@]}" | awk -F= 'NF == 2 && $1 !~ /^BASH_FUNC_which/ { print $1 "=" "\"" $2 "\"" }' | sort | sed 's/;/ /g')

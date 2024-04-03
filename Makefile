@@ -60,7 +60,7 @@ precommit:
 	@ EVERGREEN_MODE=true .githooks/pre-commit
 
 switch:
-	@ scripts/dev/switch_context.sh $(context)
+	@ scripts/dev/switch_context.sh $(context) $(additional_override)
 
 # builds the Operator binary file and docker image and pushes it to the remote registry if using a remote registry. Deploys it to
 # k8s cluster
