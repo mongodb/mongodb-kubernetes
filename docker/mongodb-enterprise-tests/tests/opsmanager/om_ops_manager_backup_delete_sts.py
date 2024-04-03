@@ -77,6 +77,7 @@ def test_backup_statefulset_gets_recreated(
     ops_manager.update()
 
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
+
     # the backup statefulset should have been recreated
     def check_backup_sts():
         try:

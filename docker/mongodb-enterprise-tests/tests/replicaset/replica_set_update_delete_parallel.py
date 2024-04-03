@@ -5,6 +5,7 @@ don't intersect. Note that K8s objects are removed right after the delete call i
 serialization happens) so update operation doesn't succeed as internal locks don't affect
 K8s CR and dependent resources removal.
 """
+
 from time import sleep
 
 from kubetester.kubetester import fixture as yaml_fixture

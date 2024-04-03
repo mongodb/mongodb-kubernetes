@@ -36,5 +36,5 @@ def assert_volume_mounts_are_equal(volume_mounts_1, volume_mounts_2):
     sorted_vols_1 = sorted(volume_mounts_1, key=lambda m: (m["name"], m["mount_path"]))
     sorted_vols_2 = sorted(volume_mounts_2, key=lambda m: (m["name"], m["mount_path"]))
 
-    for (vol1, vol2) in zip(sorted_vols_1, sorted_vols_2):
+    for vol1, vol2 in zip(sorted_vols_1, sorted_vols_2):
         assert vol1 == vol2
