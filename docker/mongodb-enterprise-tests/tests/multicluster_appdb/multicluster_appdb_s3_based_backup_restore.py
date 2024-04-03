@@ -175,7 +175,7 @@ class TestBackupForMongodb:
         resource = MongoDBMulti.from_yaml(
             yaml_fixture("mongodb-multi.yaml"),
             "multi-replica-set-one",
-            namespace
+            namespace,
             # the project configmap should be created in the central cluster.
         ).configure(ops_manager, f"{namespace}-project-one", api_client=central_cluster_client)
 

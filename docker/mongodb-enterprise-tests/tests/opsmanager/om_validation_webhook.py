@@ -1,6 +1,7 @@
 """
 Ensures that validation warnings for ops manager reflect its current state
 """
+
 from typing import Optional
 
 import pytest

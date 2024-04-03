@@ -82,7 +82,6 @@ def nginx(namespace: str, custom_mdb_version: str, custom_appdb_version: str):
 
 @fixture(scope="module")
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str, nginx) -> MongoDBOpsManager:
-
     """The fixture for Ops Manager to be created."""
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(
         yaml_fixture("remote_fixtures/om_remotemode.yaml"),

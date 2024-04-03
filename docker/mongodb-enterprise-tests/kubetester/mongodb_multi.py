@@ -53,7 +53,7 @@ class MongoDBMulti(MongoDB):
         services = {}
         for mcc in clients:
             spec = self.get_item_spec(mcc.cluster_name)
-            for (i, item) in enumerate(spec):
+            for i, item in enumerate(spec):
                 services[mcc.cluster_name] = client.CoreV1Api(api_client=mcc.api_client).read_namespaced_service(
                     f"{self.name}-{mcc.cluster_index}-{i}-svc", self.namespace
                 )
@@ -84,7 +84,7 @@ class MongoDBMulti(MongoDB):
             self["spec"]["clusterSpecList"],
             key=lambda x: x["clusterName"],
         )
-        for (i, spec) in enumerate(cluster_specs):
+        for i, spec in enumerate(cluster_specs):
             for j in range(spec["members"]):
                 service_names.append(f"{self.name}-{i}-{j}-svc")
         return service_names
@@ -105,6 +105,6 @@ class MongoDBMulti(MongoDB):
             service_names=service_names,
             namespace=self.namespace,
             port=port,
-            external=external
+            external=external,
             # TODO: tls, ca_path
         )
