@@ -384,7 +384,7 @@ func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (cor
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
 func anyStatefulSetNeedsToPublishStateToOM(sc mdbv1.MongoDB, getter ConfigMapStatefulSetSecretGetter, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
 	for _, cf := range configs {
-		if needToPublishStateFirst(getter, sc, cf, log) {
+		if publishAutomationConfigFirst(getter, sc, cf, log) {
 			return true
 		}
 	}
