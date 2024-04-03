@@ -157,7 +157,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
 
-	needToPublishStateFirst, err := r.needToPublishStateFirstMultiCluster(&mrs, log)
+	publishAutomationConfigFirst, err := r.publishAutomationConfigFirstMultiCluster(&mrs, log)
 	if err != nil {
 		return r.updateStatus(&mrs, workflow.Failed(err), log)
 	}
@@ -177,7 +177,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 		}
 	}
 
-	status := workflow.RunInGivenOrder(needToPublishStateFirst,
+	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			if err := r.updateOmDeploymentRs(conn, mrs, false, log); err != nil {
 				return workflow.Failed(err)
@@ -221,9 +221,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(_ context.Context, request r
 	return r.updateStatus(&mrs, workflow.OK(), log)
 }
 
-// needToPublishStateFirstMultiCluster returns a boolean indicating whether Ops Manager
+// publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
 // needs to be updated before the StatefulSets are created for this resource.
-func (r *ReconcileMongoDbMultiReplicaSet) needToPublishStateFirstMultiCluster(mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (bool, error) {
+func (r *ReconcileMongoDbMultiReplicaSet) publishAutomationConfigFirstMultiCluster(mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (bool, error) {
 
 	if architectures.IsRunningStaticArchitecture(mrs.Annotations) {
 		if mrs.IsInChangeVersion() {

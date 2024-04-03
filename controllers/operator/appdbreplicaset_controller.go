@@ -609,9 +609,9 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(opsManager *omv1.MongoDBOpsMan
 		return r.updateStatus(opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)
 	}
 
-	needToPublishStateFirst := r.needToPublishStateFirst(opsManager, allStatefulSetsExist, log)
+	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExist, log)
 
-	workflowStatus = workflow.RunInGivenOrder(needToPublishStateFirst,
+	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(log, opsManager, allStatefulSetsExist, appdbOpts)
 		},
@@ -760,7 +760,7 @@ func getMultiClusterAppDBService(appdb omv1.AppDBSpec, clusterNum int, podNum in
 	return svc
 }
 
-func (r *ReconcileAppDbReplicaSet) needToPublishStateFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, log *zap.SugaredLogger) bool {
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, log *zap.SugaredLogger) bool {
 	automationConfigFirst := true
 
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
