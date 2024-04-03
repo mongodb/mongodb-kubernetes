@@ -83,11 +83,12 @@ def get_api_token():
 def get_release() -> Dict[str, str]:
     return json.load(open("release.json"))
 
+
 def build_agent_gather_versions(release: Dict[str, str]):
     # This is a list of a tuples - agent version and corresponding tools version
     agent_versions_to_be_build = list()
     agent_versions_to_be_build.append(
-            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
+        release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
     )
     for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
         agent_versions_to_be_build.append(om["agent_version"])
