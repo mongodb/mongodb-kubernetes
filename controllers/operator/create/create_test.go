@@ -70,6 +70,75 @@ func TestBuildService(t *testing.T) {
 	assert.True(t, svc.Spec.PublishNotReadyAddresses)
 }
 
+func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
+	testOm := omv1.NewOpsManagerBuilderDefault().
+		SetName("test-om").
+		SetInternalConnectivity(omv1.MongoDBOpsManagerServiceDefinition{
+			Type:      corev1.ServiceTypeClusterIP,
+			ClusterIP: pointer.String("0.0.12.0"),
+			Port:      5000,
+		}).
+		SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: true,
+	}).AddConfiguration("brs.queryable.proxyPort", "1234").
+		Build()
+
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	assert.NoError(t, err)
+
+	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	assert.NoError(t, err)
+
+	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	assert.NoError(t, err, "Internal service exists")
+
+	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "The operator creates a ClusterIP service if explicitly requested to do so.")
+	assert.Equal(t, svc.Spec.ClusterIP, "0.0.12.0", "The operator configures the requested ClusterIP for the service")
+
+	assert.Len(t, svc.Spec.Ports, 2, "Backup port should have been added to existing internal service")
+
+	port0 := svc.Spec.Ports[0]
+	assert.Equal(t, internalConnectivityPortName, port0.Name)
+
+	port1 := svc.Spec.Ports[1]
+	assert.Equal(t, backupPortName, port1.Name)
+	assert.Equal(t, int32(1234), port1.Port)
+}
+
+func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing.T) {
+	testOm := omv1.NewOpsManagerBuilderDefault().
+		SetName("test-om").
+		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+		SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: true,
+	}).AddConfiguration("brs.queryable.proxyPort", "1234").
+		Build()
+
+	client := mock.NewClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	assert.NoError(t, err)
+
+	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	assert.NoError(t, err)
+
+	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	assert.NoError(t, err, "Internal service exists")
+
+	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service for OM multicluster is of type ClusterIP")
+	assert.Equal(t, svc.Spec.ClusterIP, "", "Default internal service for OM multicluster is not a headless service")
+}
+
 func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	testOm := omv1.NewOpsManagerBuilderDefault().
 		SetName("test-om").
@@ -96,7 +165,10 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
-	assert.Len(t, svc.Spec.Ports, 2, "Backup Service should have been added to existing external service")
+	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service is of type ClusterIP")
+	assert.Equal(t, svc.Spec.ClusterIP, corev1.ClusterIPNone, "Default internal service is a headless service")
+
+	assert.Len(t, svc.Spec.Ports, 2, "Backup port should have been added to existing internal service")
 
 	port0 := svc.Spec.Ports[0]
 	assert.Equal(t, internalConnectivityPortName, port0.Name)
@@ -133,7 +205,7 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 	externalService, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.NoError(t, err, "An External service should have been created")
 
-	assert.Len(t, externalService.Spec.Ports, 2, "Backup Service should have been added to existing external service")
+	assert.Len(t, externalService.Spec.Ports, 2, "Backup port should have been added to existing external service")
 
 	port0 := externalService.Spec.Ports[0]
 	assert.Equal(t, externalConnectivityPortName, port0.Name)

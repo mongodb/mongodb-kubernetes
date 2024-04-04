@@ -21,7 +21,11 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
 
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
-
+    ## Force creating headless services for internal connectivity
+    resource["spec"]["internalConnectivity"] = {
+        "type": "ClusterIP",
+        "ClusterIP": "None",
+    }
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
