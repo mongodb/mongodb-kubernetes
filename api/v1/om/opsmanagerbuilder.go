@@ -223,6 +223,11 @@ func (b *OpsManagerBuilder) SetOMStatusVersion(version string) *OpsManagerBuilde
 	return b
 }
 
+func (b *OpsManagerBuilder) SetInternalConnectivity(internalConnectivity MongoDBOpsManagerServiceDefinition) *OpsManagerBuilder {
+	b.om.Spec.InternalConnectivity = &internalConnectivity
+	return b
+}
+
 func (b *OpsManagerBuilder) SetExternalConnectivity(externalConnectivity MongoDBOpsManagerServiceDefinition) *OpsManagerBuilder {
 	b.om.Spec.MongoDBOpsManagerExternalConnectivity = &externalConnectivity
 	return b

@@ -1176,6 +1176,10 @@ spec:
                           description: Annotations is a list of annotations to be
                             directly passed to the Service object.
                           type: object
+                        clusterIP:
+                          description: ClusterIP IP that will be assigned to this
+                            Service when creating a ClusterIP type Service
+                          type: string
                         externalTrafficPolicy:
                           description: ExternalTrafficPolicy mechanism to preserve
                             the client source IP. Only supported on GCE and Google
@@ -1198,6 +1202,7 @@ spec:
                           enum:
                           - LoadBalancer
                           - NodePort
+                          - ClusterIP
                           type: string
                       required:
                       - type
@@ -1264,6 +1269,10 @@ spec:
                     description: Annotations is a list of annotations to be directly
                       passed to the Service object.
                     type: object
+                  clusterIP:
+                    description: ClusterIP IP that will be assigned to this Service
+                      when creating a ClusterIP type Service
+                    type: string
                   externalTrafficPolicy:
                     description: ExternalTrafficPolicy mechanism to preserve the client
                       source IP. Only supported on GCE and Google Kubernetes Engine.
@@ -1284,6 +1293,47 @@ spec:
                     enum:
                     - LoadBalancer
                     - NodePort
+                    - ClusterIP
+                    type: string
+                required:
+                - type
+                type: object
+              internalConnectivity:
+                description: InternalConnectivity if set allows for overriding the
+                  settings of the default service used for internal connectivity to
+                  the OpsManager servers.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations is a list of annotations to be directly
+                      passed to the Service object.
+                    type: object
+                  clusterIP:
+                    description: ClusterIP IP that will be assigned to this Service
+                      when creating a ClusterIP type Service
+                    type: string
+                  externalTrafficPolicy:
+                    description: ExternalTrafficPolicy mechanism to preserve the client
+                      source IP. Only supported on GCE and Google Kubernetes Engine.
+                    enum:
+                    - Cluster
+                    - Local
+                    type: string
+                  loadBalancerIP:
+                    description: LoadBalancerIP IP that will be assigned to this LoadBalancer.
+                    type: string
+                  port:
+                    description: Port in which this `Service` will listen to, this
+                      applies to `NodePort`.
+                    format: int32
+                    type: integer
+                  type:
+                    description: Type of the `Service` to be created.
+                    enum:
+                    - LoadBalancer
+                    - NodePort
+                    - ClusterIP
                     type: string
                 required:
                 - type

@@ -1375,7 +1375,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(reconcileHelper *OpsMan
 	for _, fqdn := range backupFQDNs {
 		dc, err := omAdmin.ReadDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb)
 		if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
-			log.Infow("Backup Daemons is not configured, enabling it", "hostname", fqdn.hostname, "headDB", util.PvcMountPathHeadDb)
+			log.Infow("Backup Daemon is not configured, enabling it", "hostname", fqdn.hostname, "headDB", util.PvcMountPathHeadDb)
 
 			err = omAdmin.CreateDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb, opsManager.GetMemberClusterBackupAssignmentLabels(fqdn.memberClusterName))
 			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
