@@ -19,6 +19,7 @@
       * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
         * MongoDB: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
         * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations), [spec.clusterSpecList.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+* **OpsManager**: Added the `spec.internalConnectivity` field to allow overrides for the service used by the operator to ensure internal connectivity to the `OpsManager` pods.
 * Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
 
 ## Bug Fixes

@@ -144,6 +144,11 @@ type MongoDBOpsManagerSpec struct {
 	// +optional
 	Backup *MongoDBOpsManagerBackup `json:"backup,omitempty"`
 
+	// InternalConnectivity if set allows for overriding the settings of the default service
+	// used for internal connectivity to the OpsManager servers.
+	// +optional
+	InternalConnectivity *MongoDBOpsManagerServiceDefinition `json:"internalConnectivity,omitempty"`
+
 	// MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
 	// accessing this Ops Manager resource from outside the Kubernetes cluster.
 	// +optional
@@ -339,7 +344,7 @@ func (om *MongoDBOpsManager) AppDBStatefulSetObjectKey(memberClusterNum int) cli
 type MongoDBOpsManagerServiceDefinition struct {
 	// Type of the `Service` to be created.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=LoadBalancer;NodePort
+	// +kubebuilder:validation:Enum=LoadBalancer;NodePort;ClusterIP
 	Type corev1.ServiceType `json:"type"`
 
 	// Port in which this `Service` will listen to, this applies to `NodePort`.
@@ -347,6 +352,10 @@ type MongoDBOpsManagerServiceDefinition struct {
 
 	// LoadBalancerIP IP that will be assigned to this LoadBalancer.
 	LoadBalancerIP string `json:"loadBalancerIP,omitempty"`
+
+	// ClusterIP IP that will be assigned to this Service when creating a ClusterIP type Service
+	// +optional
+	ClusterIP *string `json:"clusterIP,omitempty"`
 
 	// ExternalTrafficPolicy mechanism to preserve the client source IP.
 	// Only supported on GCE and Google Kubernetes Engine.

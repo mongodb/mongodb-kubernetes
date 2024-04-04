@@ -76,7 +76,8 @@ class TestOpsManagerCreation:
             internal, external = ops_manager.services(cluster_spec_item["clusterName"])
             assert external is None
             assert internal.spec.type == "ClusterIP"
-            assert internal.spec.cluster_ip == "None"
+            if not ops_manager.is_om_multi_cluster():
+                assert internal.spec.cluster_ip == "None"
             assert len(internal.spec.ports) == 2
             assert internal.spec.ports[0].target_port == 8080
             assert internal.spec.ports[1].target_port == 25999

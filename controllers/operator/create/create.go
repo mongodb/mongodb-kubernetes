@@ -247,7 +247,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 	_, port := opsManager.GetSchemePort()
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), getInternalServiceDefinition(opsManager))
 
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
@@ -288,6 +288,23 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 		}
 	}
 	return nil
+}
+
+func getInternalServiceDefinition(opsManager *omv1.MongoDBOpsManager) omv1.MongoDBOpsManagerServiceDefinition {
+	if opsManager.Spec.InternalConnectivity != nil {
+		return *opsManager.Spec.InternalConnectivity
+	}
+	serviceDefinition := omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP}
+	// For multicluster OpsManager we create ClusterIP services by default, based on the assumption
+	// that the multi-cluster architecture is a multi-network configuration in most cases,
+	// which makes headless services not resolve across different clusters.
+	// https://github.com/istio/istio/issues/36733
+	// The Spec.InternalConnectivity field allows for explicitly configuring headless services
+	// and adding additional annotations to the service used for internal connectivity.
+	if opsManager.Spec.IsMultiCluster() {
+		serviceDefinition.ClusterIP = pointer.String("")
+	}
+	return serviceDefinition
 }
 
 // addQueryableBackupPortToService adds the backup port to the existing external Ops Manager service.
@@ -357,7 +374,11 @@ func BuildService(namespacedName types.NamespacedName, owner v1.CustomResourceRe
 		}
 		svcBuilder.AddPort(&svcPort).SetClusterIP("")
 	case corev1.ServiceTypeClusterIP:
-		svcBuilder.SetClusterIP("None")
+		if mongoServiceDefinition.ClusterIP == nil {
+			svcBuilder.SetClusterIP("None")
+		} else {
+			svcBuilder.SetClusterIP(*mongoServiceDefinition.ClusterIP)
+		}
 		// Service will have a named Port
 		svcBuilder.AddPort(&corev1.ServicePort{Port: port, Name: "mongodb"})
 	default:
