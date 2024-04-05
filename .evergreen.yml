@@ -477,6 +477,7 @@ functions:
         - github_commit
         - revision
         - github_pr_number
+        - project_identifier
         - revision_order_id
         add_to_path:
         - ${workdir}/bin
