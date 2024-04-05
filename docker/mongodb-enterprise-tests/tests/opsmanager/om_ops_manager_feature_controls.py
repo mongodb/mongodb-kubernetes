@@ -1,6 +1,7 @@
 from typing import Optional
 
-from kubetester import create_or_update, try_load
+import kubernetes
+from kubetester import create_or_update, try_load, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.opsmanager import MongoDBOpsManager
@@ -16,6 +17,9 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+
+    if is_multi_cluster():
+        enable_multi_cluster_deployment(resource)
 
     try_load(resource)
     return resource
@@ -142,3 +146,35 @@ def test_authentication_disabled_owned_by_opsmanager(replica_set: MongoDB):
     assert policies[0]["policy"] == "DISABLE_SET_MONGOD_VERSION"
     assert policies[1]["policy"] == "EXTERNALLY_MANAGED_LOCK"
     assert policies[1]["disabledParams"] == []
+
+
+@mark.e2e_om_feature_controls
+def test_feature_controls_cleared_on_replica_set_deletion(replica_set: MongoDB):
+    """
+    Replica set was deleted from the cluster. Policies are removed from the OpsManager group.
+    """
+    replica_set.delete()
+
+    def replica_set_deleted() -> bool:
+        k8s_resource_deleted = None
+        try:
+            replica_set.load()
+            k8s_resource_deleted = False
+        except kubernetes.client.ApiException:
+            k8s_resource_deleted = True
+        automation_config_deleted = None
+        tester = replica_set.get_automation_config_tester()
+        try:
+            tester.assert_empty()
+            automation_config_deleted = True
+        except AssertionError:
+            automation_config_deleted = False
+        return k8s_resource_deleted and automation_config_deleted
+
+    wait_until(replica_set_deleted, timeout=60)
+
+    fc = replica_set.get_om_tester().get_feature_controls()
+
+    # after deleting the replicaset the policies in the feature control are removed
+    assert fc["externalManagementSystem"]["name"] == "mongodb-enterprise-operator"
+    assert len(fc["policies"]) == 0

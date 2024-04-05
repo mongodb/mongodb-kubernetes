@@ -572,6 +572,12 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(obj runtime.Object, log *zap.Sugar
 
 	r.RemoveDependentWatchedResources(rs.ObjectKey())
 
+	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
+	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+		result.Log(log)
+		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+	}
+
 	log.Info("Removed replica set from Ops Manager!")
 	return nil
 }
