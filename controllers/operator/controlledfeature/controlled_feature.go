@@ -89,6 +89,21 @@ func EnsureFeatureControls(mdb mdbv1.MongoDB, updater Updater, omVersion version
 	return workflow.OK()
 }
 
+// ClearFeatureControls cleares the controlled feature if the version of OpsManager supports it
+func ClearFeatureControls(updater Updater, omVersion versionutil.OpsManagerVersion, log *zap.SugaredLogger) workflow.Status {
+	if !ShouldUseFeatureControls(omVersion) {
+		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", omVersion)
+		return workflow.OK()
+	}
+	cf := newControlledFeature()
+	// cf.Policies needs to be an empty list, instead of a nil pointer, for a valid API call.
+	cf.Policies = make([]Policy, 0)
+	if err := updater.UpdateControlledFeature(cf); err != nil {
+		return workflow.Failed(err)
+	}
+	return workflow.OK()
+}
+
 // ShouldUseFeatureControls returns a boolean indicating if the feature controls
 // should be enabled for the given version of Ops Manager
 func ShouldUseFeatureControls(version versionutil.OpsManagerVersion) bool {

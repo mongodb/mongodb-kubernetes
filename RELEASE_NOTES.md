@@ -33,7 +33,8 @@
 * **MongoDBMultiCluster**: Fields `spec.externalAccess.externalDomain` and `spec.clusterSpecList[*].externalAccess.externalDomains` were reported as required even though they weren't
 used. Validation was triggered prematurely when structure `spec.externalAccess` was defined. Now, uniqueness of external domains will only be checked when the external domains are
 actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecList[*].externalAccess.externalDomains`.
-* **MongoDB ReadinessProbe** Fixed the miss-leading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
+* **MongoDB**: Fixed a bug where upon deleting a **MongoDB** resource the `controlledFeature` policies are not unset on the related OpsManager/CloudManager instance, making cleanup in the UI impossible in the case of losing the kubernetes operator.
+* **MongoDB ReadinessProbe** Fixed the misleading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
 
 ## Helm Chart
 * Added `operator.additionalArguments` (default: []) allowing to pass additional arguments for the operator binary.

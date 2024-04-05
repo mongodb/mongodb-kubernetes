@@ -385,6 +385,12 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 
 	r.RemoveDependentWatchedResources(s.ObjectKey())
 
+	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
+	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+		result.Log(log)
+		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+	}
+
 	log.Info("Removed standalone from Ops Manager!")
 	return nil
 }
