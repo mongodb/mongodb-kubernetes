@@ -70,7 +70,7 @@ deploy_test_app() {
     # otel_parent_id is a special case (hence lower cased) since it is directly coming from evergreen and not via our
     # make switch mechanism. We need the "freshest" parent_id otherwise we are attaching to the wrong parent span.
     if [[ -n "${otel_parent_id:-}" ]]; then
-        otel_resource_attributes="git_branch=${branch_name:-},meko_github_pr_number=${github_pr_number:-},meko_revision_order_id=${revision_order_id:-},git_commit=${github_commit:-},meko_revision=${revision:-},is_patch=${IS_PATCH},evg_task_name=${TASK_NAME},evg_execution=${EXECUTION},evg_build_id=${BUILD_ID},evg_build_variant=${BUILD_VARIANT}"
+        otel_resource_attributes="meko_git_branch=${branch_name:-},meko_github_pr_number=${github_pr_number:-},meko_git_commit=${github_commit:-},meko_revision=${revision:-},is_patch=${IS_PATCH},evergreen.task.name=${TASK_NAME},evergreen.task.execution=${EXECUTION},evergreen.build.id=${BUILD_ID},evergreen.build.variant=${BUILD_VARIANT},evergreen.task.id=${task_id},evergreen.project.id=${project_identifier:-}"
         # shellcheck disable=SC2001
         escaped_otel_resource_attributes=$(echo "$otel_resource_attributes" | sed 's/,/\\,/g')
         # The test needs to create an OM resource with specific version
