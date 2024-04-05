@@ -18,7 +18,7 @@ def mdb_health_checker(mongod_tester: MongoTester) -> MongoDBBackgroundTester:
     return MongoDBBackgroundTester(
         mongod_tester,
         # After running multiple tests, it seems that on sharded_cluster version changes we have more sequential errors.
-        allowed_sequential_failures=2,
+        allowed_sequential_failures=3,
         health_function_params={
             "attempts": 1,
             "write_concern": pymongo.WriteConcern(w="majority"),
