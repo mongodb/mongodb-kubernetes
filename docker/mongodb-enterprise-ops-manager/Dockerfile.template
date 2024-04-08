@@ -28,6 +28,8 @@ EXPOSE 8080
 
 COPY --from=base /data/licenses /licenses/
 
+COPY --from=base /data/scripts /opt/scripts
+
 
 {% block static %}
 RUN curl --fail -L -o ops_manager.tar.gz {{ om_download_url }} \
