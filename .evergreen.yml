@@ -2818,10 +2818,10 @@ buildvariants:
   tasks:
     - name: publish_ops_manager
 
-  # This variant is kept manual for now in order avoid any interfering with the existing release process.
-  # In the future, it will be called in one of two ways:
+  # It will be called in one of two ways:
   # From the release job - as the second components of the tag will change (<agent>_<operator>).
-  # By PCT when a new OpsManager version is released.
+  # By PCT when a new OpsManager version is released,
+  # as the first component of the tag will change (a new agent version).
 - name: release_agent
   display_name: (Static Containers) Release Agent matrix
   run_on:

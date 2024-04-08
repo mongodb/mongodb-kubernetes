@@ -25,6 +25,7 @@ import semver
 from sonar.sonar import process_image
 
 import docker
+from scripts.preflight_images import get_supported_version_for_image
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logger = logging.getLogger("pipeline")
@@ -433,10 +434,6 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
         repository=image_repo,
         tag=image_tag,
     )
-
-
-def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
-    return get_release()["supportedImages"][image]["versions"]
 
 
 def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
