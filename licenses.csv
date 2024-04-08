@@ -58,7 +58,7 @@ github.com/vmihailenco/msgpack/v5,v5.3.5,https://github.com/vmihailenco/msgpack/
 github.com/vmihailenco/tagparser/v2,v2.0.0,https://github.com/vmihailenco/tagparser/blob/v2.0.0/LICENSE,BSD-2-Clause
 github.com/xdg/stringprep,v1.0.3,https://github.com/xdg/stringprep/blob/v1.0.3/LICENSE,Apache-2.0
 go.uber.org/multierr,v1.10.0,https://github.com/uber-go/multierr/blob/v1.10.0/LICENSE.txt,MIT
-go.uber.org/zap,v1.26.0,https://github.com/uber-go/zap/blob/v1.26.0/LICENSE.txt,MIT
+go.uber.org/zap,v1.27.0,https://github.com/uber-go/zap/blob/v1.27.0/LICENSE,MIT
 gomodules.xyz/jsonpatch/v2,v2.2.0,https://github.com/gomodules/jsonpatch/blob/v2.2.0/v2/LICENSE,Apache-2.0
 google.golang.org/protobuf,v1.33.0,https://github.com/protocolbuffers/protobuf-go/blob/v1.33.0/LICENSE,BSD-3-Clause
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause
