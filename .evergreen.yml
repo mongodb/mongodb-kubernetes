@@ -661,7 +661,6 @@ tasks:
       include_tags: release
 
 - name: release_agent
-  git_tag_only: true
   commands:
     - func: clone
     - func: setup_building_host
@@ -2717,6 +2716,7 @@ buildvariants:
     - name: release_init_database
     - name: release_init_ops_manager
     - name: release_database
+    - name: release_agent
 
 - name: preflight_release_images
   display_name: preflight_release_images
