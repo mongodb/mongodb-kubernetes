@@ -6,15 +6,15 @@ vars:
 images:
 - name: ops-manager
   vars:
-    context: docker/mongodb-enterprise-ops-manager
+    context: .
+    template_context: docker/mongodb-enterprise-ops-manager
 
   platform: linux/amd64
 
   stages:
   - name: ops-manager-context
     task_type: docker_build
-
-    dockerfile: Dockerfile.builder
+    dockerfile: docker/mongodb-enterprise-ops-manager/Dockerfile.builder
 
     output:
     - registry: $(inputs.params.registry)/ops-manager-context
