@@ -4,7 +4,7 @@
   },
   "mongodbOperator": "1.24.0",
   "mongodbOperatorSupportedVersions": [
-    "1.25.0"
+    "1.24.0"
   ],
   "initDatabaseVersion": "1.24.0",
   "initOpsManagerVersion": "1.24.0",
