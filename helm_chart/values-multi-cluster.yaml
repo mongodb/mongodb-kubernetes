@@ -95,7 +95,6 @@ mongodbAgentImage: quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
 ## Registry
 registry:
   imagePullSecrets:
-  # TODO: specify for each image and move there?
   pullPolicy: Always
   # Specify if images are pulled from private registry
   operator: quay.io/mongodb

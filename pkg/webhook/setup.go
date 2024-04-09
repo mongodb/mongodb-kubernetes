@@ -4,6 +4,12 @@ import (
 	"context"
 	"os"
 
+	mekoService "github.com/10gen/ops-manager-kubernetes/pkg/kube/service"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
+
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+	"go.uber.org/zap"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -176,12 +182,42 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 	}
 }
 
-func Setup(client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool) error {
+func shouldRegisterWebhookConfiguration() bool {
+	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true)
+}
+
+func Setup(client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool, log *zap.SugaredLogger) error {
+	if !shouldRegisterWebhookConfiguration() {
+		log.Debugf("Skipping configuration of ValidatingWebhookConfiguration")
+		// After upgrading OLM version after migrating to proper OLM webhooks we don't need that `operator-service` anymore.
+		// By default, the service is created by the operator in createWebhookService below
+		// It will also be useful here if someone decides to disable automatic webhook configuration by the operator.
+		if err := mekoService.DeleteServiceIfItExists(kubernetesClient.NewClient(client), serviceLocation); err != nil {
+			log.Warnf("Failed to delete webhook service %v: %w", serviceLocation, err)
+			// we don't want to fail the operator startup if we cannot do the cleanup
+		}
+
+		webhookConfig := admissionv1.ValidatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "mdbpolicy.mongodb.com",
+			},
+		}
+		if err := client.Delete(context.TODO(), &webhookConfig); err != nil {
+			if !apiErrors.IsNotFound(err) {
+				log.Warnf("Failed to delete ValidatingWebhookConfiguration %s. The operator might not have necessary permissions anymore. %w", webhookConfig.Name, err)
+				// we don't want to fail the operator startup if we cannot do the cleanup
+			}
+		}
+
+		return nil
+	}
+
 	if err := createWebhookService(client, serviceLocation, webhookPort, multiClusterMode); err != nil {
 		return err
 	}
 
 	certHosts := []string{serviceLocation.Name + "." + serviceLocation.Namespace + ".svc"}
+
 	if err := CreateCertFiles(certHosts, certDirectory); err != nil {
 		return err
 	}
@@ -189,13 +225,10 @@ func Setup(client client.Client, serviceLocation types.NamespacedName, certDirec
 	webhookConfig := GetWebhookConfig(serviceLocation)
 	err := client.Create(context.Background(), &webhookConfig)
 	if apiErrors.IsAlreadyExists(err) {
-		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
-		// (see https://github.com/kubernetes/kubernetes/issues/80515)
-		// this fixed in K8s 1.16.0+
-		if err := client.Delete(context.Background(), &webhookConfig); err != nil {
-			return err
-		}
-		return client.Create(context.Background(), &webhookConfig)
+		return client.Update(context.Background(), &webhookConfig)
 	}
+
+	log.Debugf("Configured ValidatingWebhookConfiguration")
+
 	return err
 }

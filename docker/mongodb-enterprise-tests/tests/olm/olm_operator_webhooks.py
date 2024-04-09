@@ -1,8 +1,8 @@
 import pytest
-from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import MongoDB, create_or_update, read_service
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.olm.olm_test_commons import (
     get_catalog_image,
@@ -16,11 +16,11 @@ from tests.olm.olm_test_commons import (
 
 # See docs how to run this locally: https://wiki.corp.mongodb.com/display/MMS/E2E+Tests+Notes#E2ETestsNotes-OLMtests
 
-# This tests only OLM upgrade of the operator without deploying any resources.
+# This tests only OLM install without upgrading.
 
 
-@pytest.mark.e2e_olm_operator_upgrade
-def test_upgrade_operator_only(namespace: str, version_id: str):
+@pytest.mark.e2e_olm_operator_webhooks
+def test_install_new_operator(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version(namespace)
     incremented_operator_version = increment_patch_version(current_operator_version)
 
@@ -34,7 +34,7 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
         "mongodb-enterprise-operator",
         namespace,
         {
-            "channel": "stable",  # stable channel contains latest released operator in RedHat's certified repository
+            "channel": "fast",  # fast channel contains currently built operator
             "name": "mongodb-enterprise",
             "source": catalog_source_resource.name,
             "sourceNamespace": namespace,
@@ -47,25 +47,17 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     create_or_update(subscription)
 
-    wait_for_operator_ready(namespace, f"mongodb-enterprise.v{current_operator_version}")
-
-    subscription.load()
-    subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
-    subscription.update()
-
     wait_for_operator_ready(namespace, f"mongodb-enterprise.v{incremented_operator_version}")
 
 
-@pytest.mark.e2e_olm_operator_upgrade
-def test_operator_webhook_is_deleted_and_not_installed_anymore(namespace: str):
-    # in the first release of OLM webhooks, the previous version will have this webhook installed
-    # in subsequent releases we will only test here that it's no longer installed
+@pytest.mark.e2e_olm_operator_webhooks
+def test_operator_webhook_is_not_installed(namespace: str):
     with pytest.raises(ApiException) as e:
         read_service(namespace, "operator-webhook")
     assert e.value.status == 404
 
 
-@pytest.mark.e2e_olm_operator_upgrade
+@pytest.mark.e2e_olm_operator_webhooks
 def test_opsmanager_webhook(namespace: str):
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_validation.yaml"), namespace=namespace)
     resource["spec"]["version"] = "4.4.4.4"
@@ -74,7 +66,7 @@ def test_opsmanager_webhook(namespace: str):
         resource.create()
 
 
-@pytest.mark.e2e_olm_operator_upgrade
+@pytest.mark.e2e_olm_operator_webhooks
 def test_mongodb_webhook(namespace: str):
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
     resource["spec"]["members"] = 0

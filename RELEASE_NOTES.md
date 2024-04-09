@@ -27,6 +27,11 @@
     * Optimized roles and permissions setup in member clusters, using a single service account per cluster with correctly configured Role and RoleBinding (no ClusterRoles necessary) for each watched namespace.
 * **OpsManager**: Added the `spec.internalConnectivity` field to allow overrides for the service used by the operator to ensure internal connectivity to the `OpsManager` pods.
 * Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
+* OpenShift / OLM Operator: Removed the requirement for cluster-wide permissions. Previously, the operator needed these permissions to configure admission webhooks. Now, webhooks are automatically configured by [OLM](https://olm.operatorframework.io/docs/advanced-tasks/adding-admission-and-conversion-webhooks/).
+* Added optional `MDB_WEBHOOK_REGISTER_CONFIGURATION` environment variable for the operator. It controls whether the operator should perform automatic admission webhook configuration. Default: true. It's set to false for OLM and OpenShift deployments.
+
+## Helm Chart
+* New `operator.webhook.registerConfiguration` parameter. It controls whether the operator should perform automatic admission webhook configuration (by setting `MDB_WEBHOOK_REGISTER_CONFIGURATION` environment variable for the operator). Default: true. It's set to false for OLM and OpenShift deployments.
 
 ## Bug Fixes
 

@@ -1,32 +1,4 @@
 ---
-# Source: enterprise-operator/templates/database-roles.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mongodb-enterprise-appdb
-  namespace: mongodb
----
-# Source: enterprise-operator/templates/database-roles.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mongodb-enterprise-database-pods
-  namespace: mongodb
----
-# Source: enterprise-operator/templates/database-roles.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mongodb-enterprise-ops-manager
-  namespace: mongodb
----
-# Source: enterprise-operator/templates/operator-roles.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mongodb-enterprise-operator-multi-cluster
-  namespace: mongodb
----
 # Source: enterprise-operator/templates/operator-roles.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -67,28 +39,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-enterprise-operator-multi-cluster
     namespace: mongodb
----
-# Source: enterprise-operator/templates/database-roles.yaml
-kind: Role
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-enterprise-appdb
-  namespace: mongodb
-rules:
-  - apiGroups:
-      - ''
-    resources:
-      - secrets
-    verbs:
-      - get
-  - apiGroups:
-      - ''
-    resources:
-      - pods
-    verbs:
-      - patch
-      - delete
-      - get
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
 kind: Role
@@ -149,6 +99,7 @@ rules:
       - mongodb
       - mongodb/finalizers
       - mongodbusers
+      - mongodbusers/finalizers
       - opsmanagers
       - opsmanagers/finalizers
       - mongodbmulticluster
@@ -157,6 +108,64 @@ rules:
       - mongodbusers/status
       - opsmanagers/status
       - mongodbmulticluster/status
+---
+# Source: enterprise-operator/templates/operator-roles.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-operator-multi-cluster
+  namespace: mongodb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-enterprise-operator-multi-cluster
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-enterprise-operator-multi-cluster
+    namespace: mongodb
+---
+# Source: enterprise-operator/templates/database-roles.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-appdb
+  namespace: mongodb
+---
+# Source: enterprise-operator/templates/database-roles.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-database-pods
+  namespace: mongodb
+---
+# Source: enterprise-operator/templates/database-roles.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-enterprise-ops-manager
+  namespace: mongodb
+---
+# Source: enterprise-operator/templates/database-roles.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mongodb-enterprise-appdb
+  namespace: mongodb
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - patch
+      - delete
+      - get
 ---
 # Source: enterprise-operator/templates/database-roles.yaml
 kind: RoleBinding
@@ -173,24 +182,12 @@ subjects:
     name: mongodb-enterprise-appdb
     namespace: mongodb
 ---
-# Source: enterprise-operator/templates/operator-roles.yaml
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
+# Source: enterprise-operator/templates/operator-sa.yaml
+apiVersion: v1
+kind: ServiceAccount
 metadata:
   name: mongodb-enterprise-operator-multi-cluster
   namespace: mongodb
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: mongodb-enterprise-operator-multi-cluster
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-enterprise-operator-multi-cluster
-    namespace: mongodb
-# This ClusterRoleBinding is necessary in order to use validating
-# webhooks—these will prevent you from applying a variety of invalid resource
-# definitions. The validating webhooks are optional so this can be removed if
-# necessary.
 ---
 # Source: enterprise-operator/templates/operator.yaml
 apiVersion: apps/v1

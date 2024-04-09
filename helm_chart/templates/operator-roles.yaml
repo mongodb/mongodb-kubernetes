@@ -1,15 +1,4 @@
 {{ if .Values.operator.createOperatorServiceAccount }}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ .Values.operator.name }}
-  namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
-{{- if .Values.registry.imagePullSecrets}}
-imagePullSecrets:
-  - name: {{ .Values.registry.imagePullSecrets }}
-{{- end }}
-
 {{- $watchNamespace := include "mongodb-enterprise-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
@@ -20,7 +9,6 @@ imagePullSecrets:
 {{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
 {{- $roleScope = "ClusterRole" }}
 {{- end }}
-
 ---
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -82,6 +70,7 @@ rules:
       - mongodb
       - mongodb/finalizers
       - mongodbusers
+      - mongodbusers/finalizers
       - opsmanagers
       - opsmanagers/finalizers
       - mongodbmulticluster
@@ -127,15 +116,13 @@ subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" $ }}
-{{- end }}
+{{- end }} {{/* range */}}
 
-{{- end }}
-
-# This ClusterRoleBinding is necessary in order to use validating
-# webhooks—these will prevent you from applying a variety of invalid resource
-# definitions. The validating webhooks are optional so this can be removed if
-# necessary.
+{{- end }} {{/* if .Values.operator.createOperatorServiceAccount */}}
 ---
+
+{{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
+{{- if .Values.operator.webhook.registerConfiguration }}
 {{- if not (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "mongodb-enterprise-operator-mongodb-webhook") }}
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -162,7 +149,7 @@ rules:
       - create
       - update
       - delete
-{{- end }}
+{{- end }} {{/* if not (lookup ... */}}
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -176,3 +163,5 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
     namespace: {{ include "mongodb-enterprise-operator.namespace" . }}
+
+{{- end }} {{/* if .Values.operator.webhook.registerConfiguration */}}

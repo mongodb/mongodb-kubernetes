@@ -29,8 +29,6 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     )
     yield bucket_name
 
-    print(f"\nRemoving S3 bucket {bucket_name}")
-    aws_s3_client.delete_s3_bucket(bucket_name)
 
 
 @fixture(scope="module")

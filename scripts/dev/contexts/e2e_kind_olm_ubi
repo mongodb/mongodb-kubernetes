@@ -11,5 +11,3 @@ source "$script_dir/root-context"
 source "$script_dir/variables/om60"
 
 export KUBE_ENVIRONMENT_NAME=kind
-export CUSTOM_MDB_VERSION=5.0.5
-export CUSTOM_MDB_PREV_VERSION=4.4.20

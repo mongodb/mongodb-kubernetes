@@ -1,0 +1,75 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: mdbpolicy.mongodb.com
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+webhooks:
+  - name: validate-mongodb.mongodb.com
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: Cg==
+      service:
+        name: mongodb-enterprise-operator
+        namespace: placeholder
+        path: /validate-mongodb-com-v1-mongodb
+    rules:
+      - apiGroups:
+          - mongodb.com
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - mongodb
+    failurePolicy: Ignore
+    sideEffects: None
+    timeoutSeconds: 5
+
+  - name: validate-mongodbmulticluster.mongodb.com
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: Cg==
+      service:
+        name: mongodb-enterprise-operator
+        namespace: placeholder
+        path: /validate-mongodb-com-v1-mongodbmulticluster
+    rules:
+      - apiGroups:
+          - mongodb.com
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - mongodbmulticluster
+    failurePolicy: Ignore
+    sideEffects: None
+    timeoutSeconds: 5
+
+  - name: validate-opsmanagers.mongodb.com
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: Cg==
+      service:
+        name: mongodb-enterprise-operator
+        namespace: placeholder
+        path: /validate-mongodb-com-v1-mongodbopsmanager
+    rules:
+      - apiGroups:
+          - mongodb.com
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - opsmanagers
+    failurePolicy: Ignore
+    sideEffects: None
+    timeoutSeconds: 5

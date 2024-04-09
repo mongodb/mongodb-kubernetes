@@ -178,6 +178,9 @@ const (
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
 
+	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
+	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
+
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
 	DefaultConfigSrvStorageSize        = "5G"
