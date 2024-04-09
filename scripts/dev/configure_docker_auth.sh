@@ -18,7 +18,7 @@ remove_element() {
 # This is the script which performs docker authentication to different registries that we use (so far ECR and RedHat)
 # As the result of this login the ~/.docker/config.json will have all the 'auth' information necessary to work with docker registries
 
-if [[ -n "${LOCAL_RUN-}" ]]; then
+if [[ "${RUNNING_IN_EVG:-""}" == "true" ]]; then
   # when running locally we don't need to docker login all the time - we can do it once in 11 hours (ECR tokens expire each 12 hours)
   if [[ -n "$(find ~/.docker/config.json -mmin -360 -type f)" ]] &&
     grep "268558157000" -q ~/.docker/config.json; then

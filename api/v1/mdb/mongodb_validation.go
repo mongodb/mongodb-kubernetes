@@ -269,7 +269,7 @@ func ValidateUniqueClusterNames(ms []ClusterSpecItem) v1.ValidationResult {
 
 func ValidateNonEmptyClusterSpecList(ms []ClusterSpecItem) v1.ValidationResult {
 	if len(ms) == 0 {
-		return v1.ValidationError("ClusterSpecList empty is not allowed, please define atleast one cluster")
+		return v1.ValidationError("ClusterSpecList empty is not allowed, please define at least one cluster")
 	}
 	return v1.ValidationSuccess()
 }

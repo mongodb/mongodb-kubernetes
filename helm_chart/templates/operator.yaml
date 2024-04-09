@@ -7,7 +7,7 @@ metadata:
   name: {{ .Values.operator.name }}
   namespace: {{$ns}}
 spec:
-  replicas: {{ .Values.operator.replicas }}
+  replicas: {{ min 1 .Values.operator.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/component: controller
@@ -162,6 +162,10 @@ spec:
             - name: IMAGE_PULL_SECRETS
               value: {{ .Values.registry.imagePullSecrets }}
     {{- end }}
+    {{- if not .Values.operator.webhook.registerConfiguration }}
+            - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
+              value: "false"
+    {{- end }}
     {{- if .Values.relatedImages }}
             - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.database }}/{{ .Values.database.name }}:{{ $databaseVersion }}"
@@ -219,35 +223,4 @@ spec:
   {{- end }}
 {{- end }}
 
-{{- if .Values.debug }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: debug-svc
-spec:
-  type: NodePort
-  ports:
-  - nodePort: {{ .Values.debugPort }}
-    port: 40000
-    protocol: TCP
-  selector:
-    app.kubernetes.io/name: {{ .Values.operator.name }}
-{{- end }}
 
-{{- if not (lookup "v1" "ConfigMap" $ns "mongodb-enterprise-operator-member-list") }}
-{{- if .Values.multiCluster.clusters }}
----
-apiVersion: v1
-kind: ConfigMap
-data:
-  {{- range .Values.multiCluster.clusters }}
-  {{ . }}: ""
-  {{- end }}
-metadata:
-  namespace: {{$ns}}
-  name: mongodb-enterprise-operator-member-list
-  labels:
-    multi-cluster: "true"
-{{- end }}
-{{- end }}

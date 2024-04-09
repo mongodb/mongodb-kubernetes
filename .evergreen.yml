@@ -835,6 +835,11 @@ tasks:
   commands:
     - func: "e2e_test"
 
+- name: e2e_olm_operator_webhooks
+  tags: ["patch-run"]
+  commands:
+    - func: "e2e_test"
+
 - name: e2e_olm_operator_upgrade_with_resources
   tags: ["patch-run"]
   commands:
@@ -2431,6 +2436,7 @@ task_groups:
   tasks:
     - e2e_olm_operator_upgrade
     - e2e_olm_operator_upgrade_with_resources
+    - e2e_olm_operator_webhooks
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment

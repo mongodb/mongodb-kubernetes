@@ -47,10 +47,6 @@ var (
 	scheme = runtime.NewScheme()
 )
 
-const (
-	mdbWebHookPortEnvName = "MDB_WEBHOOK_PORT"
-)
-
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiv1.AddToScheme(scheme))
@@ -253,7 +249,7 @@ func isInLocalMode() bool {
 // to give people early warning when their MongoDB resources are wrong.
 func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool) {
 	// set webhook port — 1993 is chosen as Ben's birthday
-	webhookPort := env.ReadIntOrDefault(mdbWebHookPortEnvName, 1993)
+	webhookPort := env.ReadIntOrDefault(util.MdbWebhookPortEnv, 1993)
 	mgr.GetWebhookServer().Port = webhookPort
 	if isInLocalMode() {
 		mgr.GetWebhookServer().Host = "127.0.0.1"
@@ -277,10 +273,9 @@ func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger,
 		Name:      "operator-webhook",
 		Namespace: env.ReadOrPanic(util.CurrentNamespace),
 	}
-	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode); err != nil {
-		log.Warnw("could not set up webhook", "error", err)
+	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode, log); err != nil {
+		log.Warnf("could not set up webhook: %v", err)
 	}
-	log.Info("setup webhook successfully")
 }
 
 func initializeEnvironment() {
