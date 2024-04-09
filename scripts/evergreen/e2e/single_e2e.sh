@@ -103,6 +103,10 @@ deploy_test_app() {
         helm_params+=("--set" "localOperator=true")
     fi
 
+    if [[ "${OM_DEBUG_HTTP}" == "true" ]]; then
+        helm_params+=("--set" "omDebugHttp=true")
+    fi
+
     helm template "scripts/evergreen/deployments/test-app" "${helm_params[@]}" > "${helm_template_file}" || exit 1
 
     cat "${helm_template_file}"

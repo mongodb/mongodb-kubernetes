@@ -912,6 +912,7 @@ func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 	opts = append(opts, api.OptionDigestAuth(oc.PublicKey(), oc.PrivateKey()))
 
 	if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) {
+		zap.S().Debug("Enabling OM_DEBUG_HTTP mode")
 		opts = append(opts, api.OptionDebug)
 	}
 

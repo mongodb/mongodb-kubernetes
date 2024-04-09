@@ -1,13 +1,16 @@
 package project
 
 import (
-	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
-	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
-	"golang.org/x/xerrors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"fmt"
+	"strings"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
+	"golang.org/x/xerrors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -156,12 +159,24 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 		log.Error(err)
 	}
 
-	if err == nil && len(projects) == 1 {
+	if err == nil {
 		// there is no error so we need to check if the project found has this name
 		// (the project found could be just the page of one single project if the OM is old and "name"
 		// parameter is not supported)
-		if projects[0].Name == projectName {
-			return projects[0], nil
+		var projectsFound []*om.Project
+		for _, project := range projects {
+			if project.Name == projectName {
+				projectsFound = append(projectsFound, project)
+			}
+		}
+
+		if len(projectsFound) == 1 {
+			return projectsFound[0], nil
+		} else if len(projectsFound) > 0 {
+			projectsList := util.Transform(projectsFound, func(project *om.Project) string {
+				return fmt.Sprintf("%s (%s)", project.Name, project.ID)
+			})
+			return nil, xerrors.Errorf("found more than one project with name %s in organization %s (%s): %v", projectName, organization.ID, organization.Name, strings.Join(projectsList, ", "))
 		}
 	}
 

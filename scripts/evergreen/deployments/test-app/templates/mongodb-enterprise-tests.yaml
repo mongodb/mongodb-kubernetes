@@ -161,6 +161,10 @@ spec:
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: {{ .Values.mdbDefaultArchitecture }}
+    {{ if .Values.omDebugHttp }}
+    - name: OM_DEBUG_HTTP
+      value: "{{ .Values.omDebugHttp }}"
+    {{ end }}
     image: {{ .Values.repo }}/mongodb-enterprise-tests:{{ .Values.tag }}
     # Options to pytest command should go in the pytest.ini file.
     command: ["pytest"]
