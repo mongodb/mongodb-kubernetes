@@ -90,6 +90,10 @@ def get_operator_installation_config(namespace, version_id):
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
     config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    if os.getenv("OM_DEBUG_HTTP") == "true":
+        print("Adding OM_DEBUG_HTTP=true to operator_installation_config")
+        config["customEnvVars"] += "\&OM_DEBUG_HTTP=true"
+
     if local_operator():
         config["operator.replicas"] = 0
     return config
