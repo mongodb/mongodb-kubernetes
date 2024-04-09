@@ -72,7 +72,7 @@ def test_non_empty_clusterspec_list(
 
     with pytest.raises(
         ApiException,
-        match=r"ClusterSpecList empty is not allowed\, please define atleast one cluster",
+        match=r"ClusterSpecList empty is not allowed\, please define at least one cluster",
     ):
         create_or_update(ops_manager)
 

@@ -1,53 +1,5 @@
 ---
 # Source: enterprise-operator/templates/operator-roles.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mongodb-enterprise-operator
-  namespace: mongodb
----
-# Source: enterprise-operator/templates/operator-roles.yaml
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-enterprise-operator-mongodb-webhook
-rules:
-  - apiGroups:
-      - "admissionregistration.k8s.io"
-    resources:
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - create
-      - update
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - services
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - delete
----
-# Source: enterprise-operator/templates/operator-roles.yaml
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-enterprise-operator-mongodb-webhook-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: mongodb-enterprise-operator-mongodb-webhook
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-enterprise-operator
-    namespace: mongodb
----
-# Source: enterprise-operator/templates/operator-roles.yaml
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -106,6 +58,7 @@ rules:
       - mongodb
       - mongodb/finalizers
       - mongodbusers
+      - mongodbusers/finalizers
       - opsmanagers
       - opsmanagers/finalizers
       - mongodbmulticluster
@@ -129,11 +82,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-enterprise-operator
     namespace: mongodb
-
-# This ClusterRoleBinding is necessary in order to use validating
-# webhooks—these will prevent you from applying a variety of invalid resource
-# definitions. The validating webhooks are optional so this can be removed if
-# necessary.
 ---
 # Source: enterprise-operator/templates/database-roles.yaml
 apiVersion: v1
@@ -285,6 +233,8 @@ spec:
               value: ubi8
             - name: PERFORM_FAILOVER
               value: 'true'
+            - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
+              value: "false"
             - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_24_0
               value: "quay.io/mongodb/mongodb-enterprise-database-ubi:1.24.0"
             - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_24_0

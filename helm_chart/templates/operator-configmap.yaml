@@ -1,0 +1,17 @@
+{{ $ns :=  include "mongodb-enterprise-operator.namespace" .  -}}
+{{- if not (lookup "v1" "ConfigMap" $ns "mongodb-enterprise-operator-member-list") }}
+{{- if .Values.multiCluster.clusters }}
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  {{- range .Values.multiCluster.clusters }}
+  {{ . }}: ""
+  {{- end }}
+metadata:
+  namespace: {{$ns}}
+  name: mongodb-enterprise-operator-member-list
+  labels:
+    multi-cluster: "true"
+{{- end }}
+{{- end }}

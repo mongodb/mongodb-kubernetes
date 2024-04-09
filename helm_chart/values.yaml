@@ -57,9 +57,27 @@ operator:
     enabled: false
     tlsSecretRef: ''
 
+  # 0 or 1 is supported only
   replicas: 1
   # additional arguments to pass on the operator's binary arguments, e.g. operator.additionalArguments={--v=9} to dump debug k8s networking to logs
   additionalArguments: []
+
+  webhook:
+    # registerConfiguration setting (default: true) controls if the operator should automatically register ValidatingWebhookConfiguration and if required for it cluster-wide roles should be installed.
+    #
+    # Setting false:
+    #  - Adds env var MDB_WEBHOOK_REGISTER_CONFIGURATION=false to the operator deployment.
+    #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will not be installed
+    #  - The operator will not create ValidatingWebhookConfigurations upon startup.
+    #  - The operator will not create the service for the webhook. If the `operator-webhook` service was created before, it will be deleted.
+    #  - The operator will still expose the webhook's endpoint on port on MDB_WEBHOOK_PORT (if not specified, the operator uses a default 1993) in case the ValidatingWebhookConfigurations is configured externally (e.g. in OLM/OpenShift) or by the administrator manually.
+    #
+    # Setting true:
+    #  - It's the default setting, behaviour of the operator w.r.t. webhook configuration is the same as before.
+    #  - operator-webhook service will be created by the operator
+    #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will be installed.
+    #  - ValidatingWebhookConfigurations will be managed by the operator (requires cluster permissions)
+    registerConfiguration: true
 
 ## Database
 database:

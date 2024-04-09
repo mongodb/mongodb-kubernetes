@@ -40,7 +40,7 @@ class TestWebhookValidation(KubernetesTester):
         self.create_custom_resource_from_object(
             self.get_namespace(),
             resource,
-            exception_reason="ClusterSpecList empty is not allowed, please define atleast one cluster",
+            exception_reason="ClusterSpecList empty is not allowed, please define at least one cluster",
             api_client=central_cluster_client,
         )
 

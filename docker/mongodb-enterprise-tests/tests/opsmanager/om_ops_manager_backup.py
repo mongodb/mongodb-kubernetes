@@ -115,7 +115,10 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
         yield bucket_name
         if not running_locally():
             print("\nRemoving S3 bucket", bucket_name)
-            aws_s3_client.delete_s3_bucket(bucket_name)
+            try:
+                aws_s3_client.delete_s3_bucket(bucket_name)
+            except Exception as e:
+                print(f"Caught exception while removing S3 bucket {bucket_name}, but ignoring to not obscure the test result: {e}")
     except Exception as e:
         if running_locally():
             print(f"Local run: skipping creating bucket {bucket_name} because it already exists.")
