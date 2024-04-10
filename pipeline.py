@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
 from queue import Queue
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import requests
 import semver
@@ -504,18 +504,6 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     return images[image_name]
 
 
-def is_version_in_range(version: str, min_version: str, max_version: str) -> bool:
-    """Check if version is in the range"""
-    try:
-        version_without_rc = semver.finalize_version(version)
-    except ValueError:
-        version_without_rc = version
-    if min_version and max_version:
-        # Greater or equal for lower bound, strictly lower for upper bound
-        return semver.compare(min_version, version_without_rc) <= 0 > semver.compare(version_without_rc, max_version)
-    return True
-
-
 """
 Starts the daily build process for an image. This function works for all images we support, for community and 
 enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
@@ -534,29 +522,6 @@ def build_image_daily(
 ):
     """Builds a daily image."""
 
-    def get_architectures_set(build_configuration, args):
-        """Determine the set of architectures to build for"""
-        arch_set = set(build_configuration.architecture) if build_configuration.architecture else set()
-        if arch_set == {"arm64"}:
-            raise ValueError("Building for ARM64 only is not supported yet")
-
-        # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
-        if arch_set == set() and check_multi_arch(
-            image=args["quay_registry"] + args["ubi_suffix"] + ":" + args["release_version"],
-            suffix="-context",
-        ):
-            arch_set = {"amd64", "arm64"}
-
-        return arch_set
-
-    def create_and_push_manifests(args: dict):
-        """Create and push manifests for all registries."""
-        registries = [args["quay_registry"], args["ecr_registry_ubi"]]
-        tags = [args["release_version"], args["release_version"] + "-b" + args["build_id"]]
-        for registry in registries:
-            for tag in tags:
-                create_and_push_manifest(registry + args["ubi_suffix"], tag)
-
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image(image_name)
         variants = get_supported_variants_for_image(image_name)
@@ -564,33 +529,77 @@ def build_image_daily(
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
         logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
-
         completed_versions = set()
-        for version in filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions):
+        for version in supported_versions:
+            try:
+                version_without_rc = semver.finalize_version(version)
+            except ValueError:
+                version_without_rc = version
+            if (
+                min_version is not None
+                and max_version is not None
+                and (
+                    semver.compare(version_without_rc, min_version) < 0
+                    or semver.compare(version_without_rc, max_version) >= 0
+                )
+            ):
+                continue
+
             build_configuration = copy.deepcopy(build_configuration)
             if build_configuration.include_tags is None:
                 build_configuration.include_tags = []
+
             build_configuration.include_tags.extend(variants)
 
             logger.info("Rebuilding {} with variants {}".format(version, variants))
             args["release_version"] = version
 
-            arch_set = get_architectures_set(build_configuration, args)
+            arch_set = set()
+            if build_configuration.architecture:
+                arch_set = set(build_configuration.architecture)
+
+            if arch_set == {"arm64"}:
+                raise ValueError("Building for ARM64 only is not supported yet")
 
             if version not in completed_versions:
-                if arch_set == {"amd64", "arm64"}:
-                    for arch in arch_set:
-                        args["architecture_suffix"] = f"-{arch}"
-                        args["platform"] = arch
-                        sonar_build_image(
-                            "image-daily-build",
-                            build_configuration,
-                            args,
-                            inventory="inventories/daily.yaml",
-                        )
-                    create_and_push_manifests(args)
+                # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
+                if (
+                    arch_set == {"amd64", "arm64"}
+                    or arch_set == set()
+                    and check_multi_arch(
+                        image=args["quay_registry"] + args["ubi_suffix"] + ":" + args["release_version"],
+                        suffix="-context",
+                    )
+                ):
+                    sonar_build_image(
+                        "image-daily-build-amd64",
+                        build_configuration,
+                        args,
+                        inventory="inventories/daily.yaml",
+                    )
+                    sonar_build_image(
+                        "image-daily-build-arm64",
+                        build_configuration,
+                        args,
+                        inventory="inventories/daily.yaml",
+                    )
+                    create_and_push_manifest(
+                        args["quay_registry"] + args["ubi_suffix"],
+                        args["release_version"],
+                    )
+                    create_and_push_manifest(
+                        args["quay_registry"] + args["ubi_suffix"],
+                        args["release_version"] + "-b" + args["build_id"],
+                    )
+                    create_and_push_manifest(
+                        args["ecr_registry_ubi"] + args["ubi_suffix"],
+                        args["release_version"],
+                    )
+                    create_and_push_manifest(
+                        args["ecr_registry_ubi"] + args["ubi_suffix"],
+                        args["release_version"] + "-b" + args["build_id"],
+                    )
                 else:
-                    args["platform"] = "amd64"
                     sonar_build_image(
                         "image-daily-build",
                         build_configuration,
