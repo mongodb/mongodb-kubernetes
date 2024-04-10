@@ -20,7 +20,7 @@ delete_buckets_from_file() {
     then
          aws_cmd="aws s3 rb s3://${bucket_name} --force"
          echo "[${list_file}/${bucket_name}] Deleting bucket: ${bucket_name}/${bucket_creation_date} (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
-#         ${aws_cmd} || true
+         ${aws_cmd} || true
     else
         echo "[${list_file}/${bucket_name}] #### Not removing bucket ${bucket_name} because it was not created by the test run in EVG. Tags: $(echo "${tags}" | jq -cr .)"
     fi
