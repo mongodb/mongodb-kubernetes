@@ -21,7 +21,6 @@ export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.
 # -n0 parameter is instructing tail to show only new lines (by default tail is showing last 10 lines)
 tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 
-# shellcheck disable=SC1091
 source /opt/scripts/agent-launcher-lib.sh
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars

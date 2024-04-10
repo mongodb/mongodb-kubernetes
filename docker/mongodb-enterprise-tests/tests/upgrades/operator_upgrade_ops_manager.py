@@ -30,7 +30,6 @@ def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
     yield bucket_name
 
 
-
 @fixture(scope="module")
 def ops_manager(namespace: str, s3_bucket: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created. Also results in a new s3 bucket
