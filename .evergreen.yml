@@ -661,6 +661,7 @@ tasks:
       include_tags: release
 
 - name: release_agent
+  allowed_requesters: ["patch", "github_tag"]
   commands:
     - func: clone
     - func: setup_building_host
