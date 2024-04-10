@@ -52,7 +52,7 @@ github.com/r3labs/diff/v3,v3.0.1,https://github.com/r3labs/diff/blob/v3.0.1/LICE
 github.com/ryanuber/go-glob,v1.0.0,https://github.com/ryanuber/go-glob/blob/v1.0.0/LICENSE,MIT
 github.com/spf13/cast,v1.6.0,https://github.com/spf13/cast/blob/v1.6.0/LICENSE,MIT
 github.com/spf13/pflag,v1.0.5,https://github.com/spf13/pflag/blob/v1.0.5/LICENSE,BSD-3-Clause
-github.com/stretchr/objx,v0.5.1,https://github.com/stretchr/objx/blob/v0.5.1/LICENSE,MIT
+github.com/stretchr/objx,v0.5.2,https://github.com/stretchr/objx/blob/v0.5.2/LICENSE,MIT
 github.com/stretchr/testify/assert,v1.8.4,https://github.com/stretchr/testify/blob/v1.8.4/LICENSE,MIT
 github.com/vmihailenco/msgpack/v5,v5.3.5,https://github.com/vmihailenco/msgpack/blob/v5.3.5/LICENSE,BSD-2-Clause
 github.com/vmihailenco/tagparser/v2,v2.0.0,https://github.com/vmihailenco/tagparser/blob/v2.0.0/LICENSE,BSD-2-Clause
