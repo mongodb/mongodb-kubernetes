@@ -3,14 +3,15 @@
 
 ## New Features
 
-* (Public Preview) **MongoDB, OpsManager**: Introduced the Static Architecture for all types of deployments that avoids pulling any binaries at runtime. 
-    * You can activate this mode by setting the `MDB_DEFAULT_ARCHITECTURE` environment variable at the Operator level to `static`. Alternatively, you can annotate a specific `MongoDB` or `OpsManager` Custom Resource with `mongodb.com/v1.architecture: "static"`.
+* (Public Preview) **MongoDB, OpsManager**: Introduced opt-in Static Architecture (for all types of deployments) that avoids pulling any binaries at runtime.
+      * This feature is recommended only for testing purposes, but will become the default in a later release.
+      * You can activate this mode by setting the `MDB_DEFAULT_ARCHITECTURE` environment variable at the Operator level to `static`. Alternatively, you can annotate a specific `MongoDB` or `OpsManager` Custom Resource with `mongodb.com/v1.architecture: "static"`.
     * The Operator supports seamless migration between the Static and non-Static architectures.
     ** To learn more please see the relevant documentation:
       * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
         * [Use Static Containers](https://preview-mongodberabilmdb.gatsbyjs.io/docs-k8s-operator/DOCSP-35095/tutorial/plan-k8s-op-considerations/#use-static-containers--beta-)
         * [Migrate to Static Containers](https://preview-mongodberabilmdb.gatsbyjs.io/docs-k8s-operator/DOCSP-35095/tutorial/plan-k8s-op-container-images/#migrate-to-static-containers) 
-* **MongoDB**: The Automatic Recovery mechanism introduced for replica sets in release 1.22 has been generalized to all types of MongoDB resources.
+* **MongoDB**: Recover Resource Due to Broken Automation Configuration has been extended to all types of MongoDB resources, now including Sharded Clusters. For more information see https://www.mongodb.com/docs/kubernetes-operator/master/reference/troubleshooting/#recover-resource-due-to-broken-automation-configuration
 * **MongoDB, MongoDBMultiCluster**: Placeholders in external services.
     * You can now define annotations for external services managed by the operator that contain placeholders which will be automatically replaced to the proper values.
     * Previously, the operator was configuring the same annotations for all external services created for each pod. Now, with placeholders the operator is able to customize
@@ -26,7 +27,7 @@
     * Improved handling of configurations when the operator is installed in a separate namespace than the resources it's watching and when the operator is watching more than one namespace. 
     * Optimized roles and permissions setup in member clusters, using a single service account per cluster with correctly configured Role and RoleBinding (no ClusterRoles necessary) for each watched namespace.
 * **OpsManager**: Added the `spec.internalConnectivity` field to allow overrides for the service used by the operator to ensure internal connectivity to the `OpsManager` pods.
-* Added time-based reconciliation to all controllers. The Operator will now reconcile the entire state every 24 hours.
+* Extended the existing event based reconciliation by a time-based one, that is triggered every 24 hours. This ensures all Agents are always upgraded on timely manner.
 * OpenShift / OLM Operator: Removed the requirement for cluster-wide permissions. Previously, the operator needed these permissions to configure admission webhooks. Now, webhooks are automatically configured by [OLM](https://olm.operatorframework.io/docs/advanced-tasks/adding-admission-and-conversion-webhooks/).
 * Added optional `MDB_WEBHOOK_REGISTER_CONFIGURATION` environment variable for the operator. It controls whether the operator should perform automatic admission webhook configuration. Default: true. It's set to false for OLM and OpenShift deployments.
 
