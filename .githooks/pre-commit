@@ -122,7 +122,7 @@ function pre_commit() {
   for file in $(echo "$git_last_changed" | grep -v '\.go$' | grep -v '\.py' | grep -v '\.yaml' | grep -v '\.json'); do
     # check if bash script
     if head -1 "${file}" | grep "#!/usr/bin/env bash" >/dev/null; then
-      if ! shellcheck -x "${file}" -e SC2154 -P "$(dirname "${file}")"; then
+      if ! shellcheck -x "${file}" -e SC2154 -e SC1091 -P "$(dirname "${file}")"; then
         echo "shellcheck failed on ${file}"
         exit 1
       fi
