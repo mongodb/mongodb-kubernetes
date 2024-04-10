@@ -9,9 +9,7 @@ script_dir=$(dirname "${script_name}")
 
 source public/samples/ops-manager-multi-cluster/env_variables.sh
 
-# shellcheck disable=SC1091
 source "$script_dir/root-context"
-# shellcheck disable=SC1091
 source "$script_dir/variables/om60"
 
 export NAMESPACE="mongodb-operator"

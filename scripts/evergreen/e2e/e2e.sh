@@ -39,7 +39,6 @@ fi
 ensure_namespace "${NAMESPACE}"
 
 # 2. Fetch OM connection information - it will be saved to environment variables
-# shellcheck disable=SC1091
 . scripts/evergreen/e2e/fetch_om_information
 
 # 3. Configure Operator resources

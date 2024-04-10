@@ -6,7 +6,6 @@ source scripts/dev/set_env_context.sh
 
 # shellcheck disable=SC2154
 if [ -f "${workdir}"/venv/bin/activate ]; then
-    # shellcheck disable=SC1091
     source "${workdir}"/venv/bin/activate
 fi
 
