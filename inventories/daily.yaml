@@ -6,14 +6,41 @@ vars:
   # ubi suffix is "-ubi" by default, but it's empty for mongodb-kubernetes-operator, readiness and versionhook images
   ubi_suffix: "-ubi"
   base_suffix: ""
-  architecture_suffix: ""
-  platform: "amd64"
 
 images:
   - name: image-daily-build
     vars:
       context: .
-    platform: linux/$(inputs.params.platform)
+    platform: linux/amd64
+    stages:
+    - name: build-ubi
+      task_type: docker_build
+      tags: ["ubi"]
+      inputs:
+      - build_id
+      dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
+      buildargs:
+        imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context
+        # This is required for correctly labeling the agent image and is not used
+        # in the other images.
+        agent_version: $(inputs.params.release_version)
+      output:
+      - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+      # Below two coordinates are on pair with the e2e_om_ops_manager_upgrade test but
+      # doesn't seem to reflect the way we push things to Quay.
+      # The proper fix should be addressed in https://jira.mongodb.org/browse/CLOUDP-133709
+      - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
+        tag: $(inputs.params.release_version)
+      - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
+        tag: $(inputs.params.release_version)-b$(inputs.params.build_id)
+
+  - name: image-daily-build-amd64
+    vars:
+      context: .
+    platform: linux/amd64
     stages:
       - name: build-ubi
         task_type: docker_build
@@ -22,20 +49,48 @@ images:
           - build_id
         dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
         buildargs:
-          imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context$(inputs.params.architecture_suffix)
+          imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context-amd64
           # This is required for correctly labeling the agent image and is not used
           # in the other images.
           agent_version: $(inputs.params.release_version)
         output:
           - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
-            tag: $(inputs.params.release_version)$(inputs.params.architecture_suffix)
+            tag: $(inputs.params.release_version)-amd64
           - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
-            tag: $(inputs.params.release_version)-b$(inputs.params.build_id)$(inputs.params.architecture_suffix)
+            tag: $(inputs.params.release_version)-b$(inputs.params.build_id)-amd64
           # Below two coordinates are on pair with the e2e_om_ops_manager_upgrade test but
           # doesn't seem to reflect the way we push things to Quay.
           # The proper fix should be addressed in https://jira.mongodb.org/browse/CLOUDP-133709
           - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
-            tag: $(inputs.params.release_version)$(inputs.params.architecture_suffix)
+            tag: $(inputs.params.release_version)-amd64
           - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
-            tag: $(inputs.params.release_version)-b$(inputs.params.build_id)$(inputs.params.architecture_suffix)
+            tag: $(inputs.params.release_version)-b$(inputs.params.build_id)-amd64
 
+  - name: image-daily-build-arm64
+    vars:
+      context: .
+    platform: linux/arm64
+    stages:
+      - name: build-ubi
+        task_type: docker_build
+        tags: ["ubi"]
+        inputs:
+          - build_id
+        dockerfile: $(inputs.params.s3_bucket_http)/$(inputs.params.release_version)/ubi/Dockerfile
+        buildargs:
+          imagebase: $(inputs.params.quay_registry)$(inputs.params.base_suffix):$(inputs.params.release_version)-context-arm64
+          # This is required for correctly labeling the agent image and is not used
+          # in the other images.
+          agent_version: $(inputs.params.release_version)
+        output:
+          - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
+            tag: $(inputs.params.release_version)-arm64
+          - registry: $(inputs.params.quay_registry)$(inputs.params.ubi_suffix)
+            tag: $(inputs.params.release_version)-b$(inputs.params.build_id)-arm64
+          # Below two coordinates are on pair with the e2e_om_ops_manager_upgrade test but
+          # doesn't seem to reflect the way we push things to Quay.
+          # The proper fix should be addressed in https://jira.mongodb.org/browse/CLOUDP-133709
+          - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
+            tag: $(inputs.params.release_version)-arm64
+          - registry: $(inputs.params.ecr_registry_ubi)$(inputs.params.ubi_suffix)
+            tag: $(inputs.params.release_version)-b$(inputs.params.build_id)-arm64
