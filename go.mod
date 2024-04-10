@@ -21,7 +21,7 @@ require (
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/spf13/cast v1.6.0
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/objx v0.5.1
+	github.com/stretchr/objx v0.5.2
 	github.com/stretchr/testify v1.8.4
 	github.com/xdg/stringprep v1.0.3
 	go.uber.org/zap v1.27.0
