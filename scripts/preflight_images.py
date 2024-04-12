@@ -5,7 +5,11 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
+
+from evergreen.release.agent_matrix import (
+    get_supported_version_for_image_matrix_handling,
+)
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
@@ -84,33 +88,6 @@ def get_release() -> Dict[str, str]:
     return json.load(open("release.json"))
 
 
-def build_agent_gather_versions(release: Dict[str, str]):
-    # This is a list of a tuples - agent version and corresponding tools version
-    agent_versions_to_be_build = list()
-    agent_versions_to_be_build.append(
-        release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
-    )
-    for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
-        agent_versions_to_be_build.append(om["agent_version"])
-    return agent_versions_to_be_build
-
-
-def get_supported_version_for_image(image: str) -> List[str]:
-    # if we are a certifying mongodb-agent, we will need to also certify the
-    # static container images which are a matrix of <agent_version>_<operator_version>
-    if image == "mongodb-agent":
-        operator_versions = get_release()["mongodbOperatorSupportedVersions"]
-        agent_versions_to_be_build = build_agent_gather_versions(get_release())
-        agent_version_with_operator = list()
-        for agent in agent_versions_to_be_build:
-            for version in operator_versions:
-                agent_version_with_operator.append(agent + "_" + version)
-        legacy_agents = get_release()["supportedImages"][image]["versions"]
-        return agent_version_with_operator + legacy_agents
-
-    return get_release()["supportedImages"][image]["versions"]
-
-
 def run_preflight_check(image: str, version: str, submit: bool = False) -> int:
     # In theory, we could remove this as our container images reside in public repo
     # However, due to https://github.com/redhat-openshift-ecosystem/openshift-preflight/issues/685
@@ -181,7 +158,7 @@ def main() -> int:
     parser.add_argument("--version", help="specific version to check", type=str, default=None)
     args = parser.parse_args()
     available_versions = get_available_versions_for_image(args.image)
-    supported_versions = get_supported_version_for_image(args.image)
+    supported_versions = get_supported_version_for_image_matrix_handling(args.image)
     submit = args.submit.lower() == "true"
 
     image_version = os.environ.get("image_version", args.version)

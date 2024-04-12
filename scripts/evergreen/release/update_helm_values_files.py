@@ -10,6 +10,7 @@ Usage:
 import json
 import sys
 
+from agent_matrix import get_supported_version_for_image_matrix_handling
 from helm_files_handler import set_value_in_yaml_file, update_all_helm_values_files
 
 RELEASE_JSON_TO_HELM_KEY = {
@@ -51,7 +52,7 @@ def main() -> int:
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.agent",
-        release["supportedImages"]["mongodb-agent"]["versions"],
+        get_supported_version_for_image_matrix_handling("mongodb-agent"),
     )
 
     return 0

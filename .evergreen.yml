@@ -197,17 +197,16 @@ functions:
 
   preflight_image:
   - *switch_context
-  - command: shell.exec
+  - command: subprocess.exec
     params:
+      shell: bash
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       add_to_path:
-      - ${workdir}/bin
+        - ${workdir}/bin
       include_expansions_in_env:
-      - image_version
-      - rh_pyxis
-      script: |
-        source .generated/context.export.env
-        scripts/evergreen/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
+        - image_version
+        - rh_pyxis
+      binary: scripts/evergreen/run_python.sh scripts/preflight_images.py --image ${image_name} --submit "${preflight_submit}"
 
   pipeline:
   - *python_venv

@@ -11,6 +11,8 @@ import requests
 from git import Repo
 from requests import Response
 
+from evergreen.release.agent_matrix import get_supported_version_for_image_matrix_handling
+
 
 def get_repo_root():
     output = subprocess.check_output("git rev-parse --show-toplevel".split())
@@ -51,7 +53,7 @@ def get_supported_version_for_image(image: str) -> List[Dict[str, str]]:
     if len(splitted_image_name) == 2:
         image = splitted_image_name[1]
 
-    return get_release()["supportedImages"][image]["versions"]
+    return get_supported_version_for_image_matrix_handling(image)
 
 
 def download_dockerfile_from_s3(image: str, version: str, distro: str) -> Response:
