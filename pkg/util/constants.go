@@ -273,10 +273,8 @@ const (
 	OpsManagerPasswordKey     = "password"
 
 	// Env variables used for testing mostly to decrease waiting time
-	PodWaitSecondsEnv     = "POD_WAIT_SEC"
-	PodWaitRetriesEnv     = "POD_WAIT_RETRIES"
-	K8sCacheRefreshEnv    = "K8S_CACHES_REFRESH_TIME_SEC"
-	AppDBReadinessWaitEnv = "APPDB_STATEFULSET_WAIT_SEC"
+	PodWaitSecondsEnv = "POD_WAIT_SEC"
+	PodWaitRetriesEnv = "POD_WAIT_RETRIES"
 
 	// All others
 	OmGroupExternallyManagedTag = "EXTERNALLY_MANAGED_BY_KUBERNETES"

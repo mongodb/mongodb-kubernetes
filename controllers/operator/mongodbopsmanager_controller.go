@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"slices"
 	"syscall"
-	"time"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -1287,8 +1286,8 @@ func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsMana
 		ca = pointer.String(cm.Data["mms-ca.crt"])
 	}
 
+	adminSecretCreatedThisReconcile := false
 	if secrets.SecretNotExist(err) {
-
 		apiKey, err := r.omInitializer.TryCreateUser(centralURL, opsManager.Spec.Version, newUser, ca)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
@@ -1309,46 +1308,35 @@ func (r *OpsManagerReconciler) prepareOpsManager(opsManager *omv1.MongoDBOpsMana
 					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(300), nil
 			}
 
-			adminSecretBuilder := secret.Builder().
+			adminSecret := secret.Builder().
 				SetNamespace(adminKeySecretName.Namespace).
 				SetName(adminKeySecretName.Name).
 				SetStringMapToData(secretData).
-				SetLabels(map[string]string{})
-
-			if opsManager.Namespace == operatorNamespace() {
-				// The Secret where the admin-key is saved is created in the Namespace where the
-				// Operator resides.
-				// The Secret's OwnerReference is only added if both the Secret and Ops Manager
-				// reside in the same Namespace because cross-namespace OwnerReferences are not
-				// allowed.
-				// More information in: CLOUDP-90848
-				adminSecretBuilder.SetOwnerReferences(kube.BaseOwnerReference(opsManager))
-			}
-			adminSecret := adminSecretBuilder.Build()
+				SetLabels(map[string]string{}).Build()
 
 			if err := r.PutSecret(adminSecret, operatorVaultPath); err != nil {
-				// TODO see above
 				return workflow.Failed(xerrors.Errorf("failed to create a secret for admin public api key. %s. The error : %w",
 					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
 			}
+			adminSecretCreatedThisReconcile = true
 			log.Infof("Created a secret for admin public api key %s", adminKeySecretName)
-
-			// Each "read-after-write" operation needs some timeout after write unfortunately :(
-			// https://github.com/kubernetes-sigs/controller-runtime/issues/343#issuecomment-468402446
-			time.Sleep(time.Duration(env.ReadIntOrDefault(util.K8sCacheRefreshEnv, util.DefaultK8sCacheRefreshTimeSeconds)) * time.Second)
 		} else {
 			log.Debug("Ops Manager did not return a valid User object.")
 		}
 	}
 
-	// 3. Final validation of current state - this could be the retry after failing to create the secret during
-	// previous reconciliation (and the apiKey is empty as "the first user already exists") - the only fix is
-	// to create the secret manually
-	_, err = r.ReadSecret(adminKeySecretName, operatorVaultPath)
-	if err != nil {
-		return workflow.Failed(xerrors.Errorf("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %w",
-			detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
+	if !adminSecretCreatedThisReconcile {
+		// 3. Final validation of admin secret - if it has been successfully created this reconcile - it needs to be valid.
+		//    Otherwise, we validate it. This could be due to the retry after failing to create the secret during
+		//    previous reconciliation (and the apiKey is empty as "the first user already exists") - the only fix is
+		//    to create the secret manually
+		_, err = r.ReadSecret(adminKeySecretName, operatorVaultPath)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("admin API key secret for Ops Manager doesn't exit - was it removed accidentally? %s. The error : %w",
+				detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(30), nil
+		}
 	}
+
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
 	APIKeySecretName, err := opsManager.APIKeySecretName(r.SecretClient, operatorVaultPath)
 	if err != nil {
