@@ -38,11 +38,6 @@ export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
 export AGENT_VERSION=12.0.30.7791-1
 
-# values from .evergreen.yml
-export CUSTOM_OM_PREV_VERSION=5.0.1
-export CUSTOM_MDB_VERSION=5.0.5
-export CUSTOM_MDB_PREV_VERSION="5.0.1"
-
 # Ops Manager
 export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 
