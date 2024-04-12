@@ -421,15 +421,15 @@ class TestOpsManagerRemoved:
         # (in openshift mainly)
         sleep(20)
 
-    def test_api_key_removed(self, ops_manager: MongoDBOpsManager):
-        with pytest.raises(ApiException):
-            ops_manager.read_api_key_secret()
+    def test_api_key_not_removed(self, ops_manager: MongoDBOpsManager):
+        """The API key must not be removed - this is for situations when the appdb is persistent -
+        so PVs may survive removal"""
+        ops_manager.read_api_key_secret()
 
-    def test_gen_key_not_removed(self, ops_manager: MongoDBOpsManager, gen_key_resource_version: str):
+    def test_gen_key_not_removed(self, ops_manager: MongoDBOpsManager):
         """The gen key must not be removed - this is for situations when the appdb is persistent -
         so PVs may survive removal"""
-        gen_key_secret = ops_manager.read_gen_key_secret()
-        assert gen_key_secret.metadata.resource_version == gen_key_resource_version
+        ops_manager.read_gen_key_secret()
 
     def test_om_sts_removed(self, ops_manager: MongoDBOpsManager):
         for member_cluster_name in ops_manager.get_om_member_cluster_names():

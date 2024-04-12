@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
 	"testing"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
@@ -55,10 +54,6 @@ import (
 	operatorConstruct "github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/stretchr/testify/assert"
 )
-
-func init() {
-	_ = os.Setenv(util.AppDBReadinessWaitEnv, "0")
-}
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()

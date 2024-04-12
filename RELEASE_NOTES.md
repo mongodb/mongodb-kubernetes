@@ -40,6 +40,7 @@
 used. Validation was triggered prematurely when structure `spec.externalAccess` was defined. Now, uniqueness of external domains will only be checked when the external domains are
 actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecList[*].externalAccess.externalDomains`.
 * **MongoDB**: Fixed a bug where upon deleting a **MongoDB** resource the `controlledFeature` policies are not unset on the related OpsManager/CloudManager instance, making cleanup in the UI impossible in the case of losing the kubernetes operator.
+* **OpsManager**: The `admin-key` Secret is no longer deleted when removing the OpsManager Custom Resource. This enables easier Ops Manager re-installation.
 * **MongoDB ReadinessProbe** Fixed the misleading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
 
 ## Helm Chart
