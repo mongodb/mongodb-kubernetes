@@ -8,9 +8,5 @@ script_dir=$(dirname "${script_name}")
 source "$script_dir/root-context"
 source "$script_dir/variables/om60"
 
-# The earliest version supporting Static Containers
-# shellcheck disable=SC2034
-CUSTOM_OM_PREV_VERSION=6.0.21
-
 export KUBE_ENVIRONMENT_NAME=kind
 export MDB_DEFAULT_ARCHITECTURE=static

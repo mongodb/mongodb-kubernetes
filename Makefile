@@ -159,6 +159,9 @@ agent-image:
 om-init-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include init-ops-manager
 
+om-image:
+	@ scripts/evergreen/run_python.sh pipeline.py --include ops-manager
+
 deploy-operator:
 	@ scripts/dev/deploy_operator.sh $(debug)
 

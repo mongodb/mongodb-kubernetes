@@ -10,6 +10,7 @@ from kubernetes import client
 from kubetester import create_or_update, try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import Phase
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture, mark
@@ -186,14 +187,6 @@ class TestOpsManagerCreation:
                     "read_only": True,
                 },
                 {
-                    "name": "ops-manager-scripts",
-                    "mount_path": "/opt/scripts",
-                    "sub_path": None,
-                    "sub_path_expr": None,
-                    "mount_propagation": None,
-                    "read_only": True,
-                },
-                {
                     "name": "test-volume",
                     "mount_path": "/somewhere",
                     "sub_path": None,
@@ -257,10 +250,26 @@ class TestOpsManagerCreation:
                 continue
             assert om_container[k] == expected_spec[k]
 
+        if not is_static_containers_architecture():
+            expected_spec["volume_mounts"].append(
+                {
+                    "name": "ops-manager-scripts",
+                    "mount_path": "/opt/scripts",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                },
+            )
+
         assert_volume_mounts_are_equal(om_container["volume_mounts"], expected_spec["volume_mounts"])
 
         # new volume was added and the old ones ('gen-key' and 'ops-manager-scripts') stayed there
-        assert len(sts.spec.template.spec.volumes) == 5
+        if is_static_containers_architecture():
+            # static containers will not use the ops-manager-scripts volume
+            assert len(sts.spec.template.spec.volumes) == 4
+        else:
+            assert len(sts.spec.template.spec.volumes) == 5
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()

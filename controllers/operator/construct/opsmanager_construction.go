@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
+
 	"golang.org/x/xerrors"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -66,6 +68,7 @@ type OpsManagerStatefulSetOptions struct {
 	kmip                         *KmipConfiguration
 	// backup daemon only
 	HeadDbPersistenceConfig *mdbv1.PersistenceConfig
+	Annotations             map[string]string
 }
 
 type KmipClientConfiguration struct {
@@ -209,6 +212,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(centralClusterSe
 func OpsManagerStatefulSet(centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
+	opts.Annotations = opsManager.Annotations
 	if err := opts.updateHTTPSCertSecret(centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
@@ -322,11 +326,14 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	}
 	var omVolumeMounts []corev1.VolumeMount
 
-	omScriptsVolume := statefulset.CreateVolumeFromEmptyDir("ops-manager-scripts")
-	omVolumes := []corev1.Volume{omScriptsVolume}
+	var omVolumes []corev1.Volume
 
-	omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
-	omVolumeMounts = append(omVolumeMounts, omScriptsVolumeMount)
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+		omScriptsVolume := statefulset.CreateVolumeFromEmptyDir("ops-manager-scripts")
+		omVolumes = append(omVolumes, omScriptsVolume)
+		omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
+		omVolumeMounts = append(omVolumeMounts, omScriptsVolumeMount)
+	}
 
 	vaultSecrets := vault.OpsManagerSecretsToInject{Config: opts.VaultConfig}
 	if vault.IsVaultSecretBackend() {
@@ -415,6 +422,14 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	opts.EnvVars = append(opts.EnvVars, kmipEnvVars(opts)...)
 	omVolumes, omVolumeMounts = appendKmipVolumes(omVolumes, omVolumeMounts, opts)
 
+	initContainerMod := podtemplatespec.NOOP()
+
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+		initContainerMod = podtemplatespec.WithInitContainerByIndex(0,
+			buildOpsManagerAndBackupInitContainer(),
+		)
+	}
+
 	return statefulset.Apply(
 		statefulset.WithLabels(stsLabels),
 		statefulset.WithMatchLabels(labels),
@@ -435,9 +450,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
 				podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
-				podtemplatespec.WithInitContainerByIndex(0,
-					buildOpsManagerAndBackupInitContainer(),
-				),
+				initContainerMod,
 				podtemplatespec.WithContainerByIndex(0,
 					container.Apply(
 						container.WithResourceRequirements(defaultOpsManagerResourceRequirements()),

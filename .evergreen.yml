@@ -31,6 +31,8 @@ variables:
 
   - &base_no_om_image_dependency
     depends_on:
+      - name: build_om_images
+        variant: build_om70_images
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
@@ -660,6 +662,7 @@ tasks:
       include_tags: release
 
 - name: release_agent
+  # this enables us to run this variant either manually (patch) which pct does or during a release (github_tag)
   allowed_requesters: ["patch", "github_tag"]
   commands:
     - func: clone
@@ -2194,7 +2197,8 @@ task_groups:
     - e2e_om_ops_manager_backup_sharded_cluster
     - e2e_om_ops_manager_backup_kmip
     - e2e_om_ops_manager_scale
-    - e2e_om_ops_manager_upgrade
+#    - e2e_om_ops_manager_upgrade static containers do not have a prior version we can upgrade from for om.
+# TODO: activate this test once we have this released for the next release
     - e2e_om_update_before_reconciliation
     - e2e_om_feature_controls
   teardown_task:
@@ -2319,7 +2323,8 @@ task_groups:
     - e2e_om_ops_manager_backup_kmip
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_scale
-    - e2e_om_ops_manager_upgrade
+    #    - e2e_om_ops_manager_upgrade static containers do not have a prior version we can upgrade from for om.
+    # TODO: activate this test once we have this released for the next release
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
     - e2e_om_update_before_reconciliation
@@ -2436,7 +2441,6 @@ task_groups:
   tasks:
     - e2e_olm_operator_upgrade
     - e2e_olm_operator_upgrade_with_resources
-    - e2e_olm_operator_webhooks
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2470,17 +2474,7 @@ buildvariants:
   display_name: e2e_static_mdb_kind_ubi_cloudqa
   run_on:
     - ubuntu2204-large
-  depends_on:
-    - name: build_operator_ubi
-      variant: init_test_run
-    - name: build_test_image
-      variant: init_test_run
-    - name: build_init_appdb_images_ubi
-      variant: init_test_run
-    - name: build_init_om_images_ubi
-      variant: init_test_run
-    - name: build_agent_images_ubi
-      variant: init_test_run
+  <<: *base_no_om_image_dependency
   tasks:
     - name: e2e_mdb_kind_cloudqa_task_group
 
