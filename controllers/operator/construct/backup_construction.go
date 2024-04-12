@@ -70,6 +70,7 @@ func backupOptions(memberCluster multicluster.MemberCluster, additionalOpts ...f
 	return func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		opts := getSharedOpsManagerOptions(opsManager)
 
+		opts.Annotations = opsManager.Annotations
 		opts.ServicePort = BackupDaemonServicePort
 		if memberCluster.Legacy {
 			opts.ServiceName = opsManager.BackupDaemonServiceName()
