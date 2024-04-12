@@ -27,7 +27,9 @@ import yaml
 from sonar.sonar import process_image
 
 import docker
-from scripts.preflight_images import get_supported_version_for_image
+from scripts.evergreen.release.agent_matrix import (
+    get_supported_version_for_image_matrix_handling,
+)
 
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logger = logging.getLogger("pipeline")
@@ -559,7 +561,7 @@ def build_image_daily(
     """Builds a daily image."""
 
     def inner(build_configuration: BuildConfiguration):
-        supported_versions = get_supported_version_for_image(image_name)
+        supported_versions = get_supported_version_for_image_matrix_handling(image_name)
         variants = get_supported_variants_for_image(image_name)
 
         args = args_for_daily_image(image_name)
