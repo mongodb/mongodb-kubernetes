@@ -122,6 +122,13 @@ functions:
         command: python3 -m venv --upgrade-deps ./venv
     - *python_requirements
 
+  setup_docker_sbom:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/setup_docker_sbom.sh
+
   setup_prepare_openshift_bundles:
     - command: subprocess.exec
       type: setup
@@ -343,6 +350,7 @@ tasks:
   - name: periodic_build_operator
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_operator_pid}
@@ -353,6 +361,7 @@ tasks:
   - name: periodic_build_init_appdb
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_init_appdb_pid}
@@ -363,6 +372,7 @@ tasks:
   - name: periodic_build_init_database
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_init_database_pid}
@@ -373,6 +383,7 @@ tasks:
   - name: periodic_build_init_opsmanager
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_init_om_pid}
@@ -383,6 +394,7 @@ tasks:
   - name: periodic_build_database
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_database_pid}
@@ -393,6 +405,7 @@ tasks:
   - name: periodic_build_ops_manager_6
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_om_pid}
@@ -403,6 +416,7 @@ tasks:
   - name: periodic_build_ops_manager_7
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_om_pid}
@@ -414,6 +428,7 @@ tasks:
     commands:
       - func: clone
       - func: enable_QEMU
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_agent_pid}
@@ -425,6 +440,7 @@ tasks:
     commands:
       - func: clone
       - func: enable_QEMU
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_mongodb_community_operator_pid}
@@ -435,6 +451,7 @@ tasks:
   - name: periodic_build_readiness_probe
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_mongodb_readiness_probe_pid}
@@ -445,6 +462,7 @@ tasks:
   - name: periodic_build_version_upgrade_post_start_hook
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_mongodb_build_version_upgrade_post_start_hook_pid}
@@ -455,6 +473,7 @@ tasks:
   - name: periodic_build_appdb_database
     commands:
       - func: clone
+      - func: setup_docker_sbom
       - func: configure_docker_auth
         vars:
           project_id: ${rhc_appdb_database_pid}

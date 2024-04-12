@@ -6,6 +6,7 @@ to produce the final images."""
 
 import argparse
 import copy
+import io
 import json
 import logging
 import os
@@ -22,6 +23,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import requests
 import semver
+import yaml
 from sonar.sonar import process_image
 
 import docker
@@ -314,6 +316,40 @@ def sonar_build_image(
         inventory=inventory,
         build_options=build_options,
     )
+
+    produce_sbom(build_configuration, args)
+
+
+def produce_sbom(build_configuration, args):
+    if not is_running_in_evg_pipeline():
+        logger.info("Skipping SBOM Generation (enabled only for EVG)")
+        return
+
+    image_pull_spec = "unknown"
+    try:
+        image_pull_spec = args["quay_registry"] + args["ubi_suffix"]
+    except KeyError:
+        logger.error(f"Could not find image pull spec. Args: {args}, BuildConfiguration: {build_configuration}")
+        logger.error(f"Skipping SBOM generation")
+        return
+
+    image_tag = "unknown"
+    try:
+        image_tag = args["release_version"]
+    except KeyError:
+        logger.error(f"Could not find image tag. Args: {args}, BuildConfiguration: {build_configuration}")
+        logger.error(f"Skipping SBOM generation")
+        return
+
+    image_pull_spec = f"{image_pull_spec}:{image_tag}"
+    print(f"Producing SBOM for image: {image_pull_spec}")
+    proc = subprocess.Popen(
+        ["./scripts/evergreen/generate_upload_sbom.sh", "-i", image_pull_spec, "-b", "enterprise-operator-sboms"],
+        stdout=subprocess.PIPE,
+    )
+    for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
+        logger.info(line.rstrip())
+    # Ignoring the return code for now.
 
 
 def build_tests_image(build_configuration: BuildConfiguration):
