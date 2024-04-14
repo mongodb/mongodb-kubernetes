@@ -158,7 +158,7 @@ class Operator(object):
     def _wait_operator_webhook_is_ready(self, retries: int = 10, multi_cluster: bool = False):
 
         # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
-        from tests.conftest import local_operator
+        from tests.conftest import get_cluster_domain, local_operator
 
         if local_operator():
             return
@@ -170,8 +170,8 @@ class Operator(object):
 
         logging.debug("_wait_operator_webhook_is_ready")
         validation_endpoint = "validate-mongodb-com-v1-mongodb"
-        webhook_endpoint = "https://operator-webhook.{}.svc.cluster.local/{}".format(
-            self.namespace, validation_endpoint
+        webhook_endpoint = "https://operator-webhook.{}.svc.{}/{}".format(
+            self.namespace, get_cluster_domain(), validation_endpoint
         )
         headers = {"Content-Type": "application/json"}
 

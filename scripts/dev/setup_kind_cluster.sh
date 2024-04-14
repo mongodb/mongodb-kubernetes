@@ -24,17 +24,19 @@ Options:
   -p <pod network>     (optional) Network reserved for Pods, e.g. 10.244.0.0/16
   -s <service network> (optional) Network reserved for Services, e.g. 10.96.0.0/16
   -l <LB IP range>     (optional) MetalLB IP range, e.g. 172.18.255.200-172.18.255.250
+  -c <cluster domain>  (optional) Cluster domain. If not supplied, cluster.local will be used
 "
   exit 0
 }
 
 cluster_name=${CLUSTER_NAME:-"kind"}
+cluster_domain="cluster.local"
 export_kubeconfig=0
 recreate=0
 pod_network="10.244.0.0/16"
 service_network="10.96.0.0/16"
 metallb_ip_range="172.18.255.200-172.18.255.250"
-while getopts ':l:p:s:n:her' opt; do
+while getopts ':c:l:p:s:n:her' opt; do
   case $opt in
     n) cluster_name=$OPTARG ;;
     e) export_kubeconfig=1 ;;
@@ -42,6 +44,7 @@ while getopts ':l:p:s:n:her' opt; do
     p) pod_network=$OPTARG ;;
     s) service_network=$OPTARG ;;
     l) metallb_ip_range=$OPTARG ;;
+    c) cluster_domain=$OPTARG ;;
     h) usage ;;
     *) usage ;;
   esac
@@ -81,6 +84,12 @@ nodes:
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
+kubeadmConfigPatches:
+- |
+  apiVersion: kubeadm.k8s.io/v1beta3
+  kind: ClusterConfiguration
+  networking:
+    dnsDomain: "${cluster_domain}"
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${reg_port}"]

@@ -10,4 +10,4 @@ if [[ -z ${cluster_name} ]]; then
   exit 1
 fi
 
-scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250"
+scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "172.18.255.200-172.18.255.250" -c "$CLUSTER_DOMAIN"

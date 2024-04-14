@@ -1961,6 +1961,22 @@ task_groups:
     - func: teardown_kubernetes_environment
     - func: teardown_cloud_qa
 
+- name: e2e_custom_domain_task_group
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_replica_set
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+
 # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
 # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
 - name: e2e_operator_task_group
@@ -2460,8 +2476,6 @@ buildvariants:
 # where <om_version> denotes the OM version tested (e.g. om50, om60, cloudqa) - used only for MDB tests
 
 ## MongoDB build variants
-
-
 - name: e2e_mdb_kind_ubi_cloudqa
   display_name: e2e_mdb_kind_ubi_cloudqa
   run_on:
@@ -2470,6 +2484,14 @@ buildvariants:
   tasks:
     - name: e2e_mdb_kind_cloudqa_task_group
 
+- name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+  display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+  run_on:
+    - ubuntu2204-large
+  <<: *base_no_om_image_dependency
+  tasks:
+    - name: e2e_custom_domain_task_group
+
 - name: e2e_static_mdb_kind_ubi_cloudqa
   display_name: e2e_static_mdb_kind_ubi_cloudqa
   run_on:
@@ -2477,6 +2499,24 @@ buildvariants:
   <<: *base_no_om_image_dependency
   tasks:
     - name: e2e_mdb_kind_cloudqa_task_group
+
+- name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
+  display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
+  run_on:
+    - ubuntu2204-large
+  depends_on:
+    - name: build_operator_ubi
+      variant: init_test_run
+    - name: build_test_image
+      variant: init_test_run
+    - name: build_init_appdb_images_ubi
+      variant: init_test_run
+    - name: build_init_om_images_ubi
+      variant: init_test_run
+    - name: build_agent_images_ubi
+      variant: init_test_run
+  tasks:
+    - name: e2e_custom_domain_task_group
 
 - name: e2e_mdb_openshift_ubi_cloudqa
   display_name: e2e_mdb_openshift_ubi_cloudqa
