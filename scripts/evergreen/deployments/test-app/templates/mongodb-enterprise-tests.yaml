@@ -161,6 +161,8 @@ spec:
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: {{ .Values.mdbDefaultArchitecture }}
+    - name: CLUSTER_DOMAIN
+      value: {{ .Values.clusterDomain }}
     {{ if .Values.omDebugHttp }}
     - name: OM_DEBUG_HTTP
       value: "{{ .Values.omDebugHttp }}"

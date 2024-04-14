@@ -314,12 +314,13 @@ class StandaloneTester(MongoTester):
         namespace: Optional[str] = None,
         port="27017",
         external_domain: Optional[str] = None,
+        cluster_domain: str = "cluster.local",
     ):
         if namespace is None:
             namespace = KubernetesTester.get_namespace()
 
         self.cnx_string = build_mongodb_connection_uri(
-            mdb_resource_name, namespace, 1, port, external_domain=external_domain
+            mdb_resource_name, namespace, 1, port, external_domain=external_domain, cluster_domain=cluster_domain
         )
         super().__init__(self.cnx_string, ssl, ca_path)
 
@@ -335,6 +336,7 @@ class ReplicaSetTester(MongoTester):
         namespace: Optional[str] = None,
         port="27017",
         external_domain: Optional[str] = None,
+        cluster_domain: str = "cluster.local",
     ):
         if namespace is None:
             # backward compatibility with docstring tests
@@ -350,6 +352,7 @@ class ReplicaSetTester(MongoTester):
             srv=srv,
             port=port,
             external_domain=external_domain,
+            cluster_domain=cluster_domain,
         )
 
         super().__init__(self.cnx_string, ssl, ca_path)
@@ -411,6 +414,7 @@ class ShardedClusterTester(MongoTester):
         ca_path: Optional[str] = None,
         namespace: Optional[str] = None,
         port="27017",
+        cluster_domain: str = "cluster.local",
     ):
         mdb_name = mdb_resource_name + "-mongos"
         servicename = mdb_resource_name + "-svc"
@@ -426,6 +430,7 @@ class ShardedClusterTester(MongoTester):
             port=port,
             servicename=servicename,
             srv=srv,
+            cluster_domain=cluster_domain,
         )
         super().__init__(self.cnx_string, ssl, ca_path)
 
@@ -558,6 +563,7 @@ def build_mongodb_connection_uri(
     servicename: str = None,
     srv: bool = False,
     external_domain: str = None,
+    cluster_domain: str = "cluster.local",
 ) -> str:
     if servicename is None:
         servicename = "{}-svc".format(mdb_resource)
@@ -565,9 +571,11 @@ def build_mongodb_connection_uri(
     if external_domain:
         return build_mongodb_uri(build_list_of_hosts_with_external_domain(mdb_resource, members, external_domain, port))
     if srv:
-        return build_mongodb_uri(build_host_srv(servicename, namespace), srv)
+        return build_mongodb_uri(build_host_srv(servicename, namespace, cluster_domain), srv)
     else:
-        return build_mongodb_uri(build_list_of_hosts(mdb_resource, namespace, members, servicename, port))
+        return build_mongodb_uri(
+            build_list_of_hosts(mdb_resource, namespace, members, servicename, port, cluster_domain)
+        )
 
 
 def build_mongodb_multi_connection_uri(
@@ -576,8 +584,13 @@ def build_mongodb_multi_connection_uri(
     return build_mongodb_uri(build_list_of_multi_hosts(namespace, service_names, port, external=external))
 
 
-def build_list_of_hosts(mdb_resource: str, namespace: str, members: int, servicename: str, port: str) -> List[str]:
-    return [build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename, port) for idx in range(members)]
+def build_list_of_hosts(
+    mdb_resource: str, namespace: str, members: int, servicename: str, port: str, cluster_domain: str
+) -> List[str]:
+    return [
+        build_host_fqdn("{}-{}".format(mdb_resource, idx), namespace, servicename, port, cluster_domain)
+        for idx in range(members)
+    ]
 
 
 def build_list_of_hosts_with_external_domain(
@@ -596,14 +609,16 @@ def build_host_service_fqdn(namespace: str, servicename: str, port) -> str:
     return f"{servicename}.{namespace}.svc.cluster.local:{port}"
 
 
-def build_host_fqdn(hostname: str, namespace: str, servicename: str, port) -> str:
-    return "{hostname}.{servicename}.{namespace}.svc.cluster.local:{port}".format(
-        hostname=hostname, servicename=servicename, namespace=namespace, port=port
+def build_host_fqdn(hostname: str, namespace: str, servicename: str, port, cluster_domain: str) -> str:
+    return "{hostname}.{servicename}.{namespace}.svc.{cluster_domain}:{port}".format(
+        hostname=hostname, servicename=servicename, namespace=namespace, port=port, cluster_domain=cluster_domain
     )
 
 
-def build_host_srv(servicename: str, namespace: str) -> str:
-    srv_host = "{servicename}.{namespace}.svc.cluster.local".format(servicename=servicename, namespace=namespace)
+def build_host_srv(servicename: str, namespace: str, cluster_domain: str) -> str:
+    srv_host = "{servicename}.{namespace}.svc.{cluster_domain}".format(
+        servicename=servicename, namespace=namespace, cluster_domain=cluster_domain
+    )
     return srv_host
 
 

@@ -161,6 +161,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 ca_path=ca_path,
                 namespace=self.namespace,
                 external_domain=self.get_external_domain(),
+                cluster_domain=self.get_cluster_domain(),
             )
         elif self.type == "ShardedCluster":
             return ShardedClusterTester(
@@ -170,6 +171,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 srv=srv,
                 ca_path=ca_path,
                 namespace=self.namespace,
+                cluster_domain=self.get_cluster_domain(),
             )
         elif self.type == "Standalone":
             return StandaloneTester(
@@ -178,9 +180,10 @@ class MongoDB(CustomObject, MongoDBCommon):
                 ca_path=ca_path,
                 namespace=self.namespace,
                 external_domain=self.get_external_domain(),
+                cluster_domain=self.get_cluster_domain(),
             )
 
-    def assert_connectivity(self, ca_path: Optional[str] = None):
+    def assert_connectivity(self, ca_path: Optional[str] = None, cluster_domain: str = "cluster.local"):
         return self.tester(ca_path=ca_path).assert_connectivity()
 
     def set_architecture_annotation(self):

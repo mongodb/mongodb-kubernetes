@@ -30,9 +30,10 @@ def _get_group_id(envs) -> str:
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "my-replica-set", namespace)
     resource.set_version(custom_mdb_version)
+    resource["spec"]["clusterDomain"] = cluster_domain
 
     # Setting podSpec shortcut values here to test they are still
     # added as resources when needed.
@@ -232,7 +233,7 @@ class TestReplicaSetCreation(KubernetesTester):
         config = self.get_automation_config()
         assert len(config["replicaSets"]) == 1
 
-    def test_om_processes(self, custom_mdb_version: str):
+    def test_om_processes(self, custom_mdb_version: str, cluster_domain: str):
         config = self.get_automation_config()
         processes = config["processes"]
 
@@ -244,7 +245,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
-            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(name, self.namespace)
+            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.{}".format(name, self.namespace, cluster_domain)
             assert p["args2_6"]["net"]["port"] == 27017
             assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
@@ -268,7 +269,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert m["votes"] == 1
             assert m["priority"] == 1.0
 
-    def test_monitoring_versions(self):
+    def test_monitoring_versions(self, cluster_domain: str):
         config = self.get_automation_config()
         mv = config["monitoringVersions"]
         assert len(mv) == 3
@@ -278,11 +279,11 @@ class TestReplicaSetCreation(KubernetesTester):
             # baseUrl is not present in Cloud Manager response
             if "baseUrl" in mv[i]:
                 assert mv[i]["baseUrl"] is None
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(i, self.namespace)
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.{}".format(i, self.namespace, cluster_domain)
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
-    def test_backup(self):
+    def test_backup(self, cluster_domain):
         config = self.get_automation_config()
         # 1 backup agent per host
         bkp = config["backupVersions"]
@@ -290,7 +291,7 @@ class TestReplicaSetCreation(KubernetesTester):
 
         # Backup agent is installed on all hosts
         for i in range(0, 3):
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(i, self.namespace)
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.{}".format(i, self.namespace, cluster_domain)
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION
 
@@ -304,11 +305,11 @@ class TestReplicaSetCreation(KubernetesTester):
             assert (config["version"] - config_version.version) == 2
 
     @skip_if_local
-    def test_replica_set_was_configured(self):
-        ReplicaSetTester(RESOURCE_NAME, 3, ssl=False).assert_connectivity()
+    def test_replica_set_was_configured(self, cluster_domain: str):
+        ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, cluster_domain=cluster_domain).assert_connectivity()
 
-    def test_replica_set_was_configured_with_srv(self):
-        ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, srv=True).assert_connectivity()
+    def test_replica_set_was_configured_with_srv(self, cluster_domain: str):
+        ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, srv=True, cluster_domain=cluster_domain).assert_connectivity()
 
 
 @pytest.mark.e2e_replica_set
@@ -414,7 +415,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         config = self.get_automation_config()
         assert len(config["replicaSets"]) == 1
 
-    def test_om_processes(self, custom_mdb_version: str):
+    def test_om_processes(self, custom_mdb_version: str, cluster_domain: str):
         config = self.get_automation_config()
         processes = config["processes"]
         for idx in range(0, 4):
@@ -425,7 +426,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
-            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.cluster.local".format(name, self.namespace)
+            assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.{}".format(name, self.namespace, cluster_domain)
             assert p["args2_6"]["net"]["port"] == 27017
             assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
@@ -449,7 +450,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert m["buildIndexes"] is True
             assert m["host"] == f"my-replica-set-{idx}"
 
-    def test_monitoring_versions(self):
+    def test_monitoring_versions(self, cluster_domain: str):
         config = self.get_automation_config()
         mv = config["monitoringVersions"]
         assert len(mv) == 5
@@ -458,11 +459,11 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for i in range(0, 5):
             if "baseUrl" in mv[i]:
                 assert mv[i]["baseUrl"] is None
-            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.cluster.local".format(i, self.namespace)
+            hostname = "my-replica-set-{}.my-replica-set-svc.{}.svc.{}".format(i, self.namespace, cluster_domain)
             assert mv[i]["hostname"] == hostname
             assert mv[i]["name"] == DEFAULT_MONITORING_AGENT_VERSION
 
-    def test_backup(self):
+    def test_backup(self, cluster_domain: str):
         config = self.get_automation_config()
         # 1 backup agent per host
         bkp = config["backupVersions"]
@@ -470,8 +471,8 @@ class TestReplicaSetScaleUp(KubernetesTester):
 
         # Backup agent is installed on all hosts
         for i in range(0, 5):
-            hostname = "{resource_name}-{idx}.{resource_name}-svc.{namespace}.svc.cluster.local".format(
-                resource_name=RESOURCE_NAME, idx=i, namespace=self.namespace
+            hostname = "{resource_name}-{idx}.{resource_name}-svc.{namespace}.svc.{cluster_domain}".format(
+                resource_name=RESOURCE_NAME, idx=i, namespace=self.namespace, cluster_domain=cluster_domain
             )
             assert bkp[i]["hostname"] == hostname
             assert bkp[i]["name"] == DEFAULT_BACKUP_VERSION

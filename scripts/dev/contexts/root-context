@@ -74,3 +74,5 @@ if [[ "$(uname)" == "Linux" ]]; then
 fi
 
 export MONGODB_REPO_URL="quay.io/mongodb"
+
+export CLUSTER_DOMAIN="cluster.local"

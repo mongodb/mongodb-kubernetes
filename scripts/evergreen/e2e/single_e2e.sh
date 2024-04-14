@@ -53,6 +53,7 @@ deploy_test_app() {
         "--set" "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
         "--set" "registry=${REGISTRY:-${BASE_REPO_URL}/${IMAGE_TYPE}}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-'non-static'}"
+        "--set" "clusterDomain=${CLUSTER_DOMAIN:-'cluster.local'}"
     )
 
     # shellcheck disable=SC2154
