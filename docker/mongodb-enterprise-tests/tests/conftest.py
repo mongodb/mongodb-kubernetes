@@ -404,8 +404,17 @@ def custom_mdb_version() -> str:
     return get_custom_mdb_version()
 
 
+@fixture(scope="module")
+def cluster_domain() -> str:
+    return get_cluster_domain()
+
+
 def get_custom_mdb_version():
     return os.getenv("CUSTOM_MDB_VERSION", "5.0.14")
+
+
+def get_cluster_domain():
+    return os.getenv("CLUSTER_DOMAIN", "cluster.local")
 
 
 @fixture(scope="module")
