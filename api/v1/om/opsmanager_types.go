@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -65,23 +66,23 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om *MongoDBOpsManager) AddValidationToManager(mgr manager.Manager, _ map[string]cluster.Cluster) error {
+func (om *MongoDBOpsManager) AddValidationToManager(ctx context.Context, mgr manager.Manager, _ map[string]cluster.Cluster) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(om).Complete()
 }
 
-func (om *MongoDBOpsManager) GetAppDBProjectConfig(secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
 	var operatorVaultSecretPath string
 	if secretClient.VaultClient != nil {
 		operatorVaultSecretPath = secretClient.VaultClient.OperatorSecretPath()
 	}
-	secretName, err := om.APIKeySecretName(secretClient, operatorVaultSecretPath)
+	secretName, err := om.APIKeySecretName(ctx, secretClient, operatorVaultSecretPath)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
 	}
 
 	if om.IsTLSEnabled() {
 		opsManagerCA := om.Spec.GetOpsManagerCA()
-		cm, err := client.GetConfigMap(kube.ObjectKey(om.Namespace, opsManagerCA))
+		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
 		if err != nil {
 			return mdbv1.ProjectConfig{}, err
 		}
@@ -795,12 +796,12 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility, it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
-func (om *MongoDBOpsManager) APIKeySecretName(client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
+func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace)
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
-	_, err := client.ReadSecret(oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
+	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
 	if err != nil {
 		if secrets.SecretNotExist(err) {
 			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil

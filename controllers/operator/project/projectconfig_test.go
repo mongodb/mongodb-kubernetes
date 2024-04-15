@@ -13,13 +13,14 @@ import (
 )
 
 func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *testing.T) {
+	ctx := context.Background()
 	client := mock.NewClient()
 
 	cm := defaultConfigMap("cm1")
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "true"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
+	projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
 
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -29,9 +30,9 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 
 	cm = defaultConfigMap("cm2")
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "1"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err = ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm2"), "")
+	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm2"), "")
 
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -43,9 +44,9 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 	// Setting this attribute to "false" will make it false, any other
 	// value will result in this attribute being set to true.
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err = ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm3"), "")
+	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm3"), "")
 
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -55,22 +56,23 @@ func TestSSLOptionsArePassedCorrectly_SSLRequireValidMMSServerCertificates(t *te
 }
 
 func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
+	ctx := context.Background()
 	client := mock.NewClient()
 
 	// This represents the ConfigMap holding the CustomCA
 	cm := defaultConfigMap("configmap-with-ca-entry")
 	cm.Data["mms-ca.crt"] = "---- some cert ----"
 	cm.Data["this-field-is-not-required"] = "bla bla"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
 	// The second CM (the "Project" one) refers to the previous one, where
 	// the certificate entry is stored.
 	cm = defaultConfigMap("cm")
 	cm.Data[util.SSLMMSCAConfigMap] = "configmap-with-ca-entry"
 	cm.Data[util.SSLRequireValidMMSServerCertificates] = "false"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
+	projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
 
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.SSLProjectConfig.SSLRequireValidMMSServerCertificates)
@@ -80,14 +82,15 @@ func TestSSLOptionsArePassedCorrectly_SSLMMSCAConfigMap(t *testing.T) {
 }
 
 func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
+	ctx := context.Background()
 	client := mock.NewClient()
 
 	// Passing "false" results in false to UseCustomCA
 	cm := defaultConfigMap("cm")
 	cm.Data[util.UseCustomCAConfigMap] = "false"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
+	projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
 
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.UseCustomCA)
@@ -95,9 +98,9 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	// Passing "true" results in true to UseCustomCA
 	cm = defaultConfigMap("cm2")
 	cm.Data[util.UseCustomCAConfigMap] = "true"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err = ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm2"), "")
+	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm2"), "")
 
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
@@ -105,18 +108,18 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	// Passing any value different from "false" results in true.
 	cm = defaultConfigMap("cm3")
 	cm.Data[util.UseCustomCAConfigMap] = ""
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err = ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm3"), "")
+	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm3"), "")
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
 
 	// "1" also results in a true value
 	cm = defaultConfigMap("cm4")
 	cm.Data[util.UseCustomCAConfigMap] = "1"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err = ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm4"), "")
+	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm4"), "")
 	assert.NoError(t, err)
 	assert.True(t, projectConfig.UseCustomCA)
 
@@ -125,28 +128,29 @@ func TestSSLOptionsArePassedCorrectly_UseCustomCAConfigMap(t *testing.T) {
 	// result in contaminated checks.
 	cm = defaultConfigMap("cm5")
 	cm.Data[util.UseCustomCAConfigMap] = "false"
-	client.Create(context.TODO(), &cm)
+	client.Create(ctx, &cm)
 
-	projectConfig, err = ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm5"), "")
+	projectConfig, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm5"), "")
 	assert.NoError(t, err)
 	assert.False(t, projectConfig.UseCustomCA)
 }
 
 func TestMissingRequiredFieldsFromCM(t *testing.T) {
+	ctx := context.Background()
 	client := mock.NewClient()
 
 	t.Run("missing url", func(t *testing.T) {
 		cm := defaultConfigMap("cm1")
 		delete(cm.Data, util.OmBaseUrl)
-		client.Create(context.TODO(), &cm)
-		_, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
+		client.Create(ctx, &cm)
+		_, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
 		assert.Error(t, err)
 	})
 	t.Run("missing orgID", func(t *testing.T) {
 		cm := defaultConfigMap("cm1")
 		delete(cm.Data, util.OmOrgId)
-		client.Create(context.TODO(), &cm)
-		_, err := ReadProjectConfig(client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
+		client.Create(ctx, &cm)
+		_, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
 		assert.Error(t, err)
 	})
 }

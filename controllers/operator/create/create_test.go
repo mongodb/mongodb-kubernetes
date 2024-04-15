@@ -1,20 +1,21 @@
 package create
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"k8s.io/utils/ptr"
 
-	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/construct"
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	omv1 "github.com/10gen/ops-manager-kubernetes/api/v1/om"
@@ -32,7 +33,7 @@ func init() {
 
 func TestBuildService(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	svc := BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, pointer.String("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc := BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, ptr.To("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -51,7 +52,7 @@ func TestBuildService(t *testing.T) {
 	assert.True(t, svc.Spec.PublishNotReadyAddresses)
 
 	// test podName label not nil
-	svc = BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, pointer.String("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc = BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, ptr.To("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -71,11 +72,12 @@ func TestBuildService(t *testing.T) {
 }
 
 func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
+	ctx := context.Background()
 	testOm := omv1.NewOpsManagerBuilderDefault().
 		SetName("test-om").
 		SetInternalConnectivity(omv1.MongoDBOpsManagerServiceDefinition{
 			Type:      corev1.ServiceTypeClusterIP,
-			ClusterIP: pointer.String("0.0.12.0"),
+			ClusterIP: ptr.To("0.0.12.0"),
 			Port:      5000,
 		}).
 		SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
@@ -89,13 +91,13 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 		KubeClient:  client,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	svc, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "The operator creates a ClusterIP service if explicitly requested to do so.")
@@ -112,6 +114,7 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 }
 
 func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing.T) {
+	ctx := context.Background()
 	testOm := omv1.NewOpsManagerBuilderDefault().
 		SetName("test-om").
 		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
@@ -126,13 +129,13 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 		KubeClient:  client,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	svc, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service for OM multicluster is of type ClusterIP")
@@ -140,6 +143,7 @@ func TestOpsManagerInKubernetes_DefaultInternalServiceForMultiCluster(t *testing
 }
 
 func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
+	ctx := context.Background()
 	testOm := omv1.NewOpsManagerBuilderDefault().
 		SetName("test-om").
 		SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
@@ -153,16 +157,16 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 		KubeClient:  client,
 	}
 
-	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	_, err = client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
+	_, err = client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.Error(t, err, "No external service should have been created")
 
-	svc, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
+	svc, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
 	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "Default internal service is of type ClusterIP")
@@ -180,6 +184,7 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 }
 
 func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
+	ctx := context.Background()
 	testOm := omv1.NewOpsManagerBuilderDefault().
 		SetName("test-om").
 		SetAppDBPassword("my-secret", "password").
@@ -196,13 +201,13 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
-	sts, err := construct.OpsManagerStatefulSet(secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
+	sts, err := construct.OpsManagerStatefulSet(ctx, secretsClient, testOm, multicluster.GetLegacyCentralMemberCluster(testOm.Spec.Replicas, 0, client, secretsClient), zap.S())
 	assert.NoError(t, err)
 
-	err = OpsManagerInKubernetes(client, testOm, sts, zap.S())
+	err = OpsManagerInKubernetes(ctx, client, testOm, sts, zap.S())
 	assert.NoError(t, err)
 
-	externalService, err := client.GetService(kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
+	externalService, err := client.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()+"-ext"))
 	assert.NoError(t, err, "An External service should have been created")
 
 	assert.Len(t, externalService.Spec.Ports, 2, "Backup port should have been added to existing external service")
@@ -219,6 +224,7 @@ func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
 }
 
 func TestDatabaseInKubernetes_ExternalServicesWithoutExternalDomain(t *testing.T) {
+	ctx := context.Background()
 	svc := corev1.Service{
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external"},
@@ -240,10 +246,11 @@ func TestDatabaseInKubernetes_ExternalServicesWithoutExternalDomain(t *testing.T
 	service2.Name = "mdb-1-svc-external"
 	expectedServices := []corev1.Service{service1, service2}
 
-	testDatabaseInKubernetesExternalServices(t, mdbv1.ExternalAccessConfiguration{}, expectedServices)
+	testDatabaseInKubernetesExternalServices(ctx, t, mdbv1.ExternalAccessConfiguration{}, expectedServices)
 }
 
 func TestDatabaseInKubernetes_ExternalServicesWithExternalDomainHaveAdditionalBackupPort(t *testing.T) {
+	ctx := context.Background()
 	svc := corev1.Service{
 		TypeMeta:   metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external"},
@@ -269,10 +276,11 @@ func TestDatabaseInKubernetes_ExternalServicesWithExternalDomainHaveAdditionalBa
 	service2.Name = "mdb-1-svc-external"
 	expectedServices := []corev1.Service{service1, service2}
 
-	testDatabaseInKubernetesExternalServices(t, mdbv1.ExternalAccessConfiguration{ExternalDomain: pointer.String("example.com")}, expectedServices)
+	testDatabaseInKubernetesExternalServices(ctx, t, mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("example.com")}, expectedServices)
 }
 
 func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testing.T) {
+	ctx := context.Background()
 	svc := corev1.Service{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external", Annotations: map[string]string{
@@ -301,7 +309,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 	expectedServices := []corev1.Service{service1, service2}
 
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
-		ExternalDomain: pointer.String("example.com"),
+		ExternalDomain: ptr.To("example.com"),
 		ExternalService: mdbv1.ExternalServiceConfiguration{
 			SpecWrapper: &mdbv1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
@@ -311,13 +319,14 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 			},
 		},
 	}
-	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, expectedServices)
+	testDatabaseInKubernetesExternalServices(ctx, t, externalAccessConfiguration, expectedServices)
 }
 
 const defaultResourceName = "mdb"
 const defaultNamespace = "my-namespace"
 
 func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders(t *testing.T) {
+	ctx := context.Background()
 	svc := corev1.Service{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external", Annotations: map[string]string{
@@ -384,10 +393,11 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders(t *testing.T) {
 		PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s.%s", podName, mongodProcessDomain),
 	}
 
-	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, []corev1.Service{service1, service2})
+	testDatabaseInKubernetesExternalServices(ctx, t, externalAccessConfiguration, []corev1.Service{service1, service2})
 }
 
 func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomain(t *testing.T) {
+	ctx := context.Background()
 	svc := corev1.Service{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-0-svc-external", Annotations: map[string]string{
@@ -460,13 +470,13 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomai
 		PlaceholderMongodProcessFQDN:   fmt.Sprintf("%s.%s", podName, mongodProcessDomain),
 	}
 
-	testDatabaseInKubernetesExternalServices(t, externalAccessConfiguration, []corev1.Service{service1, service2})
+	testDatabaseInKubernetesExternalServices(ctx, t, externalAccessConfiguration, []corev1.Service{service1, service2})
 }
 
-func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
+func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
 	log := zap.S()
 	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources()
+	manager.Client.AddDefaultMdbConfigResources(ctx)
 
 	mdb := mdbv1.NewReplicaSetBuilder().
 		SetName(defaultResourceName).
@@ -476,12 +486,12 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
+	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
 	for _, expectedService := range expectedServices {
-		actualService, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
+		actualService, err := manager.Client.GetService(ctx, types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
 		require.NoError(t, err, "serviceName: %s", expectedService.GetName())
 		require.NotNil(t, actualService)
 		require.Len(t, actualService.Spec.Ports, len(expectedService.Spec.Ports))
@@ -499,19 +509,20 @@ func testDatabaseInKubernetesExternalServices(t *testing.T, externalAccessConfig
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	err = DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
+	err = DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
-		_, err := manager.Client.GetService(types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
+		_, err := manager.Client.GetService(ctx, types.NamespacedName{Name: expectedService.GetName(), Namespace: defaultNamespace})
 		assert.True(t, errors.IsNotFound(err))
 	}
 }
 
 func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
+	ctx := context.Background()
 	log := zap.S()
 	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources()
+	manager.Client.AddDefaultMdbConfigResources(ctx)
 
 	mdb := mdbv1.NewDefaultShardedClusterBuilder().
 		SetName("mdb").
@@ -523,37 +534,37 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 
 	mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
 
-	err := createShardSts(t, mdb, log, manager)
+	err := createShardSts(ctx, t, mdb, log, manager)
 	require.NoError(t, err)
 
-	err = createMongosSts(t, mdb, log, manager)
+	err = createMongosSts(ctx, t, mdb, log, manager)
 	require.NoError(t, err)
 
-	actualService, err := manager.Client.GetService(types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
-	require.NoError(t, err)
-	require.NotNil(t, actualService)
-
-	actualService, err = manager.Client.GetService(types.NamespacedName{Name: "mdb-mongos-1-svc-external", Namespace: "my-namespace"})
+	actualService, err := manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
 	require.NoError(t, err)
 	require.NotNil(t, actualService)
 
-	_, err = manager.Client.GetService(types.NamespacedName{Name: "mdb-config-0-svc-external", Namespace: "my-namespace"})
+	actualService, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-1-svc-external", Namespace: "my-namespace"})
+	require.NoError(t, err)
+	require.NotNil(t, actualService)
+
+	_, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-config-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no config service")
 
-	_, err = manager.Client.GetService(types.NamespacedName{Name: "mdb-0-svc-external", Namespace: "my-namespace"})
+	_, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no shard service")
 
 }
 
-func createShardSts(t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
+func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.ShardOptions(1), log)
+	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.ShardOptions(1), log)
 	assert.NoError(t, err)
 	return err
 }
-func createMongosSts(t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
+func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(construct.GetPodEnvOptions()), log)
-	err := DatabaseInKubernetes(manager.Client, *mdb, sts, construct.MongosOptions(), log)
+	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.MongosOptions(), log)
 	assert.NoError(t, err)
 	return err
 }

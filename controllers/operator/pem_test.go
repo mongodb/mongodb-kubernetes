@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
@@ -114,26 +115,27 @@ type mockSecretGetter struct {
 	secret *corev1.Secret
 }
 
-func (m mockSecretGetter) GetSecret(_ client.ObjectKey) (corev1.Secret, error) {
+func (m mockSecretGetter) GetSecret(_ context.Context, _ client.ObjectKey) (corev1.Secret, error) {
 	if m.secret == nil {
 		return corev1.Secret{}, xerrors.Errorf("not found")
 	}
 	return *m.secret, nil
 }
 
-func (m mockSecretGetter) CreateSecret(s corev1.Secret) error {
+func (m mockSecretGetter) CreateSecret(_ context.Context, _ corev1.Secret) error {
 	return nil
 }
 
-func (m mockSecretGetter) UpdateSecret(s corev1.Secret) error {
+func (m mockSecretGetter) UpdateSecret(_ context.Context, _ corev1.Secret) error {
 	return nil
 }
 
-func (m mockSecretGetter) DeleteSecret(nsName types.NamespacedName) error {
+func (m mockSecretGetter) DeleteSecret(_ context.Context, _ types.NamespacedName) error {
 	return nil
 }
 
 func TestReadPemHashFromSecret(t *testing.T) {
+	ctx := context.Background()
 	name := "res-name"
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name + "-cert", Namespace: mock.TestNamespace},
@@ -141,17 +143,17 @@ func TestReadPemHashFromSecret(t *testing.T) {
 		Type:       corev1.SecretTypeTLS,
 	}
 
-	assert.Empty(t, pem.ReadHashFromSecret(secrets.SecretClient{
+	assert.Empty(t, pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{},
 	}, mock.TestNamespace, name, "", zap.S()), "secret does not exist so pem hash should be empty")
 
-	hash := pem.ReadHashFromSecret(secrets.SecretClient{
+	hash := pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
 	}, mock.TestNamespace, name, "", zap.S())
 
-	hash2 := pem.ReadHashFromSecret(secrets.SecretClient{
+	hash2 := pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
 	}, mock.TestNamespace, name, "", zap.S())
@@ -161,6 +163,7 @@ func TestReadPemHashFromSecret(t *testing.T) {
 }
 
 func TestReadPemHashFromSecretOpaqueType(t *testing.T) {
+	ctx := context.Background()
 
 	name := "res-name"
 	secret := &corev1.Secret{
@@ -169,7 +172,7 @@ func TestReadPemHashFromSecretOpaqueType(t *testing.T) {
 		Type:       corev1.SecretTypeOpaque,
 	}
 
-	assert.Empty(t, pem.ReadHashFromSecret(secrets.SecretClient{
+	assert.Empty(t, pem.ReadHashFromSecret(ctx, secrets.SecretClient{
 		VaultClient: nil,
 		KubeClient:  mockSecretGetter{secret: secret},
 	}, mock.TestNamespace, name, "", zap.S()), "if secret type is not TLS the empty string should be returned")

@@ -1,6 +1,7 @@
 package statefulset
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
@@ -96,12 +97,12 @@ func (s StatefulSetCantBeUpdatedError) Error() string {
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns string, log *zap.SugaredLogger, statefulSetToCreate *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator statefulset.GetUpdateCreator, ns string, log *zap.SugaredLogger, statefulSetToCreate *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
 	log = log.With("statefulset", kube.ObjectKey(ns, statefulSetToCreate.Name))
-	existingStatefulSet, err := getUpdateCreator.GetStatefulSet(kube.ObjectKey(ns, statefulSetToCreate.Name))
+	existingStatefulSet, err := getUpdateCreator.GetStatefulSet(ctx, kube.ObjectKey(ns, statefulSetToCreate.Name))
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			if err = getUpdateCreator.CreateStatefulSet(*statefulSetToCreate); err != nil {
+			if err = getUpdateCreator.CreateStatefulSet(ctx, *statefulSetToCreate); err != nil {
 				return nil, err
 			}
 		} else {
@@ -127,7 +128,7 @@ func CreateOrUpdateStatefulset(getUpdateCreator statefulset.GetUpdateCreator, ns
 		}
 	}
 
-	updatedSts, err := getUpdateCreator.UpdateStatefulSet(*statefulSetToCreate)
+	updatedSts, err := getUpdateCreator.UpdateStatefulSet(ctx, *statefulSetToCreate)
 	if err != nil {
 		return nil, err
 	}

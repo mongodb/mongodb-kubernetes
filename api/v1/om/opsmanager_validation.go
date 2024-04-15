@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	"github.com/blang/semver"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -25,18 +27,18 @@ var _ webhook.Validator = &MongoDBOpsManager{}
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (om *MongoDBOpsManager) ValidateCreate() error {
-	return om.ProcessValidationsWebhook()
+func (om *MongoDBOpsManager) ValidateCreate() (admission.Warnings, error) {
+	return nil, om.ProcessValidationsWebhook()
 }
 
-func (om *MongoDBOpsManager) ValidateUpdate(_ runtime.Object) error {
-	return om.ProcessValidationsWebhook()
+func (om *MongoDBOpsManager) ValidateUpdate(_ runtime.Object) (admission.Warnings, error) {
+	return nil, om.ProcessValidationsWebhook()
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (om *MongoDBOpsManager) ValidateDelete() error {
-	return nil
+func (om *MongoDBOpsManager) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
 }
 
 func errorNotConfigurableForAppDB(field string) v1.ValidationResult {

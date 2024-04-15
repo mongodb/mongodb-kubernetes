@@ -1,6 +1,8 @@
 package project
 
 import (
+	"context"
+
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
@@ -12,12 +14,12 @@ import (
 )
 
 // ReadCredentials reads the Secret containing the credentials to authenticate in Ops Manager and creates a matching 'Credentials' object
-func ReadCredentials(secretClient secrets.SecretClient, credentialsSecret client.ObjectKey, log *zap.SugaredLogger) (mdbv1.Credentials, error) {
+func ReadCredentials(ctx context.Context, secretClient secrets.SecretClient, credentialsSecret client.ObjectKey, log *zap.SugaredLogger) (mdbv1.Credentials, error) {
 	var operatorSecretPath string
 	if vault.IsVaultSecretBackend() {
 		operatorSecretPath = secretClient.VaultClient.OperatorSecretPath()
 	}
-	secret, err := secretClient.ReadSecret(credentialsSecret, operatorSecretPath)
+	secret, err := secretClient.ReadSecret(ctx, credentialsSecret, operatorSecretPath)
 	if err != nil {
 		return mdbv1.Credentials{}, err
 	}

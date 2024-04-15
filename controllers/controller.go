@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -13,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-var crdFuncMap map[string][]func(manager.Manager, map[string]cluster.Cluster) error
+var crdFuncMap map[string][]func(context.Context, manager.Manager, map[string]cluster.Cluster) error
 
 var (
 	mdb      = &mdbv1.MongoDB{}
@@ -29,8 +30,8 @@ func init() {
 // buildCrdFunctionMap creates a map which maps the name of the Custom
 // Resource Definition to a function which adds the corresponding function
 // to a manager.Manager for single cluster reconcilers
-func buildCrdFunctionMap() map[string][]func(manager.Manager, map[string]cluster.Cluster) error {
-	return map[string][]func(manager.Manager, map[string]cluster.Cluster) error{
+func buildCrdFunctionMap() map[string][]func(context.Context, manager.Manager, map[string]cluster.Cluster) error {
+	return map[string][]func(context.Context, manager.Manager, map[string]cluster.Cluster) error{
 		strings.ToLower(mdb.GetPlural()): {
 			operator.AddStandaloneController,
 			operator.AddReplicaSetController,
@@ -66,17 +67,17 @@ func getCRDsToWatch(watchCRDStr string) []string {
 }
 
 // AddToManager adds all Controllers to the Manager
-func AddToManager(m manager.Manager, crdsToWatchStr string, c map[string]cluster.Cluster) ([]string, error) {
+func AddToManager(ctx context.Context, m manager.Manager, crdsToWatchStr string, c map[string]cluster.Cluster) ([]string, error) {
 	crdsToWatch := getCRDsToWatch(crdsToWatchStr)
 
-	var addCRDFuncs []func(manager.Manager, map[string]cluster.Cluster) error
+	var addCRDFuncs []func(context.Context, manager.Manager, map[string]cluster.Cluster) error
 
 	for _, ctr := range crdsToWatch {
 		addCRDFuncs = append(addCRDFuncs, crdFuncMap[strings.Trim(strings.ToLower(ctr), " ")]...)
 	}
 
 	for _, f := range addCRDFuncs {
-		if err := f(m, c); err != nil {
+		if err := f(ctx, m, c); err != nil {
 			return []string{}, err
 		}
 	}

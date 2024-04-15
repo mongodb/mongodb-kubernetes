@@ -1,6 +1,7 @@
 package pem
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/secrets"
@@ -12,7 +13,7 @@ import (
 
 // ReadHashFromSecret reads the existing Pem from
 // the secret that stores this StatefulSet's Pem collection.
-func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name string, basePath string, log *zap.SugaredLogger) string {
+func ReadHashFromSecret(ctx context.Context, secretClient secrets.SecretClient, namespace, name, basePath string, log *zap.SugaredLogger) string {
 	var secretData map[string]string
 	var err error
 	if vault.IsVaultSecretBackend() {
@@ -23,7 +24,7 @@ func ReadHashFromSecret(secretClient secrets.SecretClient, namespace, name strin
 			return ""
 		}
 	} else {
-		s, err := secretClient.KubeClient.GetSecret(kube.ObjectKey(namespace, name))
+		s, err := secretClient.KubeClient.GetSecret(ctx, kube.ObjectKey(namespace, name))
 		if err != nil {
 			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
 			return ""

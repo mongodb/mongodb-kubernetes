@@ -9,13 +9,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/r3labs/diff/v3"
+	"k8s.io/utils/ptr"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
-	"k8s.io/utils/pointer"
+	"github.com/r3labs/diff/v3"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/apierror"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
@@ -211,7 +211,7 @@ func (oc *HTTPOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, e
 		ok := errors.As(apiErr, &err)
 		if ok {
 			return backup.GroupBackupConfig{
-				Id: pointer.String(oc.GroupID()),
+				Id: ptr.To(oc.GroupID()),
 			}, nil
 		}
 		return backup.GroupBackupConfig{}, apiErr

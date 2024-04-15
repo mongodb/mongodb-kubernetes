@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/service"
@@ -9,8 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func DeleteServiceIfItExists(getterDeleter service.GetDeleter, serviceName types.NamespacedName) error {
-	_, err := getterDeleter.GetService(serviceName)
+func DeleteServiceIfItExists(ctx context.Context, getterDeleter service.GetDeleter, serviceName types.NamespacedName) error {
+	_, err := getterDeleter.GetService(ctx, serviceName)
 	if err != nil {
 		// If it is not found return
 		if apiErrors.IsNotFound(err) {
@@ -19,7 +20,7 @@ func DeleteServiceIfItExists(getterDeleter service.GetDeleter, serviceName types
 		// Otherwise we got an error when trying to get it
 		return fmt.Errorf("can't get service %s: %s", serviceName, err)
 	}
-	return getterDeleter.DeleteService(serviceName)
+	return getterDeleter.DeleteService(ctx, serviceName)
 }
 
 // Merge merges `source` into `dest`. Both arguments will remain unchanged
@@ -74,13 +75,13 @@ func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
 }
 
 // CreateOrUpdateService will create or update a service in Kubernetes.
-func CreateOrUpdateService(getUpdateCreator service.GetUpdateCreator, desiredService corev1.Service) error {
+func CreateOrUpdateService(ctx context.Context, getUpdateCreator service.GetUpdateCreator, desiredService corev1.Service) error {
 	namespacedName := types.NamespacedName{Namespace: desiredService.ObjectMeta.Namespace, Name: desiredService.ObjectMeta.Name}
-	existingService, err := getUpdateCreator.GetService(namespacedName)
+	existingService, err := getUpdateCreator.GetService(ctx, namespacedName)
 
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			err = getUpdateCreator.CreateService(desiredService)
+			err = getUpdateCreator.CreateService(ctx, desiredService)
 			if err != nil {
 				return err
 			}
@@ -89,7 +90,7 @@ func CreateOrUpdateService(getUpdateCreator service.GetUpdateCreator, desiredSer
 		}
 	} else {
 		mergedService := Merge(existingService, desiredService)
-		err = getUpdateCreator.UpdateService(mergedService)
+		err = getUpdateCreator.UpdateService(ctx, mergedService)
 		if err != nil {
 			return err
 		}

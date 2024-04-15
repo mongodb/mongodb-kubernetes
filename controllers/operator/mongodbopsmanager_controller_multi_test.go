@@ -49,6 +49,7 @@ func omUserScramCredentialsSecretName(omName string) string {
 }
 
 type omMemberClusterChecks struct {
+	ctx          context.Context
 	t            *testing.T
 	namespace    string
 	clusterName  string
@@ -57,8 +58,9 @@ type omMemberClusterChecks struct {
 	om           *omv1.MongoDBOpsManager
 }
 
-func newOMMemberClusterChecks(t *testing.T, opsManager *omv1.MongoDBOpsManager, clusterName string, kubeClient client.Client, clusterIndex int) *omMemberClusterChecks {
+func newOMMemberClusterChecks(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, clusterName string, kubeClient client.Client, clusterIndex int) *omMemberClusterChecks {
 	result := omMemberClusterChecks{
+		ctx:          ctx,
 		t:            t,
 		namespace:    opsManager.Namespace,
 		om:           opsManager,
@@ -70,7 +72,7 @@ func newOMMemberClusterChecks(t *testing.T, opsManager *omv1.MongoDBOpsManager, 
 	return &result
 }
 
-func createOMCAConfigMap(t *testing.T, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager) string {
+func createOMCAConfigMap(ctx context.Context, t *testing.T, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager) string {
 	cert, _ := createMockCertAndKeyBytes()
 	cm := configmap.Builder().
 		SetName(opsManager.Spec.GetOpsManagerCA()).
@@ -78,13 +80,13 @@ func createOMCAConfigMap(t *testing.T, kubeClient client.Client, opsManager *omv
 		SetDataField("mms-ca.crt", string(cert)).
 		Build()
 
-	err := kubeClient.Create(context.TODO(), &cm)
+	err := kubeClient.Create(ctx, &cm)
 	require.NoError(t, err)
 
 	return opsManager.Spec.GetOpsManagerCA()
 }
 
-func createOMTLSCert(t *testing.T, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager) (string, string) {
+func createOMTLSCert(ctx context.Context, t *testing.T, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager) (string, string) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      opsManager.TLSCertificateSecretName(),
@@ -97,7 +99,7 @@ func createOMTLSCert(t *testing.T, kubeClient client.Client, opsManager *omv1.Mo
 	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
 
 	secret.Data = certs
-	err := kubeClient.Create(context.TODO(), secret)
+	err := kubeClient.Create(ctx, secret)
 	require.NoError(t, err)
 
 	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secret.Data), zap.S())
@@ -108,20 +110,20 @@ func createOMTLSCert(t *testing.T, kubeClient client.Client, opsManager *omv1.Mo
 
 func (c *omMemberClusterChecks) checkStatefulSetExists() {
 	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.om.Namespace, omStsName(c.om.Name, c.clusterIndex)), &sts)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.om.Namespace, omStsName(c.om.Name, c.clusterIndex)), &sts)
 	assert.NoError(c.t, err)
 }
 
 func (c *omMemberClusterChecks) checkSecretNotFound(secretName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, secretName), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, secretName), &sec)
 	assert.Error(c.t, err, "clusterName: %s", c.clusterName)
 	assert.True(c.t, apiErrors.IsNotFound(err))
 }
 
 func (c *omMemberClusterChecks) checkGenKeySecret(omName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, genKeySecretName(omName)), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, genKeySecretName(omName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, "gen.key", "clusterName: %s", c.clusterName)
 }
@@ -129,49 +131,49 @@ func (c *omMemberClusterChecks) checkGenKeySecret(omName string) {
 func (c *omMemberClusterChecks) checkConnectionStringSecret(omName string) {
 	sec := corev1.Secret{}
 	secretName := connectionStringSecretName(omName)
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, secretName), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, secretName), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, "connectionString", "clusterName: %s", c.clusterName)
 }
 
 func (c *omMemberClusterChecks) checkAgentPasswordSecret(omName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, agentPasswordSecretName(omName)), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, agentPasswordSecretName(omName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, "password", "clusterName: %s", c.clusterName)
 }
 
 func (c *omMemberClusterChecks) checkOmPasswordSecret(omName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, omPasswordSecretName(omName)), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, omPasswordSecretName(omName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, "password", "clusterName: %s", c.clusterName)
 }
 
 func (c *omMemberClusterChecks) checkPEMSecret(secretName string, pemHash string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, secretName), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, secretName), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	assert.Contains(c.t, sec.Data, pemHash, "clusterName: %s", c.clusterName)
 }
 
 func (c *omMemberClusterChecks) checkAppDBCAConfigMap(configMapName string) {
 	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, configMapName), &cm)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, cm.Data, "ca-pem", "clusterName: %s", c.clusterName)
 }
 
 func (c *omMemberClusterChecks) checkOMCAConfigMap(configMapName string) {
 	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, configMapName), &cm)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, cm.Data, "mms-ca.crt", "clusterName: %s", c.clusterName)
 }
 
 func (c *omMemberClusterChecks) checkOmUserScramCredentialsSecretName(omName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, omUserScramCredentialsSecretName(omName)), &sec)
+	err := c.kubeClient.Get(c.ctx, kube.ObjectKey(c.namespace, omUserScramCredentialsSecretName(omName)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, "sha-1-server-key", "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, "sha-1-stored-key", "clusterName: %s", c.clusterName)
@@ -182,7 +184,7 @@ func (c *omMemberClusterChecks) checkOmUserScramCredentialsSecretName(omName str
 }
 
 func (c *omMemberClusterChecks) reconcileAndCheck(reconciler reconcile.Reconciler, expectedRequeue bool) {
-	res, err := reconciler.Reconcile(context.TODO(), requestFromObject(c.om))
+	res, err := reconciler.Reconcile(c.ctx, requestFromObject(c.om))
 	if expectedRequeue {
 		assert.True(c.t, res.Requeue || res.RequeueAfter > 0, "result=%+v", res)
 	} else {
@@ -192,6 +194,7 @@ func (c *omMemberClusterChecks) reconcileAndCheck(reconciler reconcile.Reconcile
 }
 
 func TestOpsManagerMultiCluster(t *testing.T) {
+	ctx := context.Background()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "kind-e2e-cluster-1"
 	memberClusterName2 := "kind-e2e-cluster-2"
@@ -240,22 +243,22 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(t, opsManager, memberClusterMap)
+	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap)
 
 	// prepare TLS certificates and CA in central cluster
 
-	appDbCAConfigMapName := createAppDbCAConfigMap(t, omClient, appDB)
-	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(t, omClient, appDB)
+	appDbCAConfigMapName := createAppDbCAConfigMap(ctx, t, omClient, appDB)
+	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(ctx, t, omClient, appDB)
 	appDbPemSecretName := appDbTLSCertSecret + "-pem"
 
 	/* omCAConfigMapName */
-	_ = createOMCAConfigMap(t, omClient, opsManager)
-	omTLSCertSecret, omTLSSecretPemHash := createOMTLSCert(t, omClient, opsManager)
+	_ = createOMCAConfigMap(ctx, t, omClient, opsManager)
+	omTLSCertSecret, omTLSSecretPemHash := createOMTLSCert(ctx, t, omClient, opsManager)
 	omPemSecretName := omTLSCertSecret + "-pem"
 
 	/* 	checkOMReconciliationSuccessful(t, reconciler, opsManager) */
 
-	centralClusterChecks := newOMMemberClusterChecks(t, opsManager, centralClusterName, omClient, -1)
+	centralClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, centralClusterName, omClient, -1)
 	centralClusterChecks.reconcileAndCheck(reconciler, true)
 	// secrets and config maps created in the central cluster
 	centralClusterChecks.checkGenKeySecret(opsManager.Name)
@@ -268,7 +271,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
-		memberClusterChecks := newOMMemberClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
+		memberClusterChecks := newOMMemberClusterChecks(ctx, t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
 		memberClusterChecks.checkStatefulSetExists()
 		memberClusterChecks.checkGenKeySecret(opsManager.Name)
 		memberClusterChecks.checkConnectionStringSecret(opsManager.Name)

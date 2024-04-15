@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/config"
+
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"golang.org/x/xerrors"
 
@@ -26,7 +29,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -68,38 +70,38 @@ type MockedConfigMapClient struct {
 }
 
 // GetConfigMap provides a thin wrapper and client.client to access corev1.ConfigMap types
-func (c *MockedConfigMapClient) GetConfigMap(objectKey client.ObjectKey) (corev1.ConfigMap, error) {
+func (c *MockedConfigMapClient) GetConfigMap(ctx context.Context, objectKey client.ObjectKey) (corev1.ConfigMap, error) {
 	cm := corev1.ConfigMap{}
-	if err := c.client.Get(context.TODO(), objectKey, &cm); err != nil {
+	if err := c.client.Get(ctx, objectKey, &cm); err != nil {
 		return corev1.ConfigMap{}, err
 	}
 	return cm, nil
 }
 
 // UpdateConfigMap provides a thin wrapper and client.Client to update corev1.ConfigMap types
-func (c *MockedConfigMapClient) UpdateConfigMap(cm corev1.ConfigMap) error {
-	if err := c.client.Update(context.TODO(), &cm); err != nil {
+func (c *MockedConfigMapClient) UpdateConfigMap(ctx context.Context, cm corev1.ConfigMap) error {
+	if err := c.client.Update(ctx, &cm); err != nil {
 		return err
 	}
 	return nil
 }
 
 // CreateConfigMap provides a thin wrapper and client.Client to create corev1.ConfigMap types
-func (c *MockedConfigMapClient) CreateConfigMap(cm corev1.ConfigMap) error {
-	if err := c.client.Create(context.TODO(), &cm); err != nil {
+func (c *MockedConfigMapClient) CreateConfigMap(ctx context.Context, cm corev1.ConfigMap) error {
+	if err := c.client.Create(ctx, &cm); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *MockedConfigMapClient) DeleteConfigMap(key client.ObjectKey) error {
+func (m *MockedConfigMapClient) DeleteConfigMap(ctx context.Context, key client.ObjectKey) error {
 	cm := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
 		},
 	}
-	if err := m.client.Delete(context.TODO(), &cm); err != nil {
+	if err := m.client.Delete(ctx, &cm); err != nil {
 		return err
 	}
 	return nil
@@ -110,39 +112,39 @@ type MockedSecretClient struct {
 }
 
 // GetSecret provides a thin wrapper and client.Client to access corev1.Secret types
-func (c *MockedSecretClient) GetSecret(objectKey client.ObjectKey) (corev1.Secret, error) {
+func (c *MockedSecretClient) GetSecret(ctx context.Context, objectKey client.ObjectKey) (corev1.Secret, error) {
 	s := corev1.Secret{}
-	if err := c.client.Get(context.TODO(), objectKey, &s); err != nil {
+	if err := c.client.Get(ctx, objectKey, &s); err != nil {
 		return corev1.Secret{}, err
 	}
 	return s, nil
 }
 
 // UpdateSecret provides a thin wrapper and client.Client to update corev1.Secret types
-func (c *MockedSecretClient) UpdateSecret(secret corev1.Secret) error {
-	if err := c.client.Update(context.TODO(), &secret); err != nil {
+func (c *MockedSecretClient) UpdateSecret(ctx context.Context, secret corev1.Secret) error {
+	if err := c.client.Update(ctx, &secret); err != nil {
 		return err
 	}
 	return nil
 }
 
 // CreateSecret provides a thin wrapper and client.Client to create corev1.Secret types
-func (c *MockedSecretClient) CreateSecret(secret corev1.Secret) error {
-	if err := c.client.Create(context.TODO(), &secret); err != nil {
+func (c *MockedSecretClient) CreateSecret(ctx context.Context, secret corev1.Secret) error {
+	if err := c.client.Create(ctx, &secret); err != nil {
 		return err
 	}
 	return nil
 }
 
 // DeleteSecret provides a thin wrapper and client.Client to delete corev1.Secret types
-func (c *MockedSecretClient) DeleteSecret(key client.ObjectKey) error {
+func (c *MockedSecretClient) DeleteSecret(ctx context.Context, key client.ObjectKey) error {
 	s := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
 		},
 	}
-	if err := c.client.Delete(context.TODO(), &s); err != nil {
+	if err := c.client.Delete(ctx, &s); err != nil {
 		return err
 	}
 	return nil
@@ -153,45 +155,45 @@ type MockedServiceClient struct {
 }
 
 // GetService provides a thin wrapper and client.Client to access corev1.Service types
-func (c *MockedServiceClient) GetService(objectKey client.ObjectKey) (corev1.Service, error) {
+func (c *MockedServiceClient) GetService(ctx context.Context, objectKey client.ObjectKey) (corev1.Service, error) {
 	s := corev1.Service{}
-	if err := c.client.Get(context.TODO(), objectKey, &s); err != nil {
+	if err := c.client.Get(ctx, objectKey, &s); err != nil {
 		return corev1.Service{}, err
 	}
 	return s, nil
 }
 
 // UpdateService provides a thin wrapper and client.Client to update corev1.Service types
-func (c *MockedServiceClient) UpdateService(secret corev1.Service) error {
-	if err := c.client.Update(context.TODO(), &secret); err != nil {
+func (c *MockedServiceClient) UpdateService(ctx context.Context, secret corev1.Service) error {
+	if err := c.client.Update(ctx, &secret); err != nil {
 		return err
 	}
 	return nil
 }
 
 // CreateService provides a thin wrapper and client.Client to create corev1.Service types
-func (c *MockedServiceClient) CreateService(s corev1.Service) error {
-	if err := c.client.Create(context.TODO(), &s); err != nil {
+func (c *MockedServiceClient) CreateService(ctx context.Context, s corev1.Service) error {
+	if err := c.client.Create(ctx, &s); err != nil {
 		return err
 	}
 	return nil
 }
 
 // DeleteService provides a thin wrapper and client.Client to delete corev1.Service types
-func (c *MockedSecretClient) DeleteService(key client.ObjectKey) error {
+func (c *MockedSecretClient) DeleteService(ctx context.Context, key client.ObjectKey) error {
 	s := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
 		},
 	}
-	if err := c.client.Delete(context.TODO(), &s); err != nil {
+	if err := c.client.Delete(ctx, &s); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *MockedSecretClient) ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error) {
+func (c *MockedSecretClient) ReadSecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error) {
 	return map[string]string{}, &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
 }
 
@@ -200,49 +202,49 @@ type MockedStatefulSetClient struct {
 }
 
 // GetService provides a thin wrapper and client.Client to access appsv1.StatefulSet types
-func (c *MockedStatefulSetClient) GetStatefulSet(objectKey client.ObjectKey) (appsv1.StatefulSet, error) {
+func (c *MockedStatefulSetClient) GetStatefulSet(ctx context.Context, objectKey client.ObjectKey) (appsv1.StatefulSet, error) {
 	sts := appsv1.StatefulSet{}
-	if err := c.client.Get(context.TODO(), objectKey, &sts); err != nil {
+	if err := c.client.Get(ctx, objectKey, &sts); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 	return sts, nil
 }
 
 // GetPod provides a thin wrapper and client.Client to access corev1.Pod types
-func (c *MockedStatefulSetClient) GetPod(objectKey client.ObjectKey) (corev1.Pod, error) {
+func (c *MockedStatefulSetClient) GetPod(ctx context.Context, objectKey client.ObjectKey) (corev1.Pod, error) {
 	pod := corev1.Pod{}
-	if err := c.client.Get(context.TODO(), objectKey, &pod); err != nil {
+	if err := c.client.Get(ctx, objectKey, &pod); err != nil {
 		return corev1.Pod{}, err
 	}
 	return pod, nil
 }
 
 // UpdateStatefulSet provides a thin wrapper and client.Client to update appsv1.StatefulSet types
-func (c *MockedStatefulSetClient) UpdateStatefulSet(sts appsv1.StatefulSet) (appsv1.StatefulSet, error) {
+func (c *MockedStatefulSetClient) UpdateStatefulSet(ctx context.Context, sts appsv1.StatefulSet) (appsv1.StatefulSet, error) {
 	updatesSts := sts
-	if err := c.client.Update(context.TODO(), &updatesSts); err != nil {
+	if err := c.client.Update(ctx, &updatesSts); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 	return updatesSts, nil
 }
 
 // CreateStatefulSet provides a thin wrapper and client.Client to create appsv1.StatefulSet types
-func (c *MockedStatefulSetClient) CreateStatefulSet(sts appsv1.StatefulSet) error {
-	if err := c.client.Create(context.TODO(), &sts); err != nil {
+func (c *MockedStatefulSetClient) CreateStatefulSet(ctx context.Context, sts appsv1.StatefulSet) error {
+	if err := c.client.Create(ctx, &sts); err != nil {
 		return err
 	}
 	return nil
 }
 
 // DeleteStatefulSet provides a thin wrapper and client.Client to delete appsv1.StatefulSet types
-func (c *MockedStatefulSetClient) DeleteStatefulSet(key client.ObjectKey) error {
+func (c *MockedStatefulSetClient) DeleteStatefulSet(ctx context.Context, key client.ObjectKey) error {
 	sts := appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
 		},
 	}
-	if err := c.client.Delete(context.TODO(), &sts); err != nil {
+	if err := c.client.Delete(ctx, &sts); err != nil {
 		return err
 	}
 	return nil
@@ -307,6 +309,14 @@ func NewClient() *MockedClient {
 	return &api
 }
 
+func (m *MockedClient) GroupVersionKindFor(obj apiruntime.Object) (schema.GroupVersionKind, error) {
+	panic("not implemented")
+}
+
+func (m *MockedClient) IsObjectNamespaced(obj apiruntime.Object) (bool, error) {
+	panic("not implemented")
+}
+
 func (m *MockedClient) RESTMapper() meta.RESTMapper {
 	return nil
 }
@@ -315,8 +325,8 @@ func (m *MockedClient) Scheme() *apiruntime.Scheme {
 	return nil
 }
 
-func (m *MockedClient) WithResource(object client.Object) *MockedClient {
-	err := m.Create(context.TODO(), object)
+func (m *MockedClient) WithResource(ctx context.Context, object client.Object) *MockedClient {
+	err := m.Create(ctx, object)
 	if err != nil {
 		// panicking here instead of adding to return type as this function
 		// is used to initialize the mocked client, with this we can ensure we never
@@ -326,7 +336,7 @@ func (m *MockedClient) WithResource(object client.Object) *MockedClient {
 	return m
 }
 
-func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *MockedClient {
+func (m *MockedClient) AddProjectConfigMap(ctx context.Context, projectName, organizationId string) *MockedClient {
 	cm := configmap.Builder().
 		SetName(TestProjectConfigMapName).
 		SetNamespace(TestNamespace).
@@ -335,7 +345,7 @@ func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *
 		SetDataField(util.OmOrgId, organizationId).
 		Build()
 
-	err := m.Create(context.TODO(), &cm)
+	err := m.Create(ctx, &cm)
 	if err != nil {
 		panic(err)
 	}
@@ -343,7 +353,7 @@ func (m *MockedClient) AddProjectConfigMap(projectName, organizationId string) *
 }
 
 // AddCredentialsSecret creates the Secret that stores Ops Manager credentials for the test environment.
-func (m *MockedClient) AddCredentialsSecret(publicKey, privateKey string) *MockedClient {
+func (m *MockedClient) AddCredentialsSecret(ctx context.Context, publicKey, privateKey string) *MockedClient {
 	stringData := map[string]string{util.OmPublicApiKey: publicKey, util.OmPrivateKey: privateKey}
 	data := map[string][]byte{}
 	for s, s2 := range stringData {
@@ -354,7 +364,7 @@ func (m *MockedClient) AddCredentialsSecret(publicKey, privateKey string) *Mocke
 		// we are using Data and not SecretData because our internal secret.Builder only writes information into
 		// secret.Data not secret.StringData.
 		Data: data}
-	err := m.Create(context.TODO(), credentials)
+	err := m.Create(ctx, credentials)
 	if err != nil {
 		panic(err)
 	}
@@ -366,9 +376,9 @@ func (m *MockedClient) WithStsReady(ready bool) *MockedClient {
 	return m
 }
 
-func (m *MockedClient) AddDefaultMdbConfigResources() *MockedClient {
-	m = m.AddProjectConfigMap(om.TestGroupName, "")
-	return m.AddCredentialsSecret(om.TestUser, om.TestApiKey)
+func (m *MockedClient) AddDefaultMdbConfigResources(ctx context.Context) *MockedClient {
+	m = m.AddProjectConfigMap(ctx, om.TestGroupName, "")
+	return m.AddCredentialsSecret(ctx, om.TestUser, om.TestApiKey)
 }
 
 func (m *MockedClient) SubResource(subResource string) client.SubResourceClient {
@@ -390,14 +400,14 @@ func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client
 	return nil
 }
 
-func (k *MockedClient) ApproveAllCSRs() {
+func (k *MockedClient) ApproveAllCSRs(ctx context.Context) {
 	for _, csrObject := range k.GetMapForObject(&certsv1.CertificateSigningRequest{}) {
 		csr := csrObject.(*certsv1.CertificateSigningRequest)
 		approvedCondition := certsv1.CertificateSigningRequestCondition{
 			Type: certsv1.CertificateApproved,
 		}
 		csr.Status.Conditions = append(csr.Status.Conditions, approvedCondition)
-		if err := k.Update(context.Background(), csr); err != nil {
+		if err := k.Update(ctx, csr); err != nil {
 			panic(err)
 		}
 	}
@@ -577,12 +587,12 @@ func (k *MockedClient) Status() client.StatusWriter {
 }
 
 // Not used in enterprise, these only exist in community.
-func (k *MockedClient) GetAndUpdate(nsName types.NamespacedName, obj client.Object, updateFunc func()) error {
+func (k *MockedClient) GetAndUpdate(ctx context.Context, nsName types.NamespacedName, obj client.Object, updateFunc func()) error {
 	return nil
 }
 
 // Not used in enterprise, these only exist in community.
-func (k *MockedClient) CreateOrUpdate(obj apiruntime.Object) error {
+func (k *MockedClient) CreateOrUpdate(ctx context.Context, obj apiruntime.Object) error {
 	return nil
 }
 
@@ -701,12 +711,16 @@ type MockedManager struct {
 	Client *MockedClient
 }
 
+func (m *MockedManager) GetHTTPClient() *http.Client {
+	panic("implement me")
+}
+
 func NewEmptyManager() *MockedManager {
 	return &MockedManager{Client: NewClient()}
 }
 
-func NewManager(object client.Object) *MockedManager {
-	return &MockedManager{Client: NewClient().WithResource(object)}
+func NewManager(ctx context.Context, object client.Object) *MockedManager {
+	return &MockedManager{Client: NewClient().WithResource(ctx, object)}
 }
 
 func NewManagerSpecificClient(c *MockedClient) *MockedManager {
@@ -750,8 +764,7 @@ func (m *MockedManager) GetScheme() *apiruntime.Scheme {
 // GetAdmissionDecoder returns the runtime.Decoder based on the scheme.
 func (m *MockedManager) GetAdmissionDecoder() admission.Decoder {
 	// just returning nothing
-	d, _ := admission.NewDecoder(apiruntime.NewScheme())
-	return *d
+	return *admission.NewDecoder(apiruntime.NewScheme())
 }
 
 // GetAPIReader returns the client reader
@@ -788,7 +801,7 @@ func (m *MockedManager) GetRESTMapper() meta.RESTMapper {
 	return nil
 }
 
-func (m *MockedManager) GetWebhookServer() *webhook.Server {
+func (m *MockedManager) GetWebhookServer() webhook.Server {
 	return nil
 }
 
@@ -804,10 +817,10 @@ func (m *MockedManager) GetLogger() logr.Logger {
 	return logr.Logger{}
 }
 
-func (m *MockedManager) GetControllerOptions() v1alpha1.ControllerConfigurationSpec {
+func (m *MockedManager) GetControllerOptions() config.Controller {
 	var duration = time.Duration(0)
-	return v1alpha1.ControllerConfigurationSpec{
-		CacheSyncTimeout: &duration,
+	return config.Controller{
+		CacheSyncTimeout: duration,
 	}
 }
 
