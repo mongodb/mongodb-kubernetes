@@ -15,12 +15,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
-func WatchSecretChangeForMDB(log *zap.SugaredLogger, watchChannel chan event.GenericEvent,
-	k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient, resourceType mdbv1.ResourceType) {
+func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient, resourceType mdbv1.ResourceType) {
 
 	for {
 		mdbList := &mdbv1.MongoDBList{}
-		err := k8sClient.List(context.TODO(), mdbList, &client.ListOptions{Namespace: ""})
+		err := k8sClient.List(ctx, mdbList, &client.ListOptions{Namespace: ""})
 		if err != nil {
 			log.Errorf("failed to fetch MongoDBList from Kubernetes: %s", err)
 		}
@@ -53,11 +52,11 @@ func WatchSecretChangeForMDB(log *zap.SugaredLogger, watchChannel chan event.Gen
 	}
 }
 
-func WatchSecretChangeForOM(log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient) {
+func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient) {
 
 	for {
 		omList := &omv1.MongoDBOpsManagerList{}
-		err := k8sClient.List(context.TODO(), omList, &client.ListOptions{Namespace: ""})
+		err := k8sClient.List(ctx, omList, &client.ListOptions{Namespace: ""})
 		if err != nil {
 			log.Errorf("failed to fetch MongoDBOpsManagerList from Kubernetes: %s", err)
 		}

@@ -1,6 +1,8 @@
 package project
 
 import (
+	"context"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"golang.org/x/xerrors"
 
@@ -12,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func validateProjectConfig(cmGetter configmap.Getter, projectConfigMap client.ObjectKey) (map[string]string, error) {
-	data, err := configmap.ReadData(cmGetter, projectConfigMap)
+func validateProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectConfigMap client.ObjectKey) (map[string]string, error) {
+	data, err := configmap.ReadData(ctx, cmGetter, projectConfigMap)
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +33,8 @@ func validateProjectConfig(cmGetter configmap.Getter, projectConfigMap client.Ob
 // ReadProjectConfig returns a "Project" config build from a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
 // If configMap doesn't have a projectName defined - the name of MongoDB resource is used as a name of project
-func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
-	data, err := validateProjectConfig(cmGetter, projectConfigMap)
+func ReadProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
+	data, err := validateProjectConfig(ctx, cmGetter, projectConfigMap)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err
 	}
@@ -56,7 +58,7 @@ func ReadProjectConfig(cmGetter configmap.Getter, projectConfigMap client.Object
 	if ok {
 		sslCaConfigMapKey := types.NamespacedName{Name: sslCaConfigMap, Namespace: projectConfigMap.Namespace}
 
-		cacrt, err := configmap.ReadData(cmGetter, sslCaConfigMapKey)
+		cacrt, err := configmap.ReadData(ctx, cmGetter, sslCaConfigMapKey)
 		if err != nil {
 			return mdbv1.ProjectConfig{}, xerrors.Errorf("failed to read the specified ConfigMap %s (%w)", sslCaConfigMapKey, err)
 		}

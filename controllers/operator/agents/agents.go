@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"fmt"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -35,10 +36,10 @@ type retryParams struct {
 // Returns agent key that was either generated or reused from parameter agentKey.
 // We need to return the key, because in case it was generated here it has to be passed back on an agentKey argument when we're executing the
 // function over multiple clusters.
-func EnsureAgentKeySecretExists(secretClient secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId, basePath string, log *zap.SugaredLogger) (string, error) {
+func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId, basePath string, log *zap.SugaredLogger) (string, error) {
 	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
-	agentKeySecret, err := secretClient.GetSecret(kube.ObjectKey(namespace, secretName))
+	agentKeySecret, err := secretClient.GetSecret(ctx, kube.ObjectKey(namespace, secretName))
 	if err != nil {
 		if !secrets.SecretNotExist(err) {
 			return "", xerrors.Errorf("error reading agent key secret: %w", err)
@@ -76,7 +77,7 @@ func EnsureAgentKeySecretExists(secretClient secrets.SecretClient, agentKeyGener
 		}
 
 		// todo pass a real owner in a next PR
-		if err = CreateOrUpdateAgentKeySecret(secretClient, namespace, projectId, agentKey, nil); err != nil {
+		if err = CreateOrUpdateAgentKeySecret(ctx, secretClient, namespace, projectId, agentKey, nil); err != nil {
 			return "", xerrors.Errorf("failed to create or update Secret: %w", err)
 		}
 		log.Infof("Project agent key is saved in Kubernetes Secret for later usage")
@@ -161,7 +162,7 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
 }
 
-func CreateOrUpdateAgentKeySecret(secretCreator secrets.SecretClient, namespace string, projectID string, agentKey string, owner v1.CustomResourceReadWriter) error {
+func CreateOrUpdateAgentKeySecret(ctx context.Context, secretCreator secrets.SecretClient, namespace string, projectID string, agentKey string, owner v1.CustomResourceReadWriter) error {
 	agentKeySecret := secret.Builder().
 		SetField(util.OmAgentApiKey, agentKey).
 		SetOwnerReferences(kube.BaseOwnerReference(owner)).
@@ -169,5 +170,5 @@ func CreateOrUpdateAgentKeySecret(secretCreator secrets.SecretClient, namespace 
 		SetName(ApiKeySecretName(projectID)).
 		Build()
 
-	return secret.CreateOrUpdate(secretCreator, agentKeySecret)
+	return secret.CreateOrUpdate(ctx, secretCreator, agentKeySecret)
 }

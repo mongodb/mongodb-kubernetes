@@ -40,6 +40,7 @@ import (
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw"
 
 func TestAppDB_MultiCluster(t *testing.T) {
+	ctx := context.Background()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "member-cluster-1"
 	memberClusterName2 := "member-cluster-2"
@@ -69,67 +70,67 @@ func TestAppDB_MultiCluster(t *testing.T) {
 
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := mock.NewManager(opsManager)
+	kubeManager := mock.NewManager(ctx, opsManager)
 
 	// prepare CA config map in central cluster
-	caConfigMapName := createAppDbCAConfigMap(t, kubeManager.GetClient(), appdb)
-	tlsCertSecretName, tlsSecretPemHash := createAppDBTLSCert(t, kubeManager.GetClient(), appdb)
+	caConfigMapName := createAppDbCAConfigMap(ctx, t, kubeManager.GetClient(), appdb)
+	tlsCertSecretName, tlsSecretPemHash := createAppDBTLSCert(ctx, t, kubeManager.GetClient(), appdb)
 	pemSecretName := tlsCertSecretName + "-pem"
 
-	reconciler, err := newAppDbMultiReconciler(kubeManager, opsManager, memberClusterMap, zap.S())
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, zap.S())
 	require.NoError(t, err)
 
-	err = createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, opsManagerUserPassword)
+	err = createOpsManagerUserPasswordSecret(ctx, kubeManager.Client, opsManager, opsManagerUserPassword)
 	assert.NoError(t, err)
-	reconcileResult, err := reconciler.ReconcileAppDB(opsManager)
+	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	// requeue is true to add monitoring
 	assert.True(t, reconcileResult.Requeue)
 
 	centralClusterChecks := newAppDBClusterChecks(t, opsManager, centralClusterName, kubeManager.Client, -1)
 	// secrets and config maps created by the operator shouldn't be created in central cluster
-	centralClusterChecks.checkSecretNotFound(appdb.AutomationConfigSecretName())
-	centralClusterChecks.checkConfigMapNotFound(appdb.AutomationConfigConfigMapName())
-	centralClusterChecks.checkSecretNotFound(appdb.MonitoringAutomationConfigSecretName())
-	centralClusterChecks.checkConfigMapNotFound(appdb.MonitoringAutomationConfigConfigMapName())
-	centralClusterChecks.checkSecretNotFound(pemSecretName)
-	centralClusterChecks.checkCAConfigMap(caConfigMapName)
-	centralClusterChecks.checkConfigMapNotFound(appdb.ProjectIDConfigMapName())
+	centralClusterChecks.checkSecretNotFound(ctx, appdb.AutomationConfigSecretName())
+	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.AutomationConfigConfigMapName())
+	centralClusterChecks.checkSecretNotFound(ctx, appdb.MonitoringAutomationConfigSecretName())
+	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.MonitoringAutomationConfigConfigMapName())
+	centralClusterChecks.checkSecretNotFound(ctx, pemSecretName)
+	centralClusterChecks.checkCAConfigMap(ctx, caConfigMapName)
+	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.ProjectIDConfigMapName())
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
 		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
-		memberClusterChecks.checkAutomationConfigSecret(appdb.AutomationConfigSecretName())
-		memberClusterChecks.checkAutomationConfigConfigMap(appdb.AutomationConfigConfigMapName())
-		memberClusterChecks.checkAutomationConfigSecret(appdb.MonitoringAutomationConfigSecretName())
-		memberClusterChecks.checkAutomationConfigConfigMap(appdb.MonitoringAutomationConfigConfigMapName())
-		memberClusterChecks.checkCAConfigMap(caConfigMapName)
+		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.AutomationConfigSecretName())
+		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.AutomationConfigConfigMapName())
+		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.MonitoringAutomationConfigSecretName())
+		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.MonitoringAutomationConfigConfigMapName())
+		memberClusterChecks.checkCAConfigMap(ctx, caConfigMapName)
 		// TLS secret should not be replicated, only PEM secret
-		memberClusterChecks.checkSecretNotFound(tlsCertSecretName)
-		memberClusterChecks.checkPEMSecret(pemSecretName, tlsSecretPemHash)
+		memberClusterChecks.checkSecretNotFound(ctx, tlsCertSecretName)
+		memberClusterChecks.checkPEMSecret(ctx, pemSecretName, tlsSecretPemHash)
 
-		memberClusterChecks.checkStatefulSet(opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
-		memberClusterChecks.checkServices(opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
+		memberClusterChecks.checkStatefulSet(ctx, opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
+		memberClusterChecks.checkServices(ctx, opsManager.Spec.AppDB.NameForCluster(reconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
 	}
 
 	// OM API Key secret is required for enabling monitoring to OM
-	createOMAPIKeySecret(t, reconciler.SecretClient, opsManager)
+	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
 
 	// reconcile to add monitoring
-	reconcileResult, err = reconciler.ReconcileAppDB(opsManager)
+	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	require.False(t, reconcileResult.Requeue)
 
 	// monitoring here is configured, everything should be replicated
 
 	// we create project id and agent key resources only in member clusters
-	centralClusterChecks.checkConfigMapNotFound(appdb.ProjectIDConfigMapName())
+	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.ProjectIDConfigMapName())
 	agentAPIKey := ""
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
 		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
-		projectID := memberClusterChecks.checkProjectIDConfigMap(appdb.ProjectIDConfigMapName())
-		agentAPIKeyFromSecret := memberClusterChecks.checkAgentAPIKeySecret(projectID)
+		projectID := memberClusterChecks.checkProjectIDConfigMap(ctx, appdb.ProjectIDConfigMapName())
+		agentAPIKeyFromSecret := memberClusterChecks.checkAgentAPIKeySecret(ctx, projectID)
 		assert.NotEmpty(t, agentAPIKeyFromSecret)
 		if agentAPIKey == "" {
 			// save the value to check if all member clusters contain the same value
@@ -144,6 +145,7 @@ func agentAPIKeySecretName(projectID string) string {
 }
 
 func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
+	ctx := context.Background()
 	log := zap.S()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName := "member-cluster-1"
@@ -165,26 +167,26 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		SetAppDBTopology(om.ClusterTopologyMultiCluster)
 
 	opsManager := builder.Build()
-	kubeManager := mock.NewManager(opsManager)
+	kubeManager := mock.NewManager(ctx, opsManager)
 
-	err := createOpsManagerUserPasswordSecret(kubeManager.Client, opsManager, opsManagerUserPassword)
+	err := createOpsManagerUserPasswordSecret(ctx, kubeManager.Client, opsManager, opsManagerUserPassword)
 	assert.NoError(t, err)
 
-	reconciler, err := newAppDbMultiReconciler(kubeManager, opsManager, globalClusterMap, log)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, globalClusterMap, log)
 	require.NoError(t, err)
 
-	reconcileResult, err := reconciler.ReconcileAppDB(opsManager)
+	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	// requeue is true to add monitoring
 	assert.True(t, reconcileResult.Requeue)
 
 	// OM API Key secret is required for enabling monitoring to OM
-	createOMAPIKeySecret(t, reconciler.SecretClient, opsManager)
+	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
 
 	// reconcile to add monitoring
-	reconciler, err = newAppDbMultiReconciler(kubeManager, opsManager, globalClusterMap, log)
+	reconciler, err = newAppDbMultiReconciler(ctx, kubeManager, opsManager, globalClusterMap, log)
 	require.NoError(t, err)
-	reconcileResult, err = reconciler.ReconcileAppDB(opsManager)
+	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	require.False(t, reconcileResult.Requeue)
 
@@ -210,7 +212,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			"om-db-0-1",
 			"om-db-1-0",
 		}
-		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 1, log)
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 1, log)
 	})
 
 	t.Run("remove second cluster and add new one", func(t *testing.T) {
@@ -238,7 +240,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// 2 reconciles, remove 1 member from memberClusterName2 and add one from memberClusterName3
-		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
 	})
 
 	t.Run("add second cluster back to check indexes are preserved with different clusterSpecItem order", func(t *testing.T) {
@@ -273,7 +275,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// 2 reconciles to add 2 members of memberClusterName2
-		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
+		reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalClusterMap, memberClusterName, clusterSpecItems, expectedHostnames, expectedProcessNames, 2, log)
 	})
 
 	t.Run("remove second cluster from global cluster to simulate full-cluster failure", func(t *testing.T) {
@@ -310,7 +312,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// nothing to be scaled
-		reconcileAppDBOnceAndCheckExpectedProcesses(t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
 
 		// memberClusterName2 is removed
 		clusterSpecItems = []mdbv1.ClusterSpecItem{
@@ -339,7 +341,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 		}
 
 		// one process from memberClusterName2 should be removed
-		reconcileAppDBOnceAndCheckExpectedProcesses(t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, true, expectedHostnames, expectedProcessNames, log)
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, true, expectedHostnames, expectedProcessNames, log)
 
 		expectedHostnames = []string{
 			"om-db-0-0-svc.ns.svc.cluster.local",
@@ -355,12 +357,12 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 
 		// the last process from memberClusterName2 should be removed
 		// this should be final reconcile
-		reconcileAppDBOnceAndCheckExpectedProcesses(t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
+		reconcileAppDBOnceAndCheckExpectedProcesses(ctx, t, kubeManager, opsManager, globalMemberClusterMapWithoutCluster2, memberClusterName, clusterSpecItems, false, expectedHostnames, expectedProcessNames, log)
 	})
 }
 
-func assertExpectedProcesses(t *testing.T, memberClusterName string, reconciler *ReconcileAppDbReplicaSet, opsManager *om.MongoDBOpsManager, expectedHostnames []string, expectedProcessNames []string) {
-	ac, err := automationconfig.ReadFromSecret(reconciler.getMemberCluster(memberClusterName).SecretClient, types.NamespacedName{
+func assertExpectedProcesses(ctx context.Context, t *testing.T, memberClusterName string, reconciler *ReconcileAppDbReplicaSet, opsManager *om.MongoDBOpsManager, expectedHostnames []string, expectedProcessNames []string) {
+	ac, err := automationconfig.ReadFromSecret(ctx, reconciler.getMemberCluster(memberClusterName).SecretClient, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
 	})
@@ -376,12 +378,12 @@ func assertExpectedProcesses(t *testing.T, memberClusterName string, reconciler 
 	assert.Equal(t, expectedHostnames, reconciler.getCurrentStatefulsetHostnames(opsManager))
 }
 
-func reconcileAppDBOnceAndCheckExpectedProcesses(t *testing.T, kubeManager manager.Manager, opsManager *om.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedRequeue bool, expectedHostnames []string, expectedProcessNames []string, log *zap.SugaredLogger) {
+func reconcileAppDBOnceAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeManager manager.Manager, opsManager *om.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedRequeue bool, expectedHostnames []string, expectedProcessNames []string, log *zap.SugaredLogger) {
 	opsManager.Spec.AppDB.ClusterSpecList = clusterSpecItems
 
-	reconciler, err := newAppDbMultiReconciler(kubeManager, opsManager, memberClusterMap, log)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, log)
 	require.NoError(t, err)
-	reconcileResult, err := reconciler.ReconcileAppDB(opsManager)
+	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 
 	if expectedRequeue {
@@ -391,18 +393,18 @@ func reconcileAppDBOnceAndCheckExpectedProcesses(t *testing.T, kubeManager manag
 		require.Equal(t, util.TWENTY_FOUR_HOURS, reconcileResult.RequeueAfter)
 	}
 
-	assertExpectedProcesses(t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
+	assertExpectedProcesses(ctx, t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
 }
 
-func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t *testing.T, kubeManager manager.Manager, opsManager *om.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedHostnames []string, expectedProcessNames []string, expectedReconciles int, log *zap.SugaredLogger) {
+func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(ctx context.Context, t *testing.T, kubeManager manager.Manager, opsManager *om.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, memberClusterName string, clusterSpecItems []mdbv1.ClusterSpecItem, expectedHostnames []string, expectedProcessNames []string, expectedReconciles int, log *zap.SugaredLogger) {
 	opsManager.Spec.AppDB.ClusterSpecList = clusterSpecItems
 
 	var reconciler *ReconcileAppDbReplicaSet
 	var err error
 	for i := 0; i < expectedReconciles; i++ {
-		reconciler, err = newAppDbMultiReconciler(kubeManager, opsManager, memberClusterMap, log)
+		reconciler, err = newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, log)
 		require.NoError(t, err)
-		reconcileResult, err := reconciler.ReconcileAppDB(opsManager)
+		reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 		require.NoError(t, err)
 
 		// when scaling only the last final reconcile will be without requeueAfter
@@ -415,10 +417,11 @@ func reconcileAppDBForExpectedNumberOfTimesAndCheckExpectedProcesses(t *testing.
 		}
 	}
 
-	assertExpectedProcesses(t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
+	assertExpectedProcesses(ctx, t, memberClusterName, reconciler, opsManager, expectedHostnames, expectedProcessNames)
 }
 
 func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
+	ctx := context.Background()
 	log := zap.S()
 	centralClusterName := multicluster.LegacyCentralClusterName
 	memberClusterName1 := "member-cluster-1"
@@ -445,26 +448,26 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 
 	opsManager := builder.Build()
 	appdb := opsManager.Spec.AppDB
-	kubeManager := mock.NewManager(opsManager)
+	kubeManager := mock.NewManager(ctx, opsManager)
 
 	// prepare CA config map in central cluster
-	reconciler, err := newAppDbMultiReconciler(kubeManager, opsManager, memberClusterMap, log)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeManager, opsManager, memberClusterMap, log)
 	require.NoError(t, err)
 
 	t.Run("check mapping cm has been created", func(t *testing.T) {
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 		})
 	})
 
 	t.Run("config map should be recreated after deletion", func(t *testing.T) {
-		deleteClusterMappingConfigMap(t, kubeManager, appdb)
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		deleteClusterMappingConfigMap(ctx, t, kubeManager, appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 		})
@@ -472,9 +475,9 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 
 	t.Run("config map is updated after adding new cluster", func(t *testing.T) {
 		appdb.ClusterSpecList = makeClusterSpecList(memberClusterName1, memberClusterName2, memberClusterName3)
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 			memberClusterName3: 2,
@@ -484,9 +487,9 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	t.Run("mapping is preserved if cluster is removed", func(t *testing.T) {
 		appdb.ClusterSpecList = makeClusterSpecList(memberClusterName1, memberClusterName3)
 
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 			memberClusterName3: 2,
@@ -495,9 +498,9 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 
 	t.Run("new cluster is assigned new index instead of the next one", func(t *testing.T) {
 		appdb.ClusterSpecList = makeClusterSpecList(memberClusterName1, memberClusterName3, memberClusterName4)
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 			memberClusterName3: 2,
@@ -508,9 +511,9 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	t.Run("empty cluster spec list does not change mapping", func(t *testing.T) {
 		appdb.ClusterSpecList = []mdbv1.ClusterSpecItem{}
 
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 			memberClusterName3: 2,
@@ -521,9 +524,9 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	t.Run("new cluster alone will get new index", func(t *testing.T) {
 		appdb.ClusterSpecList = makeClusterSpecList(memberClusterName5)
 
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 			memberClusterName3: 2,
@@ -535,9 +538,9 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	t.Run("defining clusters again will get their old indexes, order doesn't matter", func(t *testing.T) {
 		appdb.ClusterSpecList = makeClusterSpecList(memberClusterName4, memberClusterName2, memberClusterName3, memberClusterName1)
 
-		_, err := reconciler.updateMemberClusterMapping(appdb)
+		_, err := reconciler.updateMemberClusterMapping(ctx, appdb)
 		require.NoError(t, err)
-		checkClusterMapping(t, reconciler, appdb, map[string]int{
+		checkClusterMapping(ctx, t, reconciler, appdb, map[string]int{
 			memberClusterName1: 0,
 			memberClusterName2: 1,
 			memberClusterName3: 2,
@@ -547,17 +550,17 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 	})
 }
 
-func deleteClusterMappingConfigMap(t *testing.T, kubeManager *mock.MockedManager, appdb om.AppDBSpec) {
+func deleteClusterMappingConfigMap(ctx context.Context, t *testing.T, kubeManager *mock.MockedManager, appdb om.AppDBSpec) {
 	cm := corev1.ConfigMap{}
-	err := kubeManager.GetClient().Get(context.TODO(), kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
+	err := kubeManager.GetClient().Get(ctx, kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
 	require.NoError(t, err)
-	err = kubeManager.GetClient().Delete(context.TODO(), &cm)
+	err = kubeManager.GetClient().Delete(ctx, &cm)
 	require.NoError(t, err)
 }
 
-func checkClusterMapping(t *testing.T, reconciler *ReconcileAppDbReplicaSet, appdb om.AppDBSpec, expectedMapping map[string]int) {
+func checkClusterMapping(ctx context.Context, t *testing.T, reconciler *ReconcileAppDbReplicaSet, appdb om.AppDBSpec, expectedMapping map[string]int) {
 	cm := corev1.ConfigMap{}
-	err := reconciler.centralClient.Get(context.TODO(), kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
+	err := reconciler.centralClient.Get(ctx, kube.ObjectKey(appdb.Namespace, appdb.Name()+"-cluster-mapping"), &cm)
 	assert.NoError(t, err)
 
 	expectedMappingAsStrings := map[string]string{}
@@ -587,69 +590,69 @@ func newAppDBClusterChecks(t *testing.T, opsManager *om.MongoDBOpsManager, clust
 	return &result
 }
 
-func (c *appDBClusterChecks) checkAutomationConfigSecret(secretName string) {
+func (c *appDBClusterChecks) checkAutomationConfigSecret(ctx context.Context, secretName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, secretName), &sec)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, secretName), &sec)
 	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	assert.Contains(c.t, sec.Data, automationconfig.ConfigKey, "clusterName: %s", c.clusterName)
 }
 
-func (c *appDBClusterChecks) checkAgentAPIKeySecret(projectID string) string {
+func (c *appDBClusterChecks) checkAgentAPIKeySecret(ctx context.Context, projectID string) string {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, agentAPIKeySecretName(projectID)), &sec)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, agentAPIKeySecretName(projectID)), &sec)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, util.OmAgentApiKey, "clusterName: %s", c.clusterName)
 	return string(sec.Data[util.OmAgentApiKey])
 }
 
-func (c *appDBClusterChecks) checkSecretNotFound(secretName string) {
+func (c *appDBClusterChecks) checkSecretNotFound(ctx context.Context, secretName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, secretName), &sec)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, secretName), &sec)
 	assert.Error(c.t, err, "clusterName: %s", c.clusterName)
 	assert.True(c.t, apiErrors.IsNotFound(err))
 }
 
-func (c *appDBClusterChecks) checkConfigMapNotFound(configMapName string) {
+func (c *appDBClusterChecks) checkConfigMapNotFound(ctx context.Context, configMapName string) {
 	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, configMapName), &cm)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	assert.Error(c.t, err, "clusterName: %s", c.clusterName)
 	assert.True(c.t, apiErrors.IsNotFound(err))
 }
 
-func (c *appDBClusterChecks) checkPEMSecret(secretName string, pemHash string) {
+func (c *appDBClusterChecks) checkPEMSecret(ctx context.Context, secretName string, pemHash string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, secretName), &sec)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, secretName), &sec)
 	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	assert.Contains(c.t, sec.Data, pemHash, "clusterName: %s", c.clusterName)
 }
 
-func (c *appDBClusterChecks) checkAutomationConfigConfigMap(configMapName string) {
+func (c *appDBClusterChecks) checkAutomationConfigConfigMap(ctx context.Context, configMapName string) {
 	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, configMapName), &cm)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	assert.Contains(c.t, cm.Data, appDBACConfigMapVersionField, "clusterName: %s", c.clusterName)
 }
 
-func (c *appDBClusterChecks) checkCAConfigMap(configMapName string) {
+func (c *appDBClusterChecks) checkCAConfigMap(ctx context.Context, configMapName string) {
 	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, configMapName), &cm)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	assert.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	assert.Contains(c.t, cm.Data, "ca-pem", "clusterName: %s", c.clusterName)
 }
 
-func (c *appDBClusterChecks) checkProjectIDConfigMap(configMapName string) string {
+func (c *appDBClusterChecks) checkProjectIDConfigMap(ctx context.Context, configMapName string) string {
 	cm := corev1.ConfigMap{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, configMapName), &cm)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, cm.Data, util.AppDbProjectIdKey, "clusterName: %s", c.clusterName)
 	return cm.Data[util.AppDbProjectIdKey]
 }
 
-func (c *appDBClusterChecks) checkServices(statefulSetName string, expectedMembers int) {
+func (c *appDBClusterChecks) checkServices(ctx context.Context, statefulSetName string, expectedMembers int) {
 	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
-		err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, serviceName), &svc)
+		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
 		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 
 		assert.Equal(c.t, map[string]string{
@@ -659,16 +662,16 @@ func (c *appDBClusterChecks) checkServices(statefulSetName string, expectedMembe
 	}
 }
 
-func (c *appDBClusterChecks) checkStatefulSet(statefulSetName string, expectedMembers int) {
+func (c *appDBClusterChecks) checkStatefulSet(ctx context.Context, statefulSetName string, expectedMembers int) {
 	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, statefulSetName), &sts)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
 	require.NoError(c.t, err, "clusterName: %s stsName: %s", c.clusterName, statefulSetName)
 	require.Equal(c.t, expectedMembers, int(*sts.Spec.Replicas))
 	require.Equal(c.t, statefulSetName, sts.ObjectMeta.Name)
 }
 
-func createOMAPIKeySecret(t *testing.T, secretClient secrets.SecretClient, opsManager *om.MongoDBOpsManager) {
-	APIKeySecretName, err := opsManager.APIKeySecretName(secretClient, "")
+func createOMAPIKeySecret(ctx context.Context, t *testing.T, secretClient secrets.SecretClient, opsManager *om.MongoDBOpsManager) {
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secretClient, "")
 	assert.NoError(t, err)
 
 	data := map[string]string{
@@ -682,11 +685,11 @@ func createOMAPIKeySecret(t *testing.T, secretClient secrets.SecretClient, opsMa
 		SetStringMapToData(data).
 		Build()
 
-	err = secretClient.CreateSecret(apiKeySecret)
+	err = secretClient.CreateSecret(ctx, apiKeySecret)
 	require.NoError(t, err)
 }
 
-func createAppDbCAConfigMap(t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) string {
+func createAppDbCAConfigMap(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) string {
 	cert, _ := createMockCertAndKeyBytes()
 	cm := configmap.Builder().
 		SetName(appDBSpec.GetCAConfigMapName()).
@@ -694,13 +697,13 @@ func createAppDbCAConfigMap(t *testing.T, k8sClient client.Client, appDBSpec om.
 		SetDataField("ca-pem", string(cert)).
 		Build()
 
-	err := k8sClient.Create(context.TODO(), &cm)
+	err := k8sClient.Create(ctx, &cm)
 	require.NoError(t, err)
 
 	return appDBSpec.GetCAConfigMapName()
 }
 
-func createAppDBTLSCert(t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) (string, string) {
+func createAppDBTLSCert(ctx context.Context, t *testing.T, k8sClient client.Client, appDBSpec om.AppDBSpec) (string, string) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      appDBSpec.GetTlsCertificatesSecretName(),
@@ -713,7 +716,7 @@ func createAppDBTLSCert(t *testing.T, k8sClient client.Client, appDBSpec om.AppD
 	certs["tls.crt"], certs["tls.key"] = createMockCertAndKeyBytes()
 
 	secret.Data = certs
-	err := k8sClient.Create(context.TODO(), secret)
+	err := k8sClient.Create(ctx, secret)
 	require.NoError(t, err)
 
 	pemHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secret.Data), zap.S())
@@ -723,6 +726,7 @@ func createAppDBTLSCert(t *testing.T, k8sClient client.Client, appDBSpec om.AppD
 }
 
 func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t *testing.T) {
+	ctx := context.Background()
 	builder := DefaultOpsManagerBuilder().
 		SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
 			{
@@ -731,17 +735,18 @@ func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t 
 			}}).
 		SetAppDBTopology(om.ClusterTopologyMultiCluster)
 	opsManager := builder.Build()
-	_, err := newAppDbReconciler(mock.NewManager(opsManager), opsManager, zap.S())
+	_, err := newAppDbReconciler(ctx, mock.NewManager(ctx, opsManager), opsManager, zap.S())
 	assert.Error(t, err)
 }
 
-func (c *appDBClusterChecks) checkStatefulSetDoesNotExist(statefulSetName string) {
+func (c *appDBClusterChecks) checkStatefulSetDoesNotExist(ctx context.Context, statefulSetName string) {
 	sts := appsv1.StatefulSet{}
-	err := c.kubeClient.Get(context.TODO(), kube.ObjectKey(c.namespace, statefulSetName), &sts)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, statefulSetName), &sts)
 	require.True(c.t, apiErrors.IsNotFound(err))
 }
 
 func TestAppDBMultiClusterRemoveResources(t *testing.T) {
+	ctx := context.Background()
 	builder := DefaultOpsManagerBuilder().
 		SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{
 			{
@@ -765,12 +770,12 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters)
 
 	// create opsmanager reconciler
-	reconciler, _, _ := defaultTestOmReconciler(t, opsManager, memberClusterMap)
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, opsManager, memberClusterMap)
 
-	appDBReconciler, _ := newAppDbMultiReconciler(mock.NewManager(opsManager), opsManager, memberClusterMap, zap.S())
+	appDBReconciler, _ := newAppDbMultiReconciler(ctx, mock.NewManager(ctx, opsManager), opsManager, memberClusterMap, zap.S())
 
 	// initially requeued as monitoring needs to be configured
-	_, err := appDBReconciler.ReconcileAppDB(opsManager)
+	_, err := appDBReconciler.ReconcileAppDB(ctx, opsManager)
 	assert.NoError(t, err)
 
 	// check AppDB statefulset exists in cluster "a" and cluster "b"
@@ -778,11 +783,11 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
 		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
 
-		memberClusterChecks.checkStatefulSet(opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
+		memberClusterChecks.checkStatefulSet(ctx, opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)), clusterSpecItem.Members)
 	}
 
 	// delete the OM resource
-	reconciler.OnDelete(opsManager, zap.S())
+	reconciler.OnDelete(ctx, opsManager, zap.S())
 	assert.Zero(t, len(reconciler.WatchedResources))
 
 	// assert STS objects in member cluster
@@ -790,7 +795,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
 		memberClusterChecks := newAppDBClusterChecks(t, opsManager, clusterSpecItem.ClusterName, memberClusterClient.GetClient(), clusterIdx)
 
-		memberClusterChecks.checkStatefulSetDoesNotExist(opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)))
+		memberClusterChecks.checkStatefulSetDoesNotExist(ctx, opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)))
 	}
 
 }

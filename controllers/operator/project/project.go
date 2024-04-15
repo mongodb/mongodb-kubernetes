@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -29,12 +30,12 @@ type Reader interface {
 
 // ReadConfigAndCredentials returns the ProjectConfig and Credentials for a given resource which are
 // used to communicate with Ops Manager.
-func ReadConfigAndCredentials(cmGetter configmap.Getter, secretGetter secrets.SecretClient, reader Reader, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	projectConfig, err := ReadProjectConfig(cmGetter, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
+func ReadConfigAndCredentials(ctx context.Context, cmGetter configmap.Getter, secretGetter secrets.SecretClient, reader Reader, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+	projectConfig, err := ReadProjectConfig(ctx, cmGetter, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading project %w", err)
 	}
-	credsConfig, err := ReadCredentials(secretGetter, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), log)
+	credsConfig, err := ReadCredentials(ctx, secretGetter, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), log)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading Credentials secret: %w", err)
 	}

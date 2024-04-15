@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"k8s.io/klog/v2"
 
@@ -33,7 +34,6 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
@@ -86,6 +86,7 @@ func parseCommandLineArgs() commandLineFlags {
 }
 
 func main() {
+	ctx := context.Background()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -105,6 +106,7 @@ func main() {
 	if len(namespacesToWatch) == 1 && (namespacesToWatch[0] == "" || currentNamespace == namespacesToWatch[0]) {
 		// This will be the name of 1 namespace to watch, or the empty string
 		// for an operator that watches the whole cluster
+		//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
 		managerOptions.Namespace = namespacesToWatch[0]
 	} else {
 		namespacesForCacheBuilder := namespacesToWatch
@@ -113,6 +115,7 @@ func main() {
 		}
 		// In multi-namespace scenarios, the namespace where the Operator
 		// resides needs to be part of the Cache as well.
+		//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
 		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesForCacheBuilder)
 	}
 
@@ -121,15 +124,16 @@ func main() {
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
+	commandLineFlags := parseCommandLineArgs()
+	crdsToWatch := commandLineFlags.crdsToWatch
+	webhookOptions := setupWebhook(ctx, cfg, log, multicluster.IsMultiClusterMode(crdsToWatch))
+	managerOptions.WebhookServer = crWebhook.NewServer(webhookOptions)
+
 	mgr, err := ctrl.NewManager(cfg, managerOptions)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Info("Registering Components.")
-
-	commandLineFlags := parseCommandLineArgs()
-	crdsToWatch := commandLineFlags.crdsToWatch
-	setupWebhook(mgr, cfg, log, multicluster.IsMultiClusterMode(crdsToWatch))
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {
@@ -150,7 +154,7 @@ func main() {
 			log.Fatal("failed reading KubeConfig file: %s", err)
 		}
 
-		memberClustersNames, err := getMemberClusters(cfg)
+		memberClustersNames, err := getMemberClusters(ctx, cfg)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -174,6 +178,7 @@ func main() {
 			if len(namespacesToWatch) == 1 {
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
 					if namespacesToWatch[0] != "" {
+						//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
 						options.Namespace = kubeConfig.GetMemberClusterNamespace()
 					}
 				})
@@ -186,6 +191,7 @@ func main() {
 			} else if len(namespacesToWatch) > 1 {
 				log.Infof("Building member cluster cache for multiple namespaces: %v", namespacesToWatch)
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+					//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
 					options.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
 				})
 				if err != nil {
@@ -204,7 +210,7 @@ func main() {
 
 	// Setup all Controllers
 	var registeredCRDs []string
-	if registeredCRDs, err = controllers.AddToManager(mgr, crdsToWatch, memberClusterObjectsMap); err != nil {
+	if registeredCRDs, err = controllers.AddToManager(ctx, mgr, crdsToWatch, memberClusterObjectsMap); err != nil {
 		log.Fatal(err)
 	}
 
@@ -221,14 +227,14 @@ func main() {
 }
 
 // getMemberClusters retrieves the member cluster from the configmap util.MemberListConfigMapName
-func getMemberClusters(cfg *rest.Config) ([]string, error) {
+func getMemberClusters(ctx context.Context, cfg *rest.Config) ([]string, error) {
 	c, err := client.New(cfg, client.Options{})
 	if err != nil {
 		panic(err)
 	}
 
 	m := corev1.ConfigMap{}
-	err = c.Get(context.Background(), types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: env.ReadOrPanic(util.CurrentNamespace)}, &m)
+	err = c.Get(ctx, types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: env.ReadOrPanic(util.CurrentNamespace)}, &m)
 	if err != nil {
 		return nil, err
 	}
@@ -247,18 +253,17 @@ func isInLocalMode() bool {
 
 // setupWebhook sets up the validation webhook for MongoDB resources in order
 // to give people early warning when their MongoDB resources are wrong.
-func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool) {
+func setupWebhook(ctx context.Context, cfg *rest.Config, log *zap.SugaredLogger, multiClusterMode bool) crWebhook.Options {
 	// set webhook port — 1993 is chosen as Ben's birthday
 	webhookPort := env.ReadIntOrDefault(util.MdbWebhookPortEnv, 1993)
-	mgr.GetWebhookServer().Port = webhookPort
-	if isInLocalMode() {
-		mgr.GetWebhookServer().Host = "127.0.0.1"
-	}
 
 	// this is the default directory on Linux but setting it explicitly helps
 	// with cross-platform compatibility, specifically local development on MacOS
 	certDir := "/tmp/k8s-webhook-server/serving-certs/"
-	mgr.GetWebhookServer().CertDir = certDir
+	var webhookHost string
+	if isInLocalMode() {
+		webhookHost = "127.0.0.1"
+	}
 
 	// create a kubernetes client that the webhook server can use. We can't reuse
 	// the one from the manager as it is not initialised yet.
@@ -273,8 +278,15 @@ func setupWebhook(mgr manager.Manager, cfg *rest.Config, log *zap.SugaredLogger,
 		Name:      "operator-webhook",
 		Namespace: env.ReadOrPanic(util.CurrentNamespace),
 	}
-	if err := webhook.Setup(webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode, log); err != nil {
+
+	if err := webhook.Setup(ctx, webhookClient, webhookServiceLocation, certDir, webhookPort, multiClusterMode, log); err != nil {
 		log.Warnf("could not set up webhook: %v", err)
+	}
+
+	return crWebhook.Options{
+		Port:    webhookPort,
+		Host:    webhookHost,
+		CertDir: certDir,
 	}
 }
 

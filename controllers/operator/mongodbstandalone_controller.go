@@ -55,9 +55,9 @@ import (
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+func AddStandaloneController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newStandaloneReconciler(mgr, om.NewOpsManagerConnection)
+	reconciler := newStandaloneReconciler(ctx, mgr, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
@@ -65,7 +65,7 @@ func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]c
 
 	// watch for changes to standalone MongoDB resources
 	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(&source.Kind{Type: &mdbv1.MongoDB{}}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone))
+	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{}), &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone))
 	if err != nil {
 		return err
 	}
@@ -79,13 +79,13 @@ func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]c
 		return xerrors.Errorf("not able to setup OmUpdateChannel to listent to update events from OM: %s", err)
 	}
 
-	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
+	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
 		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
@@ -94,7 +94,7 @@ func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]c
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
-		go vaultwatcher.WatchSecretChangeForMDB(zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.Standalone)
+		go vaultwatcher.WatchSecretChangeForMDB(ctx, zap.S(), eventChannel, reconciler.client, reconciler.VaultClient, mdbv1.Standalone)
 
 		err = c.Watch(
 			&source.Channel{Source: eventChannel},
@@ -109,9 +109,9 @@ func AddStandaloneController(mgr manager.Manager, memberClustersMap map[string]c
 	return nil
 }
 
-func newStandaloneReconciler(mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
+func newStandaloneReconciler(ctx context.Context, mgr manager.Manager, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
 	return &ReconcileMongoDbStandalone{
-		ReconcileCommonController: newReconcileCommonController(mgr),
+		ReconcileCommonController: newReconcileCommonController(ctx, mgr),
 		omConnectionFactory:       omFunc,
 	}
 }
@@ -122,12 +122,12 @@ type ReconcileMongoDbStandalone struct {
 	omConnectionFactory om.ConnectionFactory
 }
 
-func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
-	if reconcileResult, err := r.prepareResourceForReconciliation(request, s, log); err != nil {
+	if reconcileResult, err := r.prepareResourceForReconciliation(ctx, request, s, log); err != nil {
 		if errors.IsNotFound(err) {
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
@@ -135,72 +135,72 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 	}
 
 	if !architectures.IsRunningStaticArchitecture(s.Annotations) {
-		agents.UpgradeAllIfNeeded(agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
+		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
-		return r.updateStatus(s, workflow.Invalid(err.Error()), log)
+		return r.updateStatus(ctx, s, workflow.Invalid(err.Error()), log)
 	}
 
 	log.Info("-> Standalone.Reconcile")
 	log.Infow("Standalone.Spec", "spec", s.Spec)
 	log.Infow("Standalone.Status", "status", s.Status)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, s, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(err), log)
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
+		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(s, status, log)
+		return r.updateStatus(ctx, s, status, log)
 	}
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
 	reconcileResult := checkIfHasExcessProcesses(conn, s, log)
 	if !reconcileResult.IsOK() {
-		return r.updateStatus(s, reconcileResult, log)
+		return r.updateStatus(ctx, s, reconcileResult, log)
 	}
 
 	if status := controlledfeature.EnsureFeatureControls(*s, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
-		return r.updateStatus(s, status, log)
+		return r.updateStatus(ctx, s, status, log)
 	}
 
 	// cannot have a non-tls deployment in an x509 environment
 	// TODO move to webhook validations
 	security := s.Spec.Security
 	if security.Authentication != nil && security.Authentication.Enabled && security.Authentication.IsX509Enabled() && !s.Spec.GetSecurity().IsTLSEnabled() {
-		return r.updateStatus(s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
+		return r.updateStatus(ctx, s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
 	currentAgentAuthMode, err := conn.GetAgentAuthMode()
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(err), log)
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
 	podVars := newPodVars(conn, projectConfig, s.Spec.ConnectionSpec)
 
 	if status := validateMongoDBResource(s, conn); !status.IsOK() {
-		return r.updateStatus(s, status, log)
+		return r.updateStatus(ctx, s, status, log)
 	}
 
-	if status := certs.EnsureSSLCertsForStatefulSet(r.SecretClient, r.SecretClient, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
-		return r.updateStatus(s, status, log)
+	if status := certs.EnsureSSLCertsForStatefulSet(ctx, r.SecretClient, r.SecretClient, *s.Spec.Security, certs.StandaloneConfig(*s), log); !status.IsOK() {
+		return r.updateStatus(ctx, s, status, log)
 	}
 
 	// TODO separate PR
 	certConfigurator := certs.StandaloneX509CertConfigurator{MongoDB: s, SecretClient: r.SecretClient}
-	if status := r.ensureX509SecretAndCheckTLSType(certConfigurator, currentAgentAuthMode, log); !status.IsOK() {
-		return r.updateStatus(s, status, log)
+	if status := r.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log); !status.IsOK() {
+		return r.updateStatus(ctx, s, status, log)
 	}
 
 	if status := ensureRoles(s.Spec.GetSecurity().Roles, conn, log); !status.IsOK() {
-		return r.updateStatus(s, status, log)
+		return r.updateStatus(ctx, s, status, log)
 	}
 
 	var vaultConfig vault.VaultConfiguration
@@ -223,13 +223,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
-				return r.updateStatus(s, status, log)
+				return r.updateStatus(ctx, s, status, log)
 			}
 		}
 	}
 
 	standaloneOpts := construct.StandaloneOptions(
-		CertificateHash(pem.ReadHashFromSecret(r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
+		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
 		WithVaultConfig(vaultConfig),
@@ -239,31 +239,31 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, nil)
 
-	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(r.client, *s, standaloneOpts, log),
+	status := workflow.RunInGivenOrder(publishAutomationConfigFirst(ctx, r.client, *s, standaloneOpts, log),
 		func() workflow.Status {
-			return r.updateOmDeployment(conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+			return r.updateOmDeployment(ctx, conn, s, sts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			if err = create.DatabaseInKubernetes(r.client, *s, sts, standaloneOpts, log); err != nil {
+			if err = create.DatabaseInKubernetes(ctx, r.client, *s, sts, standaloneOpts, log); err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
 
-			if status := getStatefulSetStatus(sts.Namespace, sts.Name, r.client); !status.IsOK() {
+			if status := getStatefulSetStatus(ctx, sts.Namespace, sts.Name, r.client); !status.IsOK() {
 				return status
 			}
-			_, _ = r.updateStatus(s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
+			_, _ = r.updateStatus(ctx, s, workflow.Pending("").WithResourcesNotReady([]mdbstatus.ResourceNotReady{}), log)
 
 			log.Info("Updated StatefulSet for standalone")
 			return workflow.OK()
 		})
 
 	if !status.IsOK() {
-		return r.updateStatus(s, status, log)
+		return r.updateStatus(ctx, s, status, log)
 	}
 
 	annotationsToAdd, err := getAnnotationsForResource(s)
 	if err != nil {
-		return r.updateStatus(s, workflow.Failed(err), log)
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
 	if vault.IsVaultSecretBackend() {
@@ -279,22 +279,21 @@ func (r *ReconcileMongoDbStandalone) Reconcile(_ context.Context, request reconc
 			annotationsToAdd[k] = val
 		}
 	}
-	if err := annotations.SetAnnotations(s, annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(s, workflow.Failed(err), log)
+	if err := annotations.SetAnnotations(ctx, s, annotationsToAdd, r.client); err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDbStandalone! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
+	return r.updateStatus(ctx, s, status, log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
 }
 
-func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *mdbv1.MongoDB,
-	set appsv1.StatefulSet, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
 	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
 		return workflow.Failed(err)
 	}
 
 	// TODO standalone PR
-	status, additionalReconciliationRequired := r.updateOmAuthentication(conn, []string{set.Name}, s, "", "", "", isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, "", "", "", isRecovering, log)
 	if !status.IsOK() {
 		return status
 	}
@@ -338,17 +337,17 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(conn om.Connection, s *m
 
 }
 
-func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, s, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)
 	if err != nil {
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, log)
 	if err != nil {
 		return err
 	}
@@ -379,7 +378,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(obj runtime.Object, log *zap.Sugar
 	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
 		return err
 	}
-	if err := r.clearProjectAuthenticationSettings(conn, s, processNames, log); err != nil {
+	if err := r.clearProjectAuthenticationSettings(ctx, conn, s, processNames, log); err != nil {
 		return err
 	}
 

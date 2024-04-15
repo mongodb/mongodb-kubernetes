@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"reflect"
@@ -16,7 +17,7 @@ import (
 )
 
 type SecretClientInterface interface {
-	ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error)
+	ReadSecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error)
 }
 
 var _ SecretClientInterface = (*SecretClient)(nil)
@@ -37,8 +38,8 @@ func secretNamespacedName(s corev1.Secret) types.NamespacedName {
 	}
 }
 
-func (r SecretClient) ReadSecretKey(secretName types.NamespacedName, basePath string, key string) (string, error) {
-	secret, err := r.ReadSecret(secretName, basePath)
+func (r SecretClient) ReadSecretKey(ctx context.Context, secretName types.NamespacedName, basePath string, key string) (string, error) {
+	secret, err := r.ReadSecret(ctx, secretName, basePath)
 	if err != nil {
 		return "", xerrors.Errorf("can't read secret %s: %w", secretName, err)
 	}
@@ -49,7 +50,7 @@ func (r SecretClient) ReadSecretKey(secretName types.NamespacedName, basePath st
 	return val, nil
 }
 
-func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath string) (map[string]string, error) {
+func (r SecretClient) ReadSecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error) {
 	secrets := make(map[string]string)
 	if vault.IsVaultSecretBackend() {
 		var err error
@@ -59,7 +60,7 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 			return nil, err
 		}
 	} else {
-		stringData, err := secret.ReadStringData(r.KubeClient, secretName)
+		stringData, err := secret.ReadStringData(ctx, r.KubeClient, secretName)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +71,7 @@ func (r SecretClient) ReadSecret(secretName types.NamespacedName, basePath strin
 	return secrets, nil
 }
 
-func (r SecretClient) ReadBinarySecret(secretName types.NamespacedName, basePath string) (map[string][]byte, error) {
+func (r SecretClient) ReadBinarySecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string][]byte, error) {
 	var secrets map[string][]byte
 	var err error
 	if vault.IsVaultSecretBackend() {
@@ -80,7 +81,7 @@ func (r SecretClient) ReadBinarySecret(secretName types.NamespacedName, basePath
 			return nil, err
 		}
 	} else {
-		secrets, err = secret.ReadByteData(r.KubeClient, secretName)
+		secrets, err = secret.ReadByteData(ctx, r.KubeClient, secretName)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +90,7 @@ func (r SecretClient) ReadBinarySecret(secretName types.NamespacedName, basePath
 }
 
 // PutSecret copies secret.Data into vault. Note: we don't rely on secret.StringData since our builder does not use the field.
-func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
+func (r SecretClient) PutSecret(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
 		secretData := map[string]interface{}{}
@@ -102,11 +103,11 @@ func (r SecretClient) PutSecret(s corev1.Secret, basePath string) error {
 		return r.VaultClient.PutSecret(secretPath, data)
 	}
 
-	return secret.CreateOrUpdate(r.KubeClient, s)
+	return secret.CreateOrUpdate(ctx, r.KubeClient, s)
 }
 
 // PutBinarySecret copies secret.Data as base64 into vault.
-func (r SecretClient) PutBinarySecret(s corev1.Secret, basePath string) error {
+func (r SecretClient) PutBinarySecret(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
 		secretData := map[string]interface{}{}
@@ -119,23 +120,23 @@ func (r SecretClient) PutBinarySecret(s corev1.Secret, basePath string) error {
 		return r.VaultClient.PutSecret(secretPath, data)
 	}
 
-	return secret.CreateOrUpdate(r.KubeClient, s)
+	return secret.CreateOrUpdate(ctx, r.KubeClient, s)
 }
 
 // PutSecretIfChanged updates a Secret only if it has changed. Equality is based on s.Data.
 // `basePath` is only used when Secrets backend is `Vault`.
-func (r SecretClient) PutSecretIfChanged(s corev1.Secret, basePath string) error {
+func (r SecretClient) PutSecretIfChanged(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
-		secret, err := r.ReadSecret(secretNamespacedName(s), basePath)
+		secret, err := r.ReadSecret(ctx, secretNamespacedName(s), basePath)
 		if err != nil && !strings.Contains(err.Error(), "not found") {
 			return err
 		}
 		if err != nil || !reflect.DeepEqual(secret, DataToStringData(s.Data)) {
-			return r.PutSecret(s, basePath)
+			return r.PutSecret(ctx, s, basePath)
 		}
 	}
 
-	return secret.CreateOrUpdateIfNeeded(r.KubeClient, s)
+	return secret.CreateOrUpdateIfNeeded(ctx, r.KubeClient, s)
 }
 
 func SecretNotExist(err error) bool {
@@ -149,11 +150,11 @@ func SecretNotExist(err error) bool {
 // We hardcode here the AppDB sub-path for Vault since community is used only to deploy
 // AppDB pods. This allows us to minimize the changes to Community.
 
-func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret, error) {
+func (r SecretClient) GetSecret(ctx context.Context, secretName types.NamespacedName) (corev1.Secret, error) {
 	if vault.IsVaultSecretBackend() {
 		s := corev1.Secret{}
 
-		data, err := r.ReadSecret(secretName, r.VaultClient.AppDBSecretPath())
+		data, err := r.ReadSecret(ctx, secretName, r.VaultClient.AppDBSecretPath())
 		if err != nil {
 			return s, err
 		}
@@ -163,30 +164,30 @@ func (r SecretClient) GetSecret(secretName types.NamespacedName) (corev1.Secret,
 		}
 		return s, nil
 	}
-	return r.KubeClient.GetSecret(secretName)
+	return r.KubeClient.GetSecret(ctx, secretName)
 }
 
-func (r SecretClient) CreateSecret(s corev1.Secret) error {
+func (r SecretClient) CreateSecret(ctx context.Context, s corev1.Secret) error {
 	var appdbSecretPath string
 	if r.VaultClient != nil {
 		appdbSecretPath = r.VaultClient.AppDBSecretPath()
 	}
-	return r.PutSecret(s, appdbSecretPath)
+	return r.PutSecret(ctx, s, appdbSecretPath)
 }
 
-func (r SecretClient) UpdateSecret(s corev1.Secret) error {
+func (r SecretClient) UpdateSecret(ctx context.Context, s corev1.Secret) error {
 	if vault.IsVaultSecretBackend() {
-		return r.CreateSecret(s)
+		return r.CreateSecret(ctx, s)
 	}
-	return r.KubeClient.UpdateSecret(s)
+	return r.KubeClient.UpdateSecret(ctx, s)
 }
 
-func (r SecretClient) DeleteSecret(secretName types.NamespacedName) error {
+func (r SecretClient) DeleteSecret(ctx context.Context, secretName types.NamespacedName) error {
 	if vault.IsVaultSecretBackend() {
 		// TODO deletion logic
 		return nil
 	}
-	return r.KubeClient.DeleteSecret(secretName)
+	return r.KubeClient.DeleteSecret(ctx, secretName)
 }
 
 func DataToStringData(data map[string][]byte) map[string]string {

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -12,15 +14,15 @@ import (
 
 var _ webhook.Validator = &MongoDBMultiCluster{}
 
-func (m *MongoDBMultiCluster) ValidateCreate() error {
-	return m.ProcessValidationsOnReconcile(nil)
+func (m *MongoDBMultiCluster) ValidateCreate() (admission.Warnings, error) {
+	return nil, m.ProcessValidationsOnReconcile(nil)
 }
 
-func (m *MongoDBMultiCluster) ValidateUpdate(old runtime.Object) error {
-	return m.ProcessValidationsOnReconcile(old.(*MongoDBMultiCluster))
+func (m *MongoDBMultiCluster) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+	return nil, m.ProcessValidationsOnReconcile(old.(*MongoDBMultiCluster))
 }
-func (m *MongoDBMultiCluster) ValidateDelete() error {
-	return nil
+func (m *MongoDBMultiCluster) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
 }
 
 func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiCluster) error {

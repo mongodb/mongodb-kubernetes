@@ -3,7 +3,7 @@ package backup
 import (
 	"testing"
 
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/stretchr/testify/assert"
@@ -13,29 +13,29 @@ func TestMergeExistingScheduleWithSpec(t *testing.T) {
 	existingSchedule := SnapshotSchedule{
 		GroupID:                        "a",
 		ClusterID:                      "b",
-		DailySnapshotRetentionDays:     pointer.Int(2),
-		FullIncrementalDayOfWeek:       pointer.String("c"),
-		MonthlySnapshotRetentionMonths: pointer.Int(3),
-		PointInTimeWindowHours:         pointer.Int(4),
-		ReferenceHourOfDay:             pointer.Int(5),
-		ReferenceMinuteOfHour:          pointer.Int(6),
-		SnapshotIntervalHours:          pointer.Int(8),
-		SnapshotRetentionDays:          pointer.Int(9),
-		WeeklySnapshotRetentionWeeks:   pointer.Int(10),
-		ClusterCheckpointIntervalMin:   pointer.Int(11),
+		DailySnapshotRetentionDays:     ptr.To(2),
+		FullIncrementalDayOfWeek:       ptr.To("c"),
+		MonthlySnapshotRetentionMonths: ptr.To(3),
+		PointInTimeWindowHours:         ptr.To(4),
+		ReferenceHourOfDay:             ptr.To(5),
+		ReferenceMinuteOfHour:          ptr.To(6),
+		SnapshotIntervalHours:          ptr.To(8),
+		SnapshotRetentionDays:          ptr.To(9),
+		WeeklySnapshotRetentionWeeks:   ptr.To(10),
+		ClusterCheckpointIntervalMin:   ptr.To(11),
 	}
 
 	specSchedule := mdb.SnapshotSchedule{
-		SnapshotIntervalHours:          pointer.Int(11),
-		SnapshotRetentionDays:          pointer.Int(12),
-		DailySnapshotRetentionDays:     pointer.Int(13),
-		WeeklySnapshotRetentionWeeks:   pointer.Int(14),
-		MonthlySnapshotRetentionMonths: pointer.Int(15),
-		PointInTimeWindowHours:         pointer.Int(16),
-		ReferenceHourOfDay:             pointer.Int(17),
-		ReferenceMinuteOfHour:          pointer.Int(18),
-		FullIncrementalDayOfWeek:       pointer.String("cc"),
-		ClusterCheckpointIntervalMin:   pointer.Int(11),
+		SnapshotIntervalHours:          ptr.To(11),
+		SnapshotRetentionDays:          ptr.To(12),
+		DailySnapshotRetentionDays:     ptr.To(13),
+		WeeklySnapshotRetentionWeeks:   ptr.To(14),
+		MonthlySnapshotRetentionMonths: ptr.To(15),
+		PointInTimeWindowHours:         ptr.To(16),
+		ReferenceHourOfDay:             ptr.To(17),
+		ReferenceMinuteOfHour:          ptr.To(18),
+		FullIncrementalDayOfWeek:       ptr.To("cc"),
+		ClusterCheckpointIntervalMin:   ptr.To(11),
 	}
 
 	merged := mergeExistingScheduleWithSpec(existingSchedule, specSchedule)

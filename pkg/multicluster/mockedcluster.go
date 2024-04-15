@@ -2,6 +2,7 @@ package multicluster
 
 import (
 	"context"
+	"net/http"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,6 +17,10 @@ var _ cluster.Cluster = &MockedCluster{}
 
 type MockedCluster struct {
 	client client.Client
+}
+
+func (m *MockedCluster) GetHTTPClient() *http.Client {
+	panic("implement me")
 }
 
 func (m *MockedCluster) SetFields(interface{}) error {

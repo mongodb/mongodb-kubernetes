@@ -24,7 +24,7 @@ import (
 const controllerLabelName = "app.kubernetes.io/name"
 
 // createWebhookService creates a Kubernetes service for the webhook.
-func createWebhookService(client client.Client, location types.NamespacedName, webhookPort int, multiClusterMode bool) error {
+func createWebhookService(ctx context.Context, client client.Client, location types.NamespacedName, webhookPort int, multiClusterMode bool) error {
 	svcSelector := util.OperatorName
 	if multiClusterMode {
 		svcSelector = util.MultiClusterOperatorName
@@ -52,9 +52,9 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 
 	// create the service if it doesn't already exist
 	existingService := &corev1.Service{}
-	err := client.Get(context.TODO(), location, existingService)
+	err := client.Get(ctx, location, existingService)
 	if apiErrors.IsNotFound(err) {
-		return client.Create(context.Background(), &svc)
+		return client.Create(ctx, &svc)
 	} else if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func createWebhookService(client client.Client, location types.NamespacedName, w
 	// Update existing client with resource version and cluster IP
 	svc.ResourceVersion = existingService.ResourceVersion
 	svc.Spec.ClusterIP = existingService.Spec.ClusterIP
-	return client.Update(context.Background(), &svc)
+	return client.Update(ctx, &svc)
 }
 
 // GetWebhookConfig constructs a Kubernetes configuration resource for the
@@ -186,13 +186,13 @@ func shouldRegisterWebhookConfiguration() bool {
 	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true)
 }
 
-func Setup(client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool, log *zap.SugaredLogger) error {
+func Setup(ctx context.Context, client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, multiClusterMode bool, log *zap.SugaredLogger) error {
 	if !shouldRegisterWebhookConfiguration() {
 		log.Debugf("Skipping configuration of ValidatingWebhookConfiguration")
 		// After upgrading OLM version after migrating to proper OLM webhooks we don't need that `operator-service` anymore.
 		// By default, the service is created by the operator in createWebhookService below
 		// It will also be useful here if someone decides to disable automatic webhook configuration by the operator.
-		if err := mekoService.DeleteServiceIfItExists(kubernetesClient.NewClient(client), serviceLocation); err != nil {
+		if err := mekoService.DeleteServiceIfItExists(ctx, kubernetesClient.NewClient(client), serviceLocation); err != nil {
 			log.Warnf("Failed to delete webhook service %v: %w", serviceLocation, err)
 			// we don't want to fail the operator startup if we cannot do the cleanup
 		}
@@ -202,7 +202,7 @@ func Setup(client client.Client, serviceLocation types.NamespacedName, certDirec
 				Name: "mdbpolicy.mongodb.com",
 			},
 		}
-		if err := client.Delete(context.TODO(), &webhookConfig); err != nil {
+		if err := client.Delete(ctx, &webhookConfig); err != nil {
 			if !apiErrors.IsNotFound(err) {
 				log.Warnf("Failed to delete ValidatingWebhookConfiguration %s. The operator might not have necessary permissions anymore. %w", webhookConfig.Name, err)
 				// we don't want to fail the operator startup if we cannot do the cleanup
@@ -212,7 +212,7 @@ func Setup(client client.Client, serviceLocation types.NamespacedName, certDirec
 		return nil
 	}
 
-	if err := createWebhookService(client, serviceLocation, webhookPort, multiClusterMode); err != nil {
+	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, multiClusterMode); err != nil {
 		return err
 	}
 
@@ -223,9 +223,9 @@ func Setup(client client.Client, serviceLocation types.NamespacedName, certDirec
 	}
 
 	webhookConfig := GetWebhookConfig(serviceLocation)
-	err := client.Create(context.Background(), &webhookConfig)
+	err := client.Create(ctx, &webhookConfig)
 	if apiErrors.IsAlreadyExists(err) {
-		return client.Update(context.Background(), &webhookConfig)
+		return client.Update(ctx, &webhookConfig)
 	}
 
 	log.Debugf("Configured ValidatingWebhookConfiguration")

@@ -1,6 +1,8 @@
 package operator
 
 import (
+	"context"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"go.uber.org/zap"
 	"k8s.io/client-go/util/workqueue"
@@ -14,17 +16,17 @@ import (
 type MongoDBOpsManagerEventHandler struct {
 	*handler.EnqueueRequestForObject
 	reconciler interface {
-		OnDelete(obj interface{}, log *zap.SugaredLogger)
+		OnDelete(ctx context.Context, obj interface{}, log *zap.SugaredLogger)
 	}
 }
 
 // Delete implements EventHandler and it is called when the CR is removed
-func (eh *MongoDBOpsManagerEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (eh *MongoDBOpsManagerEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	objectKey := kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName())
 	logger := zap.S().With("resource", objectKey)
 
 	zap.S().Infow("Cleaning up OpsManager resource", "resource", e.Object)
-	eh.reconciler.OnDelete(e.Object, logger)
+	eh.reconciler.OnDelete(ctx, e.Object, logger)
 
 	logger.Info("Removed Ops Manager resource")
 }

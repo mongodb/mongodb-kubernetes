@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -143,7 +144,7 @@ func (m *MongoDB) GetMinimumMajorVersion() uint64 {
 	return m.Spec.MinimumMajorVersion()
 }
 
-func (m *MongoDB) AddValidationToManager(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+func (m *MongoDB) AddValidationToManager(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 

@@ -3,10 +3,10 @@ package om
 import (
 	"testing"
 
+	"k8s.io/utils/ptr"
+
 	ac "github.com/mongodb/mongodb-kubernetes-operator/pkg/automationconfig"
 	"github.com/stretchr/testify/assert"
-
-	"k8s.io/utils/pointer"
 )
 
 func TestDetermineNextProcessIdStartingPoint(t *testing.T) {
@@ -79,12 +79,12 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    pointer.Int(1),
-					Priority: pointer.String("1.3"),
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1.3"),
 				},
 				{
-					Votes:    pointer.Int(0),
-					Priority: pointer.String("0.7"),
+					Votes:    ptr.To(0),
+					Priority: ptr.To("0.7"),
 				},
 			},
 			expected: ReplicaSetWithProcesses{
@@ -108,15 +108,15 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    pointer.Int(1),
-					Priority: pointer.String("1.3"),
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1.3"),
 				},
 				{
-					Votes:    pointer.Int(0),
-					Priority: pointer.String("0.7"),
+					Votes:    ptr.To(0),
+					Priority: ptr.To("0.7"),
 				},
 				{
-					Votes: pointer.Int(1),
+					Votes: ptr.To(1),
 					Tags: map[string]string{
 						"env": "dev",
 					},
@@ -143,8 +143,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    pointer.Int(1),
-					Priority: pointer.String("1.3"),
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1.3"),
 				},
 			},
 			expected: ReplicaSetWithProcesses{
@@ -184,12 +184,12 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			processes: []Process{},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    pointer.Int(1),
-					Priority: pointer.String("1.3"),
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1.3"),
 				},
 				{
-					Votes:    pointer.Int(0),
-					Priority: pointer.String("0.7"),
+					Votes:    ptr.To(0),
+					Priority: ptr.To("0.7"),
 				},
 			},
 			expected: ReplicaSetWithProcesses{

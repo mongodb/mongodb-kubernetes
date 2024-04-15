@@ -1,6 +1,7 @@
 package user
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -40,7 +41,7 @@ type MongoDBUser struct {
 // GetPassword returns the password of the user as stored in the referenced
 // secret. If the password secret reference is unset then a blank password and
 // a nil error will be returned.
-func (user MongoDBUser) GetPassword(secretClient secrets.SecretClient) (string, error) {
+func (user MongoDBUser) GetPassword(ctx context.Context, secretClient secrets.SecretClient) (string, error) {
 	if user.Spec.PasswordSecretKeyRef.Name == "" {
 		return "", nil
 	}
@@ -53,7 +54,7 @@ func (user MongoDBUser) GetPassword(secretClient secrets.SecretClient) (string, 
 	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretClient.VaultClient.DatabaseSecretPath()
 	}
-	secretData, err := secretClient.ReadSecret(nsName, databaseSecretPath)
+	secretData, err := secretClient.ReadSecret(ctx, nsName, databaseSecretPath)
 	if err != nil {
 		return "", xerrors.Errorf("could not retrieve user password secret: %w", err)
 	}

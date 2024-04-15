@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func PrepareOpsManagerConnection(client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, error) {
+func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, log *zap.SugaredLogger) (om.Connection, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
 		return nil, xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
@@ -47,7 +48,7 @@ func PrepareOpsManagerConnection(client secrets.SecretClient, projectConfig mdbv
 	}
 	// TODO: we may want to remove this from this function in the future, this is not strictly related
 	// to establishing an Ops Manager connection
-	if _, err = agents.EnsureAgentKeySecretExists(client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), databaseSecretPath, log); err != nil {
+	if _, err = agents.EnsureAgentKeySecretExists(ctx, client, conn, namespace, omProject.AgentAPIKey, conn.GroupID(), databaseSecretPath, log); err != nil {
 		return nil, err
 	}
 	return conn, nil
