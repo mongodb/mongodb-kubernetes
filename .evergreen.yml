@@ -663,7 +663,7 @@ tasks:
 
 - name: release_agent
   # this enables us to run this variant either manually (patch) which pct does or during a release (github_tag)
-  allowed_requesters: ["patch", "github_tag"]
+  allowed_requesters: ["patch", "github_tag", "github_pr"]
   commands:
     - func: clone
     - func: setup_building_host
