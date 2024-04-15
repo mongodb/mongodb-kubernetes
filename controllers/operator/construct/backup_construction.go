@@ -1,6 +1,7 @@
 package construct
 
 import (
+	"context"
 	"fmt"
 
 	"golang.org/x/xerrors"
@@ -35,9 +36,9 @@ const (
 )
 
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
-func BackupDaemonStatefulSet(centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func BackupDaemonStatefulSet(ctx context.Context, centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := backupOptions(memberCluster, additionalOpts...)(opsManager)
-	if err := opts.updateHTTPSCertSecret(centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
@@ -45,7 +46,7 @@ func BackupDaemonStatefulSet(centralClusterSecretClient secrets.SecretClient, op
 	opts.QueryableBackupPemSecretName = secretName
 	if secretName != "" {
 		// if the secret is specified, we must have a queryable.pem entry.
-		_, err := secret.ReadKey(memberCluster.SecretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
+		_, err := secret.ReadKey(ctx, memberCluster.SecretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
 		if err != nil {
 			return appsv1.StatefulSet{}, xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
 		}

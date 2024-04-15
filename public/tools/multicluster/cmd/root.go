@@ -22,8 +22,8 @@ of MongoDB resources in your kubernetes cluster.
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	ctx, cancel := context.WithCancel(context.Background())
+func Execute(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)

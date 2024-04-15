@@ -65,9 +65,9 @@ func deployMongoDB(ctx context.Context, name string, certsName string, opsManage
 	return nil
 }
 
-func getSecretStringData(c kubernetes.Clientset, secretName string) (map[string]string, error) {
+func getSecretStringData(ctx context.Context, c kubernetes.Clientset, secretName string) (map[string]string, error) {
 	stringData := map[string]string{}
-	secret, err := c.CoreV1().Secrets("mongodb").Get(context.TODO(), secretName, metav1.GetOptions{})
+	secret, err := c.CoreV1().Secrets("mongodb").Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		return stringData, xerrors.Errorf("can't get secret %s: %w", secretName, err)
 	}
@@ -78,7 +78,7 @@ func getSecretStringData(c kubernetes.Clientset, secretName string) (map[string]
 }
 
 // createTLSCerts prepares the TLS certs for the MongoDB Deployment
-func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName string) error {
+func createTLSCerts(ctx context.Context, c kubernetes.Clientset, replicaSetName string, releaseName string) error {
 	rsName := fmt.Sprintf("name=%s", replicaSetName)
 
 	cmd := exec.Command("helm", "install", "-f", "../../helm_charts/mongodb/values.yaml", "--set", rsName, releaseName, "../../helm_charts/mongodb/certs")
@@ -94,7 +94,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 		secretNames[i] = fmt.Sprintf("%s-%d-abcd", replicaSetName, i)
 	}
 
-	err = wait.PollImmediate(time.Second, time.Minute, areSecretsCreated(c, "mongodb", secretNames...))
+	err = wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, areSecretsCreated(c, "mongodb", secretNames...))
 	if err != nil {
 		return xerrors.Errorf("secrets weren't created within 1 minute: %w", err)
 	}
@@ -105,7 +105,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 	data := map[string][]byte{}
 
 	for i := 0; i < 3; i++ {
-		secretStringData, err := getSecretStringData(c, secretNames[i])
+		secretStringData, err := getSecretStringData(ctx, c, secretNames[i])
 		if err != nil {
 			return xerrors.Errorf("can't read secret data: %w", err)
 		}
@@ -115,7 +115,7 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 	for s, s2 := range stringData {
 		data[s] = []byte(s2)
 	}
-	_, err = c.CoreV1().Secrets("mongodb").Create(context.TODO(), &corev1.Secret{
+	_, err = c.CoreV1().Secrets("mongodb").Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      releaseName,
 			Namespace: "mongodb",
@@ -128,10 +128,10 @@ func createTLSCerts(c kubernetes.Clientset, replicaSetName string, releaseName s
 	return nil
 }
 
-func isOperatorReady(c kubernetes.Clientset, deploymentName, namespace string) wait.ConditionFunc {
-	return func() (bool, error) {
+func isOperatorReady(c kubernetes.Clientset, deploymentName, namespace string) wait.ConditionWithContextFunc {
+	return func(ctx context.Context) (bool, error) {
 		log.Printf("waiting for operator deployment %s to be in ready state...", deploymentName)
-		dep, err := c.AppsV1().Deployments(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+		dep, err := c.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -139,11 +139,11 @@ func isOperatorReady(c kubernetes.Clientset, deploymentName, namespace string) w
 	}
 }
 
-func areSecretsCreated(c kubernetes.Clientset, namespace string, names ...string) wait.ConditionFunc {
-	return func() (bool, error) {
+func areSecretsCreated(c kubernetes.Clientset, namespace string, names ...string) wait.ConditionWithContextFunc {
+	return func(ctx context.Context) (bool, error) {
 		log.Printf("waiting for all secrets %v to be created...", names)
 		for _, name := range names {
-			_, err := c.CoreV1().Secrets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+			_, err := c.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				return false, nil
 			}
@@ -161,7 +161,7 @@ func deployMongoDBOperatorAndOpsManager(c kubernetes.Clientset, ctx context.Cont
 	}
 	log.Printf("deploying operator and ops-manager: %s", string(output))
 
-	err = wait.PollImmediate(time.Second, 2*time.Minute, isOperatorReady(c, "om-operator", "mongodb"))
+	err = wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, isOperatorReady(c, "om-operator", "mongodb"))
 	if err != nil {
 		return xerrors.Errorf("operator deployment couldn't reach ready state in 2 minutes: %w", err)
 	}
@@ -169,10 +169,10 @@ func deployMongoDBOperatorAndOpsManager(c kubernetes.Clientset, ctx context.Cont
 	return nil
 }
 
-func hasYCSBJobCompleted(c kubernetes.Clientset, jobName, namespace string) wait.ConditionFunc {
-	return func() (bool, error) {
+func hasYCSBJobCompleted(c kubernetes.Clientset, jobName, namespace string) wait.ConditionWithContextFunc {
+	return func(ctx context.Context) (bool, error) {
 		log.Printf("waiting for ycsb job %s to complete...", jobName)
-		job, err := c.BatchV1().Jobs(namespace).Get(context.TODO(), jobName, metav1.GetOptions{})
+		job, err := c.BatchV1().Jobs(namespace).Get(ctx, jobName, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -194,7 +194,7 @@ func deployYCSBJob(ctx context.Context, c kubernetes.Clientset, mongoDBName stri
 
 	log.Printf("deploying ycsb: %s", string(output))
 
-	err = wait.PollImmediate(time.Second, 2*time.Minute, hasYCSBJobCompleted(c, "ycsb-ycsb-job", "mongodb"))
+	err = wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, hasYCSBJobCompleted(c, "ycsb-ycsb-job", "mongodb"))
 	if err != nil {
 		return xerrors.Errorf("ycsb job not completed successfully")
 	}
@@ -256,9 +256,9 @@ func getTimeDifferenceInSeconds(t1, t2 time.Time) float64 {
 }
 
 // cleanupTLSSecrets ensures that all old secrets from previous runs with TLS enabled are deleted
-func cleanupTLSSecrets(c kubernetes.Clientset) error {
+func cleanupTLSSecrets(ctx context.Context, c kubernetes.Clientset) error {
 	// Delete all the certs-x
-	err := c.CoreV1().Secrets("mongodb").DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
+	err := c.CoreV1().Secrets("mongodb").DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: "app.kubernetes.io/managed-by=runtest",
 	})
 	if err != nil {
@@ -266,7 +266,7 @@ func cleanupTLSSecrets(c kubernetes.Clientset) error {
 	}
 
 	// Delete all the automatically generated secrets:
-	return c.CoreV1().Secrets("mongodb").DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.CoreV1().Secrets("mongodb").DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
 		FieldSelector: "type=kubernetes.io/tls",
 		// This is a bit more robust than deleting by name, as we don't have to worry if
 		// in the future we change the templated name. And we do not have any other
@@ -275,12 +275,12 @@ func cleanupTLSSecrets(c kubernetes.Clientset) error {
 
 }
 
-func cleanMongoDBResource(c kubernetes.Clientset, mongoReleaseName string) error {
+func cleanMongoDBResource(ctx context.Context, c kubernetes.Clientset, mongoReleaseName string) error {
 	err := helmUninstall(mongoReleaseName)
 	if err != nil {
 		return err
 	}
-	return c.CoreV1().PersistentVolumeClaims("mongodb").DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.CoreV1().PersistentVolumeClaims("mongodb").DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=%s", mongoReleaseName),
 	})
 }
@@ -294,7 +294,7 @@ func helmUninstall(releaseName string) error {
 	return nil
 }
 
-func cleanup(c kubernetes.Clientset) error {
+func cleanup(ctx context.Context, c kubernetes.Clientset) error {
 	log.Printf("Cleaning up resources")
 	for i := 0; i < count; i++ {
 		if tlsEnabled {
@@ -303,11 +303,11 @@ func cleanup(c kubernetes.Clientset) error {
 				return err
 			}
 		}
-		cleanMongoDBResource(c, fmt.Sprintf("mongo-%d", i))
+		cleanMongoDBResource(ctx, c, fmt.Sprintf("mongo-%d", i))
 	}
 
 	if tlsEnabled {
-		err := cleanupTLSSecrets(c)
+		err := cleanupTLSSecrets(ctx, c)
 		if err != nil {
 			return err
 		}
@@ -321,6 +321,7 @@ func cleanup(c kubernetes.Clientset) error {
 }
 
 func main() {
+	ctx := context.Background()
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	parseFlags()
 
@@ -331,14 +332,14 @@ func main() {
 	monitor.Timeout = waitTime
 
 	if cleanupResources {
-		err := cleanup(*monitor.KubeClient)
+		err := cleanup(ctx, *monitor.KubeClient)
 		if err != nil {
 			log.Fatalf("cleaning up resources: %s", err)
 		}
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	if deployOperatorAndOpsManager {
@@ -349,19 +350,19 @@ func main() {
 		log.Print("skipping deploying operator and ops-manager")
 	}
 
-	err = wait.PollImmediate(30*time.Second, 10*time.Minute, areSecretsCreated(*monitor.KubeClient, "mongodb", "om-ops-manager-admin-key"))
+	err = wait.PollUntilContextTimeout(ctx, 30*time.Second, 10*time.Minute, true, areSecretsCreated(*monitor.KubeClient, "mongodb", "om-ops-manager-admin-key"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	// Read user and password for ops manager
-	omAdminKey, err := getSecretStringData(*monitor.KubeClient, "om-ops-manager-admin-key")
+	omAdminKey, err := getSecretStringData(ctx, *monitor.KubeClient, "om-ops-manager-admin-key")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	if tlsEnabled {
 		for i := 0; i < count; i++ {
-			err = createTLSCerts(*monitor.KubeClient, fmt.Sprintf("mongo-%d", i), fmt.Sprintf("certs-%d", i))
+			err = createTLSCerts(ctx, *monitor.KubeClient, fmt.Sprintf("mongo-%d", i), fmt.Sprintf("certs-%d", i))
 			if err != nil {
 				// we don't want to proceed if we had errors creating TLS certs
 				log.Fatalf(err.Error())

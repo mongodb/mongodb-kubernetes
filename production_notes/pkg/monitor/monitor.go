@@ -32,11 +32,11 @@ func max(t1, t2 time.Time) time.Time {
 	return t2
 }
 
-func isStatefulSetReady(c kubernetes.Clientset, stsName, namespace string) wait.ConditionFunc {
-	return func() (bool, error) {
+func isStatefulSetReady(c kubernetes.Clientset, stsName, namespace string) wait.ConditionWithContextFunc {
+	return func(ctx context.Context) (bool, error) {
 		log.Printf("waiting for statefulset %s to be in ready state...\n", stsName)
 
-		sts, err := c.AppsV1().StatefulSets(namespace).Get(context.TODO(), stsName, metav1.GetOptions{})
+		sts, err := c.AppsV1().StatefulSets(namespace).Get(ctx, stsName, metav1.GetOptions{})
 		// wait for the operator to create sts
 		if err != nil && errors.IsNotFound(err) {
 			return false, nil
@@ -49,14 +49,14 @@ func isStatefulSetReady(c kubernetes.Clientset, stsName, namespace string) wait.
 	}
 }
 
-func waitForStatefulsetReady(c kubernetes.Clientset, stsName, namespace string, timeout time.Duration) error {
-	return wait.PollImmediate(time.Second, timeout, isStatefulSetReady(c, stsName, namespace))
+func waitForStatefulsetReady(ctx context.Context, c kubernetes.Clientset, stsName, namespace string, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(ctx, time.Second, timeout, true, isStatefulSetReady(c, stsName, namespace))
 }
 
 // monitorStats monitors and reports the stats of 1. Reconcile time of operator, 2. Time to ready for MongoDB replicaset and 3. CPU and Memory usage of Operator
 func (m *Monitor) MonitorReplicaSets(ctx context.Context, replicasetName string) {
 
-	err := waitForStatefulsetReady(*m.KubeClient, replicasetName, "mongodb", m.Timeout)
+	err := waitForStatefulsetReady(ctx, *m.KubeClient, replicasetName, "mongodb", m.Timeout)
 	if err != nil {
 		log.Printf("error in monitoring replicaset: %v", err)
 		return

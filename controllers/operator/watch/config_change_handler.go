@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
@@ -46,11 +47,11 @@ type ResourcesHandler struct {
 
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
 // and then created again.
-func (c *ResourcesHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (c *ResourcesHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
 }
 
-func (c *ResourcesHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (c *ResourcesHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	if !shouldHandleUpdate(e) {
 		return
 	}
@@ -84,9 +85,11 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimi
 }
 
 // Seems we don't need to react on config map/secret removal..
-func (c *ResourcesHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {}
+func (c *ResourcesHandler) Delete(ctx context.Context, _ event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+}
 
-func (c *ResourcesHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {}
+func (c *ResourcesHandler) Generic(ctx context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+}
 
 // ConfigMapEventHandler is an EventHandler implementation that is used to watch for events on a given ConfigMap and ConfigMapNamespace
 // The handler will force a panic on Update and Delete.
@@ -96,10 +99,10 @@ type ConfigMapEventHandler struct {
 	ConfigMapNamespace string
 }
 
-func (m ConfigMapEventHandler) Create(e event.CreateEvent, _ workqueue.RateLimitingInterface) {
+func (m ConfigMapEventHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.RateLimitingInterface) {
 }
 
-func (m ConfigMapEventHandler) Update(e event.UpdateEvent, _ workqueue.RateLimitingInterface) {
+func (m ConfigMapEventHandler) Update(ctx context.Context, e event.UpdateEvent, _ workqueue.RateLimitingInterface) {
 	if m.isMemberListCM(e.ObjectOld) {
 		switch v := e.ObjectOld.(type) {
 		case *corev1.ConfigMap:
@@ -111,14 +114,14 @@ func (m ConfigMapEventHandler) Update(e event.UpdateEvent, _ workqueue.RateLimit
 
 }
 
-func (m ConfigMapEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (m ConfigMapEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	if m.isMemberListCM(e.Object) {
 		errMsg := fmt.Sprintf("%s/%s has been deleted! Note we will need the configmap otherwise the operator will not work", m.ConfigMapNamespace, m.ConfigMapName)
 		panic(errMsg)
 	}
 }
 
-func (m ConfigMapEventHandler) Generic(e event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (m ConfigMapEventHandler) Generic(ctx context.Context, e event.GenericEvent, _ workqueue.RateLimitingInterface) {
 }
 
 func (m ConfigMapEventHandler) isMemberListCM(o client.Object) bool {

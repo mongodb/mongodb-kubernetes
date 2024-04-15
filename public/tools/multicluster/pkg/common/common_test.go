@@ -389,8 +389,9 @@ func TestGetMemberClusterApiServerUrls(t *testing.T) {
 }
 
 func TestMemberClusterUris(t *testing.T) {
+	ctx := context.Background()
 	t.Run("Uses server values set in CommonFlags", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		flags := testFlags(t, false)
 		flags.MemberClusterApiServerUrls = []string{"cluster1-url", "cluster2-url", "cluster3-url"}
@@ -419,10 +420,10 @@ func TestReplaceClusterMembersConfigMap(t *testing.T) {
 
 	{
 		flags.MemberClusters = []string{"member-1", "member-2", "member-3", "member-4"}
-		err := ReplaceClusterMembersConfigMap(context.Background(), client, flags)
+		err := ReplaceClusterMembersConfigMap(ctx, client, flags)
 		assert.NoError(t, err)
 
-		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(context.Background(), DefaultOperatorConfigMapName, metav1.GetOptions{})
+		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(ctx, DefaultOperatorConfigMapName, metav1.GetOptions{})
 		assert.NoError(t, err)
 
 		expected := map[string]string{}
@@ -434,8 +435,8 @@ func TestReplaceClusterMembersConfigMap(t *testing.T) {
 
 	{
 		flags.MemberClusters = []string{"member-1", "member-2"}
-		err := ReplaceClusterMembersConfigMap(context.Background(), client, flags)
-		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(context.Background(), DefaultOperatorConfigMapName, metav1.GetOptions{})
+		err := ReplaceClusterMembersConfigMap(ctx, client, flags)
+		cm, err := client.CoreV1().ConfigMaps(flags.CentralClusterNamespace).Get(ctx, DefaultOperatorConfigMapName, metav1.GetOptions{})
 		assert.NoError(t, err)
 
 		expected := map[string]string{}

@@ -41,16 +41,17 @@ func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
 }
 
 func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
-	createUserControllerConfigMap(client)
-	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected, _ := workflow.OK().ReconcileResult()
 
@@ -70,23 +71,24 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 }
 
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
 	user.Spec.MongoDBResourceRef.Namespace = user.Namespace
 	// the operator should correctly reconcile if the user resource is in a different namespace than the mongodb resource
 	otherNamespace := "userNamespace"
 	user.Namespace = otherNamespace
 
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
 	// we enable auth because we need to explicitly put the password secret in same namespace
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
-	createUserControllerConfigMap(client)
+	createUserControllerConfigMap(ctx, client)
 	// the secret must be in the same namespace as the user, we do not support cross-referencing
-	createPasswordSecretInNamespace(client, user.Spec.PasswordSecretKeyRef, "password", otherNamespace)
+	createPasswordSecretInNamespace(ctx, client, user.Spec.PasswordSecretKeyRef, "password", otherNamespace)
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected, _ := workflow.OK().ReconcileResult()
 
@@ -95,18 +97,19 @@ func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T
 }
 
 func TestReconciliationSucceed_OnAddingUser_WithNoMongoDBNamespaceSpecified(t *testing.T) {
+	ctx := context.Background()
 	// DefaultMongoDBUserBuilder doesn't provide a namespace to the MongoDBResourceRef by default
 	// The reconciliation should succeed
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
-	createUserControllerConfigMap(client)
-	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected, _ := workflow.OK().ReconcileResult()
 
@@ -115,16 +118,17 @@ func TestReconciliationSucceed_OnAddingUser_WithNoMongoDBNamespaceSpecified(t *t
 }
 
 func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").
 		Build())
-	createUserControllerConfigMap(client)
-	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected, _ := workflow.OK().ReconcileResult()
 
@@ -132,11 +136,11 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
 	// remove roles from the same user
-	updateUser(user, client, func(user *userv1.MongoDBUser) {
+	updateUser(ctx, user, client, func(user *userv1.MongoDBUser) {
 		user.Spec.Roles = []userv1.Role{}
 	})
 
-	actual, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -149,15 +153,16 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 }
 
 func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").Build())
-	createUserControllerConfigMap(client)
-	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected, _ := workflow.OK().ReconcileResult()
 
@@ -165,12 +170,12 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
 	// change the username and database (these are the values used to identify a user)
-	updateUser(user, client, func(user *userv1.MongoDBUser) {
+	updateUser(ctx, user, client, func(user *userv1.MongoDBUser) {
 		user.Spec.Username = "changed-name"
 		user.Spec.Database = "changed-db"
 	})
 
-	actual, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
@@ -187,22 +192,23 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 
 // updateUser applies and updates the changes to the user after getting the most recent version
 // from the mocked client
-func updateUser(user *userv1.MongoDBUser, client *mock.MockedClient, updateFunc func(*userv1.MongoDBUser)) {
-	_ = client.Get(context.TODO(), kube.ObjectKey(user.Namespace, user.Name), user)
+func updateUser(ctx context.Context, user *userv1.MongoDBUser, client *mock.MockedClient, updateFunc func(*userv1.MongoDBUser)) {
+	_ = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
 	updateFunc(user)
-	_ = client.Update(context.TODO(), user)
+	_ = client.Update(ctx, user)
 }
 
 func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := defaultUserReconciler(ctx, user)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
-	createUserControllerConfigMap(client)
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
 
 	// No password has been created
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, err, "should be no error on retry")
@@ -215,17 +221,18 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 }
 
 func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := defaultUserReconciler(ctx, user)
 
 	// initialize resources required for the tests
-	_ = client.Update(context.TODO(), DefaultReplicaSetBuilder().SetName("my-rs").Build())
-	createUserControllerConfigMap(client)
+	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
 
 	// use the wrong key to store the password
-	createPasswordSecret(client, userv1.SecretKeyRef{Name: user.Spec.PasswordSecretKeyRef.Name, Key: "non-existent-key"}, "password")
+	createPasswordSecret(ctx, client, userv1.SecretKeyRef{Name: user.Spec.PasswordSecretKeyRef.Name, Key: "non-existent-key"}, "password")
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected := reconcile.Result{RequeueAfter: time.Second * 10}
 	assert.Nil(t, err, "should be no error on retry")
@@ -238,19 +245,20 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 }
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).Build()
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigX509Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
-	createMongoDBForUserWithAuth(client, *user, util.X509)
+	createMongoDBForUserWithAuth(ctx, client, *user, util.X509)
 
-	createUserControllerConfigMap(client)
+	createUserControllerConfigMap(ctx, client)
 
 	// No password has been created
 
 	// in order for x509 to be configurable, "util.AutomationConfigX509Option" needs to be enabled on the automation config
 	// pre-configure the connection
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	expected, _ := workflow.OK().ReconcileResult()
 
@@ -258,14 +266,14 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 	assert.Equal(t, expected, actual, "the reconciliation should be successful as x509 does not require a password")
 }
 
-func AssertAuthModeTest(t *testing.T, mode mdbv1.AuthMode) {
+func AssertAuthModeTest(ctx context.Context, t *testing.T, mode mdbv1.AuthMode) {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
-	reconciler, client := defaultUserReconciler(user)
-	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
+	reconciler, client := defaultUserReconciler(ctx, user)
+	err := client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
 	assert.NoError(t, err)
-	createUserControllerConfigMap(client)
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	createUserControllerConfigMap(ctx, client)
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 
 	// reconciles if a $external user creation is attempted with no configured backends.
 	expected := reconcile.Result{Requeue: false, RequeueAfter: 10 * time.Second}
@@ -275,21 +283,23 @@ func AssertAuthModeTest(t *testing.T, mode mdbv1.AuthMode) {
 }
 
 func TestExternalAuthUserReconciliation_RequiresExternalAuthConfigured(t *testing.T) {
-	AssertAuthModeTest(t, "LDAP")
-	AssertAuthModeTest(t, "X509")
+	ctx := context.Background()
+	AssertAuthModeTest(ctx, t, "LDAP")
+	AssertAuthModeTest(ctx, t, "X509")
 }
 
 func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
+	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
-	reconciler, client := userReconcilerWithAuthMode(user, util.AutomationConfigScramSha256Option)
+	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	err := client.Update(context.TODO(), DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
+	err := client.Update(ctx, DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
 	assert.NoError(t, err)
-	createUserControllerConfigMap(client)
-	createPasswordSecret(client, user.Spec.PasswordSecretKeyRef, "password")
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
 
-	actual, err := reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.NoError(t, err)
@@ -302,8 +312,9 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 }
 
 func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
+	ctx := context.Background()
 	t.Run("When SCRAM and X509 auth modes are enabled, and agent mode is SCRAM, 3 users are created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []mdbv1.AuthMode{"SCRAM", "X509"})
+		ac := BuildAuthenticationEnabledReplicaSet(ctx, t, util.AutomationConfigX509Option, 0, "SCRAM", []mdbv1.AuthMode{"SCRAM", "X509"})
 
 		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain a created user")
@@ -315,7 +326,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When X509 and SCRAM auth modes are enabled, and agent mode is X509, 1 user is created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 1, "X509", []mdbv1.AuthMode{"X509", "SCRAM"})
+		ac := BuildAuthenticationEnabledReplicaSet(ctx, t, util.AutomationConfigX509Option, 1, "X509", []mdbv1.AuthMode{"X509", "SCRAM"})
 		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
 		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
@@ -323,7 +334,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When X509 and SCRAM auth modes are enabled, SCRAM is AgentAuthMode, 3 users are created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 0, "SCRAM", []mdbv1.AuthMode{"X509", "SCRAM"})
+		ac := BuildAuthenticationEnabledReplicaSet(ctx, t, util.AutomationConfigX509Option, 0, "SCRAM", []mdbv1.AuthMode{"X509", "SCRAM"})
 
 		assert.Equal(t, ac.Auth.AutoUser, "mms-automation-agent")
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only one actual user")
@@ -331,7 +342,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When X509 auth mode is enabled, 1 user will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigX509Option, 3, "X509", []mdbv1.AuthMode{"X509"})
+		ac := BuildAuthenticationEnabledReplicaSet(ctx, t, util.AutomationConfigX509Option, 3, "X509", []mdbv1.AuthMode{"X509"})
 		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only an actual user")
 
@@ -344,7 +355,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When LDAP and X509 are enabled, 1 X509 user will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 3, "X509", []mdbv1.AuthMode{"LDAP", "X509"})
+		ac := BuildAuthenticationEnabledReplicaSet(ctx, t, util.AutomationConfigLDAPOption, 3, "X509", []mdbv1.AuthMode{"LDAP", "X509"})
 		assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser)
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only an actual user")
 
@@ -357,7 +368,7 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 	})
 
 	t.Run("When LDAP is enabled, 1 SCRAM agent will be created", func(t *testing.T) {
-		ac := BuildAuthenticationEnabledReplicaSet(t, util.AutomationConfigLDAPOption, 0, "LDAP", []mdbv1.AuthMode{"LDAP"})
+		ac := BuildAuthenticationEnabledReplicaSet(ctx, t, util.AutomationConfigLDAPOption, 0, "LDAP", []mdbv1.AuthMode{"LDAP"})
 		assert.Equal(t, "mms-automation-agent", ac.Auth.AutoUser)
 
 		assert.Len(t, ac.Auth.Users, 1, "users list should contain only 1 user")
@@ -370,10 +381,10 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
-func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
+func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
-	reconciler, client := defaultUserReconciler(user)
+	reconciler, client := defaultUserReconciler(ctx, user)
 	reconciler.omConnectionFactory = func(ctx *om.OMContext) om.Connection {
 		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx, func(ac *om.AutomationConfig) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, automationConfigOption)
@@ -386,10 +397,10 @@ func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption s
 		builder.AgentAuthMode(agentAuthMode)
 	}
 
-	err := client.Update(context.TODO(), builder.Build())
+	err := client.Update(ctx, builder.Build())
 	assert.NoError(t, err)
-	createUserControllerConfigMap(client)
-	_, err = reconciler.Reconcile(context.TODO(), reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	createUserControllerConfigMap(ctx, client)
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	assert.NoError(t, err)
 
 	ac, err := om.CurrMockedConnection.ReadAutomationConfig()
@@ -399,8 +410,8 @@ func BuildAuthenticationEnabledReplicaSet(t *testing.T, automationConfigOption s
 }
 
 // createUserControllerConfigMap creates a configmap with credentials present
-func createUserControllerConfigMap(client *mock.MockedClient) {
-	_ = client.Update(context.TODO(), &corev1.ConfigMap{
+func createUserControllerConfigMap(ctx context.Context, client *mock.MockedClient) {
+	_ = client.Update(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: mock.TestNamespace},
 		Data: map[string]string{
 			util.OmBaseUrl:     om.TestURL,
@@ -419,12 +430,12 @@ func containsNil(users []*om.MongoDBUser) bool {
 	}
 	return false
 }
-func createPasswordSecret(client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string) {
-	createPasswordSecretInNamespace(client, secretRef, password, mock.TestNamespace)
+func createPasswordSecret(ctx context.Context, client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string) {
+	createPasswordSecretInNamespace(ctx, client, secretRef, password, mock.TestNamespace)
 }
 
-func createPasswordSecretInNamespace(client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string, namespace string) {
-	_ = client.Update(context.TODO(), &corev1.Secret{
+func createPasswordSecretInNamespace(ctx context.Context, client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string, namespace string) {
+	_ = client.Update(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: namespace},
 		Data: map[string][]byte{
 			secretRef.Key: []byte(password),
@@ -432,26 +443,26 @@ func createPasswordSecretInNamespace(client *mock.MockedClient, secretRef userv1
 	})
 }
 
-func createMongoDBForUserWithAuth(client *mock.MockedClient, user userv1.MongoDBUser, authModes ...mdbv1.AuthMode) {
+func createMongoDBForUserWithAuth(ctx context.Context, client *mock.MockedClient, user userv1.MongoDBUser, authModes ...mdbv1.AuthMode) {
 	mdbBuilder := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name)
 
-	_ = client.Update(context.TODO(), mdbBuilder.SetAuthModes(authModes).Build())
+	_ = client.Update(ctx, mdbBuilder.SetAuthModes(authModes).Build())
 }
 
 // defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation
-func defaultUserReconciler(user *userv1.MongoDBUser) (*MongoDBUserReconciler, *mock.MockedClient) {
-	manager := mock.NewManager(user)
-	manager.Client.AddDefaultMdbConfigResources()
+func defaultUserReconciler(ctx context.Context, user *userv1.MongoDBUser) (*MongoDBUserReconciler, *mock.MockedClient) {
+	manager := mock.NewManager(ctx, user)
+	manager.Client.AddDefaultMdbConfigResources(ctx)
 	memberClusterMap := getFakeMultiClusterMap()
-	return newMongoDBUserReconciler(manager, om.NewEmptyMockedOmConnection, memberClusterMap), manager.Client
+	return newMongoDBUserReconciler(ctx, manager, om.NewEmptyMockedOmConnection, memberClusterMap), manager.Client
 }
 
-func userReconcilerWithAuthMode(user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, *mock.MockedClient) {
-	manager := mock.NewManager(user)
-	manager.Client.AddDefaultMdbConfigResources()
+func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, *mock.MockedClient) {
+	manager := mock.NewManager(ctx, user)
+	manager.Client.AddDefaultMdbConfigResources(ctx)
 	memberClusterMap := getFakeMultiClusterMap()
-	reconciler := newMongoDBUserReconciler(manager, func(context *om.OMContext) om.Connection {
+	reconciler := newMongoDBUserReconciler(ctx, manager, func(context *om.OMContext) om.Connection {
 		connection := om.NewEmptyMockedOmConnectionWithAutomationConfigChanges(context, func(ac *om.AutomationConfig) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)
 			// Enabling auth as it's required to be enabled for the user controller to proceed

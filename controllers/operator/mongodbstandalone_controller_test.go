@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -51,11 +52,12 @@ func TestCreateOmProcesStatic(t *testing.T) {
 }
 
 func TestOnAddStandalone(t *testing.T) {
+	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler, client := defaultStandaloneReconciler(ctx, st)
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
 	omConn := om.CurrMockedConnection
 
@@ -72,30 +74,32 @@ func TestOnAddStandalone(t *testing.T) {
 // TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting
 // StatefulSet ready. The first reconciliation gets to Pending while the second reconciliation suceeds
 func TestOnAddStandaloneWithDelay(t *testing.T) {
+	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 
-	client := mock.NewClient().WithResource(st).WithStsReady(false).AddDefaultMdbConfigResources()
+	client := mock.NewClient().WithResource(ctx, st).WithStsReady(false).AddDefaultMdbConfigResources(ctx)
 	manager := mock.NewManagerSpecificClient(client)
 
-	reconciler := newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection)
+	reconciler := newStandaloneReconciler(ctx, manager, om.NewEmptyMockedOmConnection)
 
-	checkReconcilePending(t, reconciler, st, "StatefulSet not ready", client, 3)
+	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", client, 3)
 	client.WithStsReady(true)
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 }
 
 // TestAddDeleteStandalone checks that no state is left in OpsManager on removal of the standalone
 func TestAddDeleteStandalone(t *testing.T) {
+	ctx := context.Background()
 	// First we need to create a standalone
 	st := DefaultStandaloneBuilder().SetVersion("4.0.0").Build()
 
-	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler, client := defaultStandaloneReconciler(ctx, st)
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
 	// Now delete it
-	assert.NoError(t, reconciler.OnDelete(st, zap.S()))
+	assert.NoError(t, reconciler.OnDelete(ctx, st, zap.S()))
 
 	omConn := om.CurrMockedConnection
 	// Operator doesn't mutate K8s state, so we don't check its changes, only OM
@@ -109,11 +113,12 @@ func TestAddDeleteStandalone(t *testing.T) {
 }
 
 func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
+	ctx := context.Background()
 	stBuilder := DefaultStandaloneBuilder()
 	stBuilder.Spec.Security = nil
 	st := stBuilder.Build()
 
-	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler, client := defaultStandaloneReconciler(ctx, st)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
 			VersionString: "5.0.0",
@@ -122,7 +127,7 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 		return conn
 	}
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
 	mockedConn := om.CurrMockedConnection
 	cf, _ := mockedConn.GetControlledFeature()
@@ -135,9 +140,10 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 }
 
 func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
+	ctx := context.Background()
 	st := DefaultStandaloneBuilder().Build()
 
-	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler, client := defaultStandaloneReconciler(ctx, st)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
 			VersionString: "5.0.0",
@@ -146,7 +152,7 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 		return conn
 	}
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
 	mockedConn := om.CurrMockedConnection
 	cf, _ := mockedConn.GetControlledFeature()
@@ -166,6 +172,7 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 }
 
 func TestStandalonePortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
+	ctx := context.Background()
 	config := mdbv1.NewAdditionalMongodConfig("net.port", 30000)
 	st := mdbv1.NewStandaloneBuilder().
 		SetNamespace(mock.TestNamespace).
@@ -173,25 +180,26 @@ func TestStandalonePortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetConnectionSpec(testConnectionSpec()).
 		Build()
 
-	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler, client := defaultStandaloneReconciler(ctx, st)
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
-	svc, err := client.GetService(kube.ObjectKey(st.Namespace, st.ServiceName()))
+	svc, err := client.GetService(ctx, kube.ObjectKey(st.Namespace, st.ServiceName()))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port)
 }
 
 func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
+	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetPodSpecTemplate(corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"first": "val"}},
 	}).Build()
 
-	reconciler, client := defaultStandaloneReconciler(st)
+	reconciler, client := defaultStandaloneReconciler(ctx, st)
 
-	checkReconcileSuccessful(t, reconciler, st, client)
+	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
-	statefulSet, err := client.GetStatefulSet(mock.ObjectKeyFromApiObject(st))
+	statefulSet, err := client.GetStatefulSet(ctx, mock.ObjectKeyFromApiObject(st))
 	assert.NoError(t, err)
 
 	expectedLabels := map[string]string{"app": "dublin-svc", "controller": "mongodb-enterprise-operator",
@@ -201,11 +209,12 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 
 // TestStandalone_ConfigMapAndSecretWatched
 func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
+	ctx := context.Background()
 	s := DefaultStandaloneBuilder().Build()
 
-	reconciler, client := defaultStandaloneReconciler(s)
+	reconciler, client := defaultStandaloneReconciler(ctx, s)
 
-	checkReconcileSuccessful(t, reconciler, s, client)
+	checkReconcileSuccessful(ctx, t, reconciler, s, client)
 
 	expected := map[watch.Object][]types.NamespacedName{
 		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
@@ -217,12 +226,13 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 }
 
 func TestStandaloneAgentVersionMapping(t *testing.T) {
+	ctx := context.Background()
 	defaultResource := DefaultStandaloneBuilder().Build()
 	// Go couldn't infer correctly that *ReconcileMongoDbReplicaset implemented *reconciler.Reconciler interface
 	// without this anonymous function
 	reconcilerFactory := func(s *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
 		// Call the original defaultReplicaSetReconciler, which returns a *ReconcileMongoDbReplicaSet that implements reconcile.Reconciler
-		reconciler, mockClient := defaultStandaloneReconciler(s)
+		reconciler, mockClient := defaultStandaloneReconciler(ctx, s)
 		// Return the reconciler as is, because it implements the reconcile.Reconciler interface
 		return reconciler, mockClient
 	}
@@ -244,17 +254,17 @@ func TestStandaloneAgentVersionMapping(t *testing.T) {
 		ReconcilerFactory: reconcilerFactory,
 	}
 
-	agentVersionMappingTest(t, defaultResources, overridenResources)
+	agentVersionMappingTest(ctx, t, defaultResources, overridenResources)
 }
 
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
-func defaultStandaloneReconciler(rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *mock.MockedClient) {
-	manager := mock.NewManager(rs)
-	manager.Client.AddDefaultMdbConfigResources()
+func defaultStandaloneReconciler(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbStandalone, *mock.MockedClient) {
+	manager := mock.NewManager(ctx, rs)
+	manager.Client.AddDefaultMdbConfigResources(ctx)
 
-	return newStandaloneReconciler(manager, om.NewEmptyMockedOmConnection), manager.Client
+	return newStandaloneReconciler(ctx, manager, om.NewEmptyMockedOmConnection), manager.Client
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'

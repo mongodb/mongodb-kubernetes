@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"reflect"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -24,7 +25,7 @@ type ConfigReaderUpdater interface {
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -42,7 +43,7 @@ func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, secretsReade
 		return workflow.Pending("Waiting for backup configuration to be created in Ops Manager").WithRetry(10), nil
 	}
 
-	err = ensureGroupConfig(mdb, secretsReader, groupConfigReader, groupConfigUpdater)
+	err = ensureGroupConfig(ctx, mdb, secretsReader, groupConfigReader, groupConfigUpdater)
 	if err != nil {
 		return workflow.Failed(err), nil
 	}
@@ -50,7 +51,7 @@ func EnsureBackupConfigurationInOpsManager(mdb ConfigReaderUpdater, secretsReade
 	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater)
 }
 
-func ensureGroupConfig(mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
+func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
 	if mdb.GetBackupSpec() == nil || (mdb.GetBackupSpec().AssignmentLabels == nil && mdb.GetBackupSpec().Encryption == nil) {
 		return nil
 	}
@@ -73,7 +74,7 @@ func ensureGroupConfig(mdb ConfigReaderUpdater, secretsReader secrets.SecretClie
 		}
 
 		// The password is optional, so we propagate the error only if something abnormal happens
-		kmipPasswordSecret, err := secretsReader.GetSecret(types.NamespacedName{
+		kmipPasswordSecret, err := secretsReader.GetSecret(ctx, types.NamespacedName{
 			Namespace: kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
 			Name:      mdb.GetNamespace(),
 		})

@@ -8,10 +8,11 @@ import sys
 from typing import Dict, List
 
 import requests
+from evergreen.release.agent_matrix import (
+    get_supported_version_for_image_matrix_handling,
+)
 from git import Repo
 from requests import Response
-
-from evergreen.release.agent_matrix import get_supported_version_for_image_matrix_handling
 
 
 def get_repo_root():

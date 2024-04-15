@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes-operator/controllers/construct"
 
@@ -19,7 +21,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
 )
 
 func init() {
@@ -78,7 +79,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {
 		singleClusterOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: pointer.Int32(int32(4)),
+				Replicas: ptr.To(int32(4)),
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{"foo": "bar"},
 				},
@@ -148,7 +149,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		singleClusterOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
 				ServiceName: "clusteroverrideservice",
-				Replicas:    pointer.Int32(int32(4)),
+				Replicas:    ptr.To(int32(4)),
 			},
 		},
 		}

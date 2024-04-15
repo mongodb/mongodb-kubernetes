@@ -1,8 +1,11 @@
 package create
 
 import (
+	"context"
 	"errors"
 	"fmt"
+
+	"k8s.io/utils/ptr"
 
 	mdbmultiv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdbmulti"
 
@@ -24,7 +27,6 @@ import (
 	"golang.org/x/xerrors"
 	appsv1 "k8s.io/api/apps/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
@@ -42,13 +44,9 @@ var (
 
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Service.
 // It returns any errors coming from Kubernetes API.
-func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
+func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
 	opts := config(mdb)
-	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		mdb.Namespace,
-		log,
-		&sts,
-	)
+	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, mdb.Namespace, log, &sts)
 	if err != nil {
 		return err
 	}
@@ -61,7 +59,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	if prom != nil {
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
-	err = mekoService.CreateOrUpdateService(client, internalService)
+	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
 	if err != nil {
 		return err
 	}
@@ -69,7 +67,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 	for podNum := 0; podNum < mdb.GetSpec().Replicas(); podNum++ {
 		namespacedName = kube.ObjectKey(mdb.Namespace, dns.GetExternalServiceName(set.Name, podNum))
 		if mdb.Spec.ExternalAccessConfiguration == nil {
-			if err := mekoService.DeleteServiceIfItExists(client, namespacedName); err != nil {
+			if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
 				return err
 			}
 			continue
@@ -77,7 +75,7 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 
 		if mdb.Spec.ExternalAccessConfiguration != nil {
 			// we only need an external service for mongos
-			if err = createExternalServices(client, mdb, opts, namespacedName, set, podNum, log); err != nil {
+			if err = createExternalServices(ctx, client, mdb, opts, namespacedName, set, podNum, log); err != nil {
 				return err
 			}
 		}
@@ -87,11 +85,11 @@ func DatabaseInKubernetes(client kubernetesClient.Client, mdb mdbv1.MongoDB, sts
 }
 
 // createExternalServices creates the external services. The function does not create external services for sharded clusters which given stateful-sets are not mongos.
-func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
+func createExternalServices(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
 	if mdb.IsShardedCluster() && !opts.IsMongos() {
 		return nil
 	}
-	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, pointer.String(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
 		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
@@ -117,7 +115,7 @@ func createExternalServices(client kubernetesClient.Client, mdb mdbv1.MongoDB, o
 		externalService.Annotations = processedAnnotations
 	}
 
-	err := mekoService.CreateOrUpdateService(client, externalService)
+	err := mekoService.CreateOrUpdateService(ctx, client, externalService)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
 	}
@@ -178,19 +176,15 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, namespace string, cl
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) error {
+func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) error {
 
-	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		opsManager.Namespace,
-		log,
-		&sts,
-	)
+	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return err
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, opsManager, pointer.String(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(namespacedName, opsManager, ptr.To(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
@@ -198,17 +192,12 @@ func AppDBInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBO
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
-	return mekoService.CreateOrUpdateService(client, internalService)
+	return mekoService.CreateOrUpdateService(ctx, client, internalService)
 }
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
-func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
-	set, err := enterprisests.CreateOrUpdateStatefulset(
-		client,
-		opsManager.Namespace,
-		log,
-		&sts,
-	)
+func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
+	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 
 	if err != nil {
 		// Check if it is a k8s error or a custom one
@@ -220,7 +209,7 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager *omv1.M
 		// In this case, we delete the old Statefulset
 		log.Debug("Deleting the old backup stateful set and creating a new one")
 		stsNamespacedName := kube.ObjectKey(sts.Namespace, sts.Name)
-		err = client.DeleteStatefulSet(stsNamespacedName)
+		err = client.DeleteStatefulSet(ctx, stsNamespacedName)
 		if err != nil {
 			return false, xerrors.Errorf("failed while trying to delete previous backup daemon statefulset: %w", err)
 		}
@@ -228,18 +217,14 @@ func BackupDaemonInKubernetes(client kubernetesClient.Client, opsManager *omv1.M
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = mekoService.CreateOrUpdateService(client, internalService)
+	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
 	return false, err
 }
 
 // OpsManagerInKubernetes creates all of the required Kubernetes resources for Ops Manager.
 // It creates the StatefulSet and all required services.
-func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
-	set, err := enterprisests.CreateOrUpdateStatefulset(client,
-		opsManager.Namespace,
-		log,
-		&sts,
-	)
+func OpsManagerInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return err
 	}
@@ -256,7 +241,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 		}
 	}
 
-	err = mekoService.CreateOrUpdateService(client, internalService)
+	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
 	if err != nil {
 		return err
 	}
@@ -267,7 +252,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, int32(port), *opsManager.Spec.MongoDBOpsManagerExternalConnectivity)
 		externalService = &svc
 	} else {
-		if err := mekoService.DeleteServiceIfItExists(client, namespacedName); err != nil {
+		if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
 			return err
 		}
 
@@ -283,7 +268,7 @@ func OpsManagerInKubernetes(client kubernetesClient.Client, opsManager *omv1.Mon
 	}
 
 	if externalService != nil {
-		if err := mekoService.CreateOrUpdateService(client, *externalService); err != nil {
+		if err := mekoService.CreateOrUpdateService(ctx, client, *externalService); err != nil {
 			return err
 		}
 	}
@@ -302,7 +287,7 @@ func getInternalServiceDefinition(opsManager *omv1.MongoDBOpsManager) omv1.Mongo
 	// The Spec.InternalConnectivity field allows for explicitly configuring headless services
 	// and adding additional annotations to the service used for internal connectivity.
 	if opsManager.Spec.IsMultiCluster() {
-		serviceDefinition.ClusterIP = pointer.String("")
+		serviceDefinition.ClusterIP = ptr.To("")
 	}
 	return serviceDefinition
 }

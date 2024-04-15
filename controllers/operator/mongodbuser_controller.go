@@ -53,7 +53,7 @@ type MongoDBUserReconciler struct {
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
 }
 
-func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(ctx context.Context, mgr manager.Manager, omFunc om.ConnectionFactory, memberClustersMap map[string]cluster.Cluster) *MongoDBUserReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -65,16 +65,16 @@ func newMongoDBUserReconciler(mgr manager.Manager, omFunc om.ConnectionFactory, 
 		}
 	}
 	return &MongoDBUserReconciler{
-		ReconcileCommonController:     newReconcileCommonController(mgr),
+		ReconcileCommonController:     newReconcileCommonController(ctx, mgr),
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
 	}
 }
 
-func (r *MongoDBUserReconciler) getUser(request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
+func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
 	user := &userv1.MongoDBUser{}
-	if _, err := r.getResource(request, user, log); err != nil {
+	if _, err := r.getResource(ctx, request, user, log); err != nil {
 		return nil, err
 	}
 
@@ -97,45 +97,45 @@ func getMongoDBObjectKey(user userv1.MongoDBUser) client.ObjectKey {
 }
 
 // getMongoDB return a MongoDB deployment of type Single or Multi cluster based on the clusterType passed
-func (r *MongoDBUserReconciler) getMongoDB(user userv1.MongoDBUser) (project.Reader, error) {
+func (r *MongoDBUserReconciler) getMongoDB(ctx context.Context, user userv1.MongoDBUser) (project.Reader, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try the single cluster resource
 	mdb := &mdbv1.MongoDB{}
-	if err := r.client.Get(context.TODO(), name, mdb); err == nil {
+	if err := r.client.Get(ctx, name, mdb); err == nil {
 		return mdb, nil
 	}
 
 	// Try the multi-cluster next
 	mdbm := &mdbmulti.MongoDBMultiCluster{}
-	err := r.client.Get(context.TODO(), name, mdbm)
+	err := r.client.Get(ctx, name, mdbm)
 	return mdbm, err
 }
 
 // getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
-func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
+func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context, user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try single cluster resource
 	mdb := &mdbv1.MongoDB{}
-	if err := r.client.Get(context.TODO(), name, mdb); err == nil {
+	if err := r.client.Get(ctx, name, mdb); err == nil {
 		return mdb, nil
 	}
 
 	// Try the multi-cluster next
 	mdbm := &mdbmulti.MongoDBMultiCluster{}
-	err := r.client.Get(context.TODO(), name, mdbm)
+	err := r.client.Get(ctx, name, mdbm)
 	return mdbm, err
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
 
 // Reconciles a mongodbusers.mongodb.com Custom resource.
-func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("MongoDBUser", request.NamespacedName)
 	log.Info("-> MongoDBUser.Reconcile")
 
-	user, err := r.getUser(request, log)
+	user, err := r.getUser(ctx, request, log)
 	if err != nil {
 		log.Warnf("error getting user %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
@@ -145,10 +145,10 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 	var mdb project.Reader
 
 	if user.Spec.MongoDBResourceRef.Name != "" {
-		if mdb, err = r.getMongoDB(*user); err != nil {
+		if mdb, err = r.getMongoDB(ctx, *user); err != nil {
 			log.Warnf("Couldn't fetch MongoDB Single/Multi Cluster Resource with name: %s, namespace: %s, err: %s",
 				user.Spec.MongoDBResourceRef.Name, user.Spec.MongoDBResourceRef.Namespace, err)
-			return r.updateStatus(user, workflow.Pending(err.Error()), log)
+			return r.updateStatus(ctx, user, workflow.Pending(err.Error()), log)
 		}
 	} else {
 		log.Warn("MongoDB reference not specified. Using deprecated project field.")
@@ -162,41 +162,41 @@ func (r *MongoDBUserReconciler) Reconcile(_ context.Context, request reconcile.R
 		return workflow.Invalid("User or namespace is empty or nil").ReconcileResult()
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, mdb, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, mdb, log)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err), log)
+		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
-	if err = r.updateConnectionStringSecret(*user, log); err != nil {
-		return r.updateStatus(user, workflow.Failed(err), log)
+	if err = r.updateConnectionStringSecret(ctx, *user, log); err != nil {
+		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
 	if user.Spec.Database == authentication.ExternalDB {
-		return r.handleExternalAuthUser(user, conn, log)
+		return r.handleExternalAuthUser(ctx, user, conn, log)
 	} else {
-		return r.handleScramShaUser(user, conn, log)
+		return r.handleScramShaUser(ctx, user, conn, log)
 	}
 }
 
-func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) error {
+func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) error {
 	user := obj.(*userv1.MongoDBUser)
 
-	mdb, err := r.getMongoDB(*user)
+	mdb, err := r.getMongoDB(ctx, *user)
 	if err != nil {
 		return err
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(r.client, r.SecretClient, mdb, log)
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, mdb, log)
 	if err != nil {
 		return err
 	}
 
-	conn, err := connection.PrepareOpsManagerConnection(r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -210,24 +210,24 @@ func (r *MongoDBUserReconciler) delete(obj interface{}, log *zap.SugaredLogger) 
 	}, log)
 }
 
-func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDBUser, log *zap.SugaredLogger) error {
+func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context, user userv1.MongoDBUser, log *zap.SugaredLogger) error {
 	var err error
 	var password string
 
 	if user.Spec.Database != authentication.ExternalDB {
-		password, err = user.GetPassword(r.SecretClient)
+		password, err = user.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			log.Debug("User does not have a configured password.")
 		}
 	}
 
-	connectionBuilder, err := r.getMongoDBConnectionBuilder(user)
+	connectionBuilder, err := r.getMongoDBConnectionBuilder(ctx, user)
 	if err != nil {
 		return err
 	}
 
 	secretName := user.GetConnectionStringSecretName()
-	existingSecret, err := r.client.GetSecret(types.NamespacedName{Name: secretName, Namespace: user.Namespace})
+	existingSecret, err := r.client.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: user.Namespace})
 	if err != nil && !apiErrors.IsNotFound(err) {
 		return err
 	}
@@ -249,28 +249,28 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(user userv1.MongoDB
 		Build()
 
 	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(c, connectionStringSecret)
+		err = secret.CreateOrUpdate(ctx, c, connectionStringSecret)
 		if err != nil {
 			return err
 		}
 	}
-	return secret.CreateOrUpdate(r.SecretClient, connectionStringSecret)
+	return secret.CreateOrUpdate(ctx, r.SecretClient, connectionStringSecret)
 }
 
-func AddMongoDBUserController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newMongoDBUserReconciler(mgr, om.NewOpsManagerConnection, memberClustersMap)
+func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
+	reconciler := newMongoDBUserReconciler(ctx, mgr, om.NewOpsManagerConnection, memberClustersMap)
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler})
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}},
+	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(&source.Kind{Type: &corev1.Secret{}},
+	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
 		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
 	if err != nil {
 		return err
@@ -278,7 +278,7 @@ func AddMongoDBUserController(mgr manager.Manager, memberClustersMap map[string]
 
 	// watch for changes to MongoDBUser resources
 	eventHandler := MongoDBUserEventHandler{reconciler: reconciler}
-	err = c.Watch(&source.Kind{Type: &userv1.MongoDBUser{}}, &eventHandler, watch.PredicatesForUser())
+	err = c.Watch(source.Kind(mgr.GetCache(), &userv1.MongoDBUser{}), &eventHandler, watch.PredicatesForUser())
 	if err != nil {
 		return err
 	}
@@ -312,7 +312,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 	return user, nil
 }
 
-func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
+func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
 	if user.Spec.PasswordSecretKeyRef.Name != "" {
@@ -332,7 +332,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 			return xerrors.Errorf("scram Sha has not yet been configured")
 		}
 
-		password, err := user.GetPassword(r.SecretClient)
+		password, err := user.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			return err
 		}
@@ -353,28 +353,28 @@ func (r *MongoDBUserReconciler) handleScramShaUser(user *userv1.MongoDBUser, con
 
 	if err != nil {
 		if shouldRetry {
-			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
+			return r.updateStatus(ctx, user, workflow.Pending(err.Error()).WithRetry(10), log)
 		}
-		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
 	annotationsToAdd, err := getAnnotationsForUserResource(user)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err), log)
+		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	if err := annotations.SetAnnotations(user, annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(user, workflow.Failed(err), log)
+	if err := annotations.SetAnnotations(ctx, user, annotationsToAdd, r.client); err != nil {
+		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log)
 }
 
-func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 	desiredUser, err := toOmUser(user.Spec, "")
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
 	shouldRetry := false
@@ -396,22 +396,22 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(user *userv1.MongoDBUser,
 	err = conn.ReadUpdateAutomationConfig(updateFunction, log)
 	if err != nil {
 		if shouldRetry {
-			return r.updateStatus(user, workflow.Pending(err.Error()).WithRetry(10), log)
+			return r.updateStatus(ctx, user, workflow.Pending(err.Error()).WithRetry(10), log)
 		}
-		return r.updateStatus(user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
+		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
 	}
 
 	annotationsToAdd, err := getAnnotationsForUserResource(user)
 	if err != nil {
-		return r.updateStatus(user, workflow.Failed(err), log)
+		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	if err := annotations.SetAnnotations(user, annotationsToAdd, r.client); err != nil {
-		return r.updateStatus(user, workflow.Failed(err), log)
+	if err := annotations.SetAnnotations(ctx, user, annotationsToAdd, r.client); err != nil {
+		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log)
 }
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
 	"k8s.io/utils/strings/slices"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
@@ -24,18 +26,18 @@ Use spec.podSpec.podTemplate.spec.containers[].resources instead.`
 
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
-func (m *MongoDB) ValidateCreate() error {
-	return m.ProcessValidationsOnReconcile(nil)
+func (m *MongoDB) ValidateCreate() (admission.Warnings, error) {
+	return nil, m.ProcessValidationsOnReconcile(nil)
 }
 
-func (m *MongoDB) ValidateUpdate(old runtime.Object) error {
-	return m.ProcessValidationsOnReconcile(old.(*MongoDB))
+func (m *MongoDB) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+	return nil, m.ProcessValidationsOnReconcile(old.(*MongoDB))
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
 // unnecessary
-func (m *MongoDB) ValidateDelete() error {
-	return nil
+func (m *MongoDB) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
 }
 
 func replicaSetHorizonsRequireTLS(d DbCommonSpec) v1.ValidationResult {

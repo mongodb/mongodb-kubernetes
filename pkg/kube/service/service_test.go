@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/mock"
@@ -41,6 +42,7 @@ func TestService_NodePortIsNotOverwritten(t *testing.T) {
 }
 
 func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDefined(t *testing.T) {
+	ctx := context.Background()
 	port1 := corev1.ServicePort{
 		Name:       "port1",
 		Port:       1000,
@@ -56,13 +58,13 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 	}
 
 	manager := mock.NewEmptyManager()
-	manager.Client.AddDefaultMdbConfigResources()
+	manager.Client.AddDefaultMdbConfigResources(ctx)
 
 	existingService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1, port2}}}
 
-	err := CreateOrUpdateService(manager.Client, existingService)
+	err := CreateOrUpdateService(ctx, manager.Client, existingService)
 	assert.NoError(t, err)
 
 	port1WithNodePortZero := port1
@@ -74,10 +76,10 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1WithNodePortZero, port2WithNodePortZero}}}
 
-	err = CreateOrUpdateService(manager.Client, newServiceWithoutNodePorts)
+	err = CreateOrUpdateService(ctx, manager.Client, newServiceWithoutNodePorts)
 	assert.NoError(t, err)
 
-	changedService, err := manager.Client.GetService(types.NamespacedName{Name: "my-service", Namespace: "my-namespace"})
+	changedService, err := manager.Client.GetService(ctx, types.NamespacedName{Name: "my-service", Namespace: "my-namespace"})
 	require.NoError(t, err)
 	require.NotNil(t, changedService)
 	require.Len(t, changedService.Spec.Ports, 2)

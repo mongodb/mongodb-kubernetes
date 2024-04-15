@@ -1,6 +1,8 @@
 package operator
 
 import (
+	"context"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/kube"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -11,7 +13,7 @@ import (
 
 // Deleter cleans up any state required upon deletion of a resource.
 type Deleter interface {
-	OnDelete(obj runtime.Object, log *zap.SugaredLogger) error
+	OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error
 }
 
 // ResourceEventHandler is a custom event handler that extends the
@@ -24,12 +26,12 @@ type ResourceEventHandler struct {
 	deleter Deleter
 }
 
-func (h *ResourceEventHandler) Delete(e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
+func (h *ResourceEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {
 	objectKey := kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName())
 	logger := zap.S().With("resource", objectKey)
 
 	zap.S().Infow("Cleaning up Resource", "resource", e.Object)
-	if err := h.deleter.OnDelete(e.Object, logger); err != nil {
+	if err := h.deleter.OnDelete(ctx, e.Object, logger); err != nil {
 		logger.Errorf("Resource removed from Kubernetes, but failed to clean some state in Ops Manager: %s", err)
 		return
 	}

@@ -1,6 +1,7 @@
 package mdbmulti
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -59,7 +60,7 @@ type MongoDBMultiCluster struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
-func (m *MongoDBMultiCluster) AddValidationToManager(mgr manager.Manager, clt map[string]cluster.Cluster) error {
+func (m *MongoDBMultiCluster) AddValidationToManager(ctx context.Context, mgr manager.Manager, clt map[string]cluster.Cluster) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(m).Complete()
 }
 

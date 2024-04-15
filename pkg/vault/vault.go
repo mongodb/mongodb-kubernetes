@@ -96,8 +96,8 @@ type VaultClient struct {
 	VaultConfig VaultConfiguration
 }
 
-func readVaultConfig(client *kubernetes.Clientset) VaultConfiguration {
-	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(context.TODO(), "secret-configuration", v1.GetOptions{})
+func readVaultConfig(ctx context.Context, client *kubernetes.Clientset) VaultConfiguration {
+	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, "secret-configuration", v1.GetOptions{})
 	if err != nil {
 		panic(xerrors.Errorf("error reading vault configmap: %w", err))
 	}
@@ -117,13 +117,13 @@ func readVaultConfig(client *kubernetes.Clientset) VaultConfiguration {
 	return config
 }
 
-func setTLSConfig(config *api.Config, client *kubernetes.Clientset, tlsSecretRef string) error {
+func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Clientset, tlsSecretRef string) error {
 	if tlsSecretRef == "" {
 		return nil
 	}
 	var secret *corev1.Secret
 	var err error
-	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(context.TODO(), tlsSecretRef, v1.GetOptions{})
+	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{})
 
 	if err != nil {
 		return xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
@@ -156,13 +156,13 @@ func setTLSConfig(config *api.Config, client *kubernetes.Clientset, tlsSecretRef
 
 }
 
-func InitVaultClient(client *kubernetes.Clientset) (*VaultClient, error) {
-	vaultConfig := readVaultConfig(client)
+func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultClient, error) {
+	vaultConfig := readVaultConfig(ctx, client)
 
 	config := api.DefaultConfig()
 	config.Address = vaultConfig.VaultAddress
 
-	if err := setTLSConfig(config, client, vaultConfig.TLSSecretRef); err != nil {
+	if err := setTLSConfig(ctx, config, client, vaultConfig.TLSSecretRef); err != nil {
 		return nil, err
 	}
 
