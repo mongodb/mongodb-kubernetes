@@ -170,6 +170,7 @@ relatedImages:
   - 7.0.1
   - 7.0.2
   - 7.0.3
+  - 7.0.4
   mongodb:
   - 4.4.0-ubi8
   - 4.4.1-ubi8
