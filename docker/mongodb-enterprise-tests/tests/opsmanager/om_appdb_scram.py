@@ -223,7 +223,11 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
             "key": "",
         }
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        # Swapping the password can lead to a race when the Agent deploys new password to AppDB and the
+        # Operator updates the connection string (which leads to restarting OM). Since there are no time
+        # or order guarantees, the entire system may go through an error state. In that case,
+        # the recovery will happen soon, but it needs a bit more time.
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1800)
 
     def test_new_password_was_created(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.read_appdb_generated_password() != ""
