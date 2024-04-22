@@ -6,27 +6,22 @@ images:
 - name: init-ops-manager
   vars:
     context: docker/mongodb-enterprise-init-ops-manager
-
   platform: linux/amd64
 
   stages:
   - name: init-ops-manager-build-context
     task_type: docker_build
     dockerfile: Dockerfile.builder
-
     output:
     - registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-context
       tag: $(inputs.params.version_id)
-
 
   - name: init-ops-manager-template-ubi
     task_type: dockerfile_template
     template_file_extension: ubi_minimal
     tags: ["ubi"]
-
     inputs:
     - version
-
     output:
     - dockerfile: $(functions.tempfile)
 
@@ -34,14 +29,11 @@ images:
     task_type: docker_build
     dockerfile: $(stages['init-ops-manager-template-ubi'].outputs[0].dockerfile)
     tags: ["ubi"]
-
     buildargs:
       imagebase: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-context:$(inputs.params.version_id)
-
     output:
     - registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-ubi
       tag: $(inputs.params.version_id)
-
 
   - name: master-latest
     task_type: tag_image
@@ -49,7 +41,6 @@ images:
     source:
       registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-ubi
       tag: $(inputs.params.version_id)
-
     destination:
       - registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-ubi
         tag: latest
@@ -57,11 +48,9 @@ images:
   - name: init-ops-manager-release-context
     task_type: tag_image
     tags: ["release"]
-
     source:
       registry: $(inputs.params.registry)/mongodb-enterprise-init-ops-manager-context
       tag: $(inputs.params.version_id)
-
     destination:
     - registry: $(inputs.params.quay_registry)
       tag: $(inputs.params.version)-context
@@ -70,9 +59,7 @@ images:
     task_type: dockerfile_template
     template_file_extension: ubi_minimal
     tags: ["release"]
-
     inputs:
     - version
-
     output:
     - dockerfile: $(inputs.params.s3_bucket)/$(inputs.params.version)/ubi/Dockerfile
