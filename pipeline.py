@@ -8,7 +8,6 @@ import argparse
 import copy
 import io
 import json
-import logging
 import os
 import shutil
 import subprocess
@@ -19,26 +18,26 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
 from queue import Queue
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import requests
 import semver
-import yaml
 from sonar.sonar import process_image
 
 import docker
+from scripts.evergreen.release.base_logger import logger
+from scripts.evergreen.release.images_signing import sign_image, verify_signature
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
 
-LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
-logger = logging.getLogger("pipeline")
-logger.setLevel(LOGLEVEL)
-
-skippable_tags = frozenset(["ubi"])
-
 DEFAULT_IMAGE_TYPE = "ubi"
 DEFAULT_NAMESPACE = "default"
+
+# QUAY_REGISTRY_URL sets the base registry for all release build stages. Context images and daily builds will push the
+# final images to the registry specified here.
+# This makes it easy to use ECR to test changes on the pipeline before pushing to Quay.
+QUAY_REGISTRY_URL = os.environ.get("QUAY_REGISTRY", "quay.io/mongodb")
 
 
 @dataclass
@@ -53,6 +52,7 @@ class BuildConfiguration:
     builder: str = "docker"
     parallel: bool = False
     architecture: Optional[List[str]] = None
+    sign: bool = False
 
     pipeline: bool = True
     debug: bool = True
@@ -84,7 +84,7 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
 
 
 def operator_build_configuration(
-    builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None
+    builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None, sign: bool = False
 ) -> BuildConfiguration:
 
     bc = BuildConfiguration(
@@ -97,12 +97,13 @@ def operator_build_configuration(
         parallel=parallel,
         debug=debug,
         architecture=architecture,
+        sign=sign,
     )
 
-    print(f"is_running_in_patch: {is_running_in_patch()}")
-    print(f"is_running_in_evg_pipeline: {is_running_in_evg_pipeline()}")
+    logger.info(f"is_running_in_patch: {is_running_in_patch()}")
+    logger.info(f"is_running_in_evg_pipeline: {is_running_in_evg_pipeline()}")
     if is_running_in_patch() or not is_running_in_evg_pipeline():
-        print(
+        logger.info(
             f"Running build not in evg pipeline (is_running_in_evg_pipeline={is_running_in_evg_pipeline()}) "
             f"or in pipeline but not from master (is_running_in_patch={is_running_in_patch()}). "
             "Adding 'master' tag to skip to prevent publishing to the latest dev image."
@@ -169,18 +170,19 @@ def build_id() -> str:
 
     hour, minute = should_pin_at()
     if hour and minute:
-        print(f"we are pinning to, hour: {hour}, minute: {minute}")
+        logger.info(f"we are pinning to, hour: {hour}, minute: {minute}")
         date = date.replace(hour=int(hour), minute=int(minute), second=0)
     else:
-        print(f"hour and minute cannot be extracted from provided pin_tag_at env, pinning to now")
+        logger.warning(f"hour and minute cannot be extracted from provided pin_tag_at env, pinning to now")
 
     string_time = date.strftime("%Y%m%dT%H%M%SZ")
 
     return string_time
 
 
-def get_release() -> Dict[str, str]:
-    return json.load(open("release.json"))
+def get_release() -> Dict:
+    with open("release.json") as release:
+        return json.load(release)
 
 
 def get_git_release_tag() -> str:
@@ -234,7 +236,7 @@ def create_and_push_manifest(image: str, tag: str) -> None:
     final_manifest = image + ":" + tag
     args = ["docker", "manifest", "rm", final_manifest]
     args_str = " ".join(args)
-    print(f"removing existing manifest: {args_str}")
+    logger.debug(f"removing existing manifest: {args_str}")
     subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     args = [
@@ -248,7 +250,7 @@ def create_and_push_manifest(image: str, tag: str) -> None:
         final_manifest + "-arm64",
     ]
     args_str = " ".join(args)
-    print(f"creating new manifest: {args_str}")
+    logger.debug(f"creating new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     if cp.returncode != 0:
@@ -256,7 +258,7 @@ def create_and_push_manifest(image: str, tag: str) -> None:
 
     args = ["docker", "manifest", "push", final_manifest]
     args_str = " ".join(args)
-    print(f"pushing new manifest: {args_str}")
+    logger.info(f"pushing new manifest: {args_str}")
     cp = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     if cp.returncode != 0:
@@ -268,7 +270,7 @@ def try_get_platform_data(client, image):
     try:
         return client.images.get_registry_data(image)
     except Exception as e:
-        logger.debug("Failed to get registry data for image: {0}. Error: {1}".format(image, str(e)))
+        logger.error("Failed to get registry data for image: {0}. Error: {1}".format(image, str(e)))
         return None
 
 
@@ -286,10 +288,10 @@ def check_multi_arch(image: str, suffix: str) -> bool:
     for img in [image, image + suffix]:
         reg_data = try_get_platform_data(client, img)
         if reg_data is not None and all(reg_data.has_platform(p) for p in platforms):
-            logger.debug("Base image {} supports multi architecture, building for ARM64 and AMD64".format(img))
+            logger.info("Base image {} supports multi architecture, building for ARM64 and AMD64".format(img))
             return True
 
-    logger.debug("Base image {} is single-arch, building only for AMD64.".format(img))
+    logger.info("Base image {} is single-arch, building only for AMD64.".format(img))
     return False
 
 
@@ -308,7 +310,7 @@ def sonar_build_image(
         "pipeline": build_configuration.pipeline,
     }
 
-    print(f"Sonar build configuration: {build_configuration}")
+    logger.info(f"Sonar config: {build_configuration}")
 
     process_image(
         image_name,
@@ -374,37 +376,28 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
-    image_name = "operator"
-
     # In evergreen we can pass test_suffix env to publish the operator to a quay
     # repostory with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
-
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    args = dict(
-        release_version=get_git_release_tag(),
-        log_automation_config_diff=log_automation_config_diff,
-        test_suffix=test_suffix,
-        debug=build_configuration.debug,
-    )
-
-    sonar_build_image(image_name, build_configuration, args)
+    version = get_git_release_tag()
+    args = {
+        "version": version,
+        "log_automation_config_diff": log_automation_config_diff,
+        "test_suffix": test_suffix,
+        "debug": build_configuration.debug,
+    }
+    build_image_generic(build_configuration, "operator", "inventory.yaml", args)
 
 
 def build_database_image(build_configuration: BuildConfiguration):
     """
     Builds a new database image.
     """
-    image_name = "database"
     release = get_release()
-
     version = release["databaseImageVersion"]
-
-    args = dict(
-        version=version,
-    )
-
-    sonar_build_image(image_name, build_configuration, args, "inventories/database.yaml")
+    args = {"version": version}
+    build_image_generic(build_configuration, "database", "inventories/database.yaml", args)
 
 
 def build_operator_image_patch(build_configuration: BuildConfiguration):
@@ -474,7 +467,7 @@ def build_operator_image_patch(build_configuration: BuildConfiguration):
     )
 
 
-def get_supported_variants_for_image(image: str) -> List[Dict[str, str]]:
+def get_supported_variants_for_image(image: str) -> List[str]:
     return get_release()["supportedImages"][image]["variants"]
 
 
@@ -490,7 +483,7 @@ def image_config(
 
     It returns a dictionary with registries and S3 configuration."""
     args = {
-        "quay_registry": "quay.io/mongodb/{}{}".format(name_prefix, image_name),
+        "quay_registry": "{}/{}{}".format(QUAY_REGISTRY_URL, name_prefix, image_name),
         "ecr_registry_ubi": "268558157000.dkr.ecr.us-east-1.amazonaws.com/images/ubi/{}{}".format(
             name_prefix, image_name
         ),
@@ -542,6 +535,18 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
     return images[image_name]
 
 
+def is_version_in_range(version: str, min_version: str, max_version: str) -> bool:
+    """Check if version is in the range"""
+    try:
+        version_without_rc = semver.finalize_version(version)
+    except ValueError:
+        version_without_rc = version
+    if min_version and max_version:
+        # Greater or equal for lower bound, strictly lower for upper bound
+        return semver.compare(min_version, version_without_rc) <= 0 > semver.compare(version_without_rc, max_version)
+    return True
+
+
 """
 Starts the daily build process for an image. This function works for all images we support, for community and 
 enterprise operator. The list of supported image_name is defined in get_builder_function_for_image_name.
@@ -560,6 +565,33 @@ def build_image_daily(
 ):
     """Builds a daily image."""
 
+    def get_architectures_set(build_configuration, args):
+        """Determine the set of architectures to build for"""
+        arch_set = set(build_configuration.architecture) if build_configuration.architecture else set()
+        if arch_set == {"arm64"}:
+            raise ValueError("Building for ARM64 only is not supported yet")
+
+        # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
+        if arch_set == set():
+            if check_multi_arch(
+                image=args["quay_registry"] + args["ubi_suffix"] + ":" + args["release_version"],
+                suffix="-context",
+            ):
+                arch_set = {"amd64", "arm64"}
+            else:
+                # When nothing specified and single-arch, default to amd64
+                arch_set = {"amd64"}
+
+        return arch_set
+
+    def create_and_push_manifests(args: dict):
+        """Create and push manifests for all registries."""
+        registries = [args["ecr_registry_ubi"], args["quay_registry"]]
+        tags = [args["release_version"], args["release_version"] + "-b" + args["build_id"]]
+        for registry in registries:
+            for tag in tags:
+                create_and_push_manifest(registry + args["ubi_suffix"], tag)
+
     def inner(build_configuration: BuildConfiguration):
         supported_versions = get_supported_version_for_image_matrix_handling(image_name)
         variants = get_supported_variants_for_image(image_name)
@@ -567,90 +599,80 @@ def build_image_daily(
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
         logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
-        completed_versions = set()
-        for version in supported_versions:
-            try:
-                version_without_rc = semver.finalize_version(version)
-            except ValueError:
-                version_without_rc = version
-            if (
-                min_version is not None
-                and max_version is not None
-                and (
-                    semver.compare(version_without_rc, min_version) < 0
-                    or semver.compare(version_without_rc, max_version) >= 0
-                )
-            ):
-                continue
+        mongodb_artifactory_login()
 
+        completed_versions = set()
+        for version in filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions):
             build_configuration = copy.deepcopy(build_configuration)
             if build_configuration.include_tags is None:
                 build_configuration.include_tags = []
-
             build_configuration.include_tags.extend(variants)
 
             logger.info("Rebuilding {} with variants {}".format(version, variants))
             args["release_version"] = version
 
-            arch_set = set()
-            if build_configuration.architecture:
-                arch_set = set(build_configuration.architecture)
-
-            if arch_set == {"arm64"}:
-                raise ValueError("Building for ARM64 only is not supported yet")
+            arch_set = get_architectures_set(build_configuration, args)
 
             if version not in completed_versions:
-                # Automatic architecture detection is the default behavior if 'arch' argument isn't specified
-                if (
-                    arch_set == {"amd64", "arm64"}
-                    or arch_set == set()
-                    and check_multi_arch(
-                        image=args["quay_registry"] + args["ubi_suffix"] + ":" + args["release_version"],
-                        suffix="-context",
-                    )
-                ):
-                    sonar_build_image(
-                        "image-daily-build-amd64",
-                        build_configuration,
-                        args,
-                        inventory="inventories/daily.yaml",
-                    )
-                    sonar_build_image(
-                        "image-daily-build-arm64",
-                        build_configuration,
-                        args,
-                        inventory="inventories/daily.yaml",
-                    )
-                    create_and_push_manifest(
-                        args["quay_registry"] + args["ubi_suffix"],
-                        args["release_version"],
-                    )
-                    create_and_push_manifest(
-                        args["quay_registry"] + args["ubi_suffix"],
-                        args["release_version"] + "-b" + args["build_id"],
-                    )
-                    create_and_push_manifest(
-                        args["ecr_registry_ubi"] + args["ubi_suffix"],
-                        args["release_version"],
-                    )
-                    create_and_push_manifest(
-                        args["ecr_registry_ubi"] + args["ubi_suffix"],
-                        args["release_version"] + "-b" + args["build_id"],
-                    )
+                if arch_set == {"amd64", "arm64"}:
+                    for arch in arch_set:
+                        # Suffix to append to images name for multi-arch (see usage in daily.yaml inventory)
+                        args["architecture_suffix"] = f"-{arch}"
+                        args["platform"] = arch
+                        sonar_build_image(
+                            "image-daily-build",
+                            build_configuration,
+                            args,
+                            inventory="inventories/daily.yaml",
+                        )
+                        if build_configuration.sign:
+                            sign_image_in_repositories(args, arch)
+                    create_and_push_manifests(args)
+                    if build_configuration.sign:
+                        sign_image_in_repositories(args)
                 else:
+                    # No suffix for single arch images
+                    args["architecture_suffix"] = ""
+                    args["platform"] = "amd64"
                     sonar_build_image(
                         "image-daily-build",
                         build_configuration,
                         args,
                         inventory="inventories/daily.yaml",
                     )
+                    if build_configuration.sign:
+                        sign_image_in_repositories(args)
                 completed_versions.add(version)
 
     return inner
 
 
+def mongodb_artifactory_login():
+    command = [
+        "docker",
+        "login",
+        "--password-stdin",
+        "--username",
+        os.environ["ARTIFACTORY_USERNAME"],
+        "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign",
+    ]
+    subprocess.run(command, input=os.environ["ARTIFACTORY_PASSWORD"].encode("utf-8"), check=True)
+
+
+def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
+    repositories = [args["ecr_registry_ubi"] + args["ubi_suffix"], args["quay_registry"] + args["ubi_suffix"]]
+    tag = args["release_version"]
+    if arch:
+        tag = f"{tag}-{arch}"
+
+    for repository in repositories:
+        sign_image(repository, tag)
+        verify_signature(repository, tag)
+
+
 def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[str]:
-    """There are a few alternatives out there that allow for json-path or xpath-type
+    """
+    There are a few alternatives out there that allow for json-path or xpath-type
     traversal of Json objects in Python, I don't have time to look for one of
     them now but I have to do at some point.
     """
@@ -690,19 +712,13 @@ def find_om_url(om_version: str) -> str:
 
 
 def build_init_om_image(build_configuration: BuildConfiguration):
-    image_name = "init-ops-manager"
-
     release = get_release()
     init_om_version = release["initOpsManagerVersion"]
-
-    args = dict(version=init_om_version)
-
-    sonar_build_image(image_name, build_configuration, args, "inventories/init_om.yaml")
+    args = {"version": init_om_version}
+    build_image_generic(build_configuration, "init-ops-manager", "inventories/init_om.yaml", args)
 
 
 def build_om_image(build_configuration: BuildConfiguration):
-    image_name = "ops-manager"
-
     # Make this a parameter for the Evergreen build
     # https://github.com/evergreen-ci/evergreen/wiki/Parameterized-Builds
     om_version = os.environ.get("om_version")
@@ -713,52 +729,58 @@ def build_om_image(build_configuration: BuildConfiguration):
     if om_download_url == "":
         om_download_url = find_om_url(om_version)
 
-    args = dict(
-        om_version=om_version,
-        om_download_url=om_download_url,
-    )
+    args = {
+        "version": om_version,
+        "om_download_url": om_download_url,
+    }
+    build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
 
-    sonar_build_image(image_name, build_configuration, args, "inventories/om.yaml")
+
+def build_image_generic(config: BuildConfiguration, image_name: str, inventory_file: str, extra_args: dict = None):
+    args = extra_args or {}
+    version = extra_args.get("version", "")
+    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}"
+    args["quay_registry"] = registry
+
+    sonar_build_image(image_name, config, args, inventory_file)
+    if config.sign and is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
+        sign_image(registry, version + "-context")
+        verify_signature(registry, version + "-context")
+
+
+def is_release_step_executed(skip_tags: List[str], include_tags: List[str]) -> bool:
+    return "release" not in skip_tags and (not include_tags or ("release" in include_tags))
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
-    image_name = "init-appdb"
-
     release = get_release()
-
     version = release["initAppDbVersion"]
     base_url = "https://fastdl.mongodb.org/tools/db/"
-
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-
-    args = dict(
-        version=version,
-        mongodb_tools_url_ubi=mongodb_tools_url_ubi,
-        is_appdb=True,
-    )
-
-    sonar_build_image(
-        image_name,
-        build_configuration,
-        args,
-        "inventories/init_appdb.yaml",
-    )
+    args = {"version": version, "is_appdb": True, "mongodb_tools_url_ubi": mongodb_tools_url_ubi}
+    build_image_generic(build_configuration, "init-appdb", "inventories/init_appdb.yaml", args)
 
 
 def build_agent_in_sonar(
     build_configuration: BuildConfiguration, image_version, mongodb_tools_url_ubi, mongodb_agent_url_ubi: str
 ):
-    args = dict(
-        version=image_version,
-        mongodb_tools_url_ubi=mongodb_tools_url_ubi,
-        mongodb_agent_url_ubi=mongodb_agent_url_ubi,
-    )
-    sonar_build_image(
-        "agent",
-        build_configuration,
-        args,
-        "inventories/agent.yaml",
-    )
+    args = {
+        "version": image_version,
+        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
+        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
+    }
+
+    registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
+    args["quay_registry"] = registry
+
+    build_image_generic(build_configuration, "agent", "inventories/agent.yaml", args)
+    # Agent is the only image for which release is part of the inventory, on top of -context release
+    # This is done usually by daily builds
+    if build_configuration.sign and is_release_step_executed(
+        build_configuration.get_skip_tags(), build_configuration.get_include_tags()
+    ):
+        sign_image(registry, image_version)
+        verify_signature(registry, image_version)
 
 
 def build_agent(build_configuration: BuildConfiguration):
@@ -819,7 +841,7 @@ def build_agent_gather_versions(release: Dict[str, str]):
     return agent_versions_to_be_build
 
 
-def get_builder_function_for_image_name():
+def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     return {
@@ -861,36 +883,12 @@ def get_builder_function_for_image_name():
 
 # TODO: nam static: remove this once static containers becomes the default
 def build_init_database(build_configuration: BuildConfiguration):
-    image_name = "init-database"
-
     release = get_release()
     version = release["initDatabaseVersion"]  # comes from release.json
-
     base_url = "https://fastdl.mongodb.org/tools/db/"
-
     mongodb_tools_url_ubi = "{}{}".format(base_url, release["mongodbToolsBundle"]["ubi"])
-
-    args = dict(
-        version=version,
-        mongodb_tools_url_ubi=mongodb_tools_url_ubi,
-        is_appdb=False,
-    )
-
-    # TODO:
-    # This is a temporary solution to be able to specify a different readiness_probe image
-    # at build time.
-    # If this is set to "" or not set at all, then the default value in
-    # "inventories/init_database.yaml" will be used.
-    if os.environ.get("readiness_probe"):
-        logger.info("Using readiness_probe source image: %s", os.environ["readiness_probe"])
-        repo, tag = os.environ["readiness_probe"].split(":")
-
-    sonar_build_image(
-        image_name,
-        build_configuration,
-        args,
-        "inventories/init_database.yaml",
-    )
+    args = {"version": version, "mongodb_tools_url_ubi": mongodb_tools_url_ubi, "is_appdb": False}
+    build_image_generic(build_configuration, "init-database", "inventories/init_database.yaml", args)
 
 
 def build_image(image_name: str, build_configuration: BuildConfiguration):
@@ -899,54 +897,43 @@ def build_image(image_name: str, build_configuration: BuildConfiguration):
 
 
 def build_all_images(
-    images: List[str],
+    images: Iterable[str],
     builder: str,
     debug: bool = False,
     parallel: bool = False,
     architecture: Optional[List[str]] = None,
+    sign: bool = False,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(builder, parallel, debug, architecture)
-
+    build_configuration = operator_build_configuration(builder, parallel, debug, architecture, sign)
+    mongodb_artifactory_login()
     for image in images:
         build_image(image, build_configuration)
 
 
 def calculate_images_to_build(
     images: List[str], include: Optional[List[str]], exclude: Optional[List[str]]
-) -> List[str]:
+) -> Set[str]:
     """
     Calculates which images to build based on the `images`, `include` and `exclude` sets.
 
     >>> calculate_images_to_build(["a", "b"], ["a"], ["b"])
     ... ["a"]
     """
-    if include is None:
-        include = []
-    if exclude is None:
-        exclude = []
 
-    if len(include) == 0 and len(exclude) == 0:
-        return images
+    if not include and not exclude:
+        return set(images)
+    include = set(include or [])
+    exclude = set(exclude or [])
+    images = set(images or [])
 
-    current_images = images
-
-    images_to_build = []
-    for image in include:
-        if image in current_images:
-            images_to_build.append(image)
-        else:
-            raise ValueError("Image definition {} not found".format(image))
-
-    for image in exclude:
+    for image in include.union(exclude):
         if image not in images:
             raise ValueError("Image definition {} not found".format(image))
 
-    if len(exclude) > 0:
-        for image in current_images:
-            if image not in exclude:
-                images_to_build.append(image)
-
+    images_to_build = include.intersection(images)
+    if exclude:
+        images_to_build = images.difference(exclude)
     return images_to_build
 
 
@@ -964,6 +951,7 @@ def main():
         nargs="+",
         help="for daily builds only, specify the list of architectures to build for images",
     )
+    parser.add_argument("--sign", action="store_true", default=False)
     args = parser.parse_args()
 
     if args.list_images:
@@ -974,16 +962,15 @@ def main():
         print("Building for arm64 only is not supported yet")
         sys.exit(1)
 
+    if not args.sign:
+        logger.warning("--sign flag not provided, images won't be signed")
+
     images_to_build = calculate_images_to_build(
-        get_builder_function_for_image_name().keys(), args.include, args.exclude
+        list(get_builder_function_for_image_name().keys()), args.include, args.exclude
     )
 
     build_all_images(
-        images_to_build,
-        args.builder,
-        debug=args.debug,
-        parallel=args.parallel,
-        architecture=args.arch,
+        images_to_build, args.builder, debug=args.debug, parallel=args.parallel, architecture=args.arch, sign=args.sign
     )
 
 
