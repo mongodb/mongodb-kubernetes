@@ -7,7 +7,7 @@ FROM {{ base_image  }}
 LABEL name="MongoDB Enterprise Ops Manager" \
   maintainer="support@mongodb.com" \
   vendor="MongoDB" \
-  version="{{ om_version }}" \
+  version="{{ version }}" \
   release="1" \
   summary="MongoDB Enterprise Ops Manager Image" \
   description="MongoDB Enterprise Ops Manager"

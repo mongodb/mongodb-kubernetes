@@ -240,6 +240,7 @@ endif
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 test: generate fmt vet manifests
 	scripts/evergreen/unit-tests.sh
+	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
 
 # Build manager binary
 manager: generate fmt vet

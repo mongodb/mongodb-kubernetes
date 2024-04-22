@@ -11,7 +11,7 @@ FROM {{ base_image }}
 LABEL name="MongoDB Enterprise Operator" \
       maintainer="support@mongodb.com" \
       vendor="MongoDB" \
-      version="{{ release_version }}" \
+      version="{{ version }}" \
       release="1" \
       summary="MongoDB Enterprise Operator Image" \
       description="MongoDB Enterprise Operator Image"

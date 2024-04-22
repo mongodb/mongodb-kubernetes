@@ -201,10 +201,15 @@ functions:
           - distro
           - created_at
           - pin_tag_at
+          - GRS_USERNAME
+          - GRS_PASSWORD
+          - PKCS11_URI
+          - ARTIFACTORY_USERNAME
+          - ARTIFACTORY_PASSWORD
         add_to_path:
           - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
-        binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name}
+        binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --sign
 
   teardown_cloud_qa_all:
     - *python_venv
