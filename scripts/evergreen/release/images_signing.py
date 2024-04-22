@@ -65,7 +65,6 @@ def get_image_digest(image_name: str) -> Optional[str]:
         return digest
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to get digest for {image_name}: {e.stderr}")
-        raise
 
 
 def build_cosign_docker_command(additional_args: List[str], cosign_command: List[str]) -> List[str]:
