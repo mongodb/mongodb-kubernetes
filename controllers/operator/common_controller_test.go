@@ -37,7 +37,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -189,9 +188,6 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	// 'Data' which is binary. May be real kubernetes api reads data as string and updates
 	assert.NotNil(t, key)
 
-	manager.Client.CheckOrderOfOperations(t,
-		mock.HItem(reflect.ValueOf(manager.Client.Get), &corev1.Secret{}),
-		mock.HItem(reflect.ValueOf(manager.Client.Create), &corev1.Secret{}))
 }
 
 // TestUpdateStatus_Patched makes sure that 'ReconcileCommonController.updateStatus()' changes only status for current
@@ -207,7 +203,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	_, err := controller.updateStatus(ctx, reconciledObject, workflow.Pending("Waiting for secret..."), zap.S())
 	assert.NoError(t, err)
 
-	// Verifying that the resource in API server still has correct spec
+	// Verifying that the resource in API server still has the correct spec
 	currentRs := mdbv1.MongoDB{}
 	assert.NoError(t, manager.Client.Get(ctx, rs.ObjectKey(), &currentRs))
 
@@ -400,6 +396,9 @@ func testConnectionSpec() mdbv1.ConnectionSpec {
 }
 
 func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client *mock.MockedClient) {
+	e := client.Update(ctx, object)
+	require.NoError(t, e)
+
 	result, e := reconciler.Reconcile(ctx, requestFromObject(object))
 	require.NoError(t, e)
 	require.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)

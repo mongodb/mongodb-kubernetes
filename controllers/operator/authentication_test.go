@@ -523,7 +523,7 @@ func addKubernetesTlsResources(ctx context.Context, client kubernetesClient.Clie
 		Type: corev1.SecretTypeTLS,
 	}
 
-	_ = client.Update(ctx, secret)
+	_ = client.Create(ctx, secret)
 	switch mdb.Spec.ResourceType {
 	case mdbv1.ReplicaSet:
 		createReplicaSetTLSData(ctx, client, mdb)
@@ -918,7 +918,7 @@ func createAgentCSRs(ctx context.Context, numAgents int, client kubernetesClient
 
 func addCsrs(ctx context.Context, client kubernetesClient.Client, csrs ...certsv1.CertificateSigningRequest) {
 	for _, csr := range csrs {
-		_ = client.Update(ctx, &csr)
+		_ = client.Create(ctx, &csr)
 	}
 }
 

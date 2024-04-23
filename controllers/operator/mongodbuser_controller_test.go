@@ -46,7 +46,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
 	createUserControllerConfigMap(ctx, client)
 	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
@@ -82,7 +82,7 @@ func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T
 
 	// initialize resources required for the tests
 	// we enable auth because we need to explicitly put the password secret in same namespace
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
 	createUserControllerConfigMap(ctx, client)
 	// the secret must be in the same namespace as the user, we do not support cross-referencing
@@ -104,7 +104,7 @@ func TestReconciliationSucceed_OnAddingUser_WithNoMongoDBNamespaceSpecified(t *t
 	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
 		SetName("my-rs").Build())
 	createUserControllerConfigMap(ctx, client)
 	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
@@ -123,7 +123,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").
 		Build())
 	createUserControllerConfigMap(ctx, client)
 	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
@@ -158,7 +158,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").Build())
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().SetName("my-rs").EnableAuth().AgentAuthMode("SCRAM").Build())
 	createUserControllerConfigMap(ctx, client)
 	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
 
@@ -204,7 +204,7 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 	reconciler, client := defaultUserReconciler(ctx, user)
 
 	// initialize resources required for the tests
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(ctx, client)
 
 	// No password has been created
@@ -226,7 +226,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 	reconciler, client := defaultUserReconciler(ctx, user)
 
 	// initialize resources required for the tests
-	_ = client.Update(ctx, DefaultReplicaSetBuilder().SetName("my-rs").Build())
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().SetName("my-rs").Build())
 	createUserControllerConfigMap(ctx, client)
 
 	// use the wrong key to store the password
@@ -270,7 +270,7 @@ func AssertAuthModeTest(ctx context.Context, t *testing.T, mode mdbv1.AuthMode) 
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client := defaultUserReconciler(ctx, user)
-	err := client.Update(ctx, DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
+	err := client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
 	assert.NoError(t, err)
 	createUserControllerConfigMap(ctx, client)
 	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
@@ -294,7 +294,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	reconciler, client := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	// initialize resources required for the tests
-	err := client.Update(ctx, DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
+	err := client.Create(ctx, DefaultReplicaSetBuilder().AgentAuthMode("SCRAM").EnableAuth().SetName("my-rs").Build())
 	assert.NoError(t, err)
 	createUserControllerConfigMap(ctx, client)
 	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
@@ -397,7 +397,7 @@ func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, aut
 		builder.AgentAuthMode(agentAuthMode)
 	}
 
-	err := client.Update(ctx, builder.Build())
+	err := client.Create(ctx, builder.Build())
 	assert.NoError(t, err)
 	createUserControllerConfigMap(ctx, client)
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
@@ -411,7 +411,7 @@ func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, aut
 
 // createUserControllerConfigMap creates a configmap with credentials present
 func createUserControllerConfigMap(ctx context.Context, client *mock.MockedClient) {
-	_ = client.Update(ctx, &corev1.ConfigMap{
+	_ = client.Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: om.TestGroupName, Namespace: mock.TestNamespace},
 		Data: map[string]string{
 			util.OmBaseUrl:     om.TestURL,
@@ -435,7 +435,7 @@ func createPasswordSecret(ctx context.Context, client *mock.MockedClient, secret
 }
 
 func createPasswordSecretInNamespace(ctx context.Context, client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string, namespace string) {
-	_ = client.Update(ctx, &corev1.Secret{
+	_ = client.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: namespace},
 		Data: map[string][]byte{
 			secretRef.Key: []byte(password),
@@ -446,7 +446,7 @@ func createPasswordSecretInNamespace(ctx context.Context, client *mock.MockedCli
 func createMongoDBForUserWithAuth(ctx context.Context, client *mock.MockedClient, user userv1.MongoDBUser, authModes ...mdbv1.AuthMode) {
 	mdbBuilder := DefaultReplicaSetBuilder().SetName(user.Spec.MongoDBResourceRef.Name)
 
-	_ = client.Update(ctx, mdbBuilder.SetAuthModes(authModes).Build())
+	_ = client.Create(ctx, mdbBuilder.SetAuthModes(authModes).Build())
 }
 
 // defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary

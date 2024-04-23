@@ -2,26 +2,29 @@ package mock
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"runtime"
-	"testing"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
+	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
+	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+	"github.com/hashicorp/go-multierror"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 
-	"github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"golang.org/x/xerrors"
 
 	"github.com/go-logr/logr"
-	"github.com/hashicorp/go-multierror"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/client"
-	"k8s.io/apimachinery/pkg/util/validation"
-
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
-	jsonpatch "github.com/evanphx/json-patch"
 	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -38,12 +41,7 @@ import (
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 
-	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
-	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
-	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"github.com/stretchr/testify/assert"
 
 	"reflect"
 
@@ -55,8 +53,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 )
-
-// todo rename the file to client_test.go later
 
 const (
 	TestProjectConfigMapName  = om.TestGroupName
@@ -130,10 +126,7 @@ func (c *MockedSecretClient) UpdateSecret(ctx context.Context, secret corev1.Sec
 
 // CreateSecret provides a thin wrapper and client.Client to create corev1.Secret types
 func (c *MockedSecretClient) CreateSecret(ctx context.Context, secret corev1.Secret) error {
-	if err := c.client.Create(ctx, &secret); err != nil {
-		return err
-	}
-	return nil
+	return c.client.Create(ctx, &secret)
 }
 
 // DeleteSecret provides a thin wrapper and client.Client to delete corev1.Secret types
@@ -173,10 +166,7 @@ func (c *MockedServiceClient) UpdateService(ctx context.Context, secret corev1.S
 
 // CreateService provides a thin wrapper and client.Client to create corev1.Service types
 func (c *MockedServiceClient) CreateService(ctx context.Context, s corev1.Service) error {
-	if err := c.client.Create(ctx, &s); err != nil {
-		return err
-	}
-	return nil
+	return c.client.Create(ctx, &s)
 }
 
 // DeleteService provides a thin wrapper and client.Client to delete corev1.Service types
@@ -201,7 +191,7 @@ type MockedStatefulSetClient struct {
 	client client.Client
 }
 
-// GetService provides a thin wrapper and client.Client to access appsv1.StatefulSet types
+// GetStatefulSet provides a thin wrapper and client.Client to access appsv1.StatefulSet types
 func (c *MockedStatefulSetClient) GetStatefulSet(ctx context.Context, objectKey client.ObjectKey) (appsv1.StatefulSet, error) {
 	sts := appsv1.StatefulSet{}
 	if err := c.client.Get(ctx, objectKey, &sts); err != nil {
@@ -230,10 +220,7 @@ func (c *MockedStatefulSetClient) UpdateStatefulSet(ctx context.Context, sts app
 
 // CreateStatefulSet provides a thin wrapper and client.Client to create appsv1.StatefulSet types
 func (c *MockedStatefulSetClient) CreateStatefulSet(ctx context.Context, sts appsv1.StatefulSet) error {
-	if err := c.client.Create(ctx, &sts); err != nil {
-		return err
-	}
-	return nil
+	return c.client.Create(ctx, &sts)
 }
 
 // DeleteStatefulSet provides a thin wrapper and client.Client to delete appsv1.StatefulSet types
@@ -250,54 +237,51 @@ func (c *MockedStatefulSetClient) DeleteStatefulSet(ctx context.Context, key cli
 	return nil
 }
 
-var _ client.StatusWriter = &MockedStatusWriter{}
-
-type MockedStatusWriter struct {
-	parent *MockedClient
-}
-
-func (m *MockedStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
-	panic("implement me")
-}
-
-func (m *MockedStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-	return m.parent.Update(ctx, obj)
-}
-
-func (m *MockedStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	return m.parent.Patch(ctx, obj, patch)
-}
-
 // MockedClient is the mocked implementation of client.Client from controller-runtime library
 type MockedClient struct {
+	client.Client
 	*MockedConfigMapClient
 	*MockedSecretClient
 	*MockedServiceClient
 	*MockedStatefulSetClient
 
-	// backingMap contains all of the maps of all apiruntime.Objects. Using the GetMapForObject
-	// function will dynamically initialize a new map for the type in question
-	backingMap map[reflect.Type]map[client.ObjectKey]apiruntime.Object
-
-	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
-	// and make function names rename easier
-	history []*HistoryItem
-
 	// if the StatefulSet created must be marked ready right after creation
-	markStsReady bool
-	UpdateFunc   func(ctx context.Context, obj apiruntime.Object) error
+	markStsReady  bool
+	UpdateFunc    func(ctx context.Context, obj apiruntime.Object) error
+	objectTracker testing.ObjectTracker
 }
 
 var _ kubernetesClient.Client = &MockedClient{}
 
 func NewClient() *MockedClient {
-	api := MockedClient{}
+	builder := fake.ClientBuilder{}
+	s, err := v1.SchemeBuilder.Build()
+	if err != nil {
+		return nil
+	}
+	err = metav1.AddMetaToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = corev1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = appsv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
+	cl := builder.WithScheme(s).WithObjectTracker(ot).Build()
+
+	api := MockedClient{Client: cl, objectTracker: ot}
 	api.MockedConfigMapClient = &MockedConfigMapClient{client: &api}
 	api.MockedSecretClient = &MockedSecretClient{client: &api}
 	api.MockedServiceClient = &MockedServiceClient{client: &api}
 	api.MockedStatefulSetClient = &MockedStatefulSetClient{client: &api}
-
-	api.backingMap = map[reflect.Type]map[client.ObjectKey]apiruntime.Object{}
 
 	// mark StatefulSet ready right away by default
 	api.markStsReady = true
@@ -326,6 +310,10 @@ func (m *MockedClient) Scheme() *apiruntime.Scheme {
 }
 
 func (m *MockedClient) WithResource(ctx context.Context, object client.Object) *MockedClient {
+	if object.GetResourceVersion() != "" {
+		object.SetResourceVersion("")
+	}
+
 	err := m.Create(ctx, object)
 	if err != nil {
 		// panicking here instead of adding to return type as this function
@@ -389,216 +377,91 @@ func (m *MockedClient) SubResource(subResource string) client.SubResourceClient 
 // obj must be a struct pointer so that obj can be updated with the response
 // returned by the Server.
 func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) (e error) {
-	resMap := k.GetMapForObject(obj)
-	k.addToHistory(reflect.ValueOf(k.Get), obj)
-	if _, exists := resMap[key]; !exists {
-		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
+	err := k.Client.Get(ctx, key, obj, opts...)
+	if err == nil {
+		switch v := obj.(type) {
+		case *appsv1.StatefulSet:
+			k.onStatefulsetUpdate(v)
+		}
 	}
-	// Golang cannot update pointers if they are declared as interfaces... Have to use reflection
-	v := reflect.ValueOf(obj).Elem()
-	v.Set(reflect.ValueOf(resMap[key]).Elem())
-	return nil
+
+	return err
 }
 
-func (k *MockedClient) ApproveAllCSRs(ctx context.Context) {
-	for _, csrObject := range k.GetMapForObject(&certsv1.CertificateSigningRequest{}) {
+func (m *MockedClient) ApproveAllCSRs(ctx context.Context) {
+	for _, csrObject := range m.GetMapForObject(&certsv1.CertificateSigningRequest{}) {
 		csr := csrObject.(*certsv1.CertificateSigningRequest)
 		approvedCondition := certsv1.CertificateSigningRequestCondition{
 			Type: certsv1.CertificateApproved,
 		}
 		csr.Status.Conditions = append(csr.Status.Conditions, approvedCondition)
-		if err := k.Update(ctx, csr); err != nil {
+		if err := m.Update(ctx, csr); err != nil {
 			panic(err)
 		}
 	}
 }
 
-// List retrieves list of objects for a given namespace and list options. On a
-// successful call, Items field in the list will be populated with the
-// result returned from the server.
-func (k *MockedClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	switch l := list.(type) {
-	case *corev1.ServiceList:
-		serviceMap := k.GetMapForObject(&corev1.Service{})
-		var services []corev1.Service
-		for _, v := range serviceMap {
-			services = append(services, *v.(*corev1.Service))
-		}
-		l.Items = services
-		return nil
-	case *appsv1.StatefulSetList:
-		statefulSetMap := k.GetMapForObject(&appsv1.StatefulSet{})
-		var statefulSets []appsv1.StatefulSet
-		for _, v := range statefulSetMap {
-			statefulSets = append(statefulSets, *v.(*appsv1.StatefulSet))
-		}
-		l.Items = statefulSets
-		return nil
-	case *corev1.ConfigMapList:
-		configMapMap := k.GetMapForObject(&corev1.ConfigMap{})
-		var configMaps []corev1.ConfigMap
-		for _, v := range configMapMap {
-			configMaps = append(configMaps, *v.(*corev1.ConfigMap))
-		}
-		l.Items = configMaps
-		return nil
-	case *corev1.SecretList:
-		secretList := k.GetMapForObject(&corev1.Secret{})
-		var secrets []corev1.Secret
-		for _, v := range secretList {
-			secrets = append(secrets, *v.(*corev1.Secret))
-		}
-		l.Items = secrets
-		return nil
-	case *mdb.MongoDBList:
-		mdbList := k.GetMapForObject(&mdb.MongoDB{})
-		var mdbs []mdb.MongoDB
-		for _, v := range mdbList {
-			mdbs = append(mdbs, *v.(*mdb.MongoDB))
-		}
-		l.Items = mdbs
-		return nil
-	case *corev1.NamespaceList:
-		namespaceList := k.GetMapForObject(&corev1.NamespaceList{})
-		var nslist []corev1.Namespace
-		for _, v := range namespaceList {
-			nslist = append(nslist, *v.(*corev1.Namespace))
-		}
-		l.Items = nslist
-		return nil
-	}
-	return xerrors.Errorf("the List method is not implemented for type %s", reflect.TypeOf(list))
-}
-
 // Create saves the object obj in the Kubernetes cluster.
-func (k *MockedClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	obj = obj.DeepCopyObject().(client.Object)
-	key := ObjectKeyFromApiObject(obj)
-	resMap := k.GetMapForObject(obj)
-
+func (m *MockedClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
 	if err := validateDNS1123Subdomain(obj); err != nil {
 		return err
 	}
 
-	k.addToHistory(reflect.ValueOf(k.Create), obj)
-
-	if err := k.Get(ctx, key, obj); err == nil {
-		return xerrors.Errorf("%T %s already exists!", obj, key)
-	}
-
-	resMap[key] = obj
-
-	switch v := obj.(type) {
-	case *appsv1.StatefulSet:
-		k.onStatefulsetUpdate(v)
-	}
-
-	return nil
+	return m.Client.Create(ctx, obj, opts...)
 }
 
 // Update updates the given obj in the Kubernetes cluster. obj must be a
 // struct pointer so that obj can be updated with the content returned by the Server.
-func (k *MockedClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-	if err := validateDNS1123Subdomain(obj); err != nil {
-		return err
+func (m *MockedClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	existingObj := obj.DeepCopyObject().(client.Object)
+	key := client.ObjectKeyFromObject(obj)
+	_ = m.Client.Get(context.TODO(), key, existingObj)
+
+	// Update the object with RV, otherwise occ will not allow the rv to have changed in between.
+	// Since we are not properly calling this method to retrieve the rv we can do it here instead.
+	if existingObj != nil {
+		obj.SetResourceVersion(existingObj.GetResourceVersion())
 	}
-	obj = obj.DeepCopyObject().(client.Object)
-	k.addToHistory(reflect.ValueOf(k.Update), obj)
-	if k.UpdateFunc != nil {
-		return k.UpdateFunc(ctx, obj)
-	}
-	return k.doUpdate(ctx, obj)
+
+	return m.Client.Update(ctx, obj, opts...)
 }
 
-func (k *MockedClient) doUpdate(ctx context.Context, obj client.Object) error {
-	key := ObjectKeyFromApiObject(obj)
+var _ client.StatusWriter = &MockedStatusWriter{}
 
-	resMap := k.GetMapForObject(obj)
-	resMap[key] = obj
-
-	switch v := obj.(type) {
-	case *appsv1.StatefulSet:
-		k.onStatefulsetUpdate(v)
-	}
-	return nil
+type MockedStatusWriter struct {
+	parent *MockedClient
 }
 
-// Delete deletes the given obj from Kubernetes cluster.
-func (k *MockedClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-	k.addToHistory(reflect.ValueOf(k.Delete), obj)
-
-	key := ObjectKeyFromApiObject(obj)
-
-	resMap := k.GetMapForObject(obj)
-	delete(resMap, key)
-
-	return nil
+func (m *MockedStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	panic("implement me")
 }
 
-func (k *MockedClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
-	k.backingMap[reflect.TypeOf(obj)] = map[client.ObjectKey]apiruntime.Object{}
-	return nil
+func (m *MockedStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	return m.parent.Update(ctx, obj)
 }
 
-func (k *MockedClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-	// Finding the object to patch
-	resMap := k.GetMapForObject(obj)
-	k.addToHistory(reflect.ValueOf(k.Patch), obj)
-	key := ObjectKeyFromApiObject(obj)
-	if _, exists := resMap[key]; !exists {
-		return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
-	}
-	targetObject := resMap[key]
-
-	// Performing patch (serializing to bytes and then deserializing the result back)
-	patchBytes, err := patch.Data(nil)
-	if err != nil {
-		return err
-	}
-	var jsonPatch jsonpatch.Patch
-	jsonPatch, err = jsonpatch.DecodePatch(patchBytes)
-	if err != nil {
-		return err
-	}
-
-	var jsonObject []byte
-	jsonObject, err = json.Marshal(targetObject)
-	if err != nil {
-		return err
-	}
-	jsonObject, err = jsonPatch.Apply(jsonObject)
-	if err != nil {
-		return err
-	}
-
-	newObject := obj.DeepCopyObject()
-	if err = json.Unmarshal(jsonObject, newObject); err != nil {
-		return err
-	}
-	resMap[key] = newObject
-
-	return nil
+func (m *MockedStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return m.parent.Patch(ctx, obj, patch)
 }
 
-func (k *MockedClient) Status() client.StatusWriter {
+func (m *MockedClient) Status() client.StatusWriter {
 	// MockedClient also implements StatusWriter and the Update function does what we need
-	k.addToHistory(reflect.ValueOf(k.Status), nil)
-	return &MockedStatusWriter{parent: k}
+	return &MockedStatusWriter{parent: m}
 }
 
-// Not used in enterprise, these only exist in community.
-func (k *MockedClient) GetAndUpdate(ctx context.Context, nsName types.NamespacedName, obj client.Object, updateFunc func()) error {
+// GetAndUpdate Not used in enterprise, these only exist in community.
+func (m *MockedClient) GetAndUpdate(ctx context.Context, nsName types.NamespacedName, obj client.Object, updateFunc func()) error {
 	return nil
 }
 
-// Not used in enterprise, these only exist in community.
-func (k *MockedClient) CreateOrUpdate(ctx context.Context, obj apiruntime.Object) error {
+// CreateOrUpdate Not used in enterprise, these only exist in community.
+func (m *MockedClient) CreateOrUpdate(ctx context.Context, obj apiruntime.Object) error {
 	return nil
 }
 
 // onStatefulsetUpdate emulates statefulsets reaching their desired state, also OM automation agents get "registered"
-func (k *MockedClient) onStatefulsetUpdate(set *appsv1.StatefulSet) {
-	if k.markStsReady {
+func (m *MockedClient) onStatefulsetUpdate(set *appsv1.StatefulSet) {
+	if m.markStsReady {
 		markStatefulSetsReady(set)
 	}
 }
@@ -626,75 +489,56 @@ func markStatefulSetsReady(set *appsv1.StatefulSet) {
 	}
 }
 
-func (oc *MockedClient) addToHistory(value reflect.Value, obj apiruntime.Object) {
-	oc.history = append(oc.history, HItem(value, obj))
-}
-
 func (m *MockedClient) GetMapForObject(obj apiruntime.Object) map[client.ObjectKey]apiruntime.Object {
-	t := reflect.TypeOf(obj)
-	if _, ok := m.backingMap[t]; !ok {
-		m.backingMap[t] = map[client.ObjectKey]apiruntime.Object{}
-	}
-	return m.backingMap[t]
-}
-
-func (oc *MockedClient) CheckOrderOfOperations(t *testing.T, value ...*HistoryItem) {
-	j := 0
-	matched := ""
-	for _, h := range oc.history {
-		if *h == *value[j] {
-			matched += fmt.Sprintf("%s ", h.String())
-			j++
+	switch obj.(type) {
+	case *corev1.Secret:
+		secrets := &corev1.SecretList{}
+		if err := m.List(context.TODO(), secrets); err != nil {
+			return nil
 		}
-		if j == len(value) {
-			break
+		secretMap := make(map[client.ObjectKey]apiruntime.Object, len(secrets.Items))
+		for _, secret := range secrets.Items {
+			secretMap[client.ObjectKey{
+				Namespace: secret.Namespace,
+				Name:      secret.Name,
+			}] = &secret
 		}
-	}
-	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
-}
-
-func (oc *MockedClient) CheckNumberOfOperations(t *testing.T, value *HistoryItem, expected int) {
-	count := 0
-	for _, h := range oc.history {
-		if *h == *value {
-			count++
+		return secretMap
+	case *appsv1.StatefulSet:
+		statefulSets := &appsv1.StatefulSetList{}
+		if err := m.List(context.TODO(), statefulSets); err != nil {
+			return nil
 		}
-	}
-	assert.Equal(t, expected, count, "Expected to have been %d %s operations but there were %d", expected, value.function.Name(), count)
-}
-
-func (oc *MockedClient) CheckOperationsDidntHappen(t *testing.T, value ...*HistoryItem) {
-	for _, h := range oc.history {
-		for _, o := range value {
-			if *h == *o {
-				assert.Fail(t, "Operation is not expected to happen", "%v is not expected to happen", *h)
-			}
+		statefulSetMap := make(map[client.ObjectKey]apiruntime.Object, len(statefulSets.Items))
+		for _, statefulSet := range statefulSets.Items {
+			statefulSetMap[client.ObjectKey{
+				Namespace: statefulSet.Namespace,
+				Name:      statefulSet.Name,
+			}] = &statefulSet
 		}
+		return statefulSetMap
+	case *corev1.Service:
+		services := &corev1.ServiceList{}
+		if err := m.List(context.TODO(), services); err != nil {
+			return nil
+		}
+		serviceMap := make(map[client.ObjectKey]apiruntime.Object, len(services.Items))
+		for _, service := range services.Items {
+			serviceMap[client.ObjectKey{
+				Namespace: service.Namespace,
+				Name:      service.Name,
+			}] = &service
+		}
+		return serviceMap
+	default:
+		return nil
 	}
-}
-
-func (oc *MockedClient) ClearHistory() {
-	oc.history = []*HistoryItem{}
-}
-
-func (oc *MockedClient) GetSet(key client.ObjectKey) *appsv1.StatefulSet {
-	return oc.GetMapForObject(&appsv1.StatefulSet{})[key].(*appsv1.StatefulSet)
 }
 
 // HistoryItem is an item that describe the invocation of 'client.client' method.
 type HistoryItem struct {
 	function     *runtime.Func
 	resourceType reflect.Type
-}
-
-func HItem(value reflect.Value, obj apiruntime.Object) *HistoryItem {
-	historyItem := &HistoryItem{function: runtime.FuncForPC(value.Pointer())}
-	if obj != nil {
-		historyItem.resourceType = reflect.ValueOf(obj).Type()
-	} else {
-		historyItem.resourceType = nil
-	}
-	return historyItem
 }
 
 func (h HistoryItem) String() string {
