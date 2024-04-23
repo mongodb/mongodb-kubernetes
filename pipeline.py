@@ -25,10 +25,14 @@ import semver
 from sonar.sonar import process_image
 
 import docker
-from scripts.evergreen.release.base_logger import logger
-from scripts.evergreen.release.images_signing import sign_image, verify_signature
 from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
+)
+from scripts.evergreen.release.base_logger import logger
+from scripts.evergreen.release.images_signing import (
+    mongodb_artifactory_login,
+    sign_image,
+    verify_signature,
 )
 
 DEFAULT_IMAGE_TYPE = "ubi"
@@ -599,7 +603,6 @@ def build_image_daily(
         args = args_for_daily_image(image_name)
         args["build_id"] = build_id()
         logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
-        mongodb_artifactory_login()
 
         completed_versions = set()
         for version in filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions):
@@ -645,18 +648,6 @@ def build_image_daily(
                 completed_versions.add(version)
 
     return inner
-
-
-def mongodb_artifactory_login():
-    command = [
-        "docker",
-        "login",
-        "--password-stdin",
-        "--username",
-        os.environ["ARTIFACTORY_USERNAME"],
-        "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign",
-    ]
-    subprocess.run(command, input=os.environ["ARTIFACTORY_PASSWORD"].encode("utf-8"), check=True)
 
 
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
@@ -906,7 +897,8 @@ def build_all_images(
 ):
     """Builds all the images in the `images` list."""
     build_configuration = operator_build_configuration(builder, parallel, debug, architecture, sign)
-    mongodb_artifactory_login()
+    if sign:
+        mongodb_artifactory_login()
     for image in images:
         build_image(image, build_configuration)
 
