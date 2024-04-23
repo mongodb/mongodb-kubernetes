@@ -1,5 +1,6 @@
 from typing import Optional
 
+import pymongo
 from kubetester import MongoDB, create_or_update, create_or_update_secret, read_secret
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
@@ -9,6 +10,7 @@ from kubetester.kubetester import is_static_containers_architecture
 from kubetester.mongodb import Phase
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
+from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.opsmanager.conftest import ensure_ent_version
@@ -122,8 +124,9 @@ def mdb_latest_kmip_secrets(aws_s3_client: AwsS3Client, namespace, issuer, issue
 
 @fixture(scope="module")
 def mdb_latest_test_collection(mdb_latest):
-    collection = mdb_latest.tester().client["testdb"]
-    return collection["testcollection"]
+    # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    collection = pymongo.MongoClient(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
+    return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
 @fixture(scope="module")
