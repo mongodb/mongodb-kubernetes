@@ -803,33 +803,6 @@ def official_operator(
     ).install()
 
 
-def get_headers() -> Dict[str, str]:
-    """
-    Returns an authentication header that can be used when accessing
-    the Github API. This is to avoid rate limiting when accessing the
-    API from the Evergreen hosts.
-    """
-
-    if github_token := os.getenv("GITHUB_TOKEN_READ"):
-        return {"Authorization": "token {}".format(github_token)}
-
-    return dict()
-
-
-def fetch_latest_released_operator_version() -> str:
-    """
-    Fetches the currently released operator version from the Github API.
-    """
-
-    response = get_retriable_https_session(tls_verify=True).get(
-        "https://api.github.com/repos/mongodb/mongodb-enterprise-kubernetes/releases/latest",
-        headers=get_headers(),
-    )
-    response.raise_for_status()
-
-    return response.json()["tag_name"]
-
-
 def _read_multi_cluster_config_value(value: str) -> str:
     multi_cluster_config_dir = os.environ.get("MULTI_CLUSTER_CONFIG_DIR", MULTI_CLUSTER_CONFIG_DIR)
     filepath = f"{multi_cluster_config_dir}/{value}".rstrip()

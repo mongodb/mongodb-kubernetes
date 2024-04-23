@@ -151,10 +151,6 @@ spec:
     - name: IMAGE_TYPE
       value: {{ .Values.imageType }}
     {{ end }}
-    {{ if .Values.githubToken }}
-    - name: GITHUB_TOKEN_READ
-      value: {{ .Values.githubToken }}
-    {{ end }}
     {{ if .Values.localOperator }}
     - name: LOCAL_OPERATOR
       value: "{{ .Values.localOperator }}"
