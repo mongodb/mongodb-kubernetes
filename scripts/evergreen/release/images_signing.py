@@ -12,6 +12,18 @@ SIGNING_IMAGE_URI = os.environ.get(
 )
 
 
+def mongodb_artifactory_login() -> None:
+    command = [
+        "docker",
+        "login",
+        "--password-stdin",
+        "--username",
+        os.environ.get("ARTIFACTORY_USERNAME", "mongodb-enterprise-kubernetes-operator"),
+        "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign",
+    ]
+    subprocess.run(command, input=os.environ["ARTIFACTORY_PASSWORD"].encode("utf-8"), check=True)
+
+
 def get_ecr_login_password(region: str) -> Optional[str]:
     """
     Retrieves the login password from aws CLI, the secrets need to be stored in ~/.aws/credentials or equivalent.
@@ -86,7 +98,7 @@ def build_cosign_docker_command(additional_args: List[str], cosign_command: List
     return base_command + additional_args + [SIGNING_IMAGE_URI, "cosign"] + cosign_command
 
 
-def sign_image(repository: str, tag: str):
+def sign_image(repository: str, tag: str) -> None:
     image = repository + ":" + tag
     logger.debug(f"Signing image {image}")
 
