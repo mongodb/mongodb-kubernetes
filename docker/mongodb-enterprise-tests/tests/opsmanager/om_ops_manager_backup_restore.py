@@ -2,6 +2,7 @@ import datetime
 import time
 from typing import Optional
 
+import pymongo
 from kubetester import MongoDB, create_or_update, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.kubetester import fixture as yaml_fixture
@@ -94,15 +95,17 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
     return resource
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def mdb_prev_test_collection(mdb_prev):
-    collection = mdb_prev.tester().client["testdb"]
+    # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    collection = pymongo.MongoClient(mdb_prev.tester().cnx_string, **mdb_prev.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def mdb_latest_test_collection(mdb_latest):
-    collection = mdb_latest.tester().client["testdb"]
+    # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    collection = pymongo.MongoClient(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 

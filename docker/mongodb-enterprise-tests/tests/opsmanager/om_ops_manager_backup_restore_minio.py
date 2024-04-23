@@ -3,6 +3,7 @@ import os
 import time
 from typing import List, Optional
 
+import pymongo
 from kubetester import (
     MongoDB,
     create_or_update,
@@ -215,7 +216,9 @@ def mdb_latest(
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.configure_backup(mode="enabled")
     resource.configure_custom_tls(issuer_ca_configmap, first_project_certs)
-    return create_or_update(resource)
+
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -234,24 +237,26 @@ def mdb_prev(
     resource.set_version(ensure_ent_version(custom_mdb_prev_version))
     resource.configure_backup(mode="enabled")
     resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
-    return create_or_update(resource)
+
+    try_load(resource)
+    return resource
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def mdb_prev_test_collection(mdb_prev, ca_path: str):
-    tester = mdb_prev.tester()
-    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+    tester = mdb_prev.tester(ca_path=ca_path, use_ssl=True)
 
-    collection = tester.client["testdb"]
+    # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
-@fixture(scope="module")
+@fixture(scope="function")
 def mdb_latest_test_collection(mdb_latest, ca_path: str):
-    tester = mdb_latest.tester()
-    tester.assert_connectivity(opts=[with_tls(use_tls=True, ca_path=ca_path)])
+    tester = mdb_latest.tester(ca_path=ca_path, use_ssl=True)
 
-    collection = tester.client["testdb"]
+    # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
 
@@ -345,6 +350,8 @@ class TestBackupForMongodb:
     Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB):
+        create_or_update(mdb_latest)
+        create_or_update(mdb_prev)
         mdb_latest.assert_reaches_phase(Phase.Running)
         mdb_prev.assert_reaches_phase(Phase.Running)
 
