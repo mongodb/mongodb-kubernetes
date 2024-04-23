@@ -96,10 +96,6 @@ deploy_test_app() {
         helm_params+=("--set" "customAppDbVersion=${CUSTOM_APPDB_VERSION}")
     fi
 
-    if [[ -n "${GITHUB_TOKEN_READ:-}" ]]; then
-        helm_params+=("--set" "githubToken=${GITHUB_TOKEN_READ}")
-    fi
-
     if [[ "$LOCAL_OPERATOR" == true ]]; then
         helm_params+=("--set" "localOperator=true")
     fi
