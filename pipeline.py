@@ -29,6 +29,7 @@ from scripts.evergreen.release.agent_matrix import (
     get_supported_version_for_image_matrix_handling,
 )
 from scripts.evergreen.release.base_logger import logger
+
 from scripts.evergreen.release.images_signing import (
     mongodb_artifactory_login,
     sign_image,
