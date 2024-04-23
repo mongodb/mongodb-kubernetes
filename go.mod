@@ -17,7 +17,7 @@ require (
 	github.com/mongodb/mongodb-kubernetes-operator v0.9.1-0.20240419141908-ea008d7675fc
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.19.0
-	github.com/prometheus/common v0.52.3
+	github.com/prometheus/common v0.53.0
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/spf13/cast v1.6.0
 	github.com/spf13/pflag v1.0.5
