@@ -57,8 +57,11 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 1)
 	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 1)
-	assert.Equal(t, *client.GetSet(rs.ObjectKey()).Spec.Replicas, int32(3))
 	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
+
+	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
+	assert.NoError(t, err)
+	assert.Equal(t, *sts.Spec.Replicas, int32(3))
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, deployment.CreateFromReplicaSet(rs), "auth", "ssl")
@@ -750,7 +753,6 @@ func replicaSetReconcilerWithConnection(ctx context.Context, rs *mdbv1.MongoDB, 
 // seems we shouldn't set CPU and Memory if they are not provided by user
 func newDefaultPodSpec() mdbv1.MongoDbPodSpec {
 	podSpecWrapper := mdbv1.NewEmptyPodSpecWrapperBuilder().
-		SetPodAntiAffinityTopologyKey(util.DefaultAntiAffinityTopologyKey).
 		SetSinglePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize)).
 		SetMultiplePersistence(mdbv1.NewPersistenceBuilder(util.DefaultMongodStorageSize),
 			mdbv1.NewPersistenceBuilder(util.DefaultJournalStorageSize),
@@ -779,11 +781,9 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 			},
 			ResourceType: mdbv1.ReplicaSet,
 			Security: &mdbv1.Security{
-				TLSConfig: &mdbv1.TLSConfig{},
-				Authentication: &mdbv1.Authentication{
-					Modes: []mdbv1.AuthMode{},
-				},
-				Roles: []mdbv1.MongoDbRole{},
+				TLSConfig:      &mdbv1.TLSConfig{},
+				Authentication: &mdbv1.Authentication{},
+				Roles:          []mdbv1.MongoDbRole{},
 			},
 		},
 		Members: 3,

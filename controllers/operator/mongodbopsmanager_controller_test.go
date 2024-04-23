@@ -169,7 +169,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	testOm.Spec.Backup.Enabled = true
 	testOm.Spec.Backup.Encryption.Kmip = nil
 	err = client.Update(ctx, testOm)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
@@ -289,7 +289,10 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	assert.NoError(t, err)
 
 	// let's "update" the user admin secret - this must not affect anything
-	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(OperatorNamespace, APIKeySecretName)].(*corev1.Secret).Data["Username"] = []byte("this-is-not-expected@g.com")
+	s, _ := client.GetSecret(ctx, kube.ObjectKey(OperatorNamespace, APIKeySecretName))
+	s.Data["Username"] = []byte("this-is-not-expected@g.com")
+	err = client.UpdateSecret(ctx, s)
+	assert.NoError(t, err)
 
 	// second call is ok - we just don't create the admin user in OM and don't add new secrets
 	reconcileStatus, _ := reconciler.prepareOpsManager(ctx, testOm, testOm.CentralURL(), zap.S())
@@ -364,11 +367,18 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	reconciler, client, _ := defaultTestOmReconciler(ctx, t, testOm, nil)
 
-	client.GetMapForObject(&corev1.Secret{})[kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.PasswordSecretKeyRef.Name)] = &corev1.Secret{
+	s := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.PasswordSecretKeyRef.Name, Namespace: testOm.Namespace},
 		Data: map[string][]byte{
 			testOm.Spec.AppDB.PasswordSecretKeyRef.Key: []byte("my-password"), // create the secret with the password
 		},
 	}
+	err := client.CreateSecret(ctx, s)
+
+	require.NoError(t, err)
+	err = client.UpdateSecret(ctx, s)
+
+	require.NoError(t, err)
 
 	appDBReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, log)
 	require.NoError(t, err)
@@ -419,7 +429,7 @@ func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 			"password": []byte("password"),
 		}).Build()
 
-	err := reconciler.client.UpdateSecret(ctx, s)
+	err := reconciler.client.CreateSecret(ctx, s)
 	assert.NoError(t, err)
 
 	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm)
@@ -1004,7 +1014,7 @@ func configureBackupResources(ctx context.Context, m *mock.MockedClient, testOm 
 			EnableAuth([]mdbv1.AuthMode{util.SCRAM}).
 			Build()
 
-		_ = m.Update(ctx, oplogStoreResource)
+		_ = m.Create(ctx, oplogStoreResource)
 
 		// create user for mdb resource
 		oplogStoreUser := DefaultMongoDBUserBuilder().
@@ -1012,7 +1022,7 @@ func configureBackupResources(ctx context.Context, m *mock.MockedClient, testOm 
 			SetNamespace(testOm.Namespace).
 			Build()
 
-		_ = m.Update(ctx, oplogStoreUser)
+		_ = m.Create(ctx, oplogStoreUser)
 
 		// create secret for user
 		userPasswordSecret := secret.Builder().
@@ -1026,7 +1036,7 @@ func configureBackupResources(ctx context.Context, m *mock.MockedClient, testOm 
 }
 
 func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster) (*OpsManagerReconciler, *mock.MockedClient, *MockedInitializer) {
-	manager := mock.NewManager(ctx, opsManager)
+	manager := mock.NewManager(ctx, opsManager.DeepCopy())
 	// create an admin user secret
 	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
 

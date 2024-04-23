@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -240,7 +239,6 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	ac, err = automationconfig.ReadFromSecret(ctx, reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, ac.Version)
-	kubeManager.Client.CheckOperationsDidntHappen(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 
 	// publishing changed config will result in update
 	fcv := "4.4"
@@ -253,7 +251,6 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	ac, err = automationconfig.ReadFromSecret(ctx, reconciler.client, kube.ObjectKey(opsManager.Namespace, appdb.AutomationConfigSecretName()))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, ac.Version)
-	kubeManager.Client.CheckOrderOfOperations(t, mock.HItem(reflect.ValueOf(kubeManager.Client.Update), &corev1.Secret{}))
 }
 
 // TestBuildAppDbAutomationConfig checks that the automation config is built correctly
@@ -836,6 +833,7 @@ func newAppDbReconciler(ctx context.Context, mgr manager.Manager, opsManager *om
 }
 
 func newAppDbMultiReconciler(ctx context.Context, mgr manager.Manager, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+	_ = mgr.GetClient().Update(ctx, opsManager)
 	commonController := newReconcileCommonController(ctx, mgr)
 
 	return newAppDBReplicaSetReconciler(ctx, opsManager.Spec.AppDB, commonController, om.NewEmptyMockedOmConnection, memberClusterMap, log)

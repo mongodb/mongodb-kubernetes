@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/statefulset"
@@ -52,23 +54,29 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, c := defaultClusterReconciler(ctx, sc)
 
-	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
-
-	assert.Len(t, client.GetMapForObject(&corev1.Secret{}), 2)
-	assert.Len(t, client.GetMapForObject(&corev1.Service{}), 3)
-	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 4)
-	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ConfigRsName())).Spec.Replicas, int32(sc.Spec.ConfigServerCount))
-	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.MongosRsName())).Spec.Replicas, int32(sc.Spec.MongosCount))
-	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ShardRsName(0))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
-	assert.Equal(t, *client.GetSet(kube.ObjectKey(sc.Namespace, sc.ShardRsName(1))).Spec.Replicas, int32(sc.Spec.MongodsPerShardCount))
+	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
+	assert.Len(t, c.GetMapForObject(&corev1.Secret{}), 2)
+	assert.Len(t, c.GetMapForObject(&corev1.Service{}), 3)
+	assert.Len(t, c.GetMapForObject(&appsv1.StatefulSet{}), 4)
+	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ConfigRsName()), t), int32(sc.Spec.ConfigServerCount))
+	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.MongosRsName()), t), int32(sc.Spec.MongosCount))
+	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardRsName(0)), t), int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardRsName(1)), t), int32(sc.Spec.MongodsPerShardCount))
 
 	connection := om.CurrMockedConnection
 	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "tls")
 	connection.CheckNumberOfUpdateRequests(t, 2)
 	// we don't remove hosts from monitoring if there is no scale down
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
+}
+
+func getStsReplicas(ctx context.Context, client kubernetesClient.Client, key client.ObjectKey, t *testing.T) int32 {
+	sts, err := client.GetStatefulSet(ctx, key)
+	assert.NoError(t, err)
+
+	return *sts.Spec.Replicas
 }
 
 func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
@@ -88,7 +96,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 		SetShardCountStatus(4).
 		Build()
 
-	_ = client.Update(ctx, sc)
+	_ = client.Create(ctx, sc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
