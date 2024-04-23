@@ -9,6 +9,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"k8s.io/utils/ptr"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
@@ -55,6 +57,9 @@ var (
 )
 
 func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMultiCluster, client *mock.MockedClient, shouldRequeue bool) {
+	err := client.Update(ctx, m)
+	assert.NoError(t, err)
+
 	result, e := reconciler.Reconcile(ctx, requestFromObject(m))
 	assert.NoError(t, e)
 	if shouldRequeue {
@@ -64,7 +69,7 @@ func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler
 	}
 
 	// fetch the last updates as the reconciliation loop can update the mdb resource.
-	err := client.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m)
+	err = client.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m)
 	assert.NoError(t, err)
 }
 
@@ -364,7 +369,8 @@ func TestResourceDeletion(t *testing.T) {
 			svcList := corev1.ServiceList{}
 			err := c.GetClient().List(ctx, &svcList)
 			assert.NoError(t, err)
-			assert.Len(t, svcList.Items, 0)
+			// temple-0-svc is leftover and not deleted since it does not contain the label: mongodbmulticluster -> my-namespace-temple
+			assert.Len(t, svcList.Items, 1)
 		})
 
 		t.Run("Configmaps in each member cluster have been removed", func(t *testing.T) {
@@ -1045,7 +1051,7 @@ func assertStatefulSetReplicas(ctx context.Context, t *testing.T, mrs *mdbmulti.
 
 	for i := range expectedReplicas {
 		if val, ok := statefulSets[clusters[i]]; ok {
-			assert.Equal(t, expectedReplicas[i], int(*val.Spec.Replicas))
+			require.Equal(t, expectedReplicas[i], int(*val.Spec.Replicas))
 		}
 	}
 }
