@@ -1282,7 +1282,7 @@ type MongoDbPodSpec struct {
 	Persistence *Persistence `json:"persistence,omitempty"`
 }
 
-func (m MongoDbPodSpec) IsAgentImageOverridden() bool {
+func (m *MongoDbPodSpec) IsAgentImageOverridden() bool {
 	if m.PodTemplateWrapper.PodTemplate != nil && isAgentImageOverriden(m.PodTemplateWrapper.PodTemplate.Spec.Containers) {
 		return true
 	}

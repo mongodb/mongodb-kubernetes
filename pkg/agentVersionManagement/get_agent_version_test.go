@@ -169,36 +169,6 @@ func TestGetAgentVersionManager(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-
-	getLegacyAgentVersionTests := []struct {
-		name      string
-		omVersion string
-		want      string
-		wantErr   bool
-	}{
-		{
-			name:      "om version exists with different patch",
-			omVersion: "7.0.10",
-			want:      "107.0.0.8465-1",
-		}, {
-			name:      "om version does not exists",
-			omVersion: "7.10.10",
-			want:      "",
-			wantErr:   true,
-		},
-	}
-	for _, tt := range getLegacyAgentVersionTests {
-		testConfig := tt
-		t.Run(testConfig.name, func(t *testing.T) {
-			legacyMonitoringAgent, err := versionManager.GetAgentVersionForLegacyMonitoringAgent(testConfig.omVersion)
-			if testConfig.wantErr {
-				assert.Error(t, err, "TestGetAgentVersionManager() should return an error")
-			} else {
-				assert.NoError(t, err, "TestGetAgentVersionManager() should not return an error")
-			}
-			assert.Equal(t, testConfig.want, legacyMonitoringAgent)
-		})
-	}
 }
 
 func createTempMapping(t *testing.T) (string, func() error) {

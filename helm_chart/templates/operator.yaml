@@ -141,9 +141,9 @@ spec:
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
-              value: "{{ .Values.registry.agent }}/{{ .Values.agent.name }}:{{ $agentVersion }}"
+              value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ .Values.agent.version }}"
             - name: {{ $agentImageRepository }}
-              value: "{{ .Values.registry.agentRepository }}"
+              value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}"
             - name: {{ $mongodbImageEnv }}
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL

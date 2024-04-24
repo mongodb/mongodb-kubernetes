@@ -563,7 +563,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			}
 		}
 	} else {
-		appdbOpts.LegacyMonitoringAgent, err = r.getLegacyMonitoringAgentVersion(opsManager.Spec.Version)
+		appdbOpts.LegacyMonitoringAgent, err = r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
 		if err != nil {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
 		}
