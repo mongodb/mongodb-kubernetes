@@ -3,23 +3,22 @@
 
 ## New Features
 
+* **MongoDBOpsManager**: Added support for deploying Ops Manager Application on multiple Kubernetes clusters. See [documentation](LINK TO DOCS) for more information.
 * (Public Preview) **MongoDB, OpsManager**: Introduced opt-in Static Architecture (for all types of deployments) that avoids pulling any binaries at runtime.
       * This feature is recommended only for testing purposes, but will become the default in a later release.
       * You can activate this mode by setting the `MDB_DEFAULT_ARCHITECTURE` environment variable at the Operator level to `static`. Alternatively, you can annotate a specific `MongoDB` or `OpsManager` Custom Resource with `mongodb.com/v1.architecture: "static"`.
     * The Operator supports seamless migration between the Static and non-Static architectures.
-    ** To learn more please see the relevant documentation:
-      * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
-        * [Use Static Containers](https://preview-mongodberabilmdb.gatsbyjs.io/docs-k8s-operator/DOCSP-35095/tutorial/plan-k8s-op-considerations/#use-static-containers--beta-)
-        * [Migrate to Static Containers](https://preview-mongodberabilmdb.gatsbyjs.io/docs-k8s-operator/DOCSP-35095/tutorial/plan-k8s-op-container-images/#migrate-to-static-containers) 
+    * To learn more please see the relevant documentation:
+      * [Use Static Containers](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-k8s-op-considerations/#use-static-containers--beta-)
+      * [Migrate to Static Containers](https://www.mongodb.com/docs/kubernetes-operator/stable/tutorial/plan-k8s-op-container-images/#migrate-to-static-containers) 
 * **MongoDB**: Recover Resource Due to Broken Automation Configuration has been extended to all types of MongoDB resources, now including Sharded Clusters. For more information see https://www.mongodb.com/docs/kubernetes-operator/master/reference/troubleshooting/#recover-resource-due-to-broken-automation-configuration
 * **MongoDB, MongoDBMultiCluster**: Placeholders in external services.
     * You can now define annotations for external services managed by the operator that contain placeholders which will be automatically replaced to the proper values.
     * Previously, the operator was configuring the same annotations for all external services created for each pod. Now, with placeholders the operator is able to customize
       annotations in each service with values that are relevant and different for the particular pod.
     * To learn more please see the relevant documentation:
-      * **TODO: UPDATE LINKS TO OFFICIAL DOCS**
-        * MongoDB: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
-        * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations), [spec.clusterSpecList.externalAccess.externalService.annotations](https://preview-mongodbdavidhou17.gatsbyjs.io/docs-k8s-operator/DOCSP-37426/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+      * MongoDB: [spec.externalAccess.externalService.annotations](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
+      * MongoDBMultiCluster: [spec.externalAccess.externalService.annotations](https://www.mongodb.com/docs/kubernetes-operator/stable/reference/k8s-operator-multi-cluster-specification/#mongodb-setting-spec.externalAccess.externalService.annotations)
 *  `kubectl mongodb`:
   * Added printing build info when using the plugin.
   * `setup` command: 
@@ -31,8 +30,16 @@
 * OpenShift / OLM Operator: Removed the requirement for cluster-wide permissions. Previously, the operator needed these permissions to configure admission webhooks. Now, webhooks are automatically configured by [OLM](https://olm.operatorframework.io/docs/advanced-tasks/adding-admission-and-conversion-webhooks/).
 * Added optional `MDB_WEBHOOK_REGISTER_CONFIGURATION` environment variable for the operator. It controls whether the operator should perform automatic admission webhook configuration. Default: true. It's set to false for OLM and OpenShift deployments.
 
+## Breaking Change
+
+* **MongoDBOpsManager** Stopped testing against Ops Manager 5.0. While it may continue to work, we no longer officially support Ops Manager 5 and customers should move to a later version.
+
 ## Helm Chart
+
 * New `operator.webhook.registerConfiguration` parameter. It controls whether the operator should perform automatic admission webhook configuration (by setting `MDB_WEBHOOK_REGISTER_CONFIGURATION` environment variable for the operator). Default: true. It's set to false for OLM and OpenShift deployments.
+* Changing the default `agent.version` to `107.0.0.8502-1`, that will change the default agent used in helm deployments.
+* Added `operator.additionalArguments` (default: []) allowing to pass additional arguments for the operator binary.
+* Added `operator.createResourcesServiceAccountsAndRoles` (default: true) to control whether to install roles and service accounts for MongoDB and Ops Manager resources. When `mongodb kubectl` plugin is used to configure the operator for multi-cluster deployment, it installs all necessary roles and service accounts. Therefore, in some cases it is required to not install those roles using the operator's helm chart to avoid clashes.
 
 ## Bug Fixes
 
@@ -42,10 +49,7 @@ actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecLis
 * **MongoDB**: Fixed a bug where upon deleting a **MongoDB** resource the `controlledFeature` policies are not unset on the related OpsManager/CloudManager instance, making cleanup in the UI impossible in the case of losing the kubernetes operator.
 * **OpsManager**: The `admin-key` Secret is no longer deleted when removing the OpsManager Custom Resource. This enables easier Ops Manager re-installation.
 * **MongoDB ReadinessProbe** Fixed the misleading error message of the readinessProbe: `"... kubelet  Readiness probe failed:..."`. This affects all mongodb deployments.
-
-## Helm Chart
-* Added `operator.additionalArguments` (default: []) allowing to pass additional arguments for the operator binary.
-* Added `operator.createResourcesServiceAccountsAndRoles` (default: true) to control whether to install roles and service accounts for MongoDB and Ops Manager resources. When `mongodb kubectl` plugin is used to configure the operator for multi-cluster deployment, it installs all necessary roles and service accounts. Therefore, in some cases it is required to not install those roles using the operator's helm chart to avoid clashes.
+* **Operator**: Fixed cases where sometimes while communicating with Opsmanager the operator skipped TLS verification, even if it was activated.
 
 ## Improvements
 
