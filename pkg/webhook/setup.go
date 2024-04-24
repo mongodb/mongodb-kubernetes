@@ -217,7 +217,6 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 	}
 
 	certHosts := []string{serviceLocation.Name + "." + serviceLocation.Namespace + ".svc"}
-
 	if err := CreateCertFiles(certHosts, certDirectory); err != nil {
 		return err
 	}
@@ -225,9 +224,14 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 	webhookConfig := GetWebhookConfig(serviceLocation)
 	err := client.Create(ctx, &webhookConfig)
 	if apiErrors.IsAlreadyExists(err) {
-		return client.Update(ctx, &webhookConfig)
+		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
+		// (see https://github.com/kubernetes/kubernetes/issues/80515)
+		// this fixed in K8s 1.16.0+
+		if err := client.Delete(context.Background(), &webhookConfig); err != nil {
+			return err
+		}
+		err = client.Create(ctx, &webhookConfig)
 	}
-
 	log.Debugf("Configured ValidatingWebhookConfiguration")
 
 	return err
