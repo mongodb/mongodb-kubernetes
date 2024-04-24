@@ -771,15 +771,6 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 	}
 }
 
-func (r *ReconcileCommonController) getLegacyMonitoringAgentVersion(omVersion string) (string, error) {
-	m, err := agentVersionManagement.GetAgentVersionManager()
-	if err != nil || m == nil {
-		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
-	}
-
-	return m.GetAgentVersionForLegacyMonitoringAgent(omVersion)
-}
-
 // isPrometheusSupported checks if Prometheus integration can be enabled.
 //
 // Prometheus is only enabled in Cloud Manager and Ops Manager 5.9 (6.0) and above.

@@ -829,6 +829,7 @@ def build_agent_gather_versions(release: Dict[str, str]):
     )
     for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
         agent_versions_to_be_build.append((om["agent_version"], om["tools_version"]))
+
     return agent_versions_to_be_build
 
 
