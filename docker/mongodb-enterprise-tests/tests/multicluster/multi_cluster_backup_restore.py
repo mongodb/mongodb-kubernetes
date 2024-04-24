@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 import kubernetes
 import kubernetes.client
+import pymongo
 from kubernetes import client
 from kubetester import (
     create_or_update,
@@ -361,9 +362,13 @@ class TestBackupForMongodb:
             base_url=base_url,
         )
 
-    @fixture(scope="module")
+    @fixture(scope="function")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
-        collection = mongodb_multi_one.tester(port=MONGODB_PORT).client["testdb"]
+        # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+        collection = pymongo.MongoClient(
+            mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
+            **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
+        )["testdb"]
         return collection["testcollection"]
 
     @fixture(scope="module")

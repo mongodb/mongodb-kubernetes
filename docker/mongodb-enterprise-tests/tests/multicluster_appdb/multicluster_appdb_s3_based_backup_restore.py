@@ -2,6 +2,8 @@ import datetime
 import time
 
 import kubernetes.client
+import pymongo
+
 from kubetester import create_or_update, create_or_update_configmap, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
@@ -161,7 +163,12 @@ class TestBackupForMongodb:
 
     @fixture(scope="module")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
-        collection = mongodb_multi_one.tester(port=MONGODB_PORT).client["testdb"]
+        # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+        collection = pymongo.MongoClient(
+            mongodb_multi_one.tester(port=MONGODB_PORT).cnx_string,
+            **mongodb_multi_one.tester(port=MONGODB_PORT).default_opts,
+        )["testdb"]
+
         return collection["testcollection"]
 
     @fixture(scope="module")
