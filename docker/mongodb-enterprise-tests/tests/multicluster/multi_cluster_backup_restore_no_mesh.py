@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple
 
 import kubernetes
 import kubernetes.client
+import pymongo
 from kubernetes import client
 from kubetester import (
     create_or_update,
@@ -435,9 +436,10 @@ class TestBackupForMongodb:
             base_url=base_url,
         )
 
-    @fixture(scope="module")
+    @fixture(scope="function")
     def mongodb_multi_one_collection(self, mongodb_multi_one: MongoDBMulti):
-        collection = mongodb_multi_one.tester(
+
+        tester = mongodb_multi_one.tester(
             port=MONGODB_PORT,
             service_names=[
                 "multi-replica-set-one-0-0.kind-e2e-cluster-1.interconnected",
@@ -447,7 +449,10 @@ class TestBackupForMongodb:
                 "multi-replica-set-one-2-1.kind-e2e-cluster-3.interconnected",
             ],
             external=True,
-        ).client["testdb"]
+        )
+
+        collection = pymongo.MongoClient(tester.cnx_string, **tester.default_opts)["testdb"]
+
         return collection["testcollection"]
 
     @fixture(scope="module")
