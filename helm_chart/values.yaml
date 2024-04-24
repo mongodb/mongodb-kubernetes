@@ -115,7 +115,6 @@ mongodb:
   appdbAssumeOldFormat: false
   imageType: ubi8
 
-mongodbAgentImage: quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
 ## Registry
 registry:
   imagePullSecrets:
@@ -129,7 +128,6 @@ registry:
   initAppDb: quay.io/mongodb
   appDb: quay.io/mongodb
   agent: quay.io/mongodb
-  agentRepository: quay.io/mongodb/mongodb-agent-ubi
 
 multiCluster:
   # Specify if we want to deploy the operator in multi-cluster mode

@@ -2,7 +2,6 @@ package agentVersionManagement
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -48,16 +47,12 @@ type AgentVersionManager struct {
 
 	// Agent version for Cloud Manager
 	agentVersionCM string
-
-	// Legacy mapping for non-static containers using old monitoring agent versions
-	// We can't align monitoring and automation images for non-static deployments, for older OM versions
-	legacyMonitoringMapping map[omv1.OpsManagerVersion]omv1.AgentVersion
 }
 
 var versionManager *AgentVersionManager
 var lastUsedMappingPath string
 
-func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]omv1.AgentVersion, cmVersion string, legacyMonitoringMapping map[omv1.OpsManagerVersion]omv1.AgentVersion) *AgentVersionManager {
+func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]omv1.AgentVersion, cmVersion string) *AgentVersionManager {
 	omVersionsByMajor := make(map[string]string)
 
 	if cmVersion == "" {
@@ -76,7 +71,6 @@ func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]o
 		omToAgentVersionMapping: omVersionToAgentVersion,
 		latestOMVersionsByMajor: omVersionsByMajor,
 		agentVersionCM:          cmVersion,
-		legacyMonitoringMapping: legacyMonitoringMapping,
 	}
 
 }
@@ -105,11 +99,11 @@ func isLaterVersion(version1, version2 string) bool {
 }
 
 func InitializeAgentVersionManager(mappingFilePath string) (*AgentVersionManager, error) {
-	m, cmVersion, legacyMapping, err := readReleaseFile(mappingFilePath)
+	m, cmVersion, err := readReleaseFile(mappingFilePath)
 	if err != nil {
 		return nil, err
 	}
-	return newAgentVersionManager(m, cmVersion, legacyMapping), nil
+	return newAgentVersionManager(m, cmVersion), nil
 }
 
 // GetAgentVersionManager returns the an instance of AgentVersionManager.
@@ -147,6 +141,10 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 		return m.getAgentVersionForCloudManagerFromMapping()
 	}
 
+	if readFromMapping {
+		return m.getClosestAgentVersionForOM(omVersion)
+	}
+
 	supportsStatic, err := m.supportsStaticContainers(omVersion)
 	if err != nil {
 		return "", err
@@ -154,10 +152,6 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 
 	if !supportsStatic {
 		return "", xerrors.Errorf("Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s", omVersion, om6StaticContainersSupport, om7StaticContainersSupport)
-	}
-
-	if readFromMapping {
-		return m.getClosestAgentVersionForOM(omVersion)
 	}
 
 	version, err := m.getAgentVersionFromOpsManager(conn)
@@ -194,27 +188,25 @@ type SupportedImages struct {
 }
 
 type MongoDBAgent struct {
-	OpsManagerMapping              omv1.OpsManagerVersionMapping                `json:"opsManagerMapping"`
-	LegacyOmMonitoringAgentMapping map[omv1.OpsManagerVersion]omv1.AgentVersion `json:"legacyMonitoringOpsManagerMapping"`
+	OpsManagerMapping omv1.OpsManagerVersionMapping `json:"opsManagerMapping"`
 }
 
 // readReleaseFile reads the version mapping from the release.json file
-func readReleaseFile(filePath string) (map[omv1.OpsManagerVersion]omv1.AgentVersion, string, map[omv1.OpsManagerVersion]omv1.AgentVersion, error) {
+func readReleaseFile(filePath string) (map[omv1.OpsManagerVersion]omv1.AgentVersion, string, error) {
 	var releaseFileContent ReleaseFile
 
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, "", nil, xerrors.Errorf("failed reading file %s: %w", filePath, err)
+		return nil, "", xerrors.Errorf("failed reading file %s: %w", filePath, err)
 	}
 
 	if err = json.Unmarshal(fileBytes, &releaseFileContent); err != nil {
-		return nil, "", nil, xerrors.Errorf("failed unmarshalling bytes from file %s: %w", filePath, err)
+		return nil, "", xerrors.Errorf("failed unmarshalling bytes from file %s: %w", filePath, err)
 	}
 
 	mapping := releaseFileContent.SupportedImages.MongoDBAgent.OpsManagerMapping
-	legacyMonitoringMapping := releaseFileContent.SupportedImages.MongoDBAgent.LegacyOmMonitoringAgentMapping
 
-	return mapping.OpsManager, mapping.CloudManager, legacyMonitoringMapping, nil
+	return mapping.OpsManager, mapping.CloudManager, nil
 }
 
 func getMajorVersion(version string) string {
@@ -231,22 +223,6 @@ func (m *AgentVersionManager) getAgentVersionFromOpsManager(conn om.Connection) 
 		return "", err
 	}
 	return agentResponse.AutomationVersion, nil
-}
-
-// GetAgentVersionForLegacyMonitoringAgent retrieves the legacy monitoring agent for non-static deployments.
-// Once static is the default, we can remove this code.
-func (m *AgentVersionManager) GetAgentVersionForLegacyMonitoringAgent(omVersion string) (string, error) {
-	version, err := versionutil.StringToSemverVersion(omVersion)
-	if err != nil {
-		return "", xerrors.Errorf("failed extracting semver version from Ops Manager version %s: %w", omVersion, err)
-	}
-
-	majorMinor := fmt.Sprintf("%d.%d", version.Major, version.Minor)
-	agentVersion, exists := m.legacyMonitoringMapping[omv1.OpsManagerVersion(majorMinor)]
-	if !exists {
-		return "", xerrors.Errorf("agent version not present in the mapping file")
-	}
-	return agentVersion.AgentVersion, nil
 }
 
 func addVersionSuffixIfAbsent(version string) string {
@@ -272,6 +248,6 @@ func (m *AgentVersionManager) getClosestAgentVersionForOM(omVersion string) (str
 	}
 	majorOmVersion := getMajorVersion(omVersion)
 	latestAvailableOmVersion := m.latestOMVersionsByMajor[majorOmVersion]
-	latestAgentVersion := m.omToAgentVersionMapping[omv1.OpsManagerVersion(latestAvailableOmVersion)]
+	latestAgentVersion := m.omToAgentVersionMapping[omv1.OpsManagerVersion(latestAvailableOmVersion)] // TODO: return smallest one for monitoring agent not automation agent
 	return addVersionSuffixIfAbsent(latestAgentVersion.AgentVersion), nil
 }

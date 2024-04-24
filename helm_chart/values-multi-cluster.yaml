@@ -91,7 +91,6 @@ mongodb:
   appdbAssumeOldFormat: false
   imageType: ubi8
 
-mongodbAgentImage: quay.io/mongodb/mongodb-agent-ubi:107.0.0.8502-1
 ## Registry
 registry:
   imagePullSecrets:
