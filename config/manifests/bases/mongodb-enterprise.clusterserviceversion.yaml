@@ -417,7 +417,7 @@ spec:
     mediatype: image/png
   install:
     spec:
-      deployments:
+      deployments: null
     strategy: ""
   installModes:
   - supported: true

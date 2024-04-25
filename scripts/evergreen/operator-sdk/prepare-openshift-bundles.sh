@@ -14,7 +14,7 @@ DOCKER_PLATFORM=${DOCKER_PLATFORM:-"linux/amd64"}
 mkdir -p bundle
 
 echo "Generating openshift bundle for version ${VERSION}"
-make bundle VERSION="${VERSION}" IMG="${OPERATOR_IMAGE}"
+make bundle VERSION="${VERSION}"
 
 mv bundle.Dockerfile "./bundle/${VERSION}/bundle.Dockerfile"
 
@@ -45,13 +45,18 @@ echo "Running digest pinning for certified bundle"
 if [[ "${DIGEST_PINNING_ENABLED:-"true"}" == "true" ]]; then
   operator_image=$(yq ".spec.install.spec.deployments[0].spec.template.spec.containers[0].image" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
   operator_annotation_image=$(yq ".metadata.annotations.containerImage" < ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml)
-   if docker manifest inspect "${operator_image}" > /dev/null 2>&1 && docker manifest inspect "${operator_annotation_image}" > /dev/null 2>&1; then
+  if [[ "${operator_image}" != "${operator_annotation_image}" ]]; then
+    echo "Inconsistent operator images in CSV (.spec.install.spec.deployments[0].spec.template.spec.containers[0].image=${operator_image}, .metadata.annotations.containerImage=${operator_annotation_image})"
+    cat ./bundle/"${VERSION}"/manifests/mongodb-enterprise.clusterserviceversion.yaml
+    exit 1
+  fi
+
+  if docker manifest inspect "${operator_image}" > /dev/null 2>&1; then
       echo "Running digest pinning, since the operator image: ${operator_image} exists"
-      echo "Running digest pinning, since the operator image annotation: ${operator_annotation_image} exists"
       operator-manifest-tools pinning pin -v --resolver skopeo "bundle/${VERSION}/manifests"
     else
       echo "Skipping pinning tools, since the operator image: ${operator_image} or ${operator_annotation_image} are missing and we are most likely in a release"
-    fi
+  fi
 fi
 
 certified_bundle_file="./bundle/operator-certified-${VERSION}.tgz"
