@@ -189,15 +189,20 @@ def get_release() -> Dict:
         return json.load(release)
 
 
-def get_git_release_tag() -> str:
+def get_git_release_tag(config: BuildConfiguration) -> str:
     release_env_var = os.getenv("triggered_by_git_tag")
 
     if release_env_var is not None:
         return release_env_var
 
-    version_id = os.environ.get("version_id")
-    if version_id is not None:
-        return version_id
+    # In case we are not in a release variant we don't want to use the tag but the version_id instead.
+    # The operator appends the version_id to the agent image to retrieve the correct image.
+    # We require the version of the operator to be the version_id to match the agent build, as the tag is used
+    # as the appendix
+    if not is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
+        version_id = os.environ.get("version_id")
+        if version_id is not None:
+            return version_id
 
     output = subprocess.check_output(
         ["git", "describe", "--tags"],
@@ -384,7 +389,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     # repostory with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    version = get_git_release_tag()
+    version = get_git_release_tag(build_configuration)
     args = {
         "version": version,
         "log_automation_config_diff": log_automation_config_diff,
@@ -727,10 +732,16 @@ def build_om_image(build_configuration: BuildConfiguration):
     build_image_generic(build_configuration, "ops-manager", "inventories/om.yaml", args)
 
 
-def build_image_generic(config: BuildConfiguration, image_name: str, inventory_file: str, extra_args: dict = None):
+def build_image_generic(
+    config: BuildConfiguration,
+    image_name: str,
+    inventory_file: str,
+    extra_args: dict = None,
+    registry_address: str = None,
+):
     args = extra_args or {}
     version = extra_args.get("version", "")
-    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}"
+    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}" if not registry_address else registry_address
     args["quay_registry"] = registry
 
     sonar_build_image(image_name, config, args, inventory_file)
@@ -764,7 +775,13 @@ def build_agent_in_sonar(
     registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
     args["quay_registry"] = registry
 
-    build_image_generic(build_configuration, "agent", "inventories/agent.yaml", args)
+    build_image_generic(
+        config=build_configuration,
+        image_name="agent",
+        inventory_file="inventories/agent.yaml",
+        extra_args=args,
+        registry_address=registry,
+    )
     # Agent is the only image for which release is part of the inventory, on top of -context release
     # This is done usually by daily builds
     if build_configuration.sign and is_release_step_executed(
