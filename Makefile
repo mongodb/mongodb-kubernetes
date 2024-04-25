@@ -326,7 +326,6 @@ bundle: manifests kustomize
 	# we want to create a file that only has the deployment. Note: this will not work if something is added
 	# after the deployment in openshift.yaml
 	operator-sdk generate kustomize manifests -q
-	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | operator-sdk generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)\
 		--channels=stable --default-channel=stable\
 		--output-dir ./bundle/$(VERSION)/
