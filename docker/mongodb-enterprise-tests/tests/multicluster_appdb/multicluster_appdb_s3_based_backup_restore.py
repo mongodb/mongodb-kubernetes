@@ -3,7 +3,6 @@ import time
 
 import kubernetes.client
 import pymongo
-
 from kubetester import create_or_update, create_or_update_configmap, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import Phase
