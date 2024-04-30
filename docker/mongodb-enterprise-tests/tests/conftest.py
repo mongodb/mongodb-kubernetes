@@ -785,14 +785,6 @@ def official_operator(
 
     # When testing the UBI image type we need to assume a few things
 
-    # 1. The testing cluster is Openshift
-    # 2. The "values.yaml" file is "values-openshift.yaml"
-    if image_type == "ubi":
-        helm_options = [
-            "--values",
-            os.path.join(chart_dir, "values-openshift.yaml"),
-        ]
-
     # The "official" Operator will be installed, from the Helm Repo ("mongodb/enterprise-operator")
     return Operator(
         namespace=namespace,

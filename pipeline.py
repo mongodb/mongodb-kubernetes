@@ -189,26 +189,22 @@ def get_release() -> Dict:
         return json.load(release)
 
 
-def get_git_release_tag(config: BuildConfiguration) -> str:
+def get_git_release_tag() -> str:
     release_env_var = os.getenv("triggered_by_git_tag")
 
+    # that means we are in a release and only return the git_tag; otherwise we want to return the patch_id
+    # appended to ensure the image created is unique and does not interfere
     if release_env_var is not None:
         return release_env_var
-
-    # In case we are not in a release variant we don't want to use the tag but the version_id instead.
-    # The operator appends the version_id to the agent image to retrieve the correct image.
-    # We require the version of the operator to be the version_id to match the agent build, as the tag is used
-    # as the appendix
-    if not is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
-        version_id = os.environ.get("version_id")
-        if version_id is not None:
-            return version_id
 
     output = subprocess.check_output(
         ["git", "describe", "--tags"],
     )
-    output = output.decode("utf-8")
-    return output.strip()
+    version = output.decode("utf-8").strip()
+
+    patch_id = os.environ.get("version_id", "latest")
+    return version + f"_{patch_id}"
+
 
 
 def copy_into_container(client, src, dst):
@@ -389,13 +385,16 @@ def build_operator_image(build_configuration: BuildConfiguration):
     # repostory with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
-    version = get_git_release_tag(build_configuration)
+    version = get_git_release_tag()
     args = {
         "version": version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
         "debug": build_configuration.debug,
     }
+
+    logger.info(f"Building Operator args: {args}")
+
     build_image_generic(build_configuration, "operator", "inventory.yaml", args)
 
 
@@ -796,9 +795,7 @@ def build_agent(build_configuration: BuildConfiguration):
 
     agent_versions_to_be_build = build_agent_gather_versions(release)
 
-    operator_version = os.environ.get("version_id", "latest")
-    if "release" in str(build_configuration.include_tags):
-        operator_version = release["mongodbOperator"]
+    operator_version = get_git_release_tag()
 
     logger.info(f"Building Agent versions: {agent_versions_to_be_build} for Operator versions: {operator_version}")
 
