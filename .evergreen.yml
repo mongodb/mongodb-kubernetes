@@ -231,6 +231,7 @@ functions:
         - PKCS11_URI
         - ARTIFACTORY_USERNAME
         - ARTIFACTORY_PASSWORD
+        - triggered_by_git_tag
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
 
