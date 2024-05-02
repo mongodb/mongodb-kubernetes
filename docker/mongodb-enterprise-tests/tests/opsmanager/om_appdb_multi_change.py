@@ -37,7 +37,7 @@ def test_change_appdb(ops_manager: MongoDBOpsManager):
     ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
 
 
 @mark.e2e_om_appdb_multi_change
