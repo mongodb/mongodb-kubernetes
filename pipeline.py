@@ -206,7 +206,6 @@ def get_git_release_tag() -> str:
     return version + f"_{patch_id}"
 
 
-
 def copy_into_container(client, src, dst):
     """Copies a local file into a running container."""
 
