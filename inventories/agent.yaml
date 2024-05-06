@@ -16,6 +16,7 @@ images:
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
       mongodb_agent_url_ubi: $(inputs.params.mongodb_agent_url_ubi)
+      init_database_image: $(inputs.params.init_database_image)
     output:
     - registry: $(inputs.params.registry)/mongodb-agent-ubi
       tag: $(inputs.params.version)-context
@@ -27,6 +28,7 @@ images:
     buildargs:
       mongodb_tools_url_ubi: $(inputs.params.mongodb_tools_url_ubi)
       mongodb_agent_url_ubi: $(inputs.params.mongodb_agent_url_ubi)
+      init_database_image: $(inputs.params.init_database_image)
     output:
       - registry: $(inputs.params.quay_registry)
         tag: $(inputs.params.version)-context

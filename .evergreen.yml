@@ -667,9 +667,27 @@ tasks:
       image_name: init-ops-manager
       include_tags: release
 
+# pct only triggers this variant once a new agent image is out
+# there is no need to have the init_database job be run first, since this is run manually via a github_pr
 - name: release_agent
-  # this enables us to run this variant either manually (patch) which pct does or during a release (github_tag)
-  allowed_requesters: ["patch", "github_tag", "github_pr"]
+  # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+  allowed_requesters: ["patch", "github_pr"]
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - func: quay_login
+    - func: pipeline
+      vars:
+        image_name: agent-pct
+        include_tags: release
+
+- name: release_agent_operator_release
+  git_tag_only: true
+  # once we release the operator, we will also release the init databases, we require them to be out first
+  # such that we can reference them and retrieve those binaries.
+  depends_on:
+    - name: release_init_database
+      variant: release
   commands:
     - func: clone
     - func: setup_building_host
@@ -720,6 +738,9 @@ tasks:
       skip_tags: ubuntu,release
 
 - name: build_agent_images_ubi
+  depends_on:
+    - name: build_init_database_image_ubi
+      variant: init_test_run
   commands:
     - func: clone
     - func: setup_building_host
@@ -2519,6 +2540,8 @@ buildvariants:
       variant: init_test_run
     - name: build_init_om_images_ubi
       variant: init_test_run
+    - name: build_init_database_image_ubi
+      variant: init_test_run
     - name: build_agent_images_ubi
       variant: init_test_run
   tasks:
@@ -2549,6 +2572,8 @@ buildvariants:
     - name: build_operator_ubi
       variant: init_test_run
     - name: build_test_image
+      variant: init_test_run
+    - name: build_init_database_image_ubi
       variant: init_test_run
     - name: build_agent_images_ubi
       variant: init_test_run
@@ -2729,6 +2754,8 @@ buildvariants:
       variant: init_test_run
     - name: prepare_and_upload_openshift_bundles_for_e2e
       variant: init_tests_with_olm
+    - name: build_init_database_image_ubi
+      variant: init_test_run
     - name: build_agent_images_ubi
       variant: init_test_run
   tasks:
@@ -2762,7 +2789,7 @@ buildvariants:
     - name: release_init_database
     - name: release_init_ops_manager
     - name: release_database
-    - name: release_agent
+    - name: release_agent_operator_release
 
 - name: preflight_release_images
   display_name: preflight_release_images
@@ -2793,10 +2820,10 @@ buildvariants:
     - name: build_operator_ubi
     - name: build_test_image
     - name: build_init_appdb_images_ubi
-    - name: build_agent_images_ubi
     - name: build_init_om_images_ubi
     - name: build_init_database_image_ubi
     - name: build_database_image_ubi
+    - name: build_agent_images_ubi
     - name: prepare_aws
 
 - name: init_tests_with_olm
@@ -2863,14 +2890,3 @@ buildvariants:
       name: '*'
   tasks:
     - name: publish_ops_manager
-
-  # It will be called in one of two ways:
-  # From the release job - as the second components of the tag will change (<agent>_<operator>).
-  # By PCT when a new OpsManager version is released,
-  # as the first component of the tag will change (a new agent version).
-- name: release_agent
-  display_name: (Static Containers) Release Agent matrix
-  run_on:
-    - ubuntu2204-small
-  tasks:
-    - name: release_agent
