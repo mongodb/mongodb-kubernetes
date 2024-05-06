@@ -70,7 +70,7 @@ operator:
     #  - operator-webhook service will be created by the operator
     #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will be installed.
     #  - ValidatingWebhookConfigurations will be managed by the operator (requires cluster permissions)
-    registerConfiguration: false
+    registerConfiguration: true
 
   replicas: 1
 
