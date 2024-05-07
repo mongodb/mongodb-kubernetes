@@ -199,6 +199,7 @@ def get_git_release_tag() -> tuple[str, bool]:
     patch_id = os.environ.get("version_id", "latest")
     return patch_id, False
 
+
 def copy_into_container(client, src, dst):
     """Copies a local file into a running container."""
 
@@ -834,7 +835,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
         for operator_version in supported_operator_versions:
             logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
             for agent_version in agent_versions_to_build:
-                _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue)
+                _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, True)
 
     exceptions_found = False
     for task in tasks_queue.queue:
@@ -853,7 +854,7 @@ def _build_agent(
     executor: ProcessPoolExecutor,
     operator_version: str,
     tasks_queue: Queue,
-    use_quay: False,
+    use_quay: bool = False,
 ):
     agent_distro = "rhel7_x86_64"
     tools_version = agent_version[1]
