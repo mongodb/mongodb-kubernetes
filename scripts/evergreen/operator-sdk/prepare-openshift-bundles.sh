@@ -21,6 +21,14 @@ mv bundle.Dockerfile "./bundle/${VERSION}/bundle.Dockerfile"
 minimum_supported_openshift_version=$(jq -r .openshift.minimumSupportedVersion < "${RELEASE_JSON_PATH}")
 bundle_annotations_file="bundle/${VERSION}/metadata/annotations.yaml"
 bundle_dockerfile="bundle/${VERSION}/bundle.Dockerfile"
+bundle_csv_file="bundle/${VERSION}/manifests/mongodb-enterprise.clusterserviceversion.yaml"
+
+echo "Aligning metadata.annotations.containerImage version with deployment's image in ${bundle_csv_file}"
+operator_deployment_image=$(yq '.spec.install.spec.deployments[0].spec.template.spec.containers[0].image' < "${bundle_csv_file}")
+yq e ".metadata.annotations.containerImage = \"${operator_deployment_image}\"" -i "${bundle_csv_file}"
+
+echo "Edited CSV: ${bundle_csv_file}"
+cat "${bundle_csv_file}"
 
 echo "Adding minimum_supported_openshift_version annotation to ${bundle_annotations_file}"
 yq e ".annotations.\"com.redhat.openshift.versions\" = \"v${minimum_supported_openshift_version}\"" -i "${bundle_annotations_file}"
