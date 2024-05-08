@@ -24,9 +24,11 @@ type MemberHeathCheck struct {
 	Token  string
 }
 
-var DefaultRetryWaitMin = 1 * time.Second
-var DefaultRetryWaitMax = 3 * time.Second
-var DefaultRetryMax = 10
+var (
+	DefaultRetryWaitMin = 1 * time.Second
+	DefaultRetryWaitMax = 3 * time.Second
+	DefaultRetryMax     = 10
+)
 
 func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger) *MemberHeathCheck {
 	certpool := x509.NewCertPool()

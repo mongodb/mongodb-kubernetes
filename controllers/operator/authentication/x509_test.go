@@ -39,7 +39,6 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 	assert.NotEmpty(t, ac.Auth.Key)
 	assert.NotEmpty(t, ac.Auth.KeyFileWindows)
 	assert.NotEmpty(t, ac.Auth.KeyFile)
-
 }
 
 func TestX509_DisableAgentAuthentication(t *testing.T) {

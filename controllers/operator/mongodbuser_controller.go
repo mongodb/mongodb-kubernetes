@@ -350,7 +350,6 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 		auth.EnsureUser(desiredUser)
 		return nil
 	}, log)
-
 	if err != nil {
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending(err.Error()).WithRetry(10), log)

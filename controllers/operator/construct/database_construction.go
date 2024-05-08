@@ -532,7 +532,6 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 }
 
 func sharedDatabaseContainerFunc(podSpecWrapper mdbv1.PodSpecWrapper, volumeMounts []corev1.VolumeMount, configureContainerSecurityContext container.Modification, port int32, annotations map[string]string, automationAgentVersion string) container.Modification {
-
 	var image container.Modification
 	if architectures.IsRunningStaticArchitecture(annotations) {
 		image = container.WithImage(ContainerImage(architectures.MdbAgentImageRepo, automationAgentVersion, func() string {
@@ -727,7 +726,8 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 	serviceAccountName := getServiceAccountName(opts)
 
-	mods := []podtemplatespec.Modification{sharedDatabaseConfiguration(opts, mdb),
+	mods := []podtemplatespec.Modification{
+		sharedDatabaseConfiguration(opts, mdb),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(serviceAccountName),
 		podtemplatespec.WithVolumes(volumes),
@@ -740,7 +740,6 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	}
 
 	return podtemplatespec.Apply(mods...)
-
 }
 
 // getServiceAccountName returns the serviceAccount to be used by the mongoDB pod,
@@ -782,18 +781,18 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 	staticMongodModification := podtemplatespec.NOOP()
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
-		staticMongodModification = // The mongod
-			podtemplatespec.WithContainerByIndex(1,
-				container.Apply(
-					container.WithArgs([]string{"tail -F -n0 \"${MDB_LOG_FILE_MONGODB}\""}),
-					container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
-					container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
-					container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
-					container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-					container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
-					configureContainerSecurityContext,
-				),
-			)
+		// The mongod
+		staticMongodModification = podtemplatespec.WithContainerByIndex(1,
+			container.Apply(
+				container.WithArgs([]string{"tail -F -n0 \"${MDB_LOG_FILE_MONGODB}\""}),
+				container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
+				container.WithPorts([]corev1.ContainerPort{{ContainerPort: opts.ServicePort}}),
+				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
+				container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
+				container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+				configureContainerSecurityContext,
+			),
+		)
 		agentModification = podtemplatespec.WithContainerByIndex(0,
 			container.Apply(
 				container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),

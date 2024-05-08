@@ -145,7 +145,6 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 				return false
 			},
 		)
-
 		if err != nil {
 			log.Errorw("Received error when reading automation agent pages", "err", err)
 		}

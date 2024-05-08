@@ -2,7 +2,9 @@ package mock
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"reflect"
 	"runtime"
 	"time"
 
@@ -42,10 +44,6 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
-
-	"reflect"
-
-	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	certsv1 "k8s.io/api/certificates/v1beta1"
@@ -351,7 +349,8 @@ func (m *MockedClient) AddCredentialsSecret(ctx context.Context, publicKey, priv
 		ObjectMeta: metav1.ObjectMeta{Name: TestCredentialsSecretName, Namespace: TestNamespace},
 		// we are using Data and not SecretData because our internal secret.Builder only writes information into
 		// secret.Data not secret.StringData.
-		Data: data}
+		Data: data,
+	}
 	err := m.Create(ctx, credentials)
 	if err != nil {
 		panic(err)
@@ -662,7 +661,7 @@ func (m *MockedManager) GetLogger() logr.Logger {
 }
 
 func (m *MockedManager) GetControllerOptions() config.Controller {
-	var duration = time.Duration(0)
+	duration := time.Duration(0)
 	return config.Controller{
 		CacheSyncTimeout: duration,
 	}

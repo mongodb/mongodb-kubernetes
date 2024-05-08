@@ -106,7 +106,6 @@ func TestDistributeFailedMembers(t *testing.T) {
 	for _, tt := range tests {
 		assert.Equal(t, tt.out, distributeFailedMembers(tt.inp, tt.clusterName))
 	}
-
 }
 
 func getFailedClusterList(clusters []string) string {

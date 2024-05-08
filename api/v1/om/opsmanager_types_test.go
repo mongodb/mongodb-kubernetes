@@ -38,7 +38,6 @@ func TestBackup_AddWarningIfNotExists(t *testing.T) {
 }
 
 func TestGetPartsFromStatusOptions(t *testing.T) {
-
 	t.Run("Empty list returns nil slice", func(t *testing.T) {
 		assert.Nil(t, getPartsFromStatusOptions())
 	})

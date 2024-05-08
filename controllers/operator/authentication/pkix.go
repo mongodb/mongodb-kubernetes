@@ -106,6 +106,7 @@ func (enc *encodeState) writeDistinguishedName(subject pkix.RDNSequence) (allUnk
 	}
 	return allUnknownOIDs, nil
 }
+
 func (enc *encodeState) writeRelativeDistinguishedName(rdn pkix.RelativeDistinguishedNameSET) (unknownOIDs []string, err error) {
 	if len(rdn) == 0 {
 		return []string{}, errors.New("expected RelativeDistinguishedNameSET to contain at least 1 attribute")
@@ -139,6 +140,7 @@ func (enc *encodeState) writeRelativeDistinguishedName(rdn pkix.RelativeDistingu
 	}
 	return unknownOIDs, nil
 }
+
 func (enc *encodeState) getAttributeTypeShortName(attrType asn1.ObjectIdentifier) (shortName string, found bool) {
 	oid := attrType.String()
 	shortName, found = shortNamesByOID[oid]

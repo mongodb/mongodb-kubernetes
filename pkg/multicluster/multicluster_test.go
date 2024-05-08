@@ -48,7 +48,6 @@ func TestGetRsNamefromMultiStsNamePanic(t *testing.T) {
 	for _, tt := range tests {
 		assert.Panics(t, func() { GetRsNamefromMultiStsName(tt.inp) }, "The code did not panic")
 	}
-
 }
 
 func TestLoadKubeConfigFile(t *testing.T) {

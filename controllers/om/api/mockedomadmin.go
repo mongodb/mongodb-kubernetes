@@ -249,6 +249,7 @@ func (a *MockedOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion, 
 func (a *MockedOmAdmin) UpdateAgentVersion(version string) {
 	a.agentVersion = version
 }
+
 func (a *MockedOmAdmin) ReadAgentVersion() (string, error) {
 	return a.agentVersion, nil
 }

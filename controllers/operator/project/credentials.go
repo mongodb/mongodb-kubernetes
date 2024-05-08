@@ -43,7 +43,6 @@ func ReadCredentials(ctx context.Context, secretClient secrets.SecretClient, cre
 		PublicAPIKey:  publicKey,
 		PrivateAPIKey: privateKey,
 	}, nil
-
 }
 
 func secretContainsPairOfKeys(secret map[string]string, key1 string, key2 string) (bool, string, string) {

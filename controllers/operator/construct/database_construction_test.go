@@ -44,7 +44,6 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		VolumeMounts: expectedVolumeMounts,
 	}
 	assert.Equal(t, expectedContainer, container)
-
 }
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
@@ -71,6 +70,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 		})
 	})
 }
+
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
@@ -141,7 +141,6 @@ func TestDatabaseEnvVars(t *testing.T) {
 		Name:  util.EnvVarSSLRequireValidMMSCertificates,
 		Value: "true",
 	})
-
 }
 
 func TestAgentFlags(t *testing.T) {
@@ -156,7 +155,6 @@ func TestAgentFlags(t *testing.T) {
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
 	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
-
 }
 
 func TestLabelsAndAnotations(t *testing.T) {

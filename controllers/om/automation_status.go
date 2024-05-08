@@ -72,7 +72,6 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 // (maybe we are doing the scale down for the RS and some members were removed from OM manually - this is ok as the Operator
 // will fix this later)
 func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []string) bool {
-
 	for _, p := range as.Processes {
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue

@@ -40,7 +40,6 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 		auth.AutoAuthMechanisms = []string{string(LDAPPlain)}
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -51,7 +50,6 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -66,14 +64,11 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(opts Options, log *zap.Sug
 
 func (l *ldapAuthMechanism) DisableAgentAuthentication(log *zap.SugaredLogger) error {
 	err := l.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-
 		if stringutil.Contains(ac.Auth.AutoAuthMechanisms, string(LDAPPlain)) {
 			ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(LDAPPlain))
 		}
 		return nil
-
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -82,7 +77,6 @@ func (l *ldapAuthMechanism) DisableAgentAuthentication(log *zap.SugaredLogger) e
 		config.DisableLdapAuthentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}

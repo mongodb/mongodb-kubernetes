@@ -145,12 +145,12 @@ func TestScaleUpReplicaSet(t *testing.T) {
 
 func TestExposedExternallyReplicaSet(t *testing.T) {
 	ctx := context.Background()
-	//given
+	// given
 	rs := DefaultReplicaSetBuilder().SetMembers(3).ExposedExternally(nil, nil, nil).Build()
 
 	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
 
-	//when
+	// when
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
 	// then
@@ -216,7 +216,7 @@ func testExposedExternallyReplicaSetExternalDomainInHostnames(ctx context.Contex
 
 func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 	ctx := context.Background()
-	//given
+	// given
 	rs := DefaultReplicaSetBuilder().
 		SetMembers(3).
 		ExposedExternally(
@@ -229,13 +229,13 @@ func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 
 	reconciler, client := defaultReplicaSetReconciler(ctx, rs)
 
-	//when
+	// when
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 	externalService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{},
 	}
 
-	//then
+	// then
 	for podNum := 0; podNum < 3; podNum++ {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
@@ -327,7 +327,6 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	omConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
 		reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
-
 }
 
 func TestX509IsNotEnabledWithOlderVersionsOfOpsManager(t *testing.T) {
@@ -369,7 +368,8 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 
 func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 	ctx := context.Background()
-	podSpec := corev1.PodSpec{NodeName: "some-node-name",
+	podSpec := corev1.PodSpec{
+		NodeName: "some-node-name",
 		Hostname: "some-host-name",
 		Containers: []corev1.Container{{
 			Name:  "my-custom-container",
@@ -378,7 +378,8 @@ func TestReplicaSetCustomPodSpecTemplate(t *testing.T) {
 				Name: "my-volume-mount",
 			}},
 		}},
-		RestartPolicy: corev1.RestartPolicyAlways}
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
 
 	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").SetPodSpecTemplate(corev1.PodTemplateSpec{
 		Spec: podSpec,
@@ -406,7 +407,8 @@ func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 
-	podSpec := corev1.PodSpec{NodeName: "some-node-name",
+	podSpec := corev1.PodSpec{
+		NodeName: "some-node-name",
 		Hostname: "some-host-name",
 		Containers: []corev1.Container{{
 			Name:  "my-custom-container",
@@ -415,7 +417,8 @@ func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
 				Name: "my-volume-mount",
 			}},
 		}},
-		RestartPolicy: corev1.RestartPolicyAlways}
+		RestartPolicy: corev1.RestartPolicyAlways,
+	}
 
 	rs := DefaultReplicaSetBuilder().EnableTLS().SetTLSCA("custom-ca").SetPodSpecTemplate(corev1.PodTemplateSpec{
 		Spec: podSpec,
@@ -519,7 +522,6 @@ func TestScalingScalesOneMemberAtATime_WhenScalingDown(t *testing.T) {
 	assert.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter, "Once we reach the target value, we should not scale anymore")
 
 	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, "The members should now be set to the final desired value")
-
 }
 
 func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
@@ -797,10 +799,12 @@ func (b *ReplicaSetBuilder) SetName(name string) *ReplicaSetBuilder {
 	b.Name = name
 	return b
 }
+
 func (b *ReplicaSetBuilder) SetVersion(version string) *ReplicaSetBuilder {
 	b.Spec.Version = version
 	return b
 }
+
 func (b *ReplicaSetBuilder) SetPersistent(p *bool) *ReplicaSetBuilder {
 	b.Spec.Persistent = p
 	return b

@@ -133,7 +133,6 @@ func TestScramSha1AuthValidation(t *testing.T) {
 			validationResult := scramSha1AuthValidation(testConfig.MongoDB.Spec.DbCommonSpec)
 			assert.Equal(t, testConfig.ErrorExpected, v1.ValidationSuccess() != validationResult, "Expected %v, got %v", testConfig.ErrorExpected, validationResult)
 		})
-
 	}
 }
 

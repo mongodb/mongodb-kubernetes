@@ -109,7 +109,6 @@ type ReconcileAppDbReplicaSet struct {
 }
 
 func newAppDBReplicaSetReconciler(ctx context.Context, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
@@ -448,13 +447,11 @@ func (r *ReconcileAppDbReplicaSet) updateMemberClusterMapping(ctx context.Contex
 
 // shouldReconcileAppDB returns a boolean indicating whether or not the reconciliation for this set of processes should occur.
 func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
-
 	memberCluster := r.getMemberCluster(r.getNameOfFirstMemberCluster())
 	currentAc, err := automationconfig.ReadFromSecret(ctx, memberCluster.Client, types.NamespacedName{
 		Namespace: opsManager.GetNamespace(),
 		Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
 	})
-
 	if err != nil {
 		return false, xerrors.Errorf("error reading AppDB Automation Config: %w", err)
 	}
@@ -1056,7 +1053,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 			if acType == automation {
 				automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.LogRotate, p)
 			}
-
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
@@ -1378,7 +1374,6 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 			passwordRef.Key = "password"
 		}
 		password, err := secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
-
 		if err != nil {
 			if secrets.SecretNotExist(err) {
 				log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
@@ -1477,7 +1472,6 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	_, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
-
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error reading/creating project: %w", err)
 	}
@@ -1572,7 +1566,6 @@ func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMapForCluster(ctx contex
 func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (env.PodEnvVars, error) {
 	memberClient := r.getMemberCluster(r.getNameOfFirstMemberCluster()).Client
 	cm, err := memberClient.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, om.Spec.AppDB.ProjectIDConfigMapName()))
-
 	if err != nil {
 		return env.PodEnvVars{}, err
 	}

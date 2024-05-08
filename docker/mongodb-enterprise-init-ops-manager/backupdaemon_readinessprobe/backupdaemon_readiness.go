@@ -56,7 +56,6 @@ func getHealthResponse(getter httpGetter) (HealthResponse, error) {
 	url := fmt.Sprintf("http://localhost:%s/health", os.Getenv(healthEndpointPortEnv))
 	fmt.Printf("attempting GET request to: [%s]\n", url)
 	resp, err := getter.Get(url)
-
 	if err != nil {
 		return HealthResponse{}, xerrors.Errorf("failed to reach health endpoint: %w", err)
 	}

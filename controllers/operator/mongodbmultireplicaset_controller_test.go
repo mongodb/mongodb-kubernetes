@@ -52,9 +52,7 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-var (
-	clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
-)
+var clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
 
 func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMultiCluster, client *mock.MockedClient, shouldRequeue bool) {
 	err := client.Update(ctx, m)
@@ -79,7 +77,6 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(ctx, mrs, t)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
-
 }
 
 func TestReconcileFails_WhenProjectConfig_IsNotFound(t *testing.T) {
@@ -401,7 +398,6 @@ func TestResourceDeletion(t *testing.T) {
 		assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
 		assert.False(t, ac.Auth.IsEnabled())
 	})
-
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
@@ -480,7 +476,7 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(ctx, mrs, t)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-	//fetch the resource after reconciliation
+	// fetch the resource after reconciliation
 	err := client.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs)
 	assert.NoError(t, err)
 
@@ -1097,7 +1093,6 @@ func defaultMultiReplicaSetReconciler(ctx context.Context, m *mdbmulti.MongoDBMu
 		ret := om.NewEmptyMockedOmConnection(ctx)
 		ret.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 		return ret
-
 	}
 	return multiReplicaSetReconcilerWithConnection(ctx, m, connection, t)
 }

@@ -18,7 +18,8 @@ import (
 
 // This is the list of valid actions for pivileges defined on the DB level
 func validDbActions() []string {
-	return []string{"changeCustomData",
+	return []string{
+		"changeCustomData",
 		"changeOwnCustomData",
 		"changeOwnPassword",
 		"changePassword",
@@ -68,12 +69,14 @@ func validDbActions() []string {
 		"indexStats",
 		"listCollections",
 		"listIndexes",
-		"validate"}
+		"validate",
+	}
 }
 
 // This is the list of valid actions for pivileges defined on the Cluster level
 func validClusterActions() []string {
-	return []string{"useUUID",
+	return []string{
+		"useUUID",
 		"dropConnections",
 		"killAnyCursor",
 		"unlock",
@@ -159,7 +162,6 @@ func isVersionAtLeast(mdbVersion string, expectedVersion string) (bool, error) {
 }
 
 func validateClusterPrivilegeActions(actions []string, mdbVersion string) v1.ValidationResult {
-
 	isAtLeastThreePointSix, err := isVersionAtLeast(mdbVersion, "3.6.0-0")
 	if err != nil {
 		return v1.ValidationError("Error when parsing version strings: %s", err)

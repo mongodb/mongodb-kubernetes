@@ -81,7 +81,6 @@ func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
 		&clientcmd.ConfigOverrides{
 			CurrentContext: context,
 		}).ClientConfig()
-
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create client config: %w", err)
 	}

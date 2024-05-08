@@ -10,10 +10,17 @@ else
 fi
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
-    echo "installing gotools..."
+    echo "installing staticcheck..."
     go install honnef.co/go/tools/cmd/staticcheck@v0.4.3
   else
-    echo "go tools are already installed"
+    echo "staticcheck is already installed"
+fi
+
+if ! [[ -x "$(command -v gofumpt)" ]]; then
+    echo "installing gofumpt..."
+    go install mvdan.cc/gofumpt@latest
+  else
+    echo "gofumpt is already installed"
 fi
 
 # important to turn off modules to ensure a global install
@@ -22,8 +29,22 @@ if ! [[ -x "$(command -v goimports)" ]]; then
     go install golang.org/x/tools/cmd/goimports
 fi
 
+# format code with gofumpt
+echo "Running gofumpt..."
+PATH=$GOPATH/bin:$PATH gofumpt -l -w .
+
+# after running gofumpt, gofmt should not modify anything
+echo "Running gofmt and comparing the result with gofumpt..."
+unformatted_files=$(gofmt -l .)
+if [[ -n "$unformatted_files" ]]; then
+    echo "The following files need further formatting by gofumpt:"
+    echo "$unformatted_files"
+    echo "Exiting..."
+    exit 1
+fi
 
 # lint code with staticcheck, configuration file is ops-manager-kubernetes/staticcheck.conf
+echo "Running staticcheck..."
 PATH=$GOPATH/bin:$PATH staticcheck ./...
 
 echo "Go Version: $(go version)"

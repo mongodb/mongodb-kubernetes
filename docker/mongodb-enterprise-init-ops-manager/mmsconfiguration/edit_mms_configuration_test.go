@@ -39,7 +39,8 @@ func TestEditMmsConfiguration_GetOmPropertiesFromEnvVars(t *testing.T) {
 func TestEditMmsConfiguration_UpdatePropertiesFile(t *testing.T) {
 	newProperties := map[string]string{
 		"mms.test.prop":     "somethingNew",
-		"mms.test.prop.new": "400"}
+		"mms.test.prop.new": "400",
+	}
 	propFile := _createTestPropertiesFile()
 	err := updatePropertiesFile(propFile, newProperties)
 	assert.NoError(t, err)
@@ -75,5 +76,4 @@ func _writeTempFileWithContent(content string, prefix string) string {
 	_ = tmpfile.Close()
 
 	return tmpfile.Name()
-
 }

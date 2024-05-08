@@ -1233,7 +1233,6 @@ func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 		TimeoutMS:                     mdbLdap.TimeoutMS,
 		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
-
 }
 
 // ExternalAccessConfiguration holds the custom Service override that will be merged into the operator created one.
@@ -1330,7 +1329,6 @@ func (p PodSpecWrapper) GetCpuOrDefault() string {
 		return p.Default.CpuLimit
 	}
 	return p.CpuLimit
-
 }
 
 func (p PodSpecWrapper) GetMemoryOrDefault() string {
@@ -1351,7 +1349,7 @@ func (p PodSpecWrapper) GetCpuRequestsOrDefault() string {
 func (p PodSpecWrapper) GetMemoryRequestsOrDefault() string {
 	// We don't set default if either Memory requests or Memory limits are specified by the User
 	// otherwise it's possible to get failed Statefulset (e.g. the user specified limits of 200M but we default
-	//requests to 500M though requests must be less than limits)
+	// requests to 500M though requests must be less than limits)
 	if p.MemoryRequests == "" && p.MemoryLimit == "" {
 		return p.Default.MemoryRequests
 	}

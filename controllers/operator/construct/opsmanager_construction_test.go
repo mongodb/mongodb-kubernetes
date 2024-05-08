@@ -59,7 +59,6 @@ func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
 		},
 	}
 	assert.Equal(t, expectedContainer, containerObj)
-
 }
 
 func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
@@ -197,7 +196,6 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		env := sts.Spec.Template.Spec.Containers[0].Env
 		assert.Equal(t, expectedVars, env)
 	})
-
 }
 
 func Test_buildOpsManagerStatefulSet(t *testing.T) {
@@ -439,14 +437,18 @@ func Test_OpsManagerStatefulSetWithRelatedImages(t *testing.T) {
 func defaultNodeAffinity() corev1.NodeAffinity {
 	return corev1.NodeAffinity{
 		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-				MatchExpressions: []corev1.NodeSelectorRequirement{{
-					Key:    "dc",
-					Values: []string{"US-EAST"},
-				}}},
-			}},
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:    "dc",
+						Values: []string{"US-EAST"},
+					}},
+				},
+			},
+		},
 	}
 }
+
 func defaultPodAffinity() corev1.PodAffinity {
 	return corev1.PodAffinity{
 		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
@@ -455,7 +457,8 @@ func defaultPodAffinity() corev1.PodAffinity {
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web-server"}},
 				TopologyKey:   "rack",
 			},
-		}}}
+		}},
+	}
 }
 
 func defaultPodAntiAffinity() corev1.PodAntiAffinity {
@@ -466,7 +469,8 @@ func defaultPodAntiAffinity() corev1.PodAntiAffinity {
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web-server"}},
 				TopologyKey:   "rack",
 			},
-		}}}
+		}},
+	}
 }
 
 // buildSafeResourceList returns a ResourceList but should not be called

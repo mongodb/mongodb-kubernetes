@@ -76,7 +76,6 @@ func (o *DefaultInitializer) TryCreateUser(omUrl string, omVersion string, user 
 	// request is not a digest one
 	endpoint := buildOMUnauthEndpoint(omUrl)
 	resp, err := client.Post(endpoint, "application/json; charset=UTF-8", buffer)
-
 	if err != nil {
 		return OpsManagerKeyPair{}, xerrors.Errorf("Error sending POST request to %s: %w", endpoint, err)
 	}
@@ -161,5 +160,4 @@ func fetchOMCredentialsFromResponse(body []byte, omVersion string, user User) (O
 		PublicKey:  user.Username,
 		PrivateKey: u.ApiKey,
 	}, nil
-
 }

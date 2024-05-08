@@ -5,7 +5,6 @@ import (
 )
 
 func TestIsRunningStaticArchitecture(t *testing.T) {
-
 	tests := []struct {
 		name        string
 		annotations map[string]string
@@ -82,7 +81,6 @@ func TestGetMongoVersion(t *testing.T) {
 			version: "8.0.0",
 			want:    "8.0.0",
 			envs: func(t *testing.T) {
-
 			},
 		},
 		{

@@ -75,9 +75,9 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 	}
 
 	// need to make variables as one can't take the address of a constant
-	var scope = admissionv1.NamespacedScope
-	var sideEffects = admissionv1.SideEffectClassNone
-	var failurePolicy = admissionv1.Ignore
+	scope := admissionv1.NamespacedScope
+	sideEffects := admissionv1.SideEffectClassNone
+	failurePolicy := admissionv1.Ignore
 	var port int32 = 443
 	dbPath := "/validate-mongodb-com-v1-mongodb"
 	dbmultiPath := "/validate-mongodb-com-v1-mongodbmulticluster"

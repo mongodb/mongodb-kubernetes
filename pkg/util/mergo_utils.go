@@ -74,7 +74,6 @@ func merge(structAsMap, unmodifiedOriginalMap map[string]interface{}) {
 				// if we don't know about this value, then we can just accept the value coming from the Automation Config
 				structAsMap[key] = val
 			}
-
 		} else { // the value exists already in the map we have, we need to perform merge
 			mergeBoth(structAsMap, unmodifiedOriginalMap, key, val)
 		}

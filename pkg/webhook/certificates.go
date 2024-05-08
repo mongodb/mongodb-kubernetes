@@ -74,7 +74,7 @@ func CreateCertFiles(hosts []string, directory string) error {
 		return err
 	}
 
-	if err := os.MkdirAll(directory, 0755); err != nil {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return err
 	}
 
@@ -91,7 +91,7 @@ func CreateCertFiles(hosts []string, directory string) error {
 		return err
 	}
 
-	keyOut, err := os.OpenFile(path.Join(directory, "tls.key"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	keyOut, err := os.OpenFile(path.Join(directory, "tls.key"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

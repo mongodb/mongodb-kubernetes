@@ -3,10 +3,11 @@ set -Eeou pipefail
 
 # shellcheck disable=SC2317
 if [ -n "$(git diff --name-only --cached --diff-filter=AM)" ]; then
-  echo "we have a dirty state, probably a patch, skipping this job!"
+  echo "We have a dirty state, probably a patch, skipping check_precommit"
+  echo "full diff is"
+  git diff --cached --diff-filter=AM
   exit 0
 fi
-
 
 export EVERGREEN_MODE=true
 source .githooks/pre-commit

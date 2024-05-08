@@ -65,7 +65,6 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 	assert.False(t, ac.Auth.Disabled)
 
 	assert.True(t, ac.Auth.AuthoritativeSet)
-
 }
 
 func TestLDAP_DisableAgentAuthentication(t *testing.T) {

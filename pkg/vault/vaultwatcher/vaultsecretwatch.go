@@ -16,7 +16,6 @@ import (
 )
 
 func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient, resourceType mdbv1.ResourceType) {
-
 	for {
 		mdbList := &mdbv1.MongoDBList{}
 		err := k8sClient.List(ctx, mdbList, &client.ListOptions{Namespace: ""})
@@ -53,7 +52,6 @@ func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchC
 }
 
 func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient) {
-
 	for {
 		omList := &omv1.MongoDBOpsManagerList{}
 		err := k8sClient.List(ctx, omList, &client.ListOptions{Namespace: ""})
@@ -89,7 +87,6 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 
 		time.Sleep(10 * time.Second)
 	}
-
 }
 
 func getCurrentAndLatestVersion(vaultClient *vault.VaultClient, path string, annotationKey string, annotations map[string]string, log *zap.SugaredLogger) (int, int) {

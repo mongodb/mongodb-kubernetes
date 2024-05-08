@@ -163,7 +163,6 @@ func readAllMongoDBs(ctx context.Context, cl kubernetesClient.Client, watchNames
 				})
 			}
 		}
-
 	}
 	return mdbs, nil
 }

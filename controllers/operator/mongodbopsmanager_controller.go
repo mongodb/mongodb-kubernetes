@@ -448,7 +448,6 @@ func ensureSharedGlobalResources(ctx context.Context, secretGetUpdaterCreator se
 // ensureResourcesForArchitectureChange ensures that the new resources expected to be present.
 func ensureResourcesForArchitectureChange(ctx context.Context, acSecretClient, secretGetUpdaterCreator secret.GetUpdateCreator, opsManager *omv1.MongoDBOpsManager) error {
 	acSecret, err := acSecretClient.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()))
-
 	// if the automation config does not exist, we are not upgrading from an existing deployment. We can create everything from scratch.
 	if err != nil {
 		if !secrets.SecretNotExist(err) {
@@ -505,7 +504,6 @@ func ensureResourcesForArchitectureChange(ctx context.Context, acSecretClient, s
 		SetNamespace(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Namespace).
 		SetField(constants.AgentKeyfileKey, ac.Auth.Key).
 		Build())
-
 	if err != nil {
 		return xerrors.Errorf("failed to create/update keyfile secret for agent user: %w", err)
 	}
@@ -539,7 +537,6 @@ func createOrUpdateSecretIfNotFound(ctx context.Context, secretGetUpdaterCreator
 		return xerrors.Errorf("error getting secret %s/%s: %w", desiredSecret.Namespace, desiredSecret.Name, err)
 	}
 	return nil
-
 }
 
 func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, appDBConnectionString string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
@@ -651,7 +648,6 @@ func triggerOmChangedEventIfNeeded(ctx context.Context, opsManager *omv1.MongoDB
 		} else {
 			// This is a noop in static-architecture world
 			agents.ScheduleUpgrade()
-
 		}
 	}
 
@@ -762,7 +758,6 @@ func (r *OpsManagerReconciler) ensureAppDBConnectionStringInMemberCluster(ctx co
 	}
 
 	_, err := memberCluster.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), opsManagerSecretPath)
-
 	if err != nil {
 		if secrets.SecretNotExist(err) {
 			log.Debugf("AppDB connection string secret was not found in cluster %s, creating %s now", memberCluster.Name, kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()))
@@ -809,7 +804,6 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 
 	clusterSpecItem := reconcilerHelper.getClusterSpecOMItem(memberCluster.Name)
 	sts, err := construct.OpsManagerStatefulSet(ctx, r.SecretClient, opsManager, memberCluster, log, construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)), construct.WithVaultConfig(vaultConfig), construct.WithKmipConfig(ctx, opsManager, memberCluster.Client, log), construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()), construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)))
-
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("error building OpsManager stateful set: %w", err))
 	}
@@ -922,7 +916,6 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
 	)
-
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("error building stateful set: %w", err))
 	}
@@ -1116,6 +1109,7 @@ func (r *OpsManagerReconciler) replicateGenKeyInMemberClusters(ctx context.Conte
 
 	return nil
 }
+
 func (r *OpsManagerReconciler) replicateQueryableBackupTLSSecretInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
 	if !reconcileHelper.opsManager.Spec.IsMultiCluster() {
 		return nil
@@ -1955,7 +1949,8 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 			return api.User{}, xerrors.Errorf("%s property is missing in the admin secret", v)
 		}
 	}
-	newUser := api.User{Username: data["Username"],
+	newUser := api.User{
+		Username:  data["Username"],
 		Password:  data["Password"],
 		FirstName: data["FirstName"],
 		LastName:  data["LastName"],

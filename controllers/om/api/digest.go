@@ -62,7 +62,7 @@ func getDigestAuthorization(digestParts map[string]string, method string, url st
 	d := digestParts
 	ha1 := util.MD5Hex(user + ":" + d["realm"] + ":" + token)
 	ha2 := util.MD5Hex(method + ":" + url)
-	nonceCount := 00000001
+	nonceCount := 1
 	cnonce := getCnonce()
 	response := util.MD5Hex(fmt.Sprintf("%s:%s:%v:%s:%s:%s", ha1, d["nonce"], nonceCount, cnonce, d["qop"], ha2))
 	authorization := fmt.Sprintf(`Digest username="%s", realm="%s", nonce="%s", uri="%s", cnonce="%s", nc=%v, qop=%s, response="%s", algorithm="MD5"`,

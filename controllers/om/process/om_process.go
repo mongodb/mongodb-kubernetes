@@ -58,8 +58,8 @@ func CreateMongodProcessesWithLimitMulti(mrs mdbmultiv1.MongoDBMultiCluster, cer
 }
 
 func CreateAppDBProcesses(set appsv1.StatefulSet, mongoType om.MongoType,
-	mdb omv1.AppDBSpec) []om.Process {
-
+	mdb omv1.AppDBSpec,
+) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 

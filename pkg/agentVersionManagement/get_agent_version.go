@@ -28,6 +28,7 @@ var om6StaticContainersSupport = semver.Version{
 	Minor: 0,
 	Patch: 21,
 }
+
 var om7StaticContainersSupport = semver.Version{
 	Major: 7,
 	Minor: 0,
@@ -49,8 +50,10 @@ type AgentVersionManager struct {
 	agentVersionCM string
 }
 
-var versionManager *AgentVersionManager
-var lastUsedMappingPath string
+var (
+	versionManager      *AgentVersionManager
+	lastUsedMappingPath string
+)
 
 func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]omv1.AgentVersion, cmVersion string) *AgentVersionManager {
 	omVersionsByMajor := make(map[string]string)
@@ -72,7 +75,6 @@ func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]o
 		latestOMVersionsByMajor: omVersionsByMajor,
 		agentVersionCM:          cmVersion,
 	}
-
 }
 
 // isLaterVersion compares two semantic versions and returns true if the first is later than the second
@@ -135,7 +137,6 @@ Unlike OM, there is no full guarantee that minor versions support each other for
 // GetAgentVersion returns the agent version to use with the Ops Manager
 // readFromMapping is true in the case of AppDB, because they are started before OM, so we cannot rely on the endpoint
 func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
-
 	isCM := versionutil.OpsManagerVersion{VersionString: omVersion}.IsCloudManager()
 	if isCM {
 		return m.getAgentVersionForCloudManagerFromMapping()
@@ -155,13 +156,10 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 	}
 
 	version, err := m.getAgentVersionFromOpsManager(conn)
-
 	if err != nil {
 		return "", err
-
 	}
 	return addVersionSuffixIfAbsent(version), nil
-
 }
 
 // supportsStaticContainers verifies whether the supplied omVersion supports static containers.

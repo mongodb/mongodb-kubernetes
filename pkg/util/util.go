@@ -1,18 +1,16 @@
 package util
 
 import (
+	"bytes"
+	"crypto/md5"
+	"encoding/gob"
 	"encoding/hex"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/stringutil"
-
-	"bytes"
-	"encoding/gob"
-
-	"crypto/md5"
-	"fmt"
 
 	"github.com/blang/semver"
 	"go.uber.org/zap"

@@ -11,7 +11,8 @@ func TestDeepCopy(t *testing.T) {
 	cp := *config.DeepCopy()
 
 	expectedAdditionalConfig := AdditionalMongodConfig{
-		object: map[string]interface{}{"first": map[string]interface{}{"second": "value"}}}
+		object: map[string]interface{}{"first": map[string]interface{}{"second": "value"}},
+	}
 	assert.Equal(t, expectedAdditionalConfig.object, cp.object)
 
 	cp.object["first"].(map[string]interface{})["second"] = "newvalue"
@@ -31,5 +32,4 @@ func TestToFlatList(t *testing.T) {
 
 	expectedStrings := []string{"one.five", "one.two.four", "one.two.three", "six.nine", "six.seven.eight"}
 	assert.Equal(t, expectedStrings, list)
-
 }

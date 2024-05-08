@@ -71,7 +71,6 @@ func shouldHandleUpdate(e event.UpdateEvent) bool {
 }
 
 func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimitingInterface) {
-
 	configMapOrSecret := Object{
 		ResourceType: c.ResourceType,
 		Resource:     types.NamespacedName{Name: name, Namespace: namespace},
@@ -81,7 +80,6 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimi
 		zap.S().Infof("%s has been modified -> triggering reconciliation for dependent Resource %s", configMapOrSecret, v)
 		q.Add(reconcile.Request{NamespacedName: v})
 	}
-
 }
 
 // Seems we don't need to react on config map/secret removal..
@@ -111,7 +109,6 @@ func (m ConfigMapEventHandler) Update(ctx context.Context, e event.UpdateEvent, 
 			panic(errMsg)
 		}
 	}
-
 }
 
 func (m ConfigMapEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.RateLimitingInterface) {

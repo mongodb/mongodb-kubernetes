@@ -60,14 +60,17 @@ func (p *PodSpecWrapperBuilder) SetCpuLimit(cpu string) *PodSpecWrapperBuilder {
 	p.spec.CpuLimit = cpu
 	return p
 }
+
 func (p *PodSpecWrapperBuilder) SetCpuRequests(cpu string) *PodSpecWrapperBuilder {
 	p.spec.CpuRequests = cpu
 	return p
 }
+
 func (p *PodSpecWrapperBuilder) SetMemoryLimit(memory string) *PodSpecWrapperBuilder {
 	p.spec.MemoryLimit = memory
 	return p
 }
+
 func (p *PodSpecWrapperBuilder) SetMemoryRequest(memory string) *PodSpecWrapperBuilder {
 	p.spec.MemoryRequests = memory
 	return p
@@ -135,6 +138,7 @@ func (p *PersistenceConfigBuilder) SetStorageClass(class string) *PersistenceCon
 	p.config.StorageClass = &class
 	return p
 }
+
 func (p *PersistenceConfigBuilder) SetLabelSelector(labels map[string]string) *PersistenceConfigBuilder {
 	p.config.LabelSelector = &LabelSelectorWrapper{metav1.LabelSelector{MatchLabels: labels}}
 	return p
