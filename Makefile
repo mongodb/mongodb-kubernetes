@@ -144,8 +144,8 @@ build-multi-cluster-binary:
 
 # builds all app images in parallel
 # note that we cannot build both appdb and database init images in parallel as they change the same docker file
-build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database agent-image
-	@ $(MAKE) database-init-image
+build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database operator-image database-init-image
+	@ $(MAKE) agent-image
 
 database-init-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include init-database
@@ -156,14 +156,14 @@ appdb-init-image:
 agent-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include agent --parallel
 
+operator-image:
+	@ scripts/evergreen/run_python.sh pipeline.py --include operator
+
 om-init-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include init-ops-manager
 
 om-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include ops-manager
-
-deploy-operator:
-	@ scripts/dev/deploy_operator.sh $(debug)
 
 configure-operator:
 	@ scripts/dev/configure_operator.sh
