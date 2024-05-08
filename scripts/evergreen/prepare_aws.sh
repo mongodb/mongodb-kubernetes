@@ -4,6 +4,17 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
+calculate_hours_since_creation() {
+  if [[ $(uname) == "Darwin" ]]; then
+    creation_timestamp=$(gdate -d "$1" +%s)
+    current_timestamp=$(TZ="UTC" gdate +%s)
+  else
+    creation_timestamp=$(date -d "$1" +%s)
+    current_timestamp=$(TZ="UTC" date +%s)
+  fi
+  echo $(( (current_timestamp - creation_timestamp) / 3600 ))
+}
+
 delete_buckets_from_file() {
   list_file=$1
 
@@ -13,33 +24,49 @@ delete_buckets_from_file() {
     bucket_name=$(echo "${bucket_entry}" | jq -r '.Name')
     bucket_creation_date=$(echo "${bucket_entry}" | jq -r '.CreationDate')
     echo "[${list_file}/${bucket_name}] Processing bucket name=${bucket_name}, creationDate=${bucket_creation_date})"
-      # Get the tags for the bucket and check whether the operator generated tags are present.
+
     tags=$(aws s3api get-bucket-tagging --bucket "${bucket_name}" --output json || true)
     operatorTagExists=$(echo "$tags" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .evg_task and .environment == "mongodb-enterprise-operator-tests")')
-    if [[ -n "$operatorTagExists" ]]
-    then
-         aws_cmd="aws s3 rb s3://${bucket_name} --force"
-         echo "[${list_file}/${bucket_name}] Deleting bucket: ${bucket_name}/${bucket_creation_date} (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
-         ${aws_cmd} || true
+    if [[ -n "$operatorTagExists" ]]; then
+      # Bucket created by the test run in EVG, check if it's older than 2 hours
+      hours_since_creation=$(calculate_hours_since_creation "${bucket_creation_date}")
+
+      if [[ $hours_since_creation -ge 2 ]]; then
+        aws_cmd="aws s3 rb s3://${bucket_name} --force"
+        echo "[${list_file}/${bucket_name}] Deleting e2e bucket: ${bucket_name}/${bucket_creation_date}; age in hours: ${hours_since_creation}; (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
+        ${aws_cmd} || true
+      else
+        echo "[${list_file}/${bucket_name}] Bucket ${bucket_name} is not older than 2 hours, skipping deletion."
+      fi
     else
-        echo "[${list_file}/${bucket_name}] #### Not removing bucket ${bucket_name} because it was not created by the test run in EVG. Tags: $(echo "${tags}" | jq -cr .)"
+      # Bucket not created by the test run in EVG, check if it's older than 24 hours and owned by us
+      hours_since_creation=$(calculate_hours_since_creation "${bucket_creation_date}")
+      operatorOwnedTagExists=$(echo "$tags" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .environment == "mongodb-enterprise-operator-tests")')
+      if [[ $hours_since_creation -ge 24 && -n "$operatorOwnedTagExists" ]]; then
+        aws_cmd="aws s3 rb s3://${bucket_name} --force"
+        echo "[${list_file}/${bucket_name}] Deleting manual bucket: ${bucket_name}/${bucket_creation_date}; age in hours: ${hours_since_creation}; (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
+        ${aws_cmd} || true
+      else
+        echo "[${list_file}/${bucket_name}] Bucket ${bucket_name} is not older than 24 hours or not owned by us, skipping deletion."
+      fi
     fi
   done <<< "$(cat "${list_file}")"
 }
 
 remove_old_buckets() {
   echo "##### Removing old s3 buckets"
-  # note, to run this on mac you need to install coreutils ('brew install coreutils') and use 'gdate' instead
-  if [[ $(uname) == "Darwin" ]]; then
-      # Use gdate on macOS
-      bucket_date=$(TZ="UTC" gdate +%Y-%m-%dT%H:%M:%S%z -d "2 hour ago") # "2021-04-09T04:23:33+00:00"
-  else
-      # Use date on Linux
-      bucket_date=$(TZ="UTC" date +%Y-%m-%dT%H:%M:%S%z -d "2 hour ago")
-  fi
-  echo "removing buckets older than ${bucket_date}"
 
-  bucket_list=$(aws s3api list-buckets --query "sort_by(Buckets[?CreationDate<='${bucket_date}'&&starts_with(Name,'test-')], &CreationDate)" | jq -c --raw-output '.[]')
+  if [[ $(uname) == "Darwin" ]]; then
+    # Use gdate on macOS
+    bucket_date=$(TZ="UTC" gdate +%Y-%m-%dT%H:%M:%S%z -d "24 hour ago")
+  else
+    # Use date on Linux
+    bucket_date=$(TZ="UTC" date +%Y-%m-%dT%H:%M:%S%z -d "24 hour ago")
+  fi
+
+  echo "Removing buckets older than ${bucket_date}"
+
+  bucket_list=$(aws s3api list-buckets --query "sort_by(Buckets[?starts_with(Name,'test-')], &CreationDate)" | jq -c --raw-output '.[]')
   if [[ -z ${bucket_list} ]]; then
     echo "Bucket list is empty, nothing to do"
     return 0
@@ -54,7 +81,6 @@ remove_old_buckets() {
   # we split to 30 files, so we execute 30 delete processes in parallel
   split -l $(( $(wc -l <"${bucket_list_file}") / 30)) "${bucket_list_file}" splitted-
   splitted_files_list=$(ls -1 splitted-*)
-
 
   # for each file containing slice of buckets, we execute delete_buckets_from_file
   while IFS= read -r list_file; do
