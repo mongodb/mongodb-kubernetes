@@ -752,9 +752,11 @@ func (om *MongoDBOpsManager) SetWarnings(warnings []status.Warning, options ...s
 func (om *MongoDBOpsManager) AddOpsManagerWarningIfNotExists(warning status.Warning) {
 	om.Status.OpsManagerStatus.Warnings = status.Warnings(om.Status.OpsManagerStatus.Warnings).AddIfNotExists(warning)
 }
+
 func (om *MongoDBOpsManager) AddAppDBWarningIfNotExists(warning status.Warning) {
 	om.Status.AppDbStatus.Warnings = status.Warnings(om.Status.AppDbStatus.Warnings).AddIfNotExists(warning)
 }
+
 func (om *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning) {
 	om.Status.BackupStatus.Warnings = status.Warnings(om.Status.BackupStatus.Warnings).AddIfNotExists(warning)
 }

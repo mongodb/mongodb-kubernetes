@@ -122,7 +122,6 @@ type counters struct {
 }
 
 func serverMock(handlers ...handleFunc) *httptest.Server {
-
 	handler := http.NewServeMux()
 	for _, h := range handlers {
 		h(handler)

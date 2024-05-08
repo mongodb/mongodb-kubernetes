@@ -483,7 +483,7 @@ func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 
 func TestOpsManagerWithKMIP(t *testing.T) {
 	ctx := context.Background()
-	//given
+	// given
 	kmipURL := "kmip.mongodb.com:5696"
 	kmipCAConfigMapName := "kmip-ca"
 	mdbName := "test-mdb"
@@ -509,7 +509,7 @@ func TestOpsManagerWithKMIP(t *testing.T) {
 	addKMIPTestResources(ctx, client, testOm, mdbName, clientCertificatePrefix)
 	configureBackupResources(ctx, client, testOm)
 
-	//when
+	// when
 	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm)
 	sts := appsv1.StatefulSet{}
 	err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Name), &sts)
@@ -517,7 +517,7 @@ func TestOpsManagerWithKMIP(t *testing.T) {
 	volumes := sts.Spec.Template.Spec.Volumes
 	volumeMounts := sts.Spec.Template.Spec.Containers[0].VolumeMounts
 
-	//then
+	// then
 	assert.NoError(t, err)
 	host, port, _ := net.SplitHostPort(kmipURL)
 
@@ -653,7 +653,6 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	assert.NoError(t, err)
 	ok, _ := workflow.OK().ReconcileResult()
 	assert.Equal(t, ok, res)
-
 }
 
 func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
@@ -700,7 +699,6 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 		assert.Equal(t, "s3-config-1", s3Configs[1].Id)
 		assert.Equal(t, "s3-config-2", s3Configs[2].Id)
 	})
-
 }
 
 func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
@@ -781,9 +779,7 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, blockstores, 1)
 		assert.Equal(t, "block-store-config-1", blockstores[0].Id)
-
 	})
-
 }
 
 func TestEnsureResourcesForArchitectureChange(t *testing.T) {
@@ -802,7 +798,8 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 			Users: []automationconfig.MongoDBUser{
 				{
 					Username: "not-ops-manager-user",
-				}},
+				},
+			},
 		}).Build()
 
 		assert.NoError(t, err)
@@ -836,7 +833,8 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 						ServerKey: "sha1-serverkey-value",
 						StoredKey: "sha1-storedkey-value",
 					},
-				}},
+				},
+			},
 		}).Build()
 
 		assert.NoError(t, err)
@@ -890,7 +888,6 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 			assert.Equal(t, ac.Auth.Key, string(keyFileSecret.Data[constants.AgentKeyfileKey]))
 		})
 	})
-
 }
 
 func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
@@ -942,7 +939,6 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 		assert.True(t, containsName("block-store-config-1-mdb", watchedResources))
 		assert.True(t, containsName("config-1-mdb", watchedResources))
 		assert.True(t, containsName("config-2-mdb", watchedResources))
-
 	})
 
 	t.Run("Disabling backup should cause all resources to no longer be watched.", func(t *testing.T) {
@@ -954,7 +950,6 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 0, "Backup has been disabled, none of the resources should be watched anymore.")
 	})
-
 }
 
 func TestUniqueClusterNames(t *testing.T) {
@@ -1166,6 +1161,7 @@ func addAppDBTLSResources(ctx context.Context, client *mock.MockedClient, secret
 	certSecret.Data = certs
 	_ = client.Create(ctx, certSecret)
 }
+
 func addOMTLSResources(ctx context.Context, client *mock.MockedClient, secretName string) {
 	// Let's create a secret with Certificates and private keys!
 	certSecret := &corev1.Secret{

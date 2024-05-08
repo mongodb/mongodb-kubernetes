@@ -161,7 +161,8 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			{
 				ClusterName: memberClusterName,
 				Members:     2,
-			}},
+			},
+		},
 		).
 		SetAppDbMembers(0).
 		SetAppDBTopology(om.ClusterTopologyMultiCluster)
@@ -199,7 +200,8 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			{
 				ClusterName: memberClusterName2,
 				Members:     1,
-			}}
+			},
+		}
 
 		expectedHostnames := []string{
 			"om-db-0-0-svc.ns.svc.cluster.local",
@@ -252,7 +254,8 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			{
 				ClusterName: memberClusterName3,
 				Members:     1,
-			}, {
+			},
+			{
 				ClusterName: memberClusterName2,
 				Members:     2,
 			},
@@ -289,7 +292,8 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 			{
 				ClusterName: memberClusterName3,
 				Members:     1,
-			}, {
+			},
+			{
 				ClusterName: memberClusterName2,
 				Members:     2,
 			},
@@ -657,7 +661,8 @@ func (c *appDBClusterChecks) checkServices(ctx context.Context, statefulSetName 
 
 		assert.Equal(c.t, map[string]string{
 			"controller":                         "mongodb-enterprise-operator",
-			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx)},
+			"statefulset.kubernetes.io/pod-name": fmt.Sprintf("%s-%d", statefulSetName, podIdx),
+		},
 			svc.Spec.Selector)
 	}
 }
@@ -732,7 +737,8 @@ func TestAppDB_MultiCluster_ReconcilerFailsWhenThereIsNoClusterListConfigured(t 
 			{
 				ClusterName: "a",
 				Members:     2,
-			}}).
+			},
+		}).
 		SetAppDBTopology(om.ClusterTopologyMultiCluster)
 	opsManager := builder.Build()
 	_, err := newAppDbReconciler(ctx, mock.NewManager(ctx, opsManager), opsManager, zap.S())
@@ -797,5 +803,4 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 
 		memberClusterChecks.checkStatefulSetDoesNotExist(ctx, opsManager.Spec.AppDB.NameForCluster(appDBReconciler.getMemberClusterIndex(clusterSpecItem.ClusterName)))
 	}
-
 }

@@ -16,8 +16,7 @@ var _ handler.EventHandler = &EnqueueRequestForOwnerMultiCluster{}
 
 // EnqueueRequestForOwnerMultiCluster implements the EventHandler interface for multi-cluster callbacks.
 // We cannot reuse the "EnqueueRequestForOwner" because it uses OwnerReference which doesn't work across clusters
-type EnqueueRequestForOwnerMultiCluster struct {
-}
+type EnqueueRequestForOwnerMultiCluster struct{}
 
 func (e *EnqueueRequestForOwnerMultiCluster) Create(ctx context.Context, evt event.CreateEvent, q workqueue.RateLimitingInterface) {
 	req := getOwnerMDBCRD(evt.Object.GetAnnotations(), evt.Object.GetNamespace())
@@ -27,8 +26,10 @@ func (e *EnqueueRequestForOwnerMultiCluster) Create(ctx context.Context, evt eve
 }
 
 func (e *EnqueueRequestForOwnerMultiCluster) Update(ctx context.Context, evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	reqs := []reconcile.Request{getOwnerMDBCRD(evt.ObjectOld.GetAnnotations(), evt.ObjectOld.GetNamespace()),
-		getOwnerMDBCRD(evt.ObjectNew.GetAnnotations(), evt.ObjectNew.GetNamespace())}
+	reqs := []reconcile.Request{
+		getOwnerMDBCRD(evt.ObjectOld.GetAnnotations(), evt.ObjectOld.GetNamespace()),
+		getOwnerMDBCRD(evt.ObjectNew.GetAnnotations(), evt.ObjectNew.GetNamespace()),
+	}
 
 	for _, req := range reqs {
 		if req != (reconcile.Request{}) {
@@ -43,7 +44,6 @@ func (e *EnqueueRequestForOwnerMultiCluster) Delete(ctx context.Context, evt eve
 }
 
 func (e *EnqueueRequestForOwnerMultiCluster) Generic(ctx context.Context, evt event.GenericEvent, q workqueue.RateLimitingInterface) {
-
 }
 
 func getOwnerMDBCRD(annotations map[string]string, namespace string) reconcile.Request {

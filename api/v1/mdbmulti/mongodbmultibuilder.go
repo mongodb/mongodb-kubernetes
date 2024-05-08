@@ -30,7 +30,8 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 						ConfigMapRef: mdbv1.ConfigMapRef{
 							Name: mock.TestProjectConfigMapName,
 						},
-					}},
+					},
+				},
 				Credentials: mock.TestCredentialsSecretName,
 			},
 			ResourceType: mdbv1.ReplicaSet,

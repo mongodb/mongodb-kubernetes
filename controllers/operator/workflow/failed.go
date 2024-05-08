@@ -52,6 +52,7 @@ func (f failedStatus) Merge(other Status) Status {
 	}
 	return f
 }
+
 func (f failedStatus) OnErrorPrepend(msg string) Status {
 	f.commonStatus.prependMsg(msg)
 	return f

@@ -85,5 +85,4 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error in exporting cluster kubecfg %s", err)
 	}
-
 }

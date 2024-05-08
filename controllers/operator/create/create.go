@@ -177,7 +177,6 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, namespace string, cl
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
 func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) error {
-
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return err
@@ -198,7 +197,6 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
 func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
-
 	if err != nil {
 		// Check if it is a k8s error or a custom one
 		var statefulSetCantBeUpdatedError enterprisests.StatefulSetCantBeUpdatedError
@@ -255,7 +253,6 @@ func OpsManagerInKubernetes(ctx context.Context, client kubernetesClient.Client,
 		if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
 			return err
 		}
-
 	}
 
 	// Need to create queryable backup service

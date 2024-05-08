@@ -18,6 +18,7 @@ func NewReplicaSetBuilder() *MongoDBBuilder {
 func NewDefaultReplicaSetBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ReplicaSet)
 }
+
 func NewDefaultShardedClusterBuilder() *MongoDBBuilder {
 	return defaultMongoDB(ShardedCluster)
 }
@@ -65,6 +66,7 @@ func (b *MongoDBBuilder) SetMembers(m int) *MongoDBBuilder {
 	b.mdb.Spec.Members = m
 	return b
 }
+
 func (b *MongoDBBuilder) SetClusterDomain(m string) *MongoDBBuilder {
 	b.mdb.Spec.ClusterDomain = m
 	return b
@@ -138,6 +140,7 @@ func (b *MongoDBBuilder) SetShardCountSpec(count int) *MongoDBBuilder {
 	b.mdb.Spec.ShardCount = count
 	return b
 }
+
 func (b *MongoDBBuilder) SetMongodsPerShardCountSpec(count int) *MongoDBBuilder {
 	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have shards configuration")
@@ -145,6 +148,7 @@ func (b *MongoDBBuilder) SetMongodsPerShardCountSpec(count int) *MongoDBBuilder 
 	b.mdb.Spec.MongodsPerShardCount = count
 	return b
 }
+
 func (b *MongoDBBuilder) SetConfigServerCountSpec(count int) *MongoDBBuilder {
 	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have config server configuration")
@@ -152,6 +156,7 @@ func (b *MongoDBBuilder) SetConfigServerCountSpec(count int) *MongoDBBuilder {
 	b.mdb.Spec.ConfigServerCount = count
 	return b
 }
+
 func (b *MongoDBBuilder) SetMongosCountSpec(count int) *MongoDBBuilder {
 	if b.mdb.Spec.ResourceType != ShardedCluster {
 		panic("Only sharded cluster can have mongos configuration")

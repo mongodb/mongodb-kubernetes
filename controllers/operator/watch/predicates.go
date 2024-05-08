@@ -119,7 +119,8 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 			// (it's the controller that has made those changes, not user)
 			return newResource.Spec.ResourceType == resourceType &&
 				reflect.DeepEqual(oldResource.GetStatus(), newResource.GetStatus())
-		}}
+		},
+	}
 }
 
 func PredicatesForStatefulSet() predicate.Funcs {
@@ -167,7 +168,6 @@ func PredicatesForMultiStatefulSet() predicate.Funcs {
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			_, ok := e.Object.GetAnnotations()[handler.MongoDBMultiResourceAnnotation]
 			return ok
-
 		},
 		GenericFunc: func(e event.GenericEvent) bool {
 			return false

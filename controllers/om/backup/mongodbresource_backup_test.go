@@ -7,7 +7,6 @@ import (
 )
 
 func TestGetDesiredStatus(t *testing.T) {
-
 	t.Run("Test transition from enabled to disabled", func(t *testing.T) {
 		desired := Config{
 			Status: Stopped,
@@ -45,5 +44,4 @@ func TestGetDesiredStatus(t *testing.T) {
 		}
 		assert.Equal(t, Started, getDesiredStatus(&desired, &current))
 	})
-
 }

@@ -21,7 +21,6 @@ func CreateFromReplicaSet(rs *mdb.MongoDB) om.Deployment {
 	sts := construct.DatabaseStatefulSet(*rs, construct.ReplicaSetOptions(
 		func(options *construct.DatabaseStatefulSetOptions) {
 			options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
-
 		},
 	), nil)
 	d := om.NewDeployment()

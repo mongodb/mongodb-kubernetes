@@ -128,7 +128,6 @@ func TestMongoDB_ConnectionURL_NotSecure(t *testing.T) {
 	assert.Equal(t, "mongodb://foo-0.foo-svc.testNS.svc.cluster.local:27017/?"+
 		"connectTimeoutMS=20000&serverSelectionTimeoutMS=20000",
 		cnx)
-
 }
 
 func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
@@ -278,7 +277,6 @@ func TestAgentClientCertificateSecretName(t *testing.T) {
 	// If the name is provided (deprecated) we return it
 	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "foo"
 	assert.Equal(t, "foo", rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).LocalObjectReference.Name)
-
 }
 
 func TestInternalClusterAuthSecretName(t *testing.T) {
@@ -290,7 +288,6 @@ func TestInternalClusterAuthSecretName(t *testing.T) {
 	// IF there is a prefix, use it
 	rs.Spec.Security.CertificatesSecretsPrefix = "prefix"
 	assert.Equal(t, fmt.Sprintf("prefix-%s-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
-
 }
 
 func TestGetTransportSecurity(t *testing.T) {

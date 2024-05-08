@@ -2,12 +2,11 @@ package util
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/identifiable"
-
-	"os"
 
 	"github.com/stretchr/testify/assert"
 )

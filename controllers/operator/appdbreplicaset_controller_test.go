@@ -498,7 +498,6 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 		assert.Equal(t, 2, foundImages)
 		assert.Equal(t, 2, len(appDbSts.Spec.Template.Spec.Containers))
 	})
-
 }
 
 func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {
@@ -557,7 +556,6 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 3, opsManager.Status.AppDbStatus.Members)
-
 }
 
 func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
@@ -599,9 +597,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 	}
 
 	t.Run("Reconciliation should happen if we are disabling a process", func(t *testing.T) {
-
 		// In this test, we create an OM + automation config (with no disabled processes),
-		//then update OM to have a disabled processes, and we assert that reconciliation should take place.
+		// then update OM to have a disabled processes, and we assert that reconciliation should take place.
 
 		omName := "test-om"
 		opsManager := DefaultOpsManagerBuilder().SetName(omName).Build()
@@ -625,7 +622,7 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should not happen if a process is disabled", func(t *testing.T) {
 		// In this test, we create an OM with a disabled process, and assert that a reconciliation
-		//should not take place (since we are not changing a process back from disabled).
+		// should not take place (since we are not changing a process back from disabled).
 
 		omName := "test-om"
 		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
@@ -697,15 +694,16 @@ func appDBStatefulSetLabelsAndServiceName(omResourceName string) (map[string]str
 }
 
 func appDBStatefulSetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
-
 	resData, _ := resource.ParseQuantity("16G")
-	return []corev1.PersistentVolumeClaim{{
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
-			Resources: corev1.ResourceRequirements{
-				Requests: map[corev1.ResourceName]resource.Quantity{"storage": resData},
+	return []corev1.PersistentVolumeClaim{
+		{
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
+				Resources: corev1.ResourceRequirements{
+					Requests: map[corev1.ResourceName]resource.Quantity{"storage": resData},
+				},
 			},
-		}},
+		},
 	}
 }
 
@@ -813,7 +811,6 @@ func buildAutomationConfigForAppDb(ctx context.Context, builder *omv1.OpsManager
 		return automationconfig.AutomationConfig{}, err
 	}
 	return reconciler.buildAppDbAutomationConfig(ctx, opsManager, acType, UnusedPrometheusConfiguration, multicluster.LegacyCentralClusterName, zap.S())
-
 }
 
 func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.AutomationConfig, s *corev1.Secret) {

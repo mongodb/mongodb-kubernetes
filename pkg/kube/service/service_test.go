@@ -62,7 +62,8 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 
 	existingService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1, port2}}}
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1, port2}},
+	}
 
 	err := CreateOrUpdateService(ctx, manager.Client, existingService)
 	assert.NoError(t, err)
@@ -74,7 +75,8 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 
 	newServiceWithoutNodePorts := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
-		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1WithNodePortZero, port2WithNodePortZero}}}
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1WithNodePortZero, port2WithNodePortZero}},
+	}
 
 	err = CreateOrUpdateService(ctx, manager.Client, newServiceWithoutNodePorts)
 	assert.NoError(t, err)

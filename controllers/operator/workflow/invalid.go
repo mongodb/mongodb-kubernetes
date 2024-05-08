@@ -47,6 +47,7 @@ func (f invalidStatus) Merge(other Status) Status {
 	// Invalid spec error dominates over anything else - there's no point in retrying until the spec is fixed
 	return f
 }
+
 func (f invalidStatus) OnErrorPrepend(msg string) Status {
 	f.commonStatus.prependMsg(msg)
 	return f

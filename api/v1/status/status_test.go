@@ -7,7 +7,7 @@ import (
 )
 
 func Test_NotrefreshingLastTransitionTime(t *testing.T) {
-	//given
+	// given
 	testTime := "test"
 
 	status := &Common{
@@ -17,16 +17,16 @@ func Test_NotrefreshingLastTransitionTime(t *testing.T) {
 		ObservedGeneration: 1,
 	}
 
-	//when
+	// when
 	status.UpdateCommonFields(PhaseFailed, 1)
 	timeAfterTheTest := status.LastTransition
 
-	//then
+	// then
 	assert.Equal(t, testTime, timeAfterTheTest)
 }
 
 func Test_RefreshingLastTransitionTime(t *testing.T) {
-	//given
+	// given
 	testTime := "test"
 
 	status := &Common{
@@ -36,10 +36,10 @@ func Test_RefreshingLastTransitionTime(t *testing.T) {
 		ObservedGeneration: 1,
 	}
 
-	//when
+	// when
 	status.UpdateCommonFields(PhaseRunning, 2)
 	timeAfterTheTest := status.LastTransition
 
-	//then
+	// then
 	assert.NotEqual(t, testTime, timeAfterTheTest)
 }

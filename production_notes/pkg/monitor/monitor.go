@@ -2,10 +2,9 @@ package monitor
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
-
-	"log"
 
 	api "github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -55,7 +54,6 @@ func waitForStatefulsetReady(ctx context.Context, c kubernetes.Clientset, stsNam
 
 // monitorStats monitors and reports the stats of 1. Reconcile time of operator, 2. Time to ready for MongoDB replicaset and 3. CPU and Memory usage of Operator
 func (m *Monitor) MonitorReplicaSets(ctx context.Context, replicasetName string) {
-
 	err := waitForStatefulsetReady(ctx, *m.KubeClient, replicasetName, "mongodb", m.Timeout)
 	if err != nil {
 		log.Printf("error in monitoring replicaset: %v", err)
@@ -66,7 +64,6 @@ func (m *Monitor) MonitorReplicaSets(ctx context.Context, replicasetName string)
 	m.Lock()
 	m.EndTime = max(m.EndTime, t2)
 	m.Unlock()
-
 }
 
 // MonitorOperatorReconcileTime measures the reconcile_time of the operator from the metrics being exposed
@@ -89,7 +86,6 @@ func (m *Monitor) MonitorOperatorReconcileTime(ctx context.Context) {
 // The duration over which it measures the metrics is the minimum of the "time-duration" it takes
 // for the mongod Replicaset to reach a "ready" state or the specified timeout
 func (m *Monitor) MonitorOperatorResourceUsage(ctx context.Context) {
-
 	// specify pod name since we will be having only one pod corresponsing to the operator
 	CPUQueryString := "sum(rate(container_cpu_usage_seconds_total{namespace=\"mongodb\", pod=~\"om-operator-.*\"}[2m])) by (pod) * 1000"
 
@@ -110,7 +106,6 @@ func (m *Monitor) MonitorOperatorResourceUsage(ctx context.Context) {
 }
 
 func performQuery(ctx context.Context, promClient api.Client, queryString string, s time.Time, e time.Time) (model.Value, error) {
-
 	v1api := v1.NewAPI(promClient)
 
 	r := v1.Range{

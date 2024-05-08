@@ -29,13 +29,11 @@ const (
 	ResultKey         = "requests_total"
 )
 
-var (
-	omClient = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Subsystem: OMClientSubsystem,
-		Name:      ResultKey,
-		Help:      "Number of HTTP requests, partitioned by status code, method, and path.",
-	}, []string{"code", "method", "path"})
-)
+var omClient = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Subsystem: OMClientSubsystem,
+	Name:      ResultKey,
+	Help:      "Number of HTTP requests, partitioned by status code, method, and path.",
+}, []string{"code", "method", "path"})
 
 func init() {
 	// Register custom metrics with the global prometheus registry
@@ -264,7 +262,6 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *r
 				digestRequest.URL,
 			),
 		)
-
 	}
 	digestParts := digestParts(resp)
 	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)

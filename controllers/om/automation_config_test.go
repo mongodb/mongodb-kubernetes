@@ -93,7 +93,6 @@ func TestUserIsAddedToTheEnd(t *testing.T) {
 	role := cast.ToStringMap(roles[0])
 	assert.Equal(t, "my-role", role["role"])
 	assert.Equal(t, "role-db", role["db"])
-
 }
 
 func TestUserIsUpdated_AndOtherUsersDontGetAffected(t *testing.T) {
@@ -227,7 +226,6 @@ func TestUnknownFields_AreNotMergedWithOtherElements(t *testing.T) {
 		assert.NotContains(t, userMap, "unknownFieldOne")
 		assert.NotContains(t, userMap, "unknownFieldTwo")
 	}
-
 }
 
 func TestSettingFieldInListToNil_RemovesElement(t *testing.T) {
@@ -309,7 +307,6 @@ func TestMiddleRoleIsCorrectlyDeleted(t *testing.T) {
 	// third role from automation_config.json
 	assert.Equal(t, "admin", secondRole["db"])
 	assert.Equal(t, "automation", secondRole["role"])
-
 }
 
 func TestAllRolesAreDeleted(t *testing.T) {
@@ -505,7 +502,6 @@ func TestDeletionOfMiddleElements(t *testing.T) {
 	secondLastUser := cast.ToStringMap(users[len(users)-2])
 	assert.Equal(t, "my-user-1", secondLastUser["user"])
 	assert.Equal(t, "my-db-1", secondLastUser["db"])
-
 }
 
 func TestDeleteLastElement(t *testing.T) {
@@ -522,7 +518,6 @@ func TestDeleteLastElement(t *testing.T) {
 	lastUser := cast.ToStringMap(users[1])
 	assert.Equal(t, "testDb1", lastUser["db"])
 	assert.Equal(t, "testUser1", lastUser["user"])
-
 }
 
 func TestCanDeleteUsers_AndAddNewOnes_InSingleOperation(t *testing.T) {
@@ -815,8 +810,8 @@ func changeTypes(deployment Deployment) error {
 	deployment.setReplicaSets(rs)
 	return nil
 }
-func TestIsEqual(t *testing.T) {
 
+func TestIsEqual(t *testing.T) {
 	type args struct {
 		depFunc    func(Deployment) error
 		deployment Deployment
@@ -857,7 +852,6 @@ func TestIsEqual(t *testing.T) {
 // TestIsEqualNotWorkingWithTypeChanges is a test that shows that deep equality does not work if our depFunc changes
 // the underlying types as we mostly do.
 func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
-
 	t.Run("is not working", func(t *testing.T) {
 		overTheWire := getDeploymentWithRSOverTheWire(t)
 
@@ -869,7 +863,6 @@ func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
 		equal := equality.Semantic.DeepEqual(original, overTheWire)
 		assert.False(t, equal)
 	})
-
 }
 
 func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {

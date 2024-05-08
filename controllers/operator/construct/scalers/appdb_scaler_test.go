@@ -13,7 +13,6 @@ import (
 )
 
 func TestAppDBMultiClusterScaler(t *testing.T) {
-
 	testCases := []struct {
 		name                               string
 		memberClusterName                  string

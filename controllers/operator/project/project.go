@@ -92,7 +92,6 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 	var project *om.Project
 	if org != nil {
 		project, err = findProject(projectName, org, conn, log)
-
 		if err != nil {
 			return nil, nil, err
 		}
@@ -149,7 +148,6 @@ func findProject(projectName string, organization *om.Organization, conn om.Conn
 func findProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
 	// 1. Trying to find the project by name
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
-
 	if err != nil {
 		if v, ok := err.(*apierror.Error); ok {
 			if v.ErrorCode == apierror.ProjectNotFound {
@@ -187,7 +185,6 @@ func findProjectInsideOrganization(conn om.Connection, projectName string, organ
 func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {
 	// 1. We try to find the organization using 'name' filter parameter first
 	organizations, err := conn.ReadOrganizationsByName(name)
-
 	if err != nil {
 		if v, ok := err.(*apierror.Error); ok {
 			if v.ErrorCode == apierror.OrganizationNotFound {
@@ -205,7 +202,6 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 				return organization.ID, nil
 			}
 		}
-
 	}
 
 	return "", xerrors.Errorf("could not find organization %s: %w", name, err)
@@ -230,7 +226,6 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 		Tags:  []string{}, // Project creation no longer applies the EXTERNALLY_MANAGED tag, this is added afterwards
 	}
 	ans, err := conn.CreateProject(group)
-
 	if err != nil {
 		return nil, xerrors.Errorf("Error creating project \"%s\" in Ops Manager: %w", group, err)
 	}

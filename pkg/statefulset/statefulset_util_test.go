@@ -10,7 +10,6 @@ import (
 )
 
 func TestIsStatefulSetUpdatableTo(t *testing.T) {
-
 	tests := []struct {
 		name     string
 		existing v1.StatefulSet
@@ -51,7 +50,8 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 					Selector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"c": "d"},
 					},
-				}},
+				},
+			},
 			want: false,
 		},
 		{
@@ -70,7 +70,8 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 						MatchExpressions: []metav1.LabelSelectorRequirement{},
 						MatchLabels:      map[string]string{},
 					},
-				}},
+				},
+			},
 			want: true,
 		},
 	}
@@ -82,7 +83,6 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 }
 
 func TestIsVolumeClaimUpdatableTo(t *testing.T) {
-
 	tests := []struct {
 		name     string
 		existing corev1.PersistentVolumeClaim

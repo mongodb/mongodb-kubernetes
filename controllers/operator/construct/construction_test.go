@@ -243,7 +243,6 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 
 	template = sts.Spec.Template
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
-
 }
 
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
@@ -259,6 +258,7 @@ func checkPvClaims(t *testing.T, set appsv1.StatefulSet, expectedClaims []corev1
 		assert.Equal(t, c, set.Spec.VolumeClaimTemplates[i])
 	}
 }
+
 func checkMounts(t *testing.T, set appsv1.StatefulSet, expectedMounts []corev1.VolumeMount) {
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, len(expectedMounts))
 
@@ -279,7 +279,8 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 				Requests: corev1.ResourceList{corev1.ResourceStorage: quantity},
 			},
 			StorageClassName: storageClass,
-		}}
+		},
+	}
 	if len(labels) > 0 {
 		expectedClaim.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 	}

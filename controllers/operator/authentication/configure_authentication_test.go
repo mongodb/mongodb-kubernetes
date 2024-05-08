@@ -31,18 +31,15 @@ func TestConfigureScramSha1FallbackToCr(t *testing.T) {
 	}
 
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	assertAuthenticationEnabled(t, ac.Auth)
 	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-CR")
-
 }
 
 func TestConfigureScramSha256(t *testing.T) {
-
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -59,7 +56,6 @@ func TestConfigureScramSha256(t *testing.T) {
 	}
 
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +65,6 @@ func TestConfigureScramSha256(t *testing.T) {
 }
 
 func TestConfigureX509(t *testing.T) {
-
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -90,7 +85,6 @@ func TestConfigureX509(t *testing.T) {
 	}
 
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +117,6 @@ func TestConfigureScramSha1(t *testing.T) {
 }
 
 func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
-
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -143,7 +136,6 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 	}
 
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +151,6 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 }
 
 func TestScramSha1MongoDBUpgrade(t *testing.T) {
-
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -176,7 +167,6 @@ func TestScramSha1MongoDBUpgrade(t *testing.T) {
 	}
 
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +187,6 @@ func TestScramSha1MongoDBUpgrade(t *testing.T) {
 	}
 
 	ac, err = conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +215,6 @@ func TestConfigureAndDisable(t *testing.T) {
 	}
 
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +232,6 @@ func TestConfigureAndDisable(t *testing.T) {
 	}
 
 	assertAuthenticationDisabled(t, ac.Auth)
-
 }
 
 func TestDisableAuthentication(t *testing.T) {
@@ -270,7 +257,6 @@ func TestDisableAuthentication(t *testing.T) {
 }
 
 func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
-
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	ac, _ := conn.ReadAutomationConfig()
 

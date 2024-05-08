@@ -104,7 +104,6 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (
 // VerifyAndEnsureCertificatesForStatefulSet ensures that the provided certificates are correct.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
 func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) error {
-
 	needToCreatePEM := false
 	var err error
 	var secretData map[string][]byte
@@ -194,11 +193,11 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 		hostnames = append(hostnames, podNames[member]+"."+certDomain)
 	}
 	if len(opts.horizons) > 0 {
-		//at this point len(ss.ReplicaSetHorizons) should be equal to the number
-		//of members in the replica set
+		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
+		// of members in the replica set
 		for _, externalHost := range opts.horizons[member] {
-			//need to use the URL struct directly instead of url.Parse as
-			//Parse expects the URL to have a scheme.
+			// need to use the URL struct directly instead of url.Parse as
+			// Parse expects the URL to have a scheme.
 			hostURL := url.URL{Host: externalHost}
 			hostnames = append(hostnames, hostURL.Hostname())
 		}
@@ -273,7 +272,6 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
-
 		if err != nil {
 			return err
 		}
@@ -312,7 +310,6 @@ func EnsureSSLCertsForStatefulSet(ctx context.Context, secretReadClient, secretW
 
 	secretName := opts.CertSecretName
 	return ValidateSelfManagedSSLCertsForStatefulSet(ctx, secretReadClient, secretWriteClient, secretName, opts, log)
-
 }
 
 // EnsureTLSCertsForPrometheus creates a new Secret with a Certificate in

@@ -124,7 +124,6 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 	var secret *corev1.Secret
 	var err error
 	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{})
-
 	if err != nil {
 		return xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
 	}
@@ -143,7 +142,6 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 	}
 	if err = f.Sync(); err != nil {
 		return xerrors.Errorf("can't call Sync on file %s: %w", f.Name(), err)
-
 	}
 
 	config.ConfigureTLS(
@@ -153,7 +151,6 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 	)
 
 	return nil
-
 }
 
 func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultClient, error) {
@@ -167,7 +164,6 @@ func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultC
 	}
 
 	vclient, err := api.NewClient(config)
-
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +471,6 @@ func (v *VaultClient) GetSecretAnnotation(path string) map[string]string {
 }
 
 func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]string {
-
 	annotations := map[string]string{
 		"vault.hashicorp.com/agent-inject":         "true",
 		"vault.hashicorp.com/role":                 AppDBVaultRoleName,

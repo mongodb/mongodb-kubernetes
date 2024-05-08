@@ -256,7 +256,6 @@ func (oc *HTTPOmConnection) OrgID() string {
 // PublicKey returns PublicKey of HTTPOmConnection
 func (oc *HTTPOmConnection) PublicKey() string {
 	return oc.context.PublicKey
-
 }
 
 // PrivateKey returns PrivateKey of HTTPOmConnection
@@ -277,7 +276,6 @@ func (oc *HTTPOmConnection) UpdateDeployment(deployment Deployment) ([]byte, err
 // ReadDeployment returns a Deployment object for this group
 func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
-
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +285,6 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 
 func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
-
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +397,6 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 
 func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
 	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/updateAgentVersions", oc.GroupID()), nil)
-
 	if err != nil {
 		return "", err
 	}
@@ -417,7 +413,6 @@ func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
 func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 	data := map[string]string{"desc": "Agent key for Kubernetes"}
 	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupID()), data)
-
 	if err != nil {
 		return "", err
 	}
@@ -582,7 +577,6 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (
 
 func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 	res, err := oc.post("/api/public/v1.0/groups", project)
-
 	if err != nil {
 		return nil, err
 	}
@@ -598,7 +592,6 @@ func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s", project.ID)
 	res, err := oc.patch(path, project)
-
 	if err != nil {
 		return nil, err
 	}
@@ -674,7 +667,6 @@ func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status backup.S
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 
 	_, err := oc.patch(path, map[string]interface{}{"statusName": status})
-
 	if err != nil {
 		return apierror.New(err)
 	}
@@ -689,7 +681,6 @@ func (oc *HTTPOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig,
 	}
 
 	mat, err := BuildMonitoringAgentConfigFromBytes(ans)
-
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +726,6 @@ func (oc *HTTPOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) 
 	}
 
 	backupAgentConfig, err := BuildBackupAgentConfigFromBytes(ans)
-
 	if err != nil {
 		return nil, err
 	}

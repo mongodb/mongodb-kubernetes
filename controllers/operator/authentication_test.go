@@ -407,11 +407,13 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	ctx := context.Background()
 
-	customRoles := []mdbv1.MongoDbRole{{
-		Db:         "admin",
-		Role:       "customRole",
-		Roles:      []mdbv1.InheritedRole{{Db: "Admin", Role: "inheritedrole"}},
-		Privileges: []mdbv1.Privilege{}},
+	customRoles := []mdbv1.MongoDbRole{
+		{
+			Db:         "admin",
+			Role:       "customRole",
+			Roles:      []mdbv1.InheritedRole{{Db: "Admin", Role: "inheritedrole"}},
+			Privileges: []mdbv1.Privilege{},
+		},
 	}
 
 	rs := DefaultReplicaSetBuilder().
@@ -537,6 +539,7 @@ func addKubernetesTlsResources(ctx context.Context, client kubernetesClient.Clie
 func createMockCertAndKeyBytesMulti(mdbm mdbmulti.MongoDBMultiCluster, clusterNum, podNum int) []byte {
 	return createMockCertAndKeyBytesWithDNSName(dns.GetMultiServiceFQDN(mdbm.Name, mock.TestNamespace, clusterNum, podNum, mdbm.Spec.GetClusterDomain()))
 }
+
 func createMockCertAndKeyBytesWithDNSName(dnsName string) []byte {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -757,7 +760,6 @@ func createShardedClusterTLSData(ctx context.Context, client kubernetesClient.Cl
 	agentCerts.Data = make(map[string][]byte)
 	agentCerts.Data["tls.crt"], agentCerts.Data["tls.key"] = createMockCertAndKeyBytes(subjectModifier, func(cert *x509.Certificate) { cert.Subject.CommonName = "mms-automation-agent" })
 	_ = client.Create(ctx, agentCerts)
-
 }
 
 // createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMultiCluster ReplicaSet.
@@ -810,7 +812,6 @@ func createMultiClusterReplicaSetTLSData(ctx context.Context, client *mock.Mocke
 }
 
 func createConfigMap(ctx context.Context, t *testing.T, client kubernetesClient.Client) {
-
 	err := client.CreateConfigMap(ctx, configMap())
 	assert.NoError(t, err)
 }
@@ -830,7 +831,7 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 
 	addKubernetesTlsResources(ctx, client, rs)
 
-	//Replace the secret with an empty one
+	// Replace the secret with an empty one
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-cert", rs.Name),
@@ -843,7 +844,6 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 
 	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, fmt.Sprintf("%s-cert", rs.Name), certs.ReplicaSetConfig(*rs), nil)
 	assert.Equal(t, err.Error(), "the certificate is not complete\n")
-
 }
 
 func Test_NoAdditionalDomainsPresent(t *testing.T) {
@@ -931,7 +931,10 @@ func createCSR(name, ns string, conditionType certsv1.RequestConditionType) cert
 		},
 		Status: certsv1.CertificateSigningRequestStatus{
 			Conditions: []certsv1.CertificateSigningRequestCondition{
-				{Type: conditionType}}}}
+				{Type: conditionType},
+			},
+		},
+	}
 }
 
 // createMockCSRBytes creates a new Certificate Signing Request, signed with a

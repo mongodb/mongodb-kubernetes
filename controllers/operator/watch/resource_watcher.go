@@ -61,7 +61,8 @@ func (r *ResourceWatcher) RemoveDependentWatchedResources(resourceNsName types.N
 // resources. A watched resource is a resource that, when changed, will trigger
 // a reconciliation for its dependent resource.
 func (r *ResourceWatcher) AddWatchedResourceIfNotAdded(name, namespace string,
-	wType Type, dependentResourceNsName types.NamespacedName) {
+	wType Type, dependentResourceNsName types.NamespacedName,
+) {
 	key := Object{
 		ResourceType: wType,
 		Resource: types.NamespacedName{

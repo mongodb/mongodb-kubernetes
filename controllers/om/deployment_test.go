@@ -246,7 +246,6 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 			"myShard-2-0", "myShard-2-1", "myShard-2-2",
 		},
 		d.GetAllProcessNames())
-
 }
 
 func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
@@ -557,7 +556,6 @@ func TestAddBackup(t *testing.T) {
 	// adding again - nothing changes
 	d.addBackup(zap.S())
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
-
 }
 
 // ************************   Methods for checking deployment units
@@ -567,7 +565,8 @@ func checkShardedCluster(t *testing.T, d Deployment, expectedCluster ShardedClus
 }
 
 func checkShardedClusterCheckExtraReplicaSets(t *testing.T, d Deployment, expectedCluster ShardedCluster,
-	expectedReplicaSets []ReplicaSetWithProcesses, checkExtraReplicaSets bool) {
+	expectedReplicaSets []ReplicaSetWithProcesses, checkExtraReplicaSets bool,
+) {
 	cluster := d.getShardedClusterByName(expectedCluster.Name())
 
 	require.NotNil(t, cluster)

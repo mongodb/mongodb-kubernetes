@@ -196,6 +196,7 @@ func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
 	}
 	return oc.deployment, nil
 }
+
 func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
@@ -339,6 +340,7 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
+
 func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
 
@@ -350,10 +352,12 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 	// todo extend this for real testing
 	return automationAgentStatusResponse{AutomationAgents: results}, nil
 }
+
 func (oc *MockedOmConnection) GetHosts() (*host.Result, error) {
 	oc.addToHistory(reflect.ValueOf(oc.GetHosts))
 	return oc.hostResults, nil
 }
+
 func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 	oc.addToHistory(reflect.ValueOf(oc.RemoveHost))
 	toKeep := make([]host.Host, 0)
@@ -437,6 +441,7 @@ func (oc *MockedOmConnection) CreateProject(project *Project) (*Project, error) 
 	oc.OrganizationsWithGroups[organization] = append(oc.OrganizationsWithGroups[organization], project)
 	return project, nil
 }
+
 func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateProject))
 	if oc.UpdateGroupFunc != nil {
@@ -470,6 +475,7 @@ func (oc *MockedOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, erro
 	}
 	return &backup.ConfigsResponse{Configs: values}, nil
 }
+
 func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*backup.Config, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfig))
 
@@ -577,7 +583,6 @@ func (oc *MockedOmConnection) CheckDeployment(t *testing.T, expected Deployment,
 			assert.Equal(t, expected[key], oc.deployment[key])
 		}
 	}
-
 }
 
 func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T) {

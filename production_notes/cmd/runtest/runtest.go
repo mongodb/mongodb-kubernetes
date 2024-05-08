@@ -121,7 +121,8 @@ func createTLSCerts(ctx context.Context, c kubernetes.Clientset, replicaSetName 
 			Namespace: "mongodb",
 			Labels:    map[string]string{"app.kubernetes.io/managed-by": "runtest"},
 		},
-		Data: data}, metav1.CreateOptions{})
+		Data: data,
+	}, metav1.CreateOptions{})
 	if err != nil {
 		return xerrors.Errorf("can't create secret: %w", err)
 	}
@@ -233,7 +234,6 @@ func createKubernetesClient(m *monitor.Monitor) error {
 	}
 	m.KubeClient = client
 	return nil
-
 }
 
 func setup() (*monitor.Monitor, error) {
@@ -272,7 +272,6 @@ func cleanupTLSSecrets(ctx context.Context, c kubernetes.Clientset) error {
 		// in the future we change the templated name. And we do not have any other
 		// secret in our testing with this type
 	})
-
 }
 
 func cleanMongoDBResource(ctx context.Context, c kubernetes.Clientset, mongoReleaseName string) error {

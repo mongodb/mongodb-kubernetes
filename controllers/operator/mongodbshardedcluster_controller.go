@@ -79,7 +79,6 @@ func newShardedClusterReconciler(ctx context.Context, mgr manager.Manager, omFun
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
 
@@ -856,7 +855,6 @@ func (r *ReconcileMongoDbShardedCluster) publishDeployment(ctx context.Context, 
 		},
 		log,
 	)
-
 	if err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
@@ -900,7 +898,6 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 }
 
 func (r *ReconcileMongoDbShardedCluster) waitForAgentsToRegister(ctx context.Context, sc *mdbv1.MongoDB, conn om.Connection, opts deploymentOptions, log *zap.SugaredLogger, mdb *mdbv1.MongoDB) error {
-
 	mongosStatefulSet := construct.DatabaseStatefulSet(*sc, r.getMongosOptions(ctx, *sc, opts, log), nil)
 	if err := agents.WaitForRsAgentsToRegister(mongosStatefulSet, 0, sc.Spec.GetClusterDomain(), conn, log, mdb); err != nil {
 		return err
@@ -956,12 +953,15 @@ func createMongosProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certifica
 
 	return processes
 }
+
 func createConfigSrvProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	return createMongodProcessForShardedCluster(set, mdb.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
 }
+
 func createShardProcesses(set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	return createMongodProcessForShardedCluster(set, mdb.Spec.ShardSpec.GetAdditionalMongodConfig(), mdb, certificateFilePath)
 }
+
 func createMongodProcessForShardedCluster(set appsv1.StatefulSet, additionalMongodConfig *mdbv1.AdditionalMongodConfig, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))

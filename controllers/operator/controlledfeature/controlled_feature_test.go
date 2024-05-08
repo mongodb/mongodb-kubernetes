@@ -9,7 +9,6 @@ import (
 )
 
 func TestShouldUseFeatureControls(t *testing.T) {
-
 	// All OM versions that we support now support feature controls
 	assert.True(t, ShouldUseFeatureControls(toOMVersion("4.4.0")))
 	assert.True(t, ShouldUseFeatureControls(toOMVersion("4.4.1")))
@@ -17,7 +16,6 @@ func TestShouldUseFeatureControls(t *testing.T) {
 
 	// Cloud Manager also supports it
 	assert.True(t, ShouldUseFeatureControls(toOMVersion("v20020201")))
-
 }
 
 func toOMVersion(versionString string) versionutil.OpsManagerVersion {

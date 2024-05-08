@@ -375,7 +375,6 @@ func TestMultipleAuthMethod_CreateAgentUsers(t *testing.T) {
 		assert.Equal(t, "my-user", ac.Auth.Users[0].Username)
 		assert.Equal(t, "$external", ac.Auth.Users[0].Database)
 	})
-
 }
 
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
@@ -430,6 +429,7 @@ func containsNil(users []*om.MongoDBUser) bool {
 	}
 	return false
 }
+
 func createPasswordSecret(ctx context.Context, client *mock.MockedClient, secretRef userv1.SecretKeyRef, password string) {
 	createPasswordSecretInNamespace(ctx, client, secretRef, password, mock.TestNamespace)
 }
