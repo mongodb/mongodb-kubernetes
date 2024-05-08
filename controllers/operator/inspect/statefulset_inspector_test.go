@@ -12,7 +12,6 @@ import (
 )
 
 func TestStatefulSetInspector(t *testing.T) {
-
 	statefulSet := appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: util.Int32Ref(3),

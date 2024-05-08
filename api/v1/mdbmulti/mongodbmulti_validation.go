@@ -21,6 +21,7 @@ func (m *MongoDBMultiCluster) ValidateCreate() (admission.Warnings, error) {
 func (m *MongoDBMultiCluster) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	return nil, m.ProcessValidationsOnReconcile(old.(*MongoDBMultiCluster))
 }
+
 func (m *MongoDBMultiCluster) ValidateDelete() (admission.Warnings, error) {
 	return nil, nil
 }

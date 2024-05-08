@@ -110,7 +110,6 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		desiredConfig.ClusterId = config.ClusterId
 
 		cluster, err := configReadUpdater.ReadHostCluster(config.ClusterId)
-
 		if err != nil {
 			return workflow.Failed(err), nil
 		}
@@ -247,7 +246,8 @@ func getCurrentBackupStatusOption(configReader ConfigReader, clusterId string) (
 	return []status.Option{
 		status.NewBackupStatusOption(
 			string(config.Status),
-		)}, nil
+		),
+	}, nil
 }
 
 // getMongoDBBackupConfig builds the backup configuration from the given MongoDB resource

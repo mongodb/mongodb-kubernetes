@@ -147,7 +147,6 @@ func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongod
 		return tls.Disabled
 	}
 	return tls.GetTLSModeFromMongodConfig(additionalMongodConfig.ToMap())
-
 }
 
 func (p Process) DeepCopy() (Process, error) {

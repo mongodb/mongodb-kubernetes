@@ -94,7 +94,6 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 			log.Warnf("Cluster %s reported unhealthy", k)
 			// re-enqueue all the MDBMultis the operator is watching into the reconcile loop
 			for _, mdbm := range mdbmList.Items {
-
 				if shouldAddFailedClusterAnnotation(mdbm.Annotations, k) && multicluster.ShouldPerformFailover() {
 					log.Infof("Enqueuing resource: %s, because cluster %s has failed healthcheck", mdbm.Name, k)
 					err := AddFailoverAnnotation(ctx, mdbm, k, centralClient)
@@ -113,7 +112,6 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 		}
 		time.Sleep(10 * time.Second)
 	}
-
 }
 
 // shouldAddFailedClusterAnnotation checks if we should add this cluster in the failedCluster annotation,
@@ -172,7 +170,6 @@ func distributeFailedMembers(clusters []mdb.ClusterSpecItem, clustername string)
 			clusters = append(clusters[:n], clusters[n+1:]...)
 			break
 		}
-
 	}
 
 	for membersToFailOver > 0 {
@@ -204,7 +201,6 @@ func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster
 	}
 
 	return annotations.SetAnnotations(ctx, &mrs, map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)}, client)
-
 }
 
 func addFailedClustersAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
@@ -219,8 +215,10 @@ func addFailedClustersAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiC
 		clusterData = failedclusters
 	}
 
-	clusterData = append(clusterData, failedcluster.FailedCluster{ClusterName: clustername,
-		Members: getClusterMembers(mrs.Spec.ClusterSpecList, clustername)})
+	clusterData = append(clusterData, failedcluster.FailedCluster{
+		ClusterName: clustername,
+		Members:     getClusterMembers(mrs.Spec.ClusterSpecList, clustername),
+	})
 
 	clusterDataBytes, err := json.Marshal(clusterData)
 	if err != nil {

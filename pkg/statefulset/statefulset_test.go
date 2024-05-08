@@ -111,7 +111,6 @@ func TestAddVolumeAndMount(t *testing.T) {
 	assert.Equal(t, sts.Spec.Template.Spec.Volumes[1].Name, "mount-name-secret")
 	assert.Nil(t, sts.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap, "volume should not have been configured from a config map source")
 	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[1].VolumeSource.Secret, "volume should have been configured from a secret source")
-
 }
 
 func TestAddVolumeClaimTemplates(t *testing.T) {
@@ -275,7 +274,6 @@ func getCustomPodSpec() corev1.PodTemplateSpec {
 }
 
 func TestMergePodSpecsEmptyCustom(t *testing.T) {
-
 	defaultPodSpec := getDefaultPodSpec()
 	customPodSpecTemplate := corev1.PodTemplateSpec{}
 
@@ -298,7 +296,6 @@ func TestMergePodSpecsEmptyCustom(t *testing.T) {
 }
 
 func TestMergePodSpecsEmptyDefault(t *testing.T) {
-
 	defaultPodSpec := corev1.PodTemplateSpec{}
 	customPodSpecTemplate := getCustomPodSpec()
 
@@ -314,11 +311,9 @@ func TestMergePodSpecsEmptyDefault(t *testing.T) {
 	assert.Equal(t, "image-1", mergedPodTemplateSpec.Spec.Containers[0].Image)
 	assert.Len(t, mergedPodTemplateSpec.Spec.InitContainers, 1)
 	assert.Equal(t, "init-container-custom", mergedPodTemplateSpec.Spec.InitContainers[0].Name)
-
 }
 
 func TestMergePodSpecsBoth(t *testing.T) {
-
 	defaultPodSpec := getDefaultPodSpec()
 	customPodSpecTemplate := getCustomPodSpec()
 

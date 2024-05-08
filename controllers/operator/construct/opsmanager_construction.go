@@ -239,7 +239,6 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 		return appsv1.StatefulSet{}, err
 	}
 	return omSts, nil
-
 }
 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
@@ -288,7 +287,6 @@ func opsManagerOptions(memberCluster multicluster.MemberCluster, additionalOpts 
 
 // opsManagerStatefulSetFunc constructs the default Ops Manager StatefulSet modification function.
 func opsManagerStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.Modification {
-
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	return statefulset.Apply(

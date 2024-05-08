@@ -3,7 +3,11 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
+	"fmt"
 	"reflect"
+	"strings"
+	"time"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/versionutil"
 
@@ -29,11 +33,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/configmap"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/secret"
-
-	"encoding/pem"
-	"fmt"
-	"strings"
-	"time"
 
 	v1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
@@ -345,7 +344,6 @@ func checkIfHasExcessProcesses(conn om.Connection, resource *mdbv1.MongoDB, log 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
 func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {
-
 	secretName := opts.InternalClusterSecretName
 
 	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), secretName, opts, log)
@@ -396,7 +394,6 @@ func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
 		}
 		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
 			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
-
 		}
 	}
 	return workflow.OK()
@@ -534,7 +531,6 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 	if ar.IsLDAPEnabled() {
 		bindUserPassword, err := r.ReadSecretKey(ctx, kube.ObjectKey(ar.GetNamespace(), ar.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
-
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("error reading bind user password: %w", err)), false
 		}
@@ -876,7 +872,6 @@ func getVolumeFromStatefulSet(sts appsv1.StatefulSet, name string) (corev1.Volum
 
 // wasTLSSecretMounted checks whether or not TLS was previously enabled by looking at the state of the volumeMounts of the pod.
 func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
-
 	tlsVolume, err := getVolumeFromStatefulSet(currentSts, util.SecretVolumeName)
 	if err != nil {
 		return false
@@ -890,7 +885,8 @@ func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, curren
 	secretName := tlsVolume.Secret.SecretName
 	exists, err := secret.Exists(ctx, secretGetter, types.NamespacedName{
 		Namespace: mdb.Namespace,
-		Name:      secretName},
+		Name:      secretName,
+	},
 	)
 	if err != nil {
 		log.Warnf("can't determine whether the TLS certificate secret exists or not: %s. Will assume it doesn't", err)
@@ -899,12 +895,10 @@ func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, curren
 	log.Debugf("checking if secret %s exists: %v", secretName, exists)
 
 	return exists
-
 }
 
 // wasCAConfigMapMounted checks whether or not the CA ConfigMap  by looking at the state of the volumeMounts of the pod.
 func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter, currentSts appsv1.StatefulSet, volumeMounts []corev1.VolumeMount, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
-
 	caVolume, err := getVolumeFromStatefulSet(currentSts, util.ConfigMapVolumeCAMountPath)
 	if err != nil {
 		return false
@@ -918,7 +912,8 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 	cmName := caVolume.ConfigMap.Name
 	exists, err := configmap.Exists(ctx, configMapGetter, types.NamespacedName{
 		Namespace: mdb.Namespace,
-		Name:      cmName},
+		Name:      cmName,
+	},
 	)
 	if err != nil {
 		log.Warnf("can't determine whether the TLS ConfigMap exists or not: %s. Will assume it doesn't", err)

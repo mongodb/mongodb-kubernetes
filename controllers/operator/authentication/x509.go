@@ -54,7 +54,6 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -65,7 +64,6 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -80,7 +78,6 @@ func (x ConnectionX509) EnableAgentAuthentication(opts Options, log *zap.Sugared
 
 func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error {
 	err := x.Conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    util.MergoDelete,
 			ClientCertificateMode: util.OptionalClientCertficates,
@@ -90,7 +87,6 @@ func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error
 			ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(MongoDBX509))
 		}
 		return nil
-
 	}, log)
 	if err != nil {
 		return err
@@ -99,7 +95,6 @@ func (x ConnectionX509) DisableAgentAuthentication(log *zap.SugaredLogger) error
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}

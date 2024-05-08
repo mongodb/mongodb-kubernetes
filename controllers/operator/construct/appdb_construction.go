@@ -109,7 +109,6 @@ func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefu
 
 // appDbPodSpec return the podtemplatespec modification required for the AppDB statefulset.
 func appDbPodSpec(om om.MongoDBOpsManager) podtemplatespec.Modification {
-
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := NewDefaultPodSpecWrapper(*om.Spec.AppDB.PodSpec)
@@ -233,7 +232,6 @@ func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
 // tlsVolumes returns the podtemplatespec modification that adds all needed volumes
 // and volumemounts for TLS.
 func tlsVolumes(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) podtemplatespec.Modification {
-
 	volumesToAdd, volumeMounts := getTLSVolumesAndVolumeMounts(appDb, podVars, log)
 	volumesFunc := func(spec *corev1.PodTemplateSpec) {
 		for _, v := range volumesToAdd {

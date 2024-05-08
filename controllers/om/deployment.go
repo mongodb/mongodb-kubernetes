@@ -134,8 +134,8 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 	// setting this to "REQUIRED" always (need to check). Otherwise, this should be configurable
 	// see OM configurations that affects this setting from AA side:
 	// https://docs.opsmanager.mongodb.com/current/reference/configuration/#mms.https.ClientCertificateMode
-	//sslConfig["ClientCertificateMode"] = "OPTIONAL"
-	//sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
+	// sslConfig["ClientCertificateMode"] = "OPTIONAL"
+	// sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
 
 	tlsConfig["CAFilePath"] = caFilePath
 }
@@ -922,7 +922,6 @@ func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogge
 	}
 
 	d.setProcesses(processes)
-
 }
 
 func (d Deployment) removeReplicaSets(replicaSets []string, log *zap.SugaredLogger) {

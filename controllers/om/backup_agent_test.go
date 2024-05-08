@@ -42,7 +42,6 @@ func TestBackupFieldsAreNotLost(t *testing.T) {
 	assert.Equal(t, config.BackingMap["logPath"], testBackupAgentConfig.BackingMap["logPath"])
 	assert.Equal(t, config.BackingMap["logRotate"], testBackupAgentConfig.BackingMap["logRotate"])
 	assert.Equal(t, config.BackingMap["urls"], testBackupAgentConfig.BackingMap["urls"])
-
 }
 
 func TestNestedFieldsAreNotLost(t *testing.T) {

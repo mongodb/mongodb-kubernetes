@@ -167,7 +167,8 @@ func backupDaemonEnvVars() []corev1.EnvVar {
 			// Specify the port of the backup daemon health endpoint for the liveness probe.
 			Name:  healthEndpointPortEnv,
 			Value: fmt.Sprintf("%d", backupDaemonHealthPort),
-		}}
+		},
+	}
 }
 
 func buildBackupDaemonLifecycle() lifecycle.Modification {

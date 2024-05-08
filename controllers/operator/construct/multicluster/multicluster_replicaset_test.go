@@ -61,7 +61,6 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 }
 
 func TestMultiClusterStatefulSet(t *testing.T) {
-
 	t.Run("No override provided", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
 		opts := MultiClusterReplicaSetOptions(
@@ -73,7 +72,6 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 
 		expectedReplicas := mdbm.Spec.ClusterSpecList[0].Members
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
-
 	})
 
 	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {
@@ -105,17 +103,18 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)
 		assert.Equal(t, expectedMatchLabels, sts.Spec.Selector.MatchLabels)
-
 	})
 
 	t.Run("Override provided only at Spec level", func(t *testing.T) {
-		stsOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"foo": "bar"},
+		stsOverride := &mdbc.StatefulSetConfiguration{
+			SpecWrapper: mdbc.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"foo": "bar"},
+					},
+					ServiceName: "overrideservice",
+				},
 			},
-			ServiceName: "overrideservice",
-		},
-		},
 		}
 
 		mdbm := getMultiClusterMongoDB()
@@ -132,26 +131,27 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 		assert.Equal(t, expectedReplicas, int(*sts.Spec.Replicas))
 
 		assert.Equal(t, stsOverride.SpecWrapper.Spec.ServiceName, sts.Spec.ServiceName)
-
 	})
 
 	t.Run("Override provided at both Spec and clusterSpecList level", func(t *testing.T) {
-
-		stsOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"foo": "bar"},
+		stsOverride := &mdbc.StatefulSetConfiguration{
+			SpecWrapper: mdbc.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"foo": "bar"},
+					},
+					ServiceName: "overrideservice",
+				},
 			},
-			ServiceName: "overrideservice",
-		},
-		},
 		}
 
-		singleClusterOverride := &mdbc.StatefulSetConfiguration{SpecWrapper: mdbc.StatefulSetSpecWrapper{
-			Spec: appsv1.StatefulSetSpec{
-				ServiceName: "clusteroverrideservice",
-				Replicas:    ptr.To(int32(4)),
+		singleClusterOverride := &mdbc.StatefulSetConfiguration{
+			SpecWrapper: mdbc.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					ServiceName: "clusteroverrideservice",
+					Replicas:    ptr.To(int32(4)),
+				},
 			},
-		},
 		}
 
 		mdbm := getMultiClusterMongoDB()
@@ -223,7 +223,6 @@ func Test_MultiClusterStatefulSetWithRelatedImagesWithStaticArchitecture(t *test
 }
 
 func TestPVCOverride(t *testing.T) {
-
 	tests := []struct {
 		inp appsv1.StatefulSetSpec
 		out struct {

@@ -1,8 +1,9 @@
 package workflow
 
 import (
-	"golang.org/x/xerrors"
 	"testing"
+
+	"golang.org/x/xerrors"
 
 	"github.com/stretchr/testify/assert"
 )

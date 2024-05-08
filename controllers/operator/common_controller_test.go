@@ -187,7 +187,6 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	// I assume that it's because when setting the secret data we use 'StringData' but read it back as
 	// 'Data' which is binary. May be real kubernetes api reads data as string and updates
 	assert.NotNil(t, key)
-
 }
 
 // TestUpdateStatus_Patched makes sure that 'ReconcileCommonController.updateStatus()' changes only status for current
@@ -330,7 +329,6 @@ func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passe
 }
 
 func prepareConnection(ctx context.Context, controller *ReconcileCommonController, omConnectionFunc om.ConnectionFactory, t *testing.T) (*om.MockedOmConnection, *env.PodEnvVars) {
-
 	projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
 	assert.NoError(t, err)
 	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})

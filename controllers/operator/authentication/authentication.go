@@ -171,7 +171,6 @@ func Configure(conn om.Connection, opts Options, isRecovering bool, log *zap.Sug
 // that changes to the authentication settings on the MongoDB resources won't leave MongoDBUsers without
 // the correct credentials.
 func ConfigureScramCredentials(user *om.MongoDBUser, password string) error {
-
 	scram256Salt, err := GenerateSalt(sha256.New)
 	if err != nil {
 		return xerrors.Errorf("error generating scramSha256 salt: %w", err)
@@ -214,7 +213,6 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 			ac.Auth.Disabled = true
 			return nil
 		}, log)
-
 		if err != nil {
 			return xerrors.Errorf("error read/updating automation config: %w", err)
 		}
@@ -247,7 +245,6 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
 		return nil
 	}, log)
-
 	if err != nil {
 		return xerrors.Errorf("error read/updating automation config: %w", err)
 	}
@@ -258,7 +255,6 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return xerrors.Errorf("error read/updating monitoring config: %w", err)
 	}
@@ -267,7 +263,6 @@ func Disable(conn om.Connection, opts Options, deleteUsers bool, log *zap.Sugare
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return xerrors.Errorf("error read/updating backup agent config: %w", err)
 	}
@@ -323,10 +318,12 @@ type Mechanism interface {
 	IsDeploymentAuthenticationConfigured() bool
 }
 
-var _ Mechanism = ConnectionScramSha{}
-var _ Mechanism = AutomationConfigScramSha{}
-var _ Mechanism = ConnectionX509{}
-var _ Mechanism = &ldapAuthMechanism{}
+var (
+	_ Mechanism = ConnectionScramSha{}
+	_ Mechanism = AutomationConfigScramSha{}
+	_ Mechanism = ConnectionX509{}
+	_ Mechanism = &ldapAuthMechanism{}
+)
 
 // removeUnusedAuthenticationMechanisms removes authentication mechanism that were previously enabled, or were required
 // as part of the transition process.
@@ -358,7 +355,6 @@ func removeUnusedAuthenticationMechanisms(conn om.Connection, opts Options, log 
 // enableAgentAuthentication determines which agent authentication mechanism should be configured
 // and enables it in Ops Manager
 func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -377,7 +373,6 @@ func enableAgentAuthentication(conn om.Connection, opts Options, log *zap.Sugare
 // in Ops Manager
 func ensureAuthoritativeSetIsConfigured(conn om.Connection, authoritativeSet bool, log *zap.SugaredLogger) error {
 	ac, err := conn.ReadAutomationConfig()
-
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -391,7 +386,6 @@ func ensureAuthoritativeSetIsConfigured(conn om.Connection, authoritativeSet boo
 		ac.Auth.AuthoritativeSet = authoritativeSet
 		return nil
 	}, log)
-
 }
 
 // ensureDeploymentsMechanismsExist makes sure that the corresponding deployment mechanisms which are required

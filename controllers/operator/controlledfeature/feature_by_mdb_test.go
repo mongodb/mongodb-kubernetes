@@ -21,7 +21,8 @@ func TestBuildFeatureControlsByMdb_MongodbParams(t *testing.T) {
 			},
 			Policies: []Policy{
 				{PolicyType: ExternallyManaged, DisabledParams: make([]string, 0)},
-				{PolicyType: DisableMongodConfig,
+				{
+					PolicyType:     DisableMongodConfig,
 					DisabledParams: []string{"storage.indexBuildRetry", "storage.journal.enabled"},
 				},
 				{PolicyType: DisableMongodVersion},
@@ -48,7 +49,8 @@ func TestBuildFeatureControlsByMdb_MongodbParams(t *testing.T) {
 			},
 			Policies: []Policy{
 				{PolicyType: ExternallyManaged, DisabledParams: make([]string, 0)},
-				{PolicyType: DisableMongodConfig,
+				{
+					PolicyType: DisableMongodConfig,
 					// The options have been deduplicated and contain the list of all options for each sharded cluster member
 					DisabledParams: []string{"storage.indexBuildRetry", "storage.journal.enabled", "systemLog.traceAllExceptions", "systemLog.verbosity"},
 				},

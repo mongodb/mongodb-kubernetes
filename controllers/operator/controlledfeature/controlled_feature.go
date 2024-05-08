@@ -107,7 +107,6 @@ func ClearFeatureControls(updater Updater, omVersion versionutil.OpsManagerVersi
 // ShouldUseFeatureControls returns a boolean indicating if the feature controls
 // should be enabled for the given version of Ops Manager
 func ShouldUseFeatureControls(version versionutil.OpsManagerVersion) bool {
-
 	// if we were not successfully able to determine a version
 	// from Ops Manager, we can assume it is a legacy version
 	if version.IsUnknown() {

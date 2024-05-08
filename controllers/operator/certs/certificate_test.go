@@ -7,7 +7,6 @@ import (
 )
 
 func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
-
 	crt := `-----BEGIN CERTIFICATE-----
 MIIFWzCCA0OgAwIBAgIRAJ/vHVZs6TGyhP/AIR+TAvMwDQYJKoZIhvcNAQELBQAw
 cTELMAkGA1UEBhMCVVMxETAPBgNVBAgMCE5ldyBZb3JrMREwDwYDVQQHDAhOZXcg

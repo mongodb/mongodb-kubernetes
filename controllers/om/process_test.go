@@ -48,6 +48,7 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "/data", process.DbPath())
 	})
 }
+
 func TestCreateMongodProcessStatic(t *testing.T) {
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 	t.Setenv(construct.MongodbImageEnv, "mongodb/mongodb-enterprise-server")
@@ -200,8 +201,10 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", additionalConfig, mdb.GetSpec(), "", nil)
 
-	assert.Equal(t, map[string]interface{}{"mode": string(tls.Prefer),
-		"certificateKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
+	assert.Equal(t, map[string]interface{}{
+		"mode":               string(tls.Prefer),
+		"certificateKeyFile": "/mongodb-automation/server.pem",
+	}, process.TLSConfig())
 }
 
 func TestCreateMongosProcess_SSL(t *testing.T) {
@@ -306,7 +309,6 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 }
 
 func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
-
 	prevAdditionalConfig := mdbv1.NewEmptyAdditionalMongodConfig()
 	prevAdditionalConfig.AddOption("storage.wiredTiger.engineConfig.cacheSizeGB", 3)
 	prevAdditionalConfig.AddOption("some.other.option", "value")

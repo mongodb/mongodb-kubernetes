@@ -180,7 +180,6 @@ func TestBackupServiceCreated_NoExternalConnectivity(t *testing.T) {
 	port1 := svc.Spec.Ports[1]
 	assert.Equal(t, backupPortName, port1.Name)
 	assert.Equal(t, int32(1234), port1.Port)
-
 }
 
 func TestBackupServiceCreated_ExternalConnectivity(t *testing.T) {
@@ -322,8 +321,10 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 	testDatabaseInKubernetesExternalServices(ctx, t, externalAccessConfiguration, expectedServices)
 }
 
-const defaultResourceName = "mdb"
-const defaultNamespace = "my-namespace"
+const (
+	defaultResourceName = "mdb"
+	defaultNamespace    = "my-namespace"
+)
 
 func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders(t *testing.T) {
 	ctx := context.Background()
@@ -553,7 +554,6 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 
 	_, err = manager.Client.GetService(ctx, types.NamespacedName{Name: "mdb-0-svc-external", Namespace: "my-namespace"})
 	require.Errorf(t, err, "expected no shard service")
-
 }
 
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
@@ -562,6 +562,7 @@ func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *
 	assert.NoError(t, err)
 	return err
 }
+
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, manager *mock.MockedManager) error {
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(construct.GetPodEnvOptions()), log)
 	err := DatabaseInKubernetes(ctx, manager.Client, *mdb, sts, construct.MongosOptions(), log)

@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -37,10 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/stretchr/testify/assert"
-
-	"reflect"
-
-	"fmt"
 
 	mdbv1 "github.com/10gen/ops-manager-kubernetes/api/v1/mdb"
 	"github.com/10gen/ops-manager-kubernetes/controllers/om"
@@ -136,7 +134,6 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 	omConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
 		reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
-
 }
 
 func getEmptyDeploymentOptions() deploymentOptions {
@@ -232,7 +229,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 1)
 	mockedOmConnection.CheckDeployment(t, expectedDeployment)
-	//we don't remove hosts from monitoring at this stage
+	// we don't remove hosts from monitoring at this stage
 	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
@@ -470,6 +467,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 	assert.Equal(t, util.DatabaseContainerName, podSpecTemplateScConfig.Containers[0].Name, "Database container should always be first")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[1].Name, "Custom container should be second")
 }
+
 func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
@@ -592,7 +590,6 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	assert.Equal(t, cf.Policies[0].PolicyType, controlledfeature.ExternallyManaged)
 	assert.Equal(t, cf.Policies[1].PolicyType, controlledfeature.DisableMongodVersion)
 	assert.Len(t, cf.Policies[0].DisabledParams, 0)
-
 }
 
 func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
@@ -879,7 +876,6 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 	assert.Len(t, reconciler.WatchedResources, 2)
-
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
@@ -964,7 +960,6 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 		assertAllOtherBackupConfigsRemainUntouched(t)
 	})
-
 }
 
 // createShardedClusterTLSSecretsFromCustomCerts creates and populates all the required
@@ -1110,7 +1105,6 @@ func TestShardedClusterAgentVersionMapping(t *testing.T) {
 }
 
 func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName string, restartPolicy corev1.RestartPolicy) {
-
 	podSpecTemplate := sts.Spec.Template.Spec
 	// ensure values were passed to the stateful set
 	assert.Equal(t, nodeName, podSpecTemplate.NodeName)
@@ -1123,7 +1117,6 @@ func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName 
 		assert.Equal(t, util.DatabaseContainerName, podSpecTemplate.Containers[0].Name, "Database container should always be first")
 		assert.True(t, statefulset.VolumeMountWithNameExists(podSpecTemplate.Containers[0].VolumeMounts, construct.PvcNameDatabaseScripts))
 	}
-
 }
 
 func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {
@@ -1230,30 +1223,37 @@ func (b *ClusterBuilder) SetName(name string) *ClusterBuilder {
 	b.Name = name
 	return b
 }
+
 func (b *ClusterBuilder) SetShardCountSpec(count int) *ClusterBuilder {
 	b.Spec.ShardCount = count
 	return b
 }
+
 func (b *ClusterBuilder) SetMongodsPerShardCountSpec(count int) *ClusterBuilder {
 	b.Spec.MongodsPerShardCount = count
 	return b
 }
+
 func (b *ClusterBuilder) SetConfigServerCountSpec(count int) *ClusterBuilder {
 	b.Spec.ConfigServerCount = count
 	return b
 }
+
 func (b *ClusterBuilder) SetMongosCountSpec(count int) *ClusterBuilder {
 	b.Spec.MongosCount = count
 	return b
 }
+
 func (b *ClusterBuilder) SetShardCountStatus(count int) *ClusterBuilder {
 	b.Status.ShardCount = count
 	return b
 }
+
 func (b *ClusterBuilder) SetMongodsPerShardCountStatus(count int) *ClusterBuilder {
 	b.Status.MongodsPerShardCount = count
 	return b
 }
+
 func (b *ClusterBuilder) SetConfigServerCountStatus(count int) *ClusterBuilder {
 	b.Status.ConfigServerCount = count
 	return b

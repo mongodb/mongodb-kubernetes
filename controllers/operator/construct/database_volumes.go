@@ -121,13 +121,13 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 func (c *tlsVolumeSource) GetVolumes() []corev1.Volume {
 	volumes, _ := c.getVolumesAndMounts()
 	return volumes
-
 }
+
 func (c *tlsVolumeSource) GetVolumeMounts() []corev1.VolumeMount {
 	_, volumeMounts := c.getVolumesAndMounts()
 	return volumeMounts
-
 }
+
 func (c *tlsVolumeSource) GetEnvs() []corev1.EnvVar {
 	return []corev1.EnvVar{}
 }

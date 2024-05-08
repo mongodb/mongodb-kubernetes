@@ -135,8 +135,10 @@ type DefaultOmAdmin struct {
 	CA            *string
 }
 
-var _ OpsManagerAdmin = &DefaultOmAdmin{}
-var _ OpsManagerAdmin = &MockedOmAdmin{}
+var (
+	_ OpsManagerAdmin = &DefaultOmAdmin{}
+	_ OpsManagerAdmin = &MockedOmAdmin{}
+)
 
 func NewOmAdmin(baseUrl, user, privateKey string, ca *string) OpsManagerAdmin {
 	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PrivateAPIKey: privateKey, CA: ca}
@@ -360,7 +362,6 @@ func (a *DefaultOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
 		return Key{}, err
 	}
 	return *apiKey, nil
-
 }
 
 // ReadOpsManagerVersion read the version returned in the Header.

@@ -333,6 +333,7 @@ func (m *AppDBSpec) GetTLSConfig() *mdbv1.TLSConfig {
 
 	return m.Security.TLSConfig
 }
+
 func DefaultAppDbBuilder() *AppDbBuilder {
 	appDb := &AppDBSpec{
 		Version:              "4.2.0",
@@ -441,6 +442,7 @@ func (m *AppDBSpec) GetTlsCertificatesSecretName() string {
 func (m *AppDBSpec) GetName() string {
 	return m.Name()
 }
+
 func (m *AppDBSpec) GetNamespace() string {
 	return m.Namespace
 }

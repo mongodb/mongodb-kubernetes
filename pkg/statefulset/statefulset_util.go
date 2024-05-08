@@ -20,7 +20,6 @@ import (
 // isVolumeClaimEqualOnForbiddenFields takes two sts PVCs
 // and returns whether we are allowed to update the first one to the second one.
 func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolumeClaim) bool {
-
 	oldSpec := existing.Spec
 	newSpec := desired.Spec
 
@@ -42,7 +41,6 @@ func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolu
 
 	if newSpec.StorageClassName != nil && !reflect.DeepEqual(oldSpec.StorageClassName, newSpec.StorageClassName) {
 		return false
-
 	}
 
 	if newSpec.VolumeMode != nil && !reflect.DeepEqual(newSpec.VolumeMode, oldSpec.VolumeMode) {

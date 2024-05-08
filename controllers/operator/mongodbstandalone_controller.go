@@ -123,7 +123,6 @@ type ReconcileMongoDbStandalone struct {
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
@@ -319,7 +318,6 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 		},
 		log,
 	)
-
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -334,7 +332,6 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 
 	log.Info("Updated Ops Manager for standalone")
 	return workflow.OK()
-
 }
 
 func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {

@@ -12,6 +12,7 @@ func MembersOption(replicaSetscaler scale.ReplicaSetScaler) Option {
 func MongosCountOption(replicaSetscaler scale.ReplicaSetScaler) Option {
 	return ShardedClusterMongosOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
 }
+
 func ConfigServerOption(replicaSetscaler scale.ReplicaSetScaler) Option {
 	return ShardedClusterConfigServerOption{Members: scale.ReplicasThisReconciliation(replicaSetscaler)}
 }

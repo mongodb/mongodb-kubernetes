@@ -109,7 +109,6 @@ func TestAddDeleteStandalone(t *testing.T) {
 	omConn.CheckOrderOfOperations(t,
 		reflect.ValueOf(omConn.ReadUpdateDeployment), reflect.ValueOf(omConn.ReadAutomationStatus),
 		reflect.ValueOf(omConn.ReadAutomationStatus), reflect.ValueOf(omConn.GetHosts), reflect.ValueOf(omConn.RemoveHost))
-
 }
 
 func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
@@ -168,7 +167,6 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 
 	assert.Contains(t, policies, controlledfeature.ExternallyManaged)
 	assert.Contains(t, policies, controlledfeature.DisableAuthenticationMechanisms)
-
 }
 
 func TestStandalonePortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
@@ -202,8 +200,10 @@ func TestStandaloneCustomPodSpecTemplate(t *testing.T) {
 	statefulSet, err := client.GetStatefulSet(ctx, mock.ObjectKeyFromApiObject(st))
 	assert.NoError(t, err)
 
-	expectedLabels := map[string]string{"app": "dublin-svc", "controller": "mongodb-enterprise-operator",
-		"first": "val", "pod-anti-affinity": "dublin"}
+	expectedLabels := map[string]string{
+		"app": "dublin-svc", "controller": "mongodb-enterprise-operator",
+		"first": "val", "pod-anti-affinity": "dublin",
+	}
 	assert.Equal(t, expectedLabels, statefulSet.Spec.Template.Labels)
 }
 
@@ -304,14 +304,17 @@ func (b *StandaloneBuilder) SetName(name string) *StandaloneBuilder {
 	b.Name = name
 	return b
 }
+
 func (b *StandaloneBuilder) SetVersion(version string) *StandaloneBuilder {
 	b.Spec.Version = version
 	return b
 }
+
 func (b *StandaloneBuilder) SetPersistent(p *bool) *StandaloneBuilder {
 	b.Spec.Persistent = p
 	return b
 }
+
 func (b *StandaloneBuilder) SetService(s string) *StandaloneBuilder {
 	b.Spec.Service = s
 	return b

@@ -222,7 +222,8 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 		{
 			ClusterName: memberClusterName2,
 			Members:     1,
-		}}
+		},
+	}
 
 	builder := DefaultOpsManagerBuilder().
 		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).

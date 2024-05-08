@@ -41,7 +41,6 @@ func TestSetMapValue(t *testing.T) {
 		}
 		assert.Equal(t, expectedMap, dest)
 	})
-
 }
 
 func TestRemoveFieldsBasedOnDesiredAndPrevious(t *testing.T) {
