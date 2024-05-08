@@ -866,7 +866,8 @@ def _build_agent(
     mongodb_agent_url_ubi = f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod/mongodb-mms-automation-agent-{agent_version[0]}.{agent_distro}.tar.gz"
     # We use Quay if not in a patch
     # We could rely on input params (quay_registry or registry), but it makes templating more complex in the inventory
-    base_init_database_repo = QUAY_REGISTRY_URL if use_quay else "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
+    non_quay_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    base_init_database_repo = QUAY_REGISTRY_URL if use_quay else non_quay_registry
     init_database_image = f"{base_init_database_repo}/mongodb-enterprise-init-database-ubi:{operator_version}"
 
     tasks_queue.put(
