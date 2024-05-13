@@ -77,9 +77,28 @@ remove_old_buckets() {
   pushd "${tmp_dir}"
   bucket_list_file="bucket_list.json"
   echo "${bucket_list}" >${bucket_list_file}
-  echo "Splitting bucket list ($(wc -l <"${bucket_list_file}") lines) into files in dir: ${tmp_dir}"
-  # we split to 30 files, so we execute 30 delete processes in parallel
-  split -l $(( $(wc -l <"${bucket_list_file}") / 30)) "${bucket_list_file}" splitted-
+
+  # Get the number of lines in the file
+  num_lines=$(wc -l < "${bucket_list_file}")
+
+  # Check if file is empty
+  if [ "$num_lines" -eq 0 ]; then
+      echo "Error: ${bucket_list_file} is empty."
+      exit 1
+  fi
+
+  # Calculate the number of lines per split file
+  if [ "$num_lines" -lt 30 ]; then
+      # If the file has fewer than 30 lines, split it into the number of lines
+      lines_per_split="$num_lines"
+  else
+      # Otherwise, set the max at 30
+      lines_per_split=30
+  fi
+
+  echo "Splitting bucket list ($(wc -l <"${bucket_list_file}") lines) into ${lines_per_split} files in dir: ${tmp_dir}. Processing them in parallel."
+  # we split to lines_per_split files, so we execute lines_per_split delete processes in parallel
+  split -l $(( $(wc -l <"${bucket_list_file}") / lines_per_split)) "${bucket_list_file}" splitted-
   splitted_files_list=$(ls -1 splitted-*)
 
   # for each file containing slice of buckets, we execute delete_buckets_from_file
