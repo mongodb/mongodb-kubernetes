@@ -761,6 +761,8 @@ def build_agent_in_sonar(
     init_database_image,
     mongodb_tools_url_ubi,
     mongodb_agent_url_ubi: str,
+    inventory_file="inventories/agent.yaml",
+    image_name="agent",
 ):
     args = {
         "version": image_version,
@@ -774,11 +776,18 @@ def build_agent_in_sonar(
 
     build_image_generic(
         config=build_configuration,
-        image_name="agent",
-        inventory_file="inventories/agent.yaml",
+        image_name=image_name,
+        inventory_file=inventory_file,
         extra_args=args,
         registry_address=registry,
     )
+
+    if image_name in {"agent-arm64", "agent-amd64"}:
+        # TODO: fixme to have this work for both registries under each cases for each registry
+        registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+        image = registry + f"/mongodb-agent-ubi"
+        create_and_push_manifest(image, image_version)
+
     # Agent is the only image for which release is part of the inventory, on top of -context release
     # This is done usually by daily builds
     if build_configuration.sign and is_release_step_executed(
@@ -878,6 +887,32 @@ def _build_agent(
             init_database_image,
             mongodb_tools_url_ubi,
             mongodb_agent_url_ubi,
+            "inventories/agent.yaml",
+            "agent",
+        )
+    )
+    tasks_queue.put(
+        executor.submit(
+            build_agent_in_sonar,
+            build_configuration,
+            agent_version[0],
+            init_database_image,
+            tools_version,
+            mongodb_agent_url_ubi,
+            "inventories/agent_non_matrix.yaml",
+            "agent-amd64",
+        )
+    )
+    tasks_queue.put(
+        executor.submit(
+            build_agent_in_sonar,
+            build_configuration,
+            agent_version[0],
+            init_database_image,
+            tools_version,
+            mongodb_agent_url_ubi,
+            "inventories/agent_non_matrix.yaml",
+            "agent-arm64",
         )
     )
 
