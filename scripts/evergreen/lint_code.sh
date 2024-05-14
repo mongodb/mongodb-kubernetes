@@ -11,7 +11,7 @@ fi
 
 if ! [[ -x "$(command -v staticcheck)" ]]; then
     echo "installing staticcheck..."
-    go install honnef.co/go/tools/cmd/staticcheck@v0.4.3
+    go install honnef.co/go/tools/cmd/staticcheck@latest
   else
     echo "staticcheck is already installed"
 fi

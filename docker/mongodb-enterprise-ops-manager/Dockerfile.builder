@@ -1,6 +1,6 @@
 # Build compilable stuff
 
-FROM golang:1.21 as readiness_builder
+FROM golang:1.22 as readiness_builder
 COPY . /go/src/github.com/10gen/ops-manager-kubernetes
 WORKDIR /go/src/github.com/10gen/ops-manager-kubernetes
 
