@@ -120,7 +120,7 @@ export ALWAYS_REMOVE_TESTING_NAMESPACE="true"
 # Note: in our root-context we default the image tag to latest, if VERSION_ID is not preset on your machine
 export BASE_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 export QUAY_REGISTRY=quay.io/mongodb
-export REGISTRY="$BASE_REPO_URL/ubi"
+export REGISTRY="$BASE_REPO_URL"
 export OPERATOR_REGISTRY=${REGISTRY}
 
 export INIT_IMAGES_REGISTRY=${INIT_IMAGES_REGISTRY:-${REGISTRY}}
