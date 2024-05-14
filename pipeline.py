@@ -771,19 +771,21 @@ def build_agent_in_sonar(
         "init_database_image": init_database_image,
     }
 
-    registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    args["quay_registry"] = registry
+    agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
+    args["quay_registry"] = agent_registry
 
     build_image_generic(
         config=build_configuration,
         image_name=image_name,
         inventory_file=inventory_file,
         extra_args=args,
-        registry_address=registry,
+        registry_address=agent_registry,
     )
 
     if image_name in {"agent-arm64", "agent-amd64"}:
         # TODO: fixme to have this work for both registries under each cases for each registry
+        # On all patches we should push the manifest to ecr and during releases we additionally should push
+        # to quay
         registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
         image = registry + f"/mongodb-agent-ubi"
         create_and_push_manifest(image, image_version)
@@ -793,8 +795,8 @@ def build_agent_in_sonar(
     if build_configuration.sign and is_release_step_executed(
         build_configuration.get_skip_tags(), build_configuration.get_include_tags()
     ):
-        sign_image(registry, image_version)
-        verify_signature(registry, image_version)
+        sign_image(agent_registry, image_version)
+        verify_signature(agent_registry, image_version)
 
 
 def build_agent_default_case(build_configuration: BuildConfiguration):
