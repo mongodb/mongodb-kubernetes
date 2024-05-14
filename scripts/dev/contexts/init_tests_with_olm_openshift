@@ -11,4 +11,3 @@ script_dir=$(dirname "${script_name}")
 source "$script_dir/root-context"
 
 export MANAGED_SECURITY_CONTEXT="true"
-export AGENT_BASE_REGISTRY="${QUAY_REGISTRY}"
