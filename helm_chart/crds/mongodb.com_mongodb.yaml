@@ -3,8 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.10.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.15.0
   name: mongodb.mongodb.com
 spec:
   group: mongodb.com
@@ -40,23 +39,30 @@ spec:
       openAPIV3Schema:
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
             properties:
               additionalMongodConfig:
-                description: 'AdditionalMongodConfig is additional configuration that
-                  can be passed to each data-bearing mongod at runtime. Uses the same
-                  structure as the mongod configuration file: https://docs.mongodb.com/manual/reference/configuration-options/'
+                description: |-
+                  AdditionalMongodConfig is additional configuration that can be passed to
+                  each data-bearing mongod at runtime. Uses the same structure as the mongod
+                  configuration file:
+                  https://docs.mongodb.com/manual/reference/configuration-options/
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               agent:
@@ -71,7 +77,8 @@ spec:
                     type: object
                 type: object
               backup:
-                description: Backup contains configuration options for configuring
+                description: |-
+                  Backup contains configuration options for configuring
                   backup for this MongoDB resource
                 properties:
                   assignmentLabels:
@@ -80,9 +87,9 @@ spec:
                       type: string
                     type: array
                   autoTerminateOnDeletion:
-                    description: AutoTerminateOnDeletion indicates if the Operator
-                      should stop and terminate the Backup before the cleanup, when
-                      the MongoDB CR is deleted
+                    description: |-
+                      AutoTerminateOnDeletion indicates if the Operator should stop and terminate the Backup before the cleanup,
+                      when the MongoDB CR is deleted
                     type: boolean
                   encryption:
                     description: Encryption settings
@@ -95,13 +102,14 @@ spec:
                             description: KMIP Client configuration
                             properties:
                               clientCertificatePrefix:
-                                description: 'A prefix used to construct KMIP client
-                                  certificate (and corresponding password) Secret
-                                  names. The names are generated using the following
-                                  pattern: KMIP Client Certificate (TLS Secret): <clientCertificatePrefix>-<CR
-                                  Name>-kmip-client KMIP Client Certificate Password:
-                                  <clientCertificatePrefix>-<CR Name>-kmip-client-password
-                                  The expected key inside is called "password".'
+                                description: |-
+                                  A prefix used to construct KMIP client certificate (and corresponding password) Secret names.
+                                  The names are generated using the following pattern:
+                                  KMIP Client Certificate (TLS Secret):
+                                    <clientCertificatePrefix>-<CR Name>-kmip-client
+                                  KMIP Client Certificate Password:
+                                    <clientCertificatePrefix>-<CR Name>-kmip-client-password
+                                    The expected key inside is called "password".
                                 type: string
                             type: object
                         required:
@@ -285,16 +293,23 @@ spec:
               connectivity:
                 properties:
                   replicaSetHorizons:
-                    description: 'ReplicaSetHorizons holds list of maps of horizons
-                      to be configured in each of MongoDB processes. Horizons map
-                      horizon names to the node addresses for each process in the
-                      replicaset, e.g.: [ { "internal": "my-rs-0.my-internal-domain.com:31843",
-                      "external": "my-rs-0.my-external-domain.com:21467" }, { "internal":
-                      "my-rs-1.my-internal-domain.com:31843", "external": "my-rs-1.my-external-domain.com:21467"
-                      }, ... ] The key of each item in the map is an arbitrary, user-chosen
-                      string that represents the name of the horizon. The value of
-                      the item is the host and, optionally, the port that this mongod
-                      node will be connected to from.'
+                    description: |-
+                      ReplicaSetHorizons holds list of maps of horizons to be configured in each of MongoDB processes.
+                      Horizons map horizon names to the node addresses for each process in the replicaset, e.g.:
+                       [
+                         {
+                           "internal": "my-rs-0.my-internal-domain.com:31843",
+                           "external": "my-rs-0.my-external-domain.com:21467"
+                         },
+                         {
+                           "internal": "my-rs-1.my-internal-domain.com:31843",
+                           "external": "my-rs-1.my-external-domain.com:21467"
+                         },
+                         ...
+                       ]
+                      The key of each item in the map is an arbitrary, user-chosen string that
+                      represents the name of the horizon. The value of the item is the host and,
+                      optionally, the port that this mongod node will be connected to from.
                     items:
                       additionalProperties:
                         type: string
@@ -518,8 +533,9 @@ spec:
                       to 9216.
                     type: integer
                   tlsSecretKeyRef:
-                    description: Name of a Secret (type kubernetes.io/tls) holding
-                      the certificates to use in the Prometheus endpoint.
+                    description: |-
+                      Name of a Secret (type kubernetes.io/tls) holding the certificates to use in the
+                      Prometheus endpoint.
                     properties:
                       key:
                         description: Key is the key in the secret storing this password.
@@ -542,8 +558,9 @@ spec:
               security:
                 properties:
                   authentication:
-                    description: Authentication holds various authentication related
-                      settings that affect this MongoDB resource.
+                    description: |-
+                      Authentication holds various authentication related settings that affect
+                      this MongoDB resource.
                     properties:
                       agents:
                         description: Agents contains authentication configuration
@@ -559,9 +576,10 @@ spec:
                                   be a valid secret key.
                                 type: string
                               name:
-                                description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Add other useful fields. apiVersion, kind,
-                                  uid?'
+                                description: |-
+                                  Name of the referent.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                 type: string
                               optional:
                                 description: Specify whether the Secret or its key
@@ -612,9 +630,10 @@ spec:
                                 description: The key to select.
                                 type: string
                               name:
-                                description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                  TODO: Add other useful fields. apiVersion, kind,
-                                  uid?'
+                                description: |-
+                                  Name of the referent.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  TODO: Add other useful fields. apiVersion, kind, uid?
                                 type: string
                               optional:
                                 description: Specify whether the ConfigMap or its
@@ -726,24 +745,24 @@ spec:
                           type: string
                         type: array
                       ca:
-                        description: CA corresponds to a ConfigMap containing an entry
-                          for the CA certificate (ca.pem) used to validate the certificates
-                          created already.
+                        description: |-
+                          CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
+                          used to validate the certificates created already.
                         type: string
                       enabled:
-                        description: DEPRECATED please enable TLS by setting `security.certsSecretPrefix`
-                          or `security.tls.secretRef.prefix`. Enables TLS for this
-                          resource. This will make the operator try to mount a Secret
-                          with a defined name (<resource-name>-cert). This is only
-                          used when enabling TLS on a MongoDB resource, and not on
-                          the AppDB, where TLS is configured by setting `secretRef.Name`.
+                        description: |-
+                          DEPRECATED please enable TLS by setting `security.certsSecretPrefix` or `security.tls.secretRef.prefix`.
+                          Enables TLS for this resource. This will make the operator try to mount a
+                          Secret with a defined name (<resource-name>-cert).
+                          This is only used when enabling TLS on a MongoDB resource, and not on the
+                          AppDB, where TLS is configured by setting `secretRef.Name`.
                         type: boolean
                     type: object
                 type: object
               service:
-                description: DEPRECATED please use `spec.statefulSet.spec.serviceName`
-                  to provide a custom service name. this is an optional service, it
-                  will get the name "<rsName>-service" in case not provided
+                description: |-
+                  DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
+                  this is an optional service, it will get the name "<rsName>-service" in case not provided
                 type: string
               shard:
                 properties:
@@ -874,10 +893,10 @@ spec:
                   type: object
                 type: array
               statefulSet:
-                description: StatefulSetConfiguration provides the statefulset override
-                  for each of the cluster's statefulset if "StatefulSetConfiguration"
-                  is specified at cluster level under "clusterSpecList" that takes
-                  precedence over the global one
+                description: |-
+                  StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
+                  if "StatefulSetConfiguration" is specified at cluster level under "clusterSpecList" that takes precedence over
+                  the global one
                 properties:
                   metadata:
                     description: StatefulSetMetadataWrapper is a wrapper around Labels
