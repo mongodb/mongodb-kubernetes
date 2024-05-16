@@ -308,7 +308,7 @@ def sonar_build_image(
         "pipeline": build_configuration.pipeline,
     }
 
-    logger.info(f"Sonar config: {build_configuration}")
+    logger.info(f"Sonar config bc: {build_configuration}, args: {args}, for image: {image_name}")
 
     process_image(
         image_name,
@@ -730,6 +730,7 @@ def build_image_generic(
     inventory_file: str,
     extra_args: dict = None,
     registry_address: str = None,
+    do_context_sign: bool = True
 ):
     args = extra_args or {}
     version = extra_args.get("version", "")
@@ -737,9 +738,13 @@ def build_image_generic(
     args["quay_registry"] = registry
 
     sonar_build_image(image_name, config, args, inventory_file)
-    if config.sign and is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
-        sign_image(registry, version + "-context")
-        verify_signature(registry, version + "-context")
+    if do_context_sign and config.sign and is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
+        sign_and_verify_context_image(registry, version)
+
+
+def sign_and_verify_context_image(registry, version):
+    sign_image(registry, version + "-context")
+    verify_signature(registry, version + "-context")
 
 
 def is_release_step_executed(skip_tags: List[str], include_tags: List[str]) -> bool:
@@ -761,8 +766,6 @@ def build_agent_in_sonar(
     init_database_image,
     mongodb_tools_url_ubi,
     mongodb_agent_url_ubi: str,
-    inventory_file="inventories/agent.yaml",
-    image_name="agent",
 ):
     args = {
         "version": image_version,
@@ -771,37 +774,91 @@ def build_agent_in_sonar(
         "init_database_image": init_database_image,
     }
 
-    agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    args["quay_registry"] = agent_registry
+    agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
+    args["quay_registry"] = agent_quay_registry
 
     build_image_generic(
         config=build_configuration,
-        image_name=image_name,
-        inventory_file=inventory_file,
+        image_name="agent",
+        inventory_file="inventories/agent.yaml",
         extra_args=args,
-        registry_address=agent_registry,
+        registry_address=agent_quay_registry,
     )
-
-    if image_name in {"agent-arm64", "agent-amd64"}:
-        # TODO: fixme to have this work for both registries under each cases for each registry
-        # On all patches we should push the manifest to ecr and during releases we additionally should push
-        # to quay
-        registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-        image = registry + f"/mongodb-agent-ubi"
-        create_and_push_manifest(image, image_version)
 
     # Agent is the only image for which release is part of the inventory, on top of -context release
     # This is done usually by daily builds
     if build_configuration.sign and is_release_step_executed(
         build_configuration.get_skip_tags(), build_configuration.get_include_tags()
     ):
-        sign_image(agent_registry, image_version)
-        verify_signature(agent_registry, image_version)
+        sign_image(agent_quay_registry, image_version)
+        verify_signature(agent_quay_registry, image_version)
+
+
+def build_multi_arch_agent_in_sonar(
+    build_configuration: BuildConfiguration,
+    image_version,
+    mongodb_tools_url_ubi,
+    mongodb_agent_url_ubi: str,
+):
+    """
+    Creates the multi-arch non-operator suffixed version of the agent.
+    This is a drop-in replacement for the agent
+    release from MCO.
+    This should only be called during releases.
+    Which will lead to a release of the multi-arch
+    images to quay and ecr.
+    """
+
+    logger.info(f"building multi-arch base image for: {image_version}")
+
+    args = {
+        "version": image_version,
+        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
+        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
+    }
+
+    arch_arm = {"agent_distro": "amzn2_aarch64", "tools_distro": "rhel82-aarch64", "architecture": "arm64"}
+    arch_amd = {"agent_distro": "rhel7_x86_64", "tools_distro": "rhel70-x86_64", "architecture": "amd64"}
+
+    agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
+    args["quay_registry"] = agent_quay_registry
+    for arch in [arch_arm, arch_amd]:
+        args = args | arch
+        build_image_generic(
+            config=build_configuration,
+            image_name="multi-arch-agent",
+            inventory_file="inventories/agent_non_matrix.yaml",
+            extra_args=args,
+            registry_address=agent_quay_registry,
+            # We need to push the manifests for context and non-context first before we can sign and verify the images
+            # We cannot rely on the config.sign,
+            # since we still need signing, but just not here in the generic image build.
+            do_context_sign=False
+        )
+
+    ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    agent_registries = [ecr_registry + f"/mongodb-agent-ubi"]
+    if is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags()):
+        agent_registries.append(agent_quay_registry)
+    for agent_registry in agent_registries:
+        create_and_push_manifest(agent_registry, f"{image_version}-context")
+        create_and_push_manifest(agent_registry, image_version)
+
+    # Multi-arch images require signing and verifying the context images as well as the fully released images.
+    # The full image is released as part of the inventory with the above manifest.
+    if build_configuration.sign and is_release_step_executed(
+        build_configuration.get_skip_tags(), build_configuration.get_include_tags()
+    ):
+        sign_and_verify_context_image(agent_quay_registry, image_version)
+        sign_image(agent_quay_registry, image_version)
+        verify_signature(agent_quay_registry, image_version)
 
 
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
-    Build the agent for the latest operator for patches and operator releases
+    Build the agent for the latest operator for patches and operator releases.
+
+    See more information in the function: build_agent_on_agent_bump
     """
     release = get_release()
 
@@ -817,6 +874,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
             _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
 
     exceptions_found = False
+
     for task in tasks_queue.queue:
         if task.exception() is not None:
             exceptions_found = True
@@ -829,7 +887,18 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
 
 def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     """
-    Build the agent matrix (operator version x agent version), triggered by PCT
+    Build the agent matrix (operator version x agent version), triggered by PCT.
+
+    We have three cases where we need to build the agent:
+    - e2e test runs
+    - operator releases
+    - OM/CM bumps via PCT
+
+    We don't require building a full matrix on e2e test runs and operator releases.
+    "Operator releases" and "e2e test runs" require only the latest operator x agents
+
+    In OM/CM bumps, we release a new agent which we potentially require to release to older operators as well.
+    This function takes care of that.
     """
     release = get_release()
 
@@ -889,34 +958,21 @@ def _build_agent(
             init_database_image,
             mongodb_tools_url_ubi,
             mongodb_agent_url_ubi,
-            "inventories/agent.yaml",
-            "agent",
         )
     )
-    tasks_queue.put(
-        executor.submit(
-            build_agent_in_sonar,
-            build_configuration,
-            agent_version[0],
-            init_database_image,
-            tools_version,
-            mongodb_agent_url_ubi,
-            "inventories/agent_non_matrix.yaml",
-            "agent-amd64",
+
+    # We don't need to keep create and push the same image on every build.
+    # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
+    if is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags()):
+        tasks_queue.put(
+            executor.submit(
+                build_multi_arch_agent_in_sonar,
+                build_configuration,
+                agent_version[0],
+                tools_version,
+                mongodb_agent_url_ubi,
+            )
         )
-    )
-    tasks_queue.put(
-        executor.submit(
-            build_agent_in_sonar,
-            build_configuration,
-            agent_version[0],
-            init_database_image,
-            tools_version,
-            mongodb_agent_url_ubi,
-            "inventories/agent_non_matrix.yaml",
-            "agent-arm64",
-        )
-    )
 
 
 def build_agent_gather_versions(release: Dict[str, str]) -> List[Tuple[str, str]]:
@@ -931,7 +987,8 @@ def build_agent_gather_versions(release: Dict[str, str]) -> List[Tuple[str, str]
     for _, om in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].items():
         agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
 
-    return agent_versions_to_build
+    # lets not build the same image multiple times
+    return list(set(agent_versions_to_build))
 
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
