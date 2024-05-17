@@ -797,8 +797,7 @@ def build_agent_in_sonar(
 def build_multi_arch_agent_in_sonar(
     build_configuration: BuildConfiguration,
     image_version,
-    mongodb_tools_url_ubi,
-    mongodb_agent_url_ubi: str,
+    tools_version,
 ):
     """
     Creates the multi-arch non-operator suffixed version of the agent.
@@ -810,18 +809,19 @@ def build_multi_arch_agent_in_sonar(
     """
 
     logger.info(f"building multi-arch base image for: {image_version}")
-
+    is_release = is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags())
     args = {
         "version": image_version,
-        "mongodb_tools_url_ubi": mongodb_tools_url_ubi,
-        "mongodb_agent_url_ubi": mongodb_agent_url_ubi,
+        "tools_version": tools_version,
     }
 
     arch_arm = {"agent_distro": "amzn2_aarch64", "tools_distro": "rhel82-aarch64", "architecture": "arm64"}
     arch_amd = {"agent_distro": "rhel7_x86_64", "tools_distro": "rhel70-x86_64", "architecture": "amd64"}
 
-    agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-    args["quay_registry"] = agent_quay_registry
+    ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
+    ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
+    quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
+
     for arch in [arch_arm, arch_amd]:
         args = args | arch
         build_image_generic(
@@ -829,34 +829,32 @@ def build_multi_arch_agent_in_sonar(
             image_name="multi-arch-agent",
             inventory_file="inventories/agent_non_matrix.yaml",
             extra_args=args,
-            registry_address=agent_quay_registry,
+            registry_address=quay_agent_registry if is_release else ecr_agent_registry,
             # We need to push the manifests for context and non-context first before we can sign and verify the images
             # We cannot rely on the config.sign,
             # since we still need signing, but just not here in the generic image build.
             do_context_sign=False
         )
 
-    ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
-    agent_registries = [ecr_registry + f"/mongodb-agent-ubi"]
-    if is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags()):
-        agent_registries.append(agent_quay_registry)
+    agent_registries = [ecr_agent_registry]
+    if is_release:
+        agent_registries.append(quay_agent_registry)
+
     for agent_registry in agent_registries:
         create_and_push_manifest(agent_registry, f"{image_version}-context")
         create_and_push_manifest(agent_registry, image_version)
 
     # Multi-arch images require signing and verifying the context images as well as the fully released images.
     # The full image is released as part of the inventory with the above manifest.
-    if build_configuration.sign and is_release_step_executed(
-        build_configuration.get_skip_tags(), build_configuration.get_include_tags()
-    ):
-        sign_and_verify_context_image(agent_quay_registry, image_version)
-        sign_image(agent_quay_registry, image_version)
-        verify_signature(agent_quay_registry, image_version)
+    if build_configuration.sign and is_release:
+        sign_and_verify_context_image(quay_agent_registry, image_version)
+        sign_image(quay_agent_registry, image_version)
+        verify_signature(quay_agent_registry, image_version)
 
 
 def build_agent_default_case(build_configuration: BuildConfiguration):
     """
-    Build the agent for the latest operator for patches and operator releases.
+    Build the agent only for the latest operator for patches and operator releases.
 
     See more information in the function: build_agent_on_agent_bump
     """
@@ -873,16 +871,7 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
         for agent_version in agent_versions_to_build:
             _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
 
-    exceptions_found = False
-
-    for task in tasks_queue.queue:
-        if task.exception() is not None:
-            exceptions_found = True
-            logger.fatal(f"The following exception has been found when building: {task.exception()}")
-    if exceptions_found:
-        raise Exception(
-            f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
-        )
+    queue_exception_handling(tasks_queue)
 
 
 def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
@@ -903,6 +892,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     release = get_release()
 
     agent_versions_to_build = build_agent_gather_versions(release)
+    legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
     min_supported_version_operator_for_static = "1.25.0"
     supported_operator_versions = [
         v
@@ -917,6 +907,25 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
             for agent_version in agent_versions_to_build:
                 _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, True)
 
+            # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
+            # We only need to push them once in a while to ecr, so no quay required
+            if not is_release_step_executed(build_configuration.get_skip_tags(),
+                                            build_configuration.get_include_tags()):
+                for legacy_agent in legacy_agent_versions_to_build:
+                    tasks_queue.put(
+                        executor.submit(
+                            build_multi_arch_agent_in_sonar,
+                            build_configuration,
+                            legacy_agent,
+                            # we assume that all legacy agents are build using that version
+                            "100.9.4",
+                        )
+                    )
+
+    queue_exception_handling(tasks_queue)
+
+
+def queue_exception_handling(tasks_queue):
     exceptions_found = False
     for task in tasks_queue.queue:
         if task.exception() is not None:
@@ -970,7 +979,6 @@ def _build_agent(
                 build_configuration,
                 agent_version[0],
                 tools_version,
-                mongodb_agent_url_ubi,
             )
         )
 
