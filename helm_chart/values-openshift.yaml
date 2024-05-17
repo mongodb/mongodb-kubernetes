@@ -51,7 +51,7 @@ operator:
   createOperatorServiceAccount: true
 
   vaultSecretBackend:
-    # set to true if you want the operator to store secrets in Vault
+  # set to true if you want the operator to store secrets in Vault
     enabled: false
     tlsSecretRef: ''
 
@@ -109,6 +109,7 @@ mongodb:
   repo: quay.io/mongodb
   appdbAssumeOldFormat: false
   imageType: ubi8
+
 
 ## Registry
 registry:
@@ -243,6 +244,7 @@ relatedImages:
   - 12.0.31.7825-1_1.25.0
   - 12.0.4.7554-1
   - 13.10.0.8620-1
+  - 13.17.0.8849-1
   - 13.17.0.8849-1_1.25.0
   mongodbLegacyAppDb:
   - 4.2.11-ent

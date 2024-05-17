@@ -28,12 +28,21 @@ def get_supported_version_for_image_matrix_handling(image: str) -> List[str]:
             for v in get_release()["supportedImages"]["operator"]["versions"]
             if v >= min_supported_version_operator_for_static
         ]
-        agent_versions_to_be_build = build_agent_gather_versions(get_release())
-        agent_version_with_operator = list()
-        for agent in agent_versions_to_be_build:
+        agent_version_with_static_support_without_operator_suffix = build_agent_gather_versions(get_release())
+        agent_version_with_static_support_with_operator_suffix = list()
+        for agent in agent_version_with_static_support_without_operator_suffix:
             for version in last_supported_operator_versions:
-                agent_version_with_operator.append(agent + "_" + version)
-        agent_versions_without_operator = get_release()["supportedImages"][image]["versions"]
-        return sorted(list(set(agent_version_with_operator + agent_versions_without_operator)))
+                agent_version_with_static_support_with_operator_suffix.append(agent + "_" + version)
+        agent_versions_no_static_support = get_release()["supportedImages"][image]["versions"]
+        agents = sorted(
+            list(
+                set(
+                    agent_version_with_static_support_with_operator_suffix
+                    + agent_version_with_static_support_without_operator_suffix
+                    + list(agent_versions_no_static_support)
+                )
+            )
+        )
+        return agents
 
     return sorted(get_release()["supportedImages"][image]["versions"])
