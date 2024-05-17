@@ -668,7 +668,6 @@ tasks:
       include_tags: release
 
 # pct only triggers this variant once a new agent image is out
-# there is no need to have the init_database job be run first, since this is run manually via a github_pr
 - name: release_agent
   # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
   allowed_requesters: ["patch", "github_pr"]
@@ -680,6 +679,24 @@ tasks:
       vars:
         image_name: agent-pct
         include_tags: release
+
+# Pct only triggers this variant once a new agent image is out
+# these releases the agent with the operator suffix (not patch id) on ecr to allow for digest pinning to pass.
+# For this to work, we rely on skip_tags which is used to determine whether
+# we want to release on quay or not (ecr instead).
+# We don't depend on init_database since we just use the quay version.
+# This runs on agent releases that are not
+# concurrent with operator releases.
+- name: release_agents_on_ecr
+  # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+  allowed_requesters: ["patch", "github_pr"]
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - func: pipeline
+      vars:
+        image_name: agent-pct
+        skip_tags: release
 
 - name: release_agent_operator_release
   git_tag_only: true
@@ -2826,6 +2843,15 @@ buildvariants:
     - name: build_agent_images_ubi
     - name: prepare_aws
 
+- name: init_release_agents_on_ecr
+  display_name: init_release_agents_on_ecr
+  # We want that to run first and finish asap. Digest pinning depends on this to succeed.
+  priority: 70
+  run_on:
+    - ubuntu2204-small
+  tasks:
+    - name: release_agents_on_ecr
+
 - name: init_tests_with_olm
   display_name: init_tests_with_olm
   <<: *base_om6_dependency
@@ -2903,6 +2929,8 @@ buildvariants:
   run_on:
     - ubuntu2204-small
   depends_on:
+    - variant: init_release_agents_on_ecr
+      name: '*'
     - variant: e2e_multi_cluster_kind
       name: '*'
     - variant: e2e_static_multi_cluster_2_clusters

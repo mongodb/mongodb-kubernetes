@@ -16,7 +16,7 @@ images:
         tags: [ "ubi" ]
         buildargs:
           agent_version: $(inputs.params.version)
-          tools_version: $(inputs.params.mongodb_tools_url_ubi)
+          tools_version: $(inputs.params.tools_version)
           agent_distro: $(inputs.params.agent_distro)
           tools_distro: $(inputs.params.tools_distro)
 
@@ -33,7 +33,7 @@ images:
         dockerfile: docker/mongodb-agent-non-matrix/Dockerfile.builder
         buildargs:
           agent_version: $(inputs.params.version)
-          tools_version: $(inputs.params.mongodb_tools_url_ubi)
+          tools_version: $(inputs.params.tools_version)
           agent_distro: $(inputs.params.agent_distro)
           tools_distro: $(inputs.params.tools_distro)
         output:
