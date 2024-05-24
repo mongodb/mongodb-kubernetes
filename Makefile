@@ -153,8 +153,10 @@ database-init-image:
 appdb-init-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include init-appdb
 
+# Not setting a parallel-factor will default to 0 which will lead to using all CPUs, that can cause docker to die.
+# Here we are defaulting to 6, a higher value might work for you.
 agent-image:
-	@ scripts/evergreen/run_python.sh pipeline.py --include agent --parallel
+	@ scripts/evergreen/run_python.sh pipeline.py --include agent --all-agents --parallel --parallel-factor 6
 
 operator-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include operator
