@@ -55,8 +55,10 @@ class BuildConfiguration:
 
     builder: str = "docker"
     parallel: bool = False
+    parallel_factor: int = 0
     architecture: Optional[List[str]] = None
     sign: bool = False
+    all_agents: bool = False
 
     pipeline: bool = True
     debug: bool = True
@@ -88,7 +90,9 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
 
 
 def operator_build_configuration(
-    builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None, sign: bool = False
+    builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None, sign: bool = False,
+        all_agents: bool = False,
+        parallel_factor: int = 0
 ) -> BuildConfiguration:
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
@@ -98,9 +102,11 @@ def operator_build_configuration(
         include_tags=make_list_of_str(os.environ.get("include_tags")),
         builder=builder,
         parallel=parallel,
+        all_agents=all_agents,
         debug=debug,
         architecture=architecture,
         sign=sign,
+        parallel_factor=parallel_factor,
     )
 
     logger.info(f"is_running_in_patch: {is_running_in_patch()}")
@@ -867,7 +873,13 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
 
     tasks_queue = Queue()
-    with ProcessPoolExecutor(max_workers=1 if build_configuration.parallel is False else None) as executor:
+    max_workers = 1
+    if build_configuration.parallel:
+        max_workers = None
+        if build_configuration.parallel_factor > 0:
+            max_workers = build_configuration.parallel_factor
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        logger.info(f"running with factor of {max_workers}")
         for agent_version in agent_versions_to_build:
             _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
 
@@ -901,7 +913,13 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     ]
 
     tasks_queue = Queue()
-    with ProcessPoolExecutor(max_workers=1 if build_configuration.parallel is False else None) as executor:
+    max_workers = 1
+    if build_configuration.parallel:
+        max_workers = None
+        if build_configuration.parallel_factor > 0:
+            max_workers = build_configuration.parallel_factor
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        logger.info(f"running with factor of {max_workers}")
         for operator_version in supported_operator_versions:
             logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
             for agent_version in agent_versions_to_build:
@@ -972,7 +990,8 @@ def _build_agent(
 
     # We don't need to keep create and push the same image on every build.
     # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-    if is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags()):
+    if (is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags())
+            or build_configuration.all_agents):
         tasks_queue.put(
             executor.submit(
                 build_multi_arch_agent_in_sonar,
@@ -1062,9 +1081,11 @@ def build_all_images(
     parallel: bool = False,
     architecture: Optional[List[str]] = None,
     sign: bool = False,
+    all_agents: bool = False,
+    parallel_factor: int = 0
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(builder, parallel, debug, architecture, sign)
+    build_configuration = operator_build_configuration(builder, parallel, debug, architecture, sign, all_agents, parallel_factor)
     if sign:
         mongodb_artifactory_login()
     for image in images:
@@ -1112,6 +1133,11 @@ def main():
         help="for daily builds only, specify the list of architectures to build for images",
     )
     parser.add_argument("--sign", action="store_true", default=False)
+    parser.add_argument("--parallel-factor", type=int, default=0,
+                        help="the factor on how many agents are build in parallel. 0 means all CPUs will be used")
+    parser.add_argument("--all-agents", action="store_true", default=False,
+                        help="optional parameter to be able to push "
+                             "all non operator suffixed agents, even if we are not in a release")
     args = parser.parse_args()
 
     if args.list_images:
@@ -1130,7 +1156,8 @@ def main():
     )
 
     build_all_images(
-        images_to_build, args.builder, debug=args.debug, parallel=args.parallel, architecture=args.arch, sign=args.sign
+        images_to_build, args.builder, debug=args.debug, parallel=args.parallel, architecture=args.arch, sign=args.sign, all_agents=args.all_agents,
+        parallel_factor=args.parallel_factor
     )
 
 
