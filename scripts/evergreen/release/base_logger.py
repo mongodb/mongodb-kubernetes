@@ -6,6 +6,9 @@ LOGLEVEL = os.environ.get("LOGLEVEL", "DEBUG").upper()
 logger = logging.getLogger("pipeline")
 logger.setLevel(LOGLEVEL)
 logger.propagate = False
+sonar_logger = logging.getLogger("sonar")
+sonar_logger.setLevel(LOGLEVEL)
+sonar_logger.propagate = False
 
 # Output Debug and Info logs to stdout, and above to stderr
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -19,3 +22,5 @@ stdout_handler.setFormatter(formatter)
 stderr_handler.setFormatter(formatter)
 logger.addHandler(stdout_handler)
 logger.addHandler(stderr_handler)
+sonar_logger.addHandler(stdout_handler)
+sonar_logger.addHandler(stderr_handler)
