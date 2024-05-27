@@ -90,9 +90,13 @@ def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
 
 
 def operator_build_configuration(
-    builder: str, parallel: bool, debug: bool, architecture: Optional[List[str]] = None, sign: bool = False,
-        all_agents: bool = False,
-        parallel_factor: int = 0
+    builder: str,
+    parallel: bool,
+    debug: bool,
+    architecture: Optional[List[str]] = None,
+    sign: bool = False,
+    all_agents: bool = False,
+    parallel_factor: int = 0,
 ) -> BuildConfiguration:
     bc = BuildConfiguration(
         image_type=os.environ.get("distro", DEFAULT_IMAGE_TYPE),
@@ -102,7 +106,7 @@ def operator_build_configuration(
         include_tags=make_list_of_str(os.environ.get("include_tags")),
         builder=builder,
         parallel=parallel,
-        all_agents=all_agents,
+        all_agents=all_agents or bool(os.environ.get("all_agents", False)),
         debug=debug,
         architecture=architecture,
         sign=sign,
@@ -736,7 +740,7 @@ def build_image_generic(
     inventory_file: str,
     extra_args: dict = None,
     registry_address: str = None,
-    do_context_sign: bool = True
+    do_context_sign: bool = True,
 ):
     args = extra_args or {}
     version = extra_args.get("version", "")
@@ -839,7 +843,7 @@ def build_multi_arch_agent_in_sonar(
             # We need to push the manifests for context and non-context first before we can sign and verify the images
             # We cannot rely on the config.sign,
             # since we still need signing, but just not here in the generic image build.
-            do_context_sign=False
+            do_context_sign=False,
         )
 
     agent_registries = [ecr_agent_registry]
@@ -927,8 +931,9 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
 
             # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
             # We only need to push them once in a while to ecr, so no quay required
-            if not is_release_step_executed(build_configuration.get_skip_tags(),
-                                            build_configuration.get_include_tags()):
+            if not is_release_step_executed(
+                build_configuration.get_skip_tags(), build_configuration.get_include_tags()
+            ):
                 for legacy_agent in legacy_agent_versions_to_build:
                     tasks_queue.put(
                         executor.submit(
@@ -990,8 +995,10 @@ def _build_agent(
 
     # We don't need to keep create and push the same image on every build.
     # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-    if (is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags())
-            or build_configuration.all_agents):
+    if (
+        is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags())
+        or build_configuration.all_agents
+    ):
         tasks_queue.put(
             executor.submit(
                 build_multi_arch_agent_in_sonar,
@@ -1082,10 +1089,12 @@ def build_all_images(
     architecture: Optional[List[str]] = None,
     sign: bool = False,
     all_agents: bool = False,
-    parallel_factor: int = 0
+    parallel_factor: int = 0,
 ):
     """Builds all the images in the `images` list."""
-    build_configuration = operator_build_configuration(builder, parallel, debug, architecture, sign, all_agents, parallel_factor)
+    build_configuration = operator_build_configuration(
+        builder, parallel, debug, architecture, sign, all_agents, parallel_factor
+    )
     if sign:
         mongodb_artifactory_login()
     for image in images:
@@ -1133,11 +1142,19 @@ def main():
         help="for daily builds only, specify the list of architectures to build for images",
     )
     parser.add_argument("--sign", action="store_true", default=False)
-    parser.add_argument("--parallel-factor", type=int, default=0,
-                        help="the factor on how many agents are build in parallel. 0 means all CPUs will be used")
-    parser.add_argument("--all-agents", action="store_true", default=False,
-                        help="optional parameter to be able to push "
-                             "all non operator suffixed agents, even if we are not in a release")
+    parser.add_argument(
+        "--parallel-factor",
+        type=int,
+        default=0,
+        help="the factor on how many agents are build in parallel. 0 means all CPUs will be used",
+    )
+    parser.add_argument(
+        "--all-agents",
+        action="store_true",
+        default=False,
+        help="optional parameter to be able to push "
+        "all non operator suffixed agents, even if we are not in a release",
+    )
     args = parser.parse_args()
 
     if args.list_images:
@@ -1156,8 +1173,14 @@ def main():
     )
 
     build_all_images(
-        images_to_build, args.builder, debug=args.debug, parallel=args.parallel, architecture=args.arch, sign=args.sign, all_agents=args.all_agents,
-        parallel_factor=args.parallel_factor
+        images_to_build,
+        args.builder,
+        debug=args.debug,
+        parallel=args.parallel,
+        architecture=args.arch,
+        sign=args.sign,
+        all_agents=args.all_agents,
+        parallel_factor=args.parallel_factor,
     )
 
 
