@@ -70,6 +70,7 @@ _.yaml
 
 # name of binary that is built for the e2e tests
 multi-cluster-kube-config-creator
+multi-cluster-kube-config-creator_linux
 istio-*
 .multi_cluster_local_test_files
 
