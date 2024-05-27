@@ -380,8 +380,8 @@ def build_tests_image(build_configuration: BuildConfiguration):
 
 def build_operator_image(build_configuration: BuildConfiguration):
     """Calculates arguments required to build the operator image, and starts the build process."""
-    # In evergreen we can pass test_suffix env to publish the operator to a quay
-    # repostory with a given suffix.
+    # In evergreen, we can pass test_suffix env to publish the operator to a quay
+    # repository with a given suffix.
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
     version, _ = get_git_release_tag()
