@@ -13,7 +13,7 @@ stderr_handler = logging.StreamHandler(sys.stderr)
 stderr_handler.setLevel(logging.WARNING)
 
 # Format the logs
-formatter = logging.Formatter("%(levelname)-8s %(asctime)s [%(name)s]  %(message)s")
+formatter = logging.Formatter("%(levelname)-8s %(asctime)s [%(module)s]  %(message)s")
 stdout_handler.setFormatter(formatter)
 stderr_handler.setFormatter(formatter)
 
