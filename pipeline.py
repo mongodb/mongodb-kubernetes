@@ -776,6 +776,8 @@ def build_agent_in_sonar(
     init_database_image,
     mongodb_tools_url_ubi,
     mongodb_agent_url_ubi: str,
+    agent_version,
+    operator_version,
 ):
     args = {
         "version": image_version,
@@ -786,6 +788,8 @@ def build_agent_in_sonar(
 
     agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
     args["quay_registry"] = agent_quay_registry
+    args["agent_version"] = agent_version
+    args["operator_version"] = operator_version
 
     build_image_generic(
         config=build_configuration,
@@ -808,6 +812,8 @@ def build_multi_arch_agent_in_sonar(
     build_configuration: BuildConfiguration,
     image_version,
     tools_version,
+    agent_version,
+    operator_version,
 ):
     """
     Creates the multi-arch non-operator suffixed version of the agent.
@@ -823,6 +829,8 @@ def build_multi_arch_agent_in_sonar(
     args = {
         "version": image_version,
         "tools_version": tools_version,
+        "agent_version": agent_version,
+        "operator_version": operator_version,
     }
 
     arch_arm = {"agent_distro": "amzn2_aarch64", "tools_distro": "rhel82-aarch64", "architecture": "arm64"}
@@ -940,8 +948,10 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                             build_multi_arch_agent_in_sonar,
                             build_configuration,
                             legacy_agent,
-                            # we assume that all legacy agents are build using that version
+                            # we assume that all legacy agents are build using that tools version
                             "100.9.4",
+                            agent_version,
+                            operator_version,
                         )
                     )
 
@@ -990,6 +1000,8 @@ def _build_agent(
             init_database_image,
             mongodb_tools_url_ubi,
             mongodb_agent_url_ubi,
+            agent_version[0],
+            operator_version,
         )
     )
 
@@ -1005,6 +1017,8 @@ def _build_agent(
                 build_configuration,
                 agent_version[0],
                 tools_version,
+                agent_version[0],
+                operator_version,
             )
         )
 
