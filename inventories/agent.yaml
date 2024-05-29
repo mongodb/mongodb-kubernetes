@@ -42,6 +42,16 @@ images:
     - registry: $(inputs.params.registry)/mongodb-agent-ubi
       tag: $(inputs.params.version)
 
+  - name: master-latest
+    task_type: tag_image
+    tags: [ "master" ]
+    source:
+      registry: $(inputs.params.registry)/mongodb-agent-ubi
+      tag: $(inputs.params.version)
+    destination:
+      - registry: $(inputs.params.registry)/mongodb-agent-ubi
+        tag: $(inputs.params.agent_version)_latest
+
   - name: mongodb-agent-build-ubi-release
     task_type: docker_build
     tags: [ "release" ]
