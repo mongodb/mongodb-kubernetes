@@ -145,8 +145,12 @@ func TestDatabaseEnvVars(t *testing.T) {
 
 func TestAgentFlags(t *testing.T) {
 	agentStartupParameters := mdbv1.StartupParameters{
-		"Key1": "Value1",
-		"Key2": "Value2",
+		"key1":    "Value1",
+		"key3":    "Value3",
+		"message": "Hello",
+		"key2":    "Value2",
+		// logFile is a default agent variable which we override for illustration in this test
+		"logFile": "/etc/agent.log",
 	}
 
 	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
@@ -154,7 +158,8 @@ func TestAgentFlags(t *testing.T) {
 	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
-	assert.Contains(t, val, "-Key1,Value1", "-Key2,Value2")
+	// AGENT_FLAGS environment variable is sorted
+	assert.Equal(t, val, "-key1,Value1,-key2,Value2,-key3,Value3,-logFile,/etc/agent.log,-message,Hello,")
 }
 
 func TestLabelsAndAnotations(t *testing.T) {
