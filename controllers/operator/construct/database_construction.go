@@ -827,17 +827,27 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 // returned as env variable AGENT_FLAGS
 func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
 	agentParams := ""
+	finalParameters := mdbv1.StartupParameters{}
+	// add default parameters if not already set
 	for key, value := range defaultAgentParameters() {
 		if _, ok := parameters[key]; !ok {
 			// add the default parameter
-			agentParams += "-" + key + "," + value + ","
+			finalParameters[key] = value
 		}
-		// Skip as this has it will be set by custom flags
 	}
 	for key, value := range parameters {
+		finalParameters[key] = value
+	}
+	// sort the parameters by key
+	keys := make([]string, 0, len(finalParameters))
+	for k := range finalParameters {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
 		// Using comma as delimiter to split the string later
 		// in the agentlauncher script
-		agentParams += "-" + key + "," + value + ","
+		agentParams += "-" + key + "," + finalParameters[key] + ","
 	}
 
 	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}

@@ -1,4 +1,12 @@
 <!-- Next Release -->
+# MongoDB Enterprise Kubernetes Operator 1.26.0
+
+## Bug Fixes
+
+* **MongoDB**: Fixed a bug where configuring a **MongoDB** with multiple entries in `spec.agent.startupOptions` would cause additional unnecessary reconciliation of the underlying `StatefulSet`.
+
+
+<!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.25.0
 
 ## New Features
@@ -56,7 +64,7 @@ actually defined in `spec.externalAccess.externalDomain` or `spec.clusterSpecLis
 **Kubectl plugin**: The released plugin binaries are now signed, the signatures are published with the [release assets](https://github.com/mongodb/mongodb-enterprise-kubernetes/releases). Our public key is available at [this address](https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem). They are also notarized for MacOS.
 **Released Images signed**: All container images published for the enterprise operator are cryptographically signed. This is visible on our Quay registry, and can be verified using our public key. It is available at [this address](https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem).
 
-<!-- Past Releases -->
+
 # MongoDB Enterprise Kubernetes Operator 1.24.0
 
 ## New Features
