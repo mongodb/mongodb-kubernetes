@@ -32,6 +32,7 @@ checkout_latest_official_branch() {
     [[ ${GIT_TAG} == "latest" ]] && export GIT_TAG=${last_git_tag}
 
     # Cloning the public repo first to install Operator from there
-    git clone https://github.com/mongodb/mongodb-enterprise-kubernetes && cd mongodb-enterprise-kubernetes
-    git checkout ${GIT_TAG}
+    git clone https://github.com/mongodb/mongodb-enterprise-kubernetes
+    cd mongodb-enterprise-kubernetes || exit 1
+    git checkout "${GIT_TAG}"
 }
