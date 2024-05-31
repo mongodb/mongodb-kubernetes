@@ -8,7 +8,8 @@ if [ -f "${workdir}"/venv/bin/activate ]; then
 fi
 
 if [[ -z "${EVERGREEN_MODE:-}" ]]; then
-  git_last_changed=$(git diff --cached --name-only --diff-filter=ACM)
+  # According to the latest SSDLC recommendations, the CI needs to always check all the files. Not just delta.
+  git_last_changed=$(git ls-tree -r origin/master --name-only)
 else
   git_last_changed=$(git diff --cached --name-only --diff-filter=ACM origin/master)
 fi
