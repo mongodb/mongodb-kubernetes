@@ -320,7 +320,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     scales down to 3 (from 5) and makes sure the Replica is connectable with "Primary" and
     "Secondaries" set."""
     replica_set["spec"]["members"] = 1
-    replica_set.update()
+    create_or_update(replica_set)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=1200)
 
@@ -338,7 +338,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
 class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
-        replica_set.update()
+        create_or_update(replica_set)
         replica_set.assert_reaches_phase(Phase.Running, timeout=500)
 
     def test_replica_set_sts_should_exist(self):
@@ -482,7 +482,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
 def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
     """Makes sure that scaling down 5->3 members still reaches a Running & connectable state."""
     replica_set["spec"]["members"] = 3
-    replica_set.update()
+    create_or_update(replica_set)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
