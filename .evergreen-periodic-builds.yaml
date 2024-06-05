@@ -206,6 +206,8 @@ functions:
           - PKCS11_URI
           - ARTIFACTORY_USERNAME
           - ARTIFACTORY_PASSWORD
+          - SILK_CLIENT_ID
+          - SILK_CLIENT_SECRET
         add_to_path:
           - ${workdir}/bin
         working_dir: src/github.com/10gen/ops-manager-kubernetes
@@ -407,6 +409,17 @@ tasks:
         vars:
           image_name: database-daily
 
+  - name: periodic_build_sbom_cli
+    commands:
+      - func: clone
+      - func: setup_docker_sbom
+      - func: configure_docker_auth
+        vars:
+          project_id: ${rhc_database_pid}
+      - func: pipeline
+        vars:
+          image_name: cli
+
   - name: periodic_build_ops_manager_6
     commands:
       - func: clone
@@ -516,7 +529,7 @@ tasks:
 
 task_groups:
   - name: periodic_build_task_group
-    max_hosts: 5
+    max_hosts: -1
     tasks:
       - periodic_build_operator
       - periodic_build_readiness_probe
@@ -530,6 +543,7 @@ task_groups:
       - periodic_build_agent
       - periodic_build_community_operator
       - periodic_build_appdb_database
+      - periodic_build_sbom_cli
 
   - name: preflight_images_task_group
     tasks:

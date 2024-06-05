@@ -34,6 +34,7 @@ from scripts.evergreen.release.images_signing import (
     sign_image,
     verify_signature,
 )
+from scripts.evergreen.release.sbom import generate_sbom, generate_sbom_for_cli
 
 DEFAULT_IMAGE_TYPE = "ubi"
 DEFAULT_NAMESPACE = "default"
@@ -355,13 +356,8 @@ def produce_sbom(build_configuration, args):
 
     image_pull_spec = f"{image_pull_spec}:{image_tag}"
     print(f"Producing SBOM for image: {image_pull_spec}")
-    proc = subprocess.Popen(
-        ["./scripts/evergreen/generate_upload_sbom.sh", "-i", image_pull_spec, "-b", "enterprise-operator-sboms"],
-        stdout=subprocess.PIPE,
-    )
-    for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-        logger.info(line.rstrip())
-    # Ignoring the return code for now.
+
+    generate_sbom(image_pull_spec)
 
 
 def build_tests_image(build_configuration: BuildConfiguration):
@@ -409,6 +405,28 @@ def build_database_image(build_configuration: BuildConfiguration):
     version = release["databaseImageVersion"]
     args = {"version": version}
     build_image_generic(build_configuration, "database", "inventories/database.yaml", args)
+
+
+def build_CLI_SBOM(build_configuration: BuildConfiguration):
+    if not is_running_in_evg_pipeline():
+        logger.info("Skipping SBOM Generation (enabled only for EVG)")
+        return
+
+    if build_configuration.architecture is None or len(build_configuration.architecture) == 0:
+        architectures = ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"]
+    elif "arm64" in build_configuration.architecture:
+        architectures = ["linux/arm64", "darwin/arm64"]
+    elif "amd64" in build_configuration.architecture:
+        architectures = ["linux/amd64", "darwin/amd64"]
+    else:
+        logger.error(f"Unrecognized architectures {build_configuration.architecture}. Skipping SBOM generation")
+        return
+
+    release = get_release()
+    version = release["mongodbOperator"]
+
+    for architecture in architectures:
+        generate_sbom_for_cli(version, architecture)
 
 
 def build_operator_image_patch(build_configuration: BuildConfiguration):
@@ -1043,6 +1061,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
     """Returns a dictionary of image names that can be built."""
 
     return {
+        "cli": build_CLI_SBOM,
         "test": build_tests_image,
         "operator": build_operator_image,
         "operator-quick": build_operator_image_patch,
