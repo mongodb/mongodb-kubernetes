@@ -162,22 +162,24 @@ functions:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       binary: scripts/evergreen/build_multi_cluster_kubeconfig_creator.sh
 
-  test_operator:
-    - command: shell.exec
-      type: test
-      params:
-        shell: bash
-        working_dir: src/github.com/10gen/ops-manager-kubernetes
-        script: |
-          source .generated/context.export.env
-          make test
-
   python_requirements: &python_requirements
     command: subprocess.exec
     type: setup
     params:
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       binary: scripts/evergreen/run_python.sh -m pip install -r requirements.txt --quiet --no-warn-script-location
+
+  test_operator:
+  - *python_venv
+  - *python_requirements
+  - command: shell.exec
+    type: test
+    params:
+      shell: bash
+      working_dir: src/github.com/10gen/ops-manager-kubernetes
+      script: |
+        source .generated/context.export.env
+        make test-race
 
   setup_preflight:
   - command: subprocess.exec
@@ -1803,6 +1805,12 @@ tasks:
   commands:
     - func: e2e_test
 
+# this test is run, with an operator with race enable
+- name: e2e_om_reconcile_race
+  tags: ["patch-run"]
+  commands:
+    - func: e2e_test
+
 - name: release_database
   git_tag_only: true
   commands:
@@ -2040,6 +2048,28 @@ task_groups:
     - e2e_operator_clusterwide
     - e2e_operator_multi_namespaces
     - e2e_operator_upgrade_appdb_tls
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+# e2e_operator_race_task_group includes the tests for testing the operator with race detector enabled
+- name: e2e_operator_race_task_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+    - func: build_multi_cluster_binary
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_om_reconcile_race
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2632,6 +2662,30 @@ buildvariants:
   - name: e2e_ops_manager_kind_only_task_group
   - name: e2e_ops_manager_kind_5_0_only_task_group
   - name: e2e_ops_manager_kind_6_0_only_task_group
+
+- name: e2e_operator_race_ubi
+  display_name: e2e_operator_race_ubi
+  run_on:
+    - ubuntu1804-xlarge
+  depends_on:
+  - name: build_om_images
+    variant: build_om70_images
+  - name: build_operator_ubi
+    variant: init_test_run
+  - name: build_init_database_image_ubi
+    variant: init_test_run
+  - name: build_database_image_ubi
+    variant: init_test_run
+  - name: build_test_image
+    variant: init_test_run
+  - name: build_init_appdb_images_ubi
+    variant: init_test_run
+  - name: build_init_om_images_ubi
+    variant: init_test_run
+  - name: build_agent_images_ubi
+    variant: init_test_run
+  tasks:
+  - name: e2e_operator_race_task_group
 
 # Isolated Ops Manager Tests for 7.0 version
 - name: e2e_static_om70_kind_ubi

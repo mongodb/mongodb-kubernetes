@@ -78,3 +78,5 @@ export MONGODB_REPO_URL="quay.io/mongodb"
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
 export CLUSTER_DOMAIN="cluster.local"
+
+export MDB_MAX_CONCURRENT_RECONCILES=10

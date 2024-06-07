@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
@@ -109,6 +110,28 @@ func TestRetriesOnWritingAutomationConfig(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, 3, counters.getHitCount)
+}
+
+func TestHTTPOmConnectionGetHTTPClientRace(t *testing.T) {
+	successfulResponse := automationConfigResponse{config: getTestAutomationConfig()}
+	errorResponse := automationConfigResponse{errorCode: 500, errorString: "testing"}
+	handleFunc, _ := automationConfig("1", errorResponse, errorResponse, successfulResponse)
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"}).(*HTTPOmConnection)
+	wg := sync.WaitGroup{}
+
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			_, err := connection.getHTTPClient()
+			assert.NoError(t, err)
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
 }
 
 // ******************************* Mock HTTP Server methods *****************************************************

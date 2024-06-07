@@ -107,3 +107,8 @@ func (m *MultiReplicaSetBuilder) SetPodSpecTemplate(spec corev1.PodTemplateSpec)
 	m.Spec.StatefulSetConfiguration.SpecWrapper.Spec.Template = spec
 	return m
 }
+
+func (m *MultiReplicaSetBuilder) SetName(name string) *MultiReplicaSetBuilder {
+	m.Name = name
+	return m
+}

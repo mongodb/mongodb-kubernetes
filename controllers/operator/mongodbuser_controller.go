@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/mongodb/mongodb-kubernetes-operator/pkg/kube/annotations"
@@ -202,7 +204,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 		return err
 	}
 
-	r.RemoveAllDependentWatchedResources(user.Namespace, kube.ObjectKeyFromApiObject(user))
+	r.resourceWatcher.RemoveAllDependentWatchedResources(user.Namespace, kube.ObjectKeyFromApiObject(user))
 
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
@@ -259,19 +261,19 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newMongoDBUserReconciler(ctx, mgr, om.NewOpsManagerConnection, memberClustersMap)
-	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler})
+	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
@@ -316,7 +318,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
 	if user.Spec.PasswordSecretKeyRef.Name != "" {
-		r.AddWatchedResourceIfNotAdded(
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(
 			user.Spec.PasswordSecretKeyRef.Name,
 			user.Namespace,
 			watch.Secret,

@@ -68,6 +68,16 @@ func TestCreateReplicaSet(t *testing.T) {
 	connection.CheckNumberOfUpdateRequests(t, 2)
 }
 
+func TestReplicaSetRace(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	rs2 := DefaultReplicaSetBuilder().SetName("my-rs2").Build()
+	rs3 := DefaultReplicaSetBuilder().SetName("my-rs3").Build()
+	reconciler, client := defaultReplicaSetReconcilerWithoutSingleton(ctx, rs)
+
+	testConcurrentReconciles(ctx, t, client, reconciler, rs, rs2, rs3)
+}
+
 func TestReplicaSetServiceName(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetService("rs-svc").Build()
@@ -583,7 +593,7 @@ func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 	}
 
-	assert.Equal(t, reconciler.WatchedResources, expected)
+	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
 }
 
 // TestTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
@@ -604,7 +614,7 @@ func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.GetName()+"-cert")}:             {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 	}
 
-	assert.Equal(t, reconciler.WatchedResources, expected)
+	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
 
 	rs.Spec.Security.TLSConfig.Enabled = false
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
@@ -614,7 +624,7 @@ func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 	}
 
-	assert.Equal(t, reconciler.WatchedResources, expected)
+	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
 }
 
 func TestBackupConfiguration_ReplicaSet(t *testing.T) {
@@ -742,6 +752,10 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 // so it's possible to call 'reconcileAppDB()' on it right away
 func defaultReplicaSetReconciler(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
 	return replicaSetReconcilerWithConnection(ctx, rs, om.NewEmptyMockedOmConnection)
+}
+
+func defaultReplicaSetReconcilerWithoutSingleton(ctx context.Context, rs *mdbv1.MongoDB) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {
+	return replicaSetReconcilerWithConnection(ctx, rs, om.NewEmptyMockedOmConnectionNoSingleton)
 }
 
 func replicaSetReconcilerWithConnection(ctx context.Context, rs *mdbv1.MongoDB, connectionFunc func(ctx *om.OMContext) om.Connection) (*ReconcileMongoDbReplicaSet, *mock.MockedClient) {

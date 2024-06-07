@@ -50,27 +50,31 @@ func (a *MockedOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
 
 // NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
 // if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
-func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string) OpsManagerAdmin {
-	CurrMockedAdmin = &MockedOmAdmin{}
-	CurrMockedAdmin.BaseURL = baseUrl
-	CurrMockedAdmin.PublicKey = publicApiKey
-	CurrMockedAdmin.PrivateKey = privateApiKey
+func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string, withSingleton bool) OpsManagerAdmin {
+	mockedAdmin := &MockedOmAdmin{}
+	mockedAdmin.BaseURL = baseUrl
+	mockedAdmin.PublicKey = publicApiKey
+	mockedAdmin.PrivateKey = privateApiKey
 
-	CurrMockedAdmin.daemonConfigs = make([]backup.DaemonConfig, 0)
-	CurrMockedAdmin.s3Configs = make(map[string]backup.S3Config)
-	CurrMockedAdmin.s3OpLogConfigs = make(map[string]backup.S3Config)
-	CurrMockedAdmin.oplogConfigs = make(map[string]backup.DataStoreConfig)
-	CurrMockedAdmin.blockStoreConfigs = make(map[string]backup.DataStoreConfig)
-	CurrMockedAdmin.apiKeys = []Key{{
+	mockedAdmin.daemonConfigs = make([]backup.DaemonConfig, 0)
+	mockedAdmin.s3Configs = make(map[string]backup.S3Config)
+	mockedAdmin.s3OpLogConfigs = make(map[string]backup.S3Config)
+	mockedAdmin.oplogConfigs = make(map[string]backup.DataStoreConfig)
+	mockedAdmin.blockStoreConfigs = make(map[string]backup.DataStoreConfig)
+	mockedAdmin.apiKeys = []Key{{
 		PrivateKey: privateApiKey,
 		PublicKey:  publicApiKey,
 	}}
 
-	return CurrMockedAdmin
+	if withSingleton {
+		CurrMockedAdmin = mockedAdmin
+	}
+
+	return mockedAdmin
 }
 
 func (a *MockedOmAdmin) Reset() {
-	NewMockedAdminProvider(a.BaseURL, a.PublicKey, a.PrivateKey)
+	NewMockedAdminProvider(a.BaseURL, a.PublicKey, a.PrivateKey, true)
 }
 
 func (a *MockedOmAdmin) ReadDaemonConfigs() ([]backup.DaemonConfig, error) {

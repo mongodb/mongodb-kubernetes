@@ -1385,7 +1385,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		log.Debugf("Reading password from secret/%s", passwordRef.Name)
 
 		// watch for any changes on the user provided password
-		r.AddWatchedResourceIfNotAdded(
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(
 			passwordRef.Name,
 			opsManager.Namespace,
 			watch.Secret,

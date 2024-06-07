@@ -173,8 +173,8 @@ type OMContext struct {
 
 type HTTPOmConnection struct {
 	context *OMContext
-
-	client *api.Client
+	once    sync.Once
+	client  *api.Client
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {
@@ -883,34 +883,30 @@ func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte
 
 // getHTTPClient gets a new or an already existing client.
 func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
-	if oc.client != nil {
-		return oc.client, nil
-	}
+	var err error
 
-	opts := api.NewHTTPOptions()
+	oc.once.Do(func() {
+		opts := api.NewHTTPOptions()
 
-	if oc.context.CACertificate != "" {
-		zap.S().Debug("Using CA Certificate")
-		opts = append(opts, api.OptionCAValidate(oc.context.CACertificate))
-	}
+		if oc.context.CACertificate != "" {
+			zap.S().Debug("Using CA Certificate")
+			opts = append(opts, api.OptionCAValidate(oc.context.CACertificate))
+		}
 
-	if oc.context.AllowInvalidSSLCertificate {
-		zap.S().Debug("Allowing insecure certs")
-		opts = append(opts, api.OptionSkipVerify)
-	}
+		if oc.context.AllowInvalidSSLCertificate {
+			zap.S().Debug("Allowing insecure certs")
+			opts = append(opts, api.OptionSkipVerify)
+		}
 
-	opts = append(opts, api.OptionDigestAuth(oc.PublicKey(), oc.PrivateKey()))
+		opts = append(opts, api.OptionDigestAuth(oc.PublicKey(), oc.PrivateKey()))
 
-	if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) {
-		zap.S().Debug("Enabling OM_DEBUG_HTTP mode")
-		opts = append(opts, api.OptionDebug)
-	}
+		if env.ReadBoolOrDefault("OM_DEBUG_HTTP", false) {
+			zap.S().Debug("Enabling OM_DEBUG_HTTP mode")
+			opts = append(opts, api.OptionDebug)
+		}
 
-	client, err := api.NewHTTPClient(opts...)
-	if err != nil {
-		return nil, err
-	}
-	oc.client = client
+		oc.client, err = api.NewHTTPClient(opts...)
+	})
 
-	return oc.client, nil
+	return oc.client, err
 }

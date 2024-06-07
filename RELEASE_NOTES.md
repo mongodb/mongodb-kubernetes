@@ -1,10 +1,22 @@
 <!-- Next Release -->
 # MongoDB Enterprise Kubernetes Operator 1.26.0
 
+## New Features
+
+* Added the ability to control how many reconciles can be performed in parallel by the operator.
+  This enables strongly improved cpu utilization and vertical scaling of the operator and will lead to quicker reconcile of all managed resources. 
+  * It might lead to increased load on the Ops Manager and K8s API server in the same time window. 
+    by setting `MDB_MAX_CONCURRENT_RECONCILES` for the operator deployment or `operator.maxConcurrentReconciles` in the operator's Helm chart.
+    If not provided, the default value is 1.
+    * Observe the operator's resource usage and adjust (`operator.resources.requests` and `operator.resources.limits`) if needed.
+
+## Helm Chart
+
+*New `operator.maxConcurrentReconciles` parameter. It controls how many reconciles can be performed in parallel by the operator. The default value is 1.
+
 ## Bug Fixes
 
 * **MongoDB**: Fixed a bug where configuring a **MongoDB** with multiple entries in `spec.agent.startupOptions` would cause additional unnecessary reconciliation of the underlying `StatefulSet`.
-
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.25.0

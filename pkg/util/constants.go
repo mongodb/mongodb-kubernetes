@@ -181,6 +181,8 @@ const (
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 
+	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
+
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
 	DefaultConfigSrvStorageSize        = "5G"

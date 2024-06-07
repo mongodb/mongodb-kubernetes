@@ -43,7 +43,7 @@ spec:
 {{- end }}
       containers:
         - name: {{ .Values.operator.name }}
-          image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.build }}"
+          image: "{{ .Values.registry.operator }}/{{ .Values.operator.operator_image_name }}:{{ .Values.operator.version }}{{ .Values.operator.build }}"
           imagePullPolicy: {{ .Values.registry.pullPolicy }}
           {{- if .Values.operator.watchedResources }}
           args:
@@ -165,6 +165,10 @@ spec:
     {{- if not .Values.operator.webhook.registerConfiguration }}
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
+    {{- end }}
+    {{- if .Values.operator.maxConcurrentReconciles }}
+            - name: MDB_MAX_CONCURRENT_RECONCILES
+              value: "{{ .Values.operator.maxConcurrentReconciles }}"
     {{- end }}
     {{- if .Values.relatedImages }}
             - name: RELATED_IMAGE_{{ $mongodbEnterpriseDatabaseImageEnv }}_{{ $databaseVersion | replace "." "_" | replace "-" "_" }}

@@ -342,7 +342,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// We need to remove the watches on the top of the reconcile since we might add resources with the same key below.
 	if opsManager.IsTLSEnabled() {
-		r.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
+		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
 	}
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
@@ -817,7 +817,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 
 func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	reconciler := newOpsManagerReconciler(ctx, mgr, memberClustersMap, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
-	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler})
+	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
 	}
@@ -831,19 +831,19 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 
 	// watch the secret with the Ops Manager user password
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &mdbv1.MongoDB{}),
-		&watch.ResourcesHandler{ResourceType: watch.MongoDB, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
@@ -943,19 +943,19 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(ctx context
 
 	for _, m := range mdbList.Items {
 		if m.Spec.Backup != nil && m.Spec.Backup.IsKmipEnabled() {
-			r.AddWatchedResourceIfNotAdded(
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(
 				m.Name,
 				m.Namespace,
 				watch.MongoDB,
 				kube.ObjectKeyFromApiObject(opsManager))
 
-			r.AddWatchedResourceIfNotAdded(
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(
 				m.Spec.Backup.Encryption.Kmip.Client.ClientCertificateSecretName(m.GetName()),
 				opsManager.Namespace,
 				watch.Secret,
 				kube.ObjectKeyFromApiObject(opsManager))
 
-			r.AddWatchedResourceIfNotAdded(
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(
 				m.Spec.Backup.Encryption.Kmip.Client.ClientCertificatePasswordSecretName(m.GetName()),
 				opsManager.Namespace,
 				watch.Secret,
@@ -969,7 +969,7 @@ func (r *OpsManagerReconciler) watchCaReferencedByKmip(opsManager *omv1.MongoDBO
 		return
 	}
 
-	r.AddWatchedResourceIfNotAdded(
+	r.resourceWatcher.AddWatchedResourceIfNotAdded(
 		opsManager.Spec.Backup.Encryption.Kmip.Server.CA,
 		opsManager.Namespace,
 		watch.ConfigMap,
@@ -984,7 +984,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(ctx conte
 	// watch mongodb resources for oplog
 	oplogs := opsManager.Spec.Backup.OplogStoreConfigs
 	for _, oplogConfig := range oplogs {
-		r.AddWatchedResourceIfNotAdded(
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(
 			oplogConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
 			watch.MongoDB,
@@ -995,7 +995,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(ctx conte
 	// watch mongodb resources for block stores
 	blockstores := opsManager.Spec.Backup.BlockStoreConfigs
 	for _, blockStoreConfig := range blockstores {
-		r.AddWatchedResourceIfNotAdded(
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(
 			blockStoreConfig.MongoDBResourceRef.Name,
 			opsManager.Namespace,
 			watch.MongoDB,
@@ -1008,7 +1008,7 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(ctx conte
 	for _, s3StoreConfig := range s3Stores {
 		// If S3StoreConfig doesn't have mongodb resource reference, skip it (appdb will be used)
 		if s3StoreConfig.MongoDBResourceRef != nil {
-			r.AddWatchedResourceIfNotAdded(
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(
 				s3StoreConfig.MongoDBResourceRef.Name,
 				opsManager.Namespace,
 				watch.MongoDB,
@@ -1968,10 +1968,10 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		return
 	}
 
-	// r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
+	// r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKeyFromApiObject(opsManager))
 	for _, memberCluster := range helper.GetMemberClusters() {
 		stsName := helper.OpsManagerStatefulSetNameForMemberCluster(memberCluster)
-		r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
+		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
 	}
 
 	for _, memberCluster := range helper.GetMemberClusters() {
@@ -1985,7 +1985,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 
 	for _, memberCluster := range helper.GetMemberClusters() {
 		stsName := helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)
-		r.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
+		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, kube.ObjectKey(opsManager.Namespace, stsName))
 	}
 
 	for _, memberCluster := range helper.GetMemberClusters() {
@@ -2006,7 +2006,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	// remove AppDB from each of the member clusters(or the same cluster as OM in case of single cluster )
 	for _, memberCluster := range appDbReconciler.getHealthyMemberClusters() {
 		// fetch the clusterNum for a given clusterName
-		r.RemoveAllDependentWatchedResources(opsManager.Namespace, opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name)))
+		r.resourceWatcher.RemoveAllDependentWatchedResources(opsManager.Namespace, opsManager.AppDBStatefulSetObjectKey(appDbReconciler.getMemberClusterIndex(memberCluster.Name)))
 	}
 
 	// delete the AppDB statefulset form each of the member cluster. We need to delete the
