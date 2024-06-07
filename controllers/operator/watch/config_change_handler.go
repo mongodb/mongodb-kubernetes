@@ -41,8 +41,8 @@ func (w Object) String() string {
 // [K8s_resource_name -> operator_managed_resource_name] there as
 // soon as reconciliation happens for the Resource
 type ResourcesHandler struct {
-	ResourceType     Type
-	TrackedResources map[Object][]types.NamespacedName
+	ResourceType    Type
+	ResourceWatcher *ResourceWatcher
 }
 
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
@@ -76,7 +76,7 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.RateLimi
 		Resource:     types.NamespacedName{Name: name, Namespace: namespace},
 	}
 
-	for _, v := range c.TrackedResources[configMapOrSecret] {
+	for _, v := range c.ResourceWatcher.GetWatchedResources()[configMapOrSecret] {
 		zap.S().Infof("%s has been modified -> triggering reconciliation for dependent Resource %s", configMapOrSecret, v)
 		q.Add(reconcile.Request{NamespacedName: v})
 	}

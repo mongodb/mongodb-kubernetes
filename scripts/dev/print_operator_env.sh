@@ -75,6 +75,11 @@ if [[ "${MDB_AGENT_IMAGE_REPOSITORY:-""}" != "" ]]; then
   echo "MDB_AGENT_IMAGE_REPOSITORY=${MDB_AGENT_IMAGE_REPOSITORY}"
 fi
 
+if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-""}" != "" ]]; then
+  echo "MDB_MAX_CONCURRENT_RECONCILES=${MDB_MAX_CONCURRENT_RECONCILES}"
+fi
+
+
 }
 
 print_operator_env

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	localruntime "runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -307,6 +308,11 @@ func initializeEnvironment() {
 	initEnvVariables()
 
 	log.Infof("Operator environment: %s", omOperatorEnv)
+
+	if omOperatorEnv == util.OperatorEnvironmentDev || omOperatorEnv == util.OperatorEnvironmentLocal {
+		log.Infof("Operator build info:\n%s", getBuildSettingsString())
+	}
+
 	log.Infof("Operator version: %s", util.OperatorVersion)
 	log.Infof("Go Version: %s", localruntime.Version())
 	log.Infof("Go OS/Arch: %s/%s", localruntime.GOOS, localruntime.GOARCH)
@@ -329,6 +335,33 @@ func initializeEnvironment() {
 
 	// Only env variables with one of these prefixes will be printed
 	env.PrintWithPrefix(printableEnvPrefixes)
+}
+
+// quoteKey reports whether key is required to be quoted. Taken from: 1.22.0 mod.go
+func quoteKey(key string) bool {
+	return len(key) == 0 || strings.ContainsAny(key, "= \t\r\n\"`")
+}
+
+// quoteValue reports whether value is required to be quoted. Taken from: 1.22.0 mod.go
+func quoteValue(value string) bool {
+	return strings.ContainsAny(value, " \t\r\n\"`")
+}
+
+func getBuildSettingsString() string {
+	var buf strings.Builder
+	info, _ := debug.ReadBuildInfo()
+	for _, s := range info.Settings {
+		key := s.Key
+		if quoteKey(key) {
+			key = strconv.Quote(key)
+		}
+		value := s.Value
+		if quoteValue(value) {
+			value = strconv.Quote(value)
+		}
+		buf.WriteString(fmt.Sprintf("build\t%s=%s\n", key, value))
+	}
+	return buf.String()
 }
 
 // initEnvVariables is the central place in application to initialize default configuration for the application (using

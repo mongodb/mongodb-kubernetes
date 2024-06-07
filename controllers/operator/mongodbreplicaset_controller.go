@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/10gen/ops-manager-kubernetes/pkg/util/env"
+
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/operator/recovery"
@@ -330,7 +332,7 @@ func (r *ReconcileMongoDbReplicaSet) reconcileHostnameOverrideConfigMap(ctx cont
 func AddReplicaSetController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr, om.NewOpsManagerConnection)
-	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler})
+	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
 	}
@@ -361,13 +363,13 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, memberClu
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.ConfigMap{}),
-		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
@@ -565,7 +567,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 
-	r.RemoveDependentWatchedResources(rs.ObjectKey())
+	r.resourceWatcher.RemoveDependentWatchedResources(rs.ObjectKey())
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
 	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {

@@ -93,6 +93,8 @@ spec:
               value: 'true'
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
+            - name: MDB_MAX_CONCURRENT_RECONCILES
+              value: "1"
             - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_25_0
               value: "quay.io/mongodb/mongodb-enterprise-database-ubi:1.25.0"
             - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_25_0

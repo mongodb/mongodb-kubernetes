@@ -45,7 +45,8 @@ operator:
       cpu: 1100m
       memory: 1Gi
 
-  # Create operator-service account
+  # Create operator service account and roles
+  # if false, then templates/operator-roles.yaml is excluded
   createOperatorServiceAccount: true
 
   vaultSecretBackend:

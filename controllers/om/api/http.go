@@ -133,7 +133,7 @@ func OptionDebug(client *Client) error {
 func OptionSkipVerify(client *Client) error {
 	TLSClientConfig := &tls.Config{InsecureSkipVerify: true}
 
-	transport := client.HTTPClient.Transport.(*http.Transport)
+	transport := client.HTTPClient.Transport.(*http.Transport).Clone()
 	transport.TLSClientConfig = TLSClientConfig
 	client.HTTPClient.Transport = transport
 
@@ -151,7 +151,7 @@ func OptionCAValidate(ca string) func(client *Client) error {
 	}
 
 	return func(client *Client) error {
-		transport := client.HTTPClient.Transport.(*http.Transport)
+		transport := client.HTTPClient.Transport.(*http.Transport).Clone()
 		transport.TLSClientConfig = TLSClientConfig
 		client.HTTPClient.Transport = transport
 

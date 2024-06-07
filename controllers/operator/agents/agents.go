@@ -132,7 +132,7 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 		found, err := om.TraversePages(
 			omConnection.ReadAutomationAgents,
 			func(aa interface{}) bool {
-				automationAgent := aa.(om.AgentStatus)
+				automationAgent := aa.(om.Status)
 
 				for _, hostname := range agentHostnames {
 					if automationAgent.IsRegistered(hostname, log) {

@@ -2,16 +2,12 @@ package om
 
 import (
 	"testing"
-	"time"
-
-	"github.com/stretchr/testify/assert"
-
-	"github.com/google/uuid"
 
 	"github.com/10gen/ops-manager-kubernetes/controllers/om/backup"
-
 	"github.com/10gen/ops-manager-kubernetes/pkg/util"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
@@ -23,14 +19,6 @@ func TestBackupWaitsForTermination(t *testing.T) {
 
 	connection := NewMockedOmConnection(NewDeployment())
 	connection.EnableBackup("test", backup.ReplicaSetType, uuid.New().String())
-	connection.UpdateBackupStatusFunc = func(clusterId string, status backup.Status) error {
-		go func() {
-			// adding slight delay for each update
-			time.Sleep(200 * time.Millisecond)
-			connection.doUpdateBackupStatus(clusterId, status)
-		}()
-		return nil
-	}
 	err := backup.StopBackupIfEnabled(connection, connection, "test", backup.ReplicaSetType, zap.S())
 	assert.NoError(t, err)
 

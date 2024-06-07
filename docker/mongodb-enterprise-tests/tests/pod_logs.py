@@ -6,7 +6,7 @@ import kubernetes
 from kubetester.kubetester import KubernetesTester, is_static_containers_architecture
 
 
-def parse_pod_logs(pod_logs: str) -> list[dict[str, any]]:
+def parse_json_pod_logs(pod_logs: str) -> list[dict[str, any]]:
     """Parses pod logs returned asa string and returns list of lines parsed from structured json."""
     lines = pod_logs.strip().split("\n")
     log_lines = []
@@ -29,7 +29,7 @@ def get_structured_json_pod_logs(
 ) -> dict[str, list[str]]:
     """Read logs from pod_name and groups the lines by logType."""
     pod_logs_str = KubernetesTester.read_pod_logs(namespace, pod_name, container_name, api_client=api_client)
-    log_lines = parse_pod_logs(pod_logs_str)
+    log_lines = parse_json_pod_logs(pod_logs_str)
 
     log_contents_by_type = {}
 
@@ -77,7 +77,6 @@ def assert_log_types_in_structured_json_pod_log(
     It fails when there are any unexpected log types in logs.
     """
 
-    container_name = "mongodb-agent"
     if not is_static_containers_architecture():
         container_name = None
     pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)

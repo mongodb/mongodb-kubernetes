@@ -221,7 +221,7 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
 	}
 
-	actual := reconciler.WatchedResources
+	actual := reconciler.resourceWatcher.GetWatchedResources()
 	assert.Equal(t, expected, actual)
 }
 

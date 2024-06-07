@@ -11,6 +11,7 @@ import (
 	"github.com/10gen/ops-manager-kubernetes/pkg/dns"
 	"github.com/10gen/ops-manager-kubernetes/pkg/handler"
 	"github.com/10gen/ops-manager-kubernetes/pkg/multicluster"
+
 	"github.com/hashicorp/go-multierror"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -375,12 +376,12 @@ func (m *MockedClient) SubResource(subResource string) client.SubResourceClient 
 // Get retrieves an obj for the given object key from the Kubernetes Cluster.
 // obj must be a struct pointer so that obj can be updated with the response
 // returned by the Server.
-func (k *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) (e error) {
-	err := k.Client.Get(ctx, key, obj, opts...)
+func (m *MockedClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) (e error) {
+	err := m.Client.Get(ctx, key, obj, opts...)
 	if err == nil {
 		switch v := obj.(type) {
 		case *appsv1.StatefulSet:
-			k.onStatefulsetUpdate(v)
+			m.onStatefulsetUpdate(v)
 		}
 	}
 
@@ -453,8 +454,35 @@ func (m *MockedClient) GetAndUpdate(ctx context.Context, nsName types.Namespaced
 	return nil
 }
 
-// CreateOrUpdate Not used in enterprise, these only exist in community.
-func (m *MockedClient) CreateOrUpdate(ctx context.Context, obj apiruntime.Object) error {
+func (m *MockedClient) CreateOrUpdate(ctx context.Context, obj client.Object) error {
+	// Determine the object's metadata
+	metaObj, ok := obj.(metav1.Object)
+	if !ok {
+		return fmt.Errorf("object is not a metav1.Object")
+	}
+
+	namespace := metaObj.GetNamespace()
+	name := metaObj.GetName()
+
+	existingObj := obj.DeepCopyObject().(client.Object) // Create a deep copy to store the existing object
+	err := m.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, existingObj)
+	if err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get object: %v", err)
+		}
+
+		err = m.Create(ctx, obj)
+		if err != nil {
+			return fmt.Errorf("failed to create object: %v", err)
+		}
+		return nil
+	}
+
+	err = m.Update(ctx, obj)
+	if err != nil {
+		return fmt.Errorf("failed to update object: %v", err)
+	}
+
 	return nil
 }
 
