@@ -52,7 +52,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().Build()
 
-	reconciler, c := defaultClusterReconciler(ctx, sc)
+	reconciler, _, c := defaultClusterReconciler(ctx, sc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
 	assert.Len(t, c.GetMapForObject(&corev1.Secret{}), 2)
@@ -77,11 +77,21 @@ func getStsReplicas(ctx context.Context, client kubernetesClient.Client, key cli
 	return *sts.Spec.Replicas
 }
 
+func TestShardedClusterRace(t *testing.T) {
+	ctx := context.Background()
+	sc := DefaultClusterBuilder().SetName("my-sh1").SetShardCountSpec(4).SetShardCountStatus(4).Build()
+	sc2 := DefaultClusterBuilder().SetName("my-sh2").SetShardCountSpec(4).SetShardCountStatus(4).Build()
+	sc3 := DefaultClusterBuilder().SetName("my-sh3").SetShardCountSpec(4).SetShardCountStatus(4).Build()
+	reconciler, _, c := defaultClusterReconcilerWithoutSingleton(ctx, sc)
+
+	testConcurrentReconciles(ctx, t, c, reconciler, sc, sc2, sc3)
+}
+
 func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 	ctx := context.Background()
 	// First creation
 	sc := DefaultClusterBuilder().SetShardCountSpec(4).SetShardCountStatus(4).Build()
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
@@ -118,7 +128,7 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 	// First we need to create a sharded cluster
 	sc := DefaultClusterBuilder().Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	reconciler.omConnectionFactory = om.NewEmptyMockedOmConnectionWithDelay
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
@@ -155,7 +165,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 		SetMongodsPerShardCountSpec(4).
 		Build()
 
-	r, _ := newShardedClusterReconcilerFromResource(ctx, *scBeforeScale, om.NewEmptyMockedOmConnection)
+	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *scBeforeScale, om.NewEmptyMockedOmConnection)
 
 	oldDeployment := createDeploymentFromShardedCluster(scBeforeScale)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
@@ -167,9 +177,9 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 		SetMongodsPerShardCountSpec(3).
 		Build()
 
-	r.initCountsForThisReconciliation(*scAfterScale)
+	reconcileHelper.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(ctx, mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
+	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(ctx, mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
 	// expected change of state: rs members are marked unvoted
@@ -199,7 +209,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 		SetMongodsPerShardCountSpec(4).
 		Build()
 
-	r, _ := newShardedClusterReconcilerFromResource(ctx, *scBeforeScale, om.NewEmptyMockedOmConnection)
+	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *scBeforeScale, om.NewEmptyMockedOmConnection)
 
 	oldDeployment := createDeploymentFromShardedCluster(scBeforeScale)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
@@ -211,9 +221,9 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 		SetMongodsPerShardCountSpec(3).
 		Build()
 
-	r.initCountsForThisReconciliation(*scAfterScale)
+	reconcileHelper.initCountsForThisReconciliation(*scAfterScale)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(ctx, mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
+	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(ctx, mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
 	expectedDeployment := createDeploymentFromShardedCluster(scBeforeScale)
@@ -246,12 +256,12 @@ func TestConstructConfigSrv(t *testing.T) {
 func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
-	r, _ := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
+	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
 
 	oldDeployment := createDeploymentFromShardedCluster(sc)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
-	assert.NoError(t, r.prepareScaleDownShardedCluster(ctx, mockedOmConnection, sc, getEmptyDeploymentOptions(), zap.S()))
+	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(ctx, mockedOmConnection, sc, getEmptyDeploymentOptions(), zap.S()))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
 	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
@@ -269,7 +279,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		SetConfigServerCountSpec(4).
 		Build()
 
-	r, _ := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
+	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
 
 	// the deployment we create should have all processes
 	mockOm := om.NewMockedOmConnection(createDeploymentFromShardedCluster(sc))
@@ -282,7 +292,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		SetConfigServerCountSpec(3).
 		Build()
 
-	r.initCountsForThisReconciliation(*sc)
+	reconcileHelper.initCountsForThisReconciliation(*sc)
 
 	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
 	// so we need to ensure it has a non-nil value. An empty list implies no authentication
@@ -291,7 +301,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		return nil
 	}, nil)
 
-	assert.Equal(t, workflow.OK(), r.updateOmDeploymentShardedCluster(ctx, mockOm, sc, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, sc, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -330,7 +340,7 @@ func TestShardedCluster_WithTLSEnabled_AndX509Enabled_Succeeds(t *testing.T) {
 		SetTLSCA("custom-ca").
 		Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	addKubernetesTlsResources(ctx, client, sc)
 
 	actualResult, err := reconciler.Reconcile(ctx, requestFromObject(sc))
@@ -348,7 +358,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 		Build()
 
 	// perform successful reconciliation to populate all the stateful sets in the mocked client
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, reconcilerHelper, client := defaultClusterReconciler(ctx, sc)
 	addKubernetesTlsResources(ctx, client, sc)
 	actualResult, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 	expectedResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -356,7 +366,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.Equal(t, expectedResult, actualResult)
 	assert.Nil(t, err)
 
-	allConfigs := reconciler.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), om.CurrMockedConnection, zap.S())
+	allConfigs := reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), om.CurrMockedConnection, zap.S())
 
 	assert.False(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, client, allConfigs, zap.S()))
 
@@ -367,7 +377,7 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
-	allConfigs = reconciler.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), om.CurrMockedConnection, zap.S())
+	allConfigs = reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), om.CurrMockedConnection, zap.S())
 	assert.True(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, client, allConfigs, zap.S()))
 }
 
@@ -421,7 +431,7 @@ func TestShardedCustomPodSpecTemplate(t *testing.T) {
 		Spec: configSrvPodSpec,
 	}).Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	addKubernetesTlsResources(ctx, client, sc)
 
@@ -519,7 +529,7 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 		Spec: configSrvPodSpec,
 	}).Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	addKubernetesTlsResources(ctx, client, sc)
 
@@ -569,7 +579,7 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 func TestFeatureControlsNoAuth(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().RemoveAuth().Build()
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
 			VersionString: "5.0.0",
@@ -605,7 +615,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		SetShardCountStatus(0).
 		Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	// perform initial reconciliation so we are not creating a new resource
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
@@ -684,7 +694,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 		SetShardCountStatus(2).
 		Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	// perform initial reconciliation so we are not creating a new resource
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
@@ -753,7 +763,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 func TestFeatureControlsAuthEnabled(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().Build()
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	reconciler.omConnectionFactory = func(context *om.OMContext) om.Connection {
 		context.Version = versionutil.OpsManagerVersion{
 			VersionString: "5.0.0",
@@ -796,7 +806,7 @@ func TestShardedClusterPortsAreConfigurable_WithAdditionalMongoConfig(t *testing
 		SetShardAdditionalConfig(shardConfig).
 		Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
@@ -825,7 +835,7 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
@@ -834,7 +844,7 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, sc.Name)},
 	}
 
-	assert.Equal(t, reconciler.WatchedResources, expected)
+	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
 }
 
 // TestShardedClusterTLSResourcesWatched verifies that TLS config map and secret are added to the internal
@@ -843,7 +853,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	ctx := context.Background()
 	sc := DefaultClusterBuilder().SetShardCountSpec(1).EnableTLS().SetTLSCA("custom-ca").Build()
 	sc.Spec.Security.Authentication.InternalCluster = "x509"
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	addKubernetesTlsResources(ctx, client, sc)
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
@@ -861,7 +871,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	}
 
 	var actual []watch.Object
-	for obj := range reconciler.WatchedResources {
+	for obj := range reconciler.resourceWatcher.GetWatchedResources() {
 		actual = append(actual, obj)
 	}
 
@@ -875,7 +885,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
-	assert.Len(t, reconciler.WatchedResources, 2)
+	assert.Len(t, reconciler.resourceWatcher.GetWatchedResources(), 2)
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
@@ -888,7 +898,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		}).
 		Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	// configure backup for this project in Ops Manager in the mocked connection
 	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
@@ -1012,7 +1022,7 @@ func TestTlsConfigPrefix_ForShardedCluster(t *testing.T) {
 		}).
 		Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 
 	createShardedClusterTLSSecretsFromCustomCerts(ctx, sc, "my-prefix", client)
 
@@ -1055,7 +1065,7 @@ func TestShardSpecificPodSpec(t *testing.T) {
 		},
 	}).Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, sc)
+	reconciler, _, client := defaultClusterReconciler(ctx, sc)
 	addKubernetesTlsResources(ctx, client, sc)
 	checkReconcileSuccessful(ctx, t, reconciler, sc, client)
 
@@ -1078,7 +1088,7 @@ func TestShardedClusterAgentVersionMapping(t *testing.T) {
 	reconcilerFactory := func(sc *mdbv1.MongoDB) (reconcile.Reconciler, *mock.MockedClient) {
 		// Go couldn't infer correctly that *ReconcileMongoDbShardedCluster implemented *reconciler.Reconciler interface
 		// without this anonymous function
-		reconciler, mockClient := defaultClusterReconciler(ctx, sc)
+		reconciler, _, mockClient := defaultClusterReconciler(ctx, sc)
 		return reconciler, mockClient
 	}
 
@@ -1147,20 +1157,29 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 
 // defaultClusterReconciler is the sharded cluster reconciler used in unit test. It "adds" necessary
 // additional K8s objects (connection config map and secrets) necessary for reconciliation
-func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *mock.MockedClient) {
-	r, manager := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
+func defaultClusterReconciler(ctx context.Context, sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, *mock.MockedClient) {
+	r, reconcileHelper, manager := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
 	manager.Client.AddDefaultMdbConfigResources(ctx)
-	return r, manager.Client
+	return r, reconcileHelper, manager.Client
 }
 
-func newShardedClusterReconcilerFromResource(ctx context.Context, sc mdbv1.MongoDB, omFunc om.ConnectionFactory) (*ReconcileMongoDbShardedCluster, *mock.MockedManager) {
+// defaultClusterReconcilerWithoutSingleton is the sharded cluster reconciler used in unit test. It "adds" necessary
+// additional K8s objects (connection config map and secrets) necessary for reconciliation without the unsafe singleton
+func defaultClusterReconcilerWithoutSingleton(ctx context.Context, sc *mdbv1.MongoDB) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, *mock.MockedClient) {
+	r, reconcileHelper, manager := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnectionNoSingleton)
+	manager.Client.AddDefaultMdbConfigResources(ctx)
+	return r, reconcileHelper, manager.Client
+}
+
+func newShardedClusterReconcilerFromResource(ctx context.Context, sc mdbv1.MongoDB, omFunc om.ConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, *mock.MockedManager) {
 	mgr := mock.NewManager(ctx, &sc)
 	r := &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: newReconcileCommonController(ctx, mgr),
 		omConnectionFactory:       omFunc,
 	}
-	r.initCountsForThisReconciliation(sc)
-	return r, mgr
+	reconcileHelper := NewShardedClusterReconcilerHelper(r.ReconcileCommonController, om.NewEmptyMockedOmConnection)
+	reconcileHelper.initCountsForThisReconciliation(sc)
+	return r, reconcileHelper, mgr
 }
 
 type ClusterBuilder struct {

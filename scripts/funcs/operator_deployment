@@ -42,6 +42,14 @@ get_operator_helm_values() {
     config+=("operator.createOperatorServiceAccount=false")
   fi
 
+  if [[ "${BUILD_WITH_RACE_DETECTION:-}" == "true" ]]; then
+    config+=("operator.build=-race")
+  fi
+
+  if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then
+      config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
+  fi
+
   echo "${config[@]}"
 }
 

@@ -105,7 +105,7 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, mrs.Spec.Credentials)}:             {kube.ObjectKey(mock.TestNamespace, mrs.Name)},
 	}
 
-	assert.Equal(t, reconciler.WatchedResources, expected)
+	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
 }
 
 func TestServiceCreation_WithExternalName(t *testing.T) {
@@ -489,6 +489,16 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.True(t, areEqual)
+}
+
+func TestMultiReplicaSetRace(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	rs2 := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetName("my-rs2").Build()
+	rs3 := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetName("my-rs3").Build()
+	reconciler, client, _ := defaultMultiReplicaSetReconcilerWithoutSingleton(ctx, rs, t)
+
+	testConcurrentReconciles(ctx, t, client, reconciler, rs, rs2, rs3)
 }
 
 func TestScaling(t *testing.T) {
@@ -1091,6 +1101,15 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 func defaultMultiReplicaSetReconciler(ctx context.Context, m *mdbmulti.MongoDBMultiCluster, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
 	connection := func(ctx *om.OMContext) om.Connection {
 		ret := om.NewEmptyMockedOmConnection(ctx)
+		ret.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
+		return ret
+	}
+	return multiReplicaSetReconcilerWithConnection(ctx, m, connection, t)
+}
+
+func defaultMultiReplicaSetReconcilerWithoutSingleton(ctx context.Context, m *mdbmulti.MongoDBMultiCluster, t *testing.T) (*ReconcileMongoDbMultiReplicaSet, *mock.MockedClient, map[string]cluster.Cluster) {
+	connection := func(ctx *om.OMContext) om.Connection {
+		ret := om.NewEmptyMockedOmConnectionNoSingleton(ctx)
 		ret.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 		return ret
 	}

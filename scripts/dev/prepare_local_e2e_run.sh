@@ -44,7 +44,7 @@ echo "Preparing operator config map"
 prepare_operator_config_map "$(kubectl config current-context)" 2>&1 | prepend "prepare_operator_config_map: "
 
 rm -rf docker/mongodb-enterprise-tests/helm_chart
-cp -r helm_chart docker/mongodb-enterprise-tests/helm_chart
+cp -rf helm_chart docker/mongodb-enterprise-tests/helm_chart
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then

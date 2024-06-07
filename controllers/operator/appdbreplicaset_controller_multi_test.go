@@ -794,7 +794,7 @@ func TestAppDBMultiClusterRemoveResources(t *testing.T) {
 
 	// delete the OM resource
 	reconciler.OnDelete(ctx, opsManager, zap.S())
-	assert.Zero(t, len(reconciler.WatchedResources))
+	assert.Zero(t, len(reconciler.resourceWatcher.GetWatchedResources()))
 
 	// assert STS objects in member cluster
 	for clusterIdx, clusterSpecItem := range opsManager.Spec.AppDB.ClusterSpecList {

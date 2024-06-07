@@ -385,6 +385,7 @@ def build_operator_image(build_configuration: BuildConfiguration):
     test_suffix = os.environ.get("test_suffix", "")
     log_automation_config_diff = os.environ.get("LOG_AUTOMATION_CONFIG_DIFF", "false")
     version, _ = get_git_release_tag()
+
     args = {
         "version": version,
         "log_automation_config_diff": log_automation_config_diff,

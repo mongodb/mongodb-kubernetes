@@ -14,20 +14,41 @@ images:
   - log_automation_config_diff
 
   stages:
+
   - name: operator-context-dockerfile
     task_type: docker_build
     dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
     buildargs:
       release_version: $(inputs.params.version)
       log_automation_config_diff: $(inputs.params.log_automation_config_diff)
+      use_race: "false"
     output:
     - registry: $(inputs.params.registry)/operator-context
       tag: $(inputs.params.version_id)
 
+  - name: operator-race-context-dockerfile
+    task_type: docker_build
+    dockerfile: docker/mongodb-enterprise-operator/Dockerfile.builder
+    buildargs:
+      release_version: $(inputs.params.version)
+      log_automation_config_diff: $(inputs.params.log_automation_config_diff)
+      use_race: "true"
+    output:
+    - registry: $(inputs.params.registry)/operator-context
+      tag: $(inputs.params.version_id)-race
+
   - name: operator-template-ubi
     task_type: dockerfile_template
-    tags: ["ubi"]
     distro: ubi
+    inputs:
+    - version
+    - debug
+    output:
+    - dockerfile: $(functions.tempfile)
+
+  - name: operator-race-template-ubi
+    task_type: dockerfile_template
+    template_file_extension: race # this enables us to use the Dockerfile.race which uses ubi9
     inputs:
     - version
     - debug
@@ -36,13 +57,21 @@ images:
 
   - name: operator-ubi-build
     task_type: docker_build
-    tags: ["ubi"]
     dockerfile: $(stages['operator-template-ubi'].outputs[0].dockerfile)
     buildargs:
       imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)
     output:
     - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
       tag: $(inputs.params.version_id)
+
+  - name: operator-ubi-race-build
+    task_type: docker_build
+    dockerfile: $(stages['operator-race-template-ubi'].outputs[0].dockerfile)
+    buildargs:
+      imagebase: $(inputs.params.registry)/operator-context:$(inputs.params.version_id)-race
+    output:
+    - registry: $(inputs.params.registry)/mongodb-enterprise-operator-ubi
+      tag: $(inputs.params.version_id)-race
 
   - name: master-latest
     task_type: tag_image

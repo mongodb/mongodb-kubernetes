@@ -47,11 +47,15 @@ func (agent AgentStatus) IsRegistered(hostnamePrefix string, log *zap.SugaredLog
 	return false
 }
 
-// Results is needed to fulfil the Paginated interface
+// Results are needed to fulfil the Paginated interface
 func (aar automationAgentStatusResponse) Results() []interface{} {
 	ans := make([]interface{}, len(aar.AutomationAgents))
 	for i, aa := range aar.AutomationAgents {
 		ans[i] = aa
 	}
 	return ans
+}
+
+type Status interface {
+	IsRegistered(hostnamePrefix string, log *zap.SugaredLogger) bool
 }

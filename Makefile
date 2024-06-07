@@ -147,6 +147,9 @@ build-multi-cluster-binary:
 build-and-push-images: build-and-push-operator-image appdb-init-image om-init-image database operator-image database-init-image
 	@ $(MAKE) agent-image
 
+# builds all init images
+build-and-push-init-images: appdb-init-image om-init-image database-init-image
+
 database-init-image:
 	@ scripts/evergreen/run_python.sh pipeline.py --include init-database
 
@@ -242,6 +245,11 @@ endif
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 test: generate fmt vet manifests
 	scripts/evergreen/unit-tests.sh
+	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
+
+# test-race runs test with race enabled
+test-race: generate fmt vet manifests
+	USE_RACE=true scripts/evergreen/unit-tests.sh
 	@ scripts/evergreen/run_python.sh -m pytest pipeline_test.py
 
 # Build manager binary

@@ -70,7 +70,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_ShardedCluster(t *testing.T) {
 	ctx := context.Background()
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
-	reconciler, client := defaultClusterReconciler(ctx, scWithTls)
+	reconciler, _, client := defaultClusterReconciler(ctx, scWithTls)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
 	checkReconcileSuccessful(ctx, t, reconciler, scWithTls, client)
@@ -80,7 +80,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ShardedCluster(t *testi
 	ctx := context.Background()
 	scWithTls := DefaultClusterBuilder().EnableTLS().EnableX509().SetName("sc-with-tls").SetTLSCA("custom-ca").Build()
 
-	reconciler, client := defaultClusterReconciler(ctx, scWithTls)
+	reconciler, _, client := defaultClusterReconciler(ctx, scWithTls)
 	addKubernetesTlsResources(ctx, client, scWithTls)
 
 	checkReconcileSuccessful(ctx, t, reconciler, scWithTls, client)
@@ -343,7 +343,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 		EnableX509InternalClusterAuth().
 		Build()
 
-	r, manager := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
+	r, _, manager := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
 	addKubernetesTlsResources(ctx, r.client, sc)
 	createConfigMap(ctx, t, manager.Client)
 	checkReconcileSuccessful(ctx, t, r, sc, manager.Client)

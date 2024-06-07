@@ -85,7 +85,7 @@ type ReconcileCommonController struct {
 	client kubernetesClient.Client
 	secrets.SecretClient
 
-	watch.ResourceWatcher
+	resourceWatcher *watch.ResourceWatcher
 }
 
 func newReconcileCommonController(ctx context.Context, mgr manager.Manager) *ReconcileCommonController {
@@ -119,7 +119,7 @@ func newReconcileCommonController(ctx context.Context, mgr manager.Manager) *Rec
 			KubeClient:  newClient,
 		},
 		scheme:          mgr.GetScheme(),
-		ResourceWatcher: watch.NewResourceWatcher(),
+		resourceWatcher: watch.NewResourceWatcher(),
 	}
 }
 
@@ -182,12 +182,12 @@ type WatcherResource interface {
 func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherResource, getTLSSecretNames func() []string, getInternalAuthSecretNames func() []string, resourceNameForSecret string) {
 	// We remove all watched resources
 	objectToReconcile := watcherResource.ObjectKey()
-	r.RemoveDependentWatchedResources(objectToReconcile)
+	r.resourceWatcher.RemoveDependentWatchedResources(objectToReconcile)
 
 	// And then add the ones we care about
 	connectionSpec := watcherResource.GetConnectionSpec()
 	if connectionSpec != nil {
-		r.RegisterWatchedMongodbResources(objectToReconcile, connectionSpec.GetProject(), connectionSpec.Credentials)
+		r.resourceWatcher.RegisterWatchedMongodbResources(objectToReconcile, connectionSpec.GetProject(), connectionSpec.Credentials)
 	}
 
 	security := watcherResource.GetSecurity()
@@ -199,7 +199,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		} else {
 			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)} // maybe here?
 		}
-		r.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
+		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
 	}
 
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
@@ -210,7 +210,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 			secretNames = []string{security.InternalClusterAuthSecretName(resourceNameForSecret)}
 		}
 		for _, secretName := range secretNames {
-			r.AddWatchedResourceIfNotAdded(secretName, objectToReconcile.Namespace, watch.Secret, objectToReconcile)
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, objectToReconcile.Namespace, watch.Secret, objectToReconcile)
 		}
 	}
 }

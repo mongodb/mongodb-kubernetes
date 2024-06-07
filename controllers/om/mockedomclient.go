@@ -48,8 +48,11 @@ import (
 //   built)
 // ********************************************************************************************************************
 
-// Global variable for current OM connection object that was created by MongoDbController - just for tests
-var CurrMockedConnection *MockedOmConnection
+// CurrMockedConnection is a Global variable for current OM connection object that was created by MongoDbController
+// its - just for tests
+var (
+	CurrMockedConnection *MockedOmConnection
+)
 
 const (
 	TestGroupID   = "abcd1234"
@@ -94,6 +97,9 @@ type MockedOmConnection struct {
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
 	// and make function names rename easier
 	history []*runtime.Func
+
+	// noSingleton defines whether the omConnection should keep and configure the singleton
+	noSingleton bool
 }
 
 var _ Connection = &MockedOmConnection{}
@@ -115,6 +121,26 @@ func NewEmptyMockedOmConnection(ctx *OMContext) Connection {
 	}
 
 	return conn
+}
+
+// NewEmptyMockedOmConnectionNoSingleton is the standard function for creating mocked connections that is usually used for testing
+// "full cycle" mocked controller. It has group created already, but doesn't have the deployment. Also it "survives"
+// recreations (as this is what we do in 'ReconcileCommonController.prepareConnection')
+func NewEmptyMockedOmConnectionNoSingleton(ctx *OMContext) Connection {
+	connection := NewMockedOmConnection(nil)
+	connection.OrganizationsWithGroups = make(map[*Organization][]*Project)
+	connection.OrganizationsWithGroups = map[*Organization][]*Project{
+		{ID: TestOrgID, Name: TestGroupName}: {{
+			Name:        TestGroupName,
+			ID:          TestGroupID,
+			Tags:        []string{util.OmGroupExternallyManagedTag},
+			AgentAPIKey: TestAgentKey,
+			OrgID:       TestOrgID,
+		}},
+	}
+	connection.noSingleton = true
+
+	return connection
 }
 
 // NewEmptyMockedOmConnectionWithDelay is the function that builds the mocked connection with some "delay" for agents
@@ -153,10 +179,11 @@ func NewEmptyMockedOmConnectionWithAutomationConfigChanges(ctx *OMContext, acFun
 	return connection
 }
 
-// NewEmptyMockedConnection is the standard function for creating mocked connections that is usually used for testing
+// NewEmptyMockedOmConnectionNoGroup is the standard function for creating mocked connections that is usually used for testing
 // "full cycle" mocked controller. It doesn't have the group created.
 func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
 	var connection *MockedOmConnection
+
 	// That's how we can "survive" multiple calls to this function: so we can create groups or add/delete entities
 	// Note, that the global connection variable is cleaned before each test (see kubeapi_test.newMockedKubeApi)
 	if CurrMockedConnection != nil {
@@ -165,7 +192,6 @@ func NewEmptyMockedOmConnectionNoGroup(ctx *OMContext) Connection {
 		connection = NewMockedOmConnection(nil)
 		connection.OrganizationsWithGroups = make(map[*Organization][]*Project)
 	}
-
 	connection.HTTPOmConnection = HTTPOmConnection{
 		context: ctx,
 	}
@@ -341,14 +367,41 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
 
+type mockedAutomationAgentStatusResponse struct{}
+
+func (m mockedAutomationAgentStatusResponse) HasNext() bool {
+	return false
+}
+
+func (m mockedAutomationAgentStatusResponse) Results() []interface{} {
+	var ans []interface{}
+	ans = append(ans, mockedAgentStatus{})
+	return ans
+}
+
+func (m mockedAutomationAgentStatusResponse) ItemsCount() int {
+	// TODO implement me
+	panic("implement me")
+}
+
+type mockedAgentStatus struct{}
+
+func (m mockedAgentStatus) IsRegistered(hostnamePrefix string, log *zap.SugaredLogger) bool {
+	return true
+}
+
 func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
+	if oc.noSingleton {
+		return mockedAutomationAgentStatusResponse{}, nil
+	}
 
 	results := make([]AgentStatus, 0)
 	for _, r := range oc.hostResults.Results {
 		results = append(results,
 			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
 	}
+
 	// todo extend this for real testing
 	return automationAgentStatusResponse{AutomationAgents: results}, nil
 }

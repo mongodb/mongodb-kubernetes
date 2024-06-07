@@ -79,9 +79,9 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	}
 
 	// om watches oplog MDB resource
-	assert.Contains(t, reconciler.WatchedResources, key)
-	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(testOm))
-	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(otherTestOm))
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), key)
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(testOm))
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(otherTestOm))
 }
 
 // TestOMTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
@@ -144,7 +144,7 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	}
 
 	var actual []watch.Object
-	for obj := range reconciler.WatchedResources {
+	for obj := range reconciler.resourceWatcher.GetWatchedResources() {
 		actual = append(actual, obj)
 	}
 
@@ -159,11 +159,11 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 
-	assert.NotContains(t, reconciler.WatchedResources, omTLSSecretKey)
-	assert.NotContains(t, reconciler.WatchedResources, omCAKey)
-	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBKey)
-	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
-	assert.NotContains(t, reconciler.WatchedResources, KmipCaKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), omTLSSecretKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), omCAKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipMongoDBKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipMongoDBPasswordKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipCaKey)
 
 	testOm.Spec.AppDB.Security.TLSConfig.Enabled = false
 	testOm.Spec.Backup.Enabled = true
@@ -175,11 +175,11 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
 	assert.NoError(t, err)
 
-	assert.NotContains(t, reconciler.WatchedResources, appDBCAKey)
-	assert.NotContains(t, reconciler.WatchedResources, appdbTLSecretCert)
-	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBKey)
-	assert.NotContains(t, reconciler.WatchedResources, KmipMongoDBPasswordKey)
-	assert.NotContains(t, reconciler.WatchedResources, KmipCaKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), appDBCAKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), appdbTLSecretCert)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipMongoDBKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipMongoDBPasswordKey)
+	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipCaKey)
 }
 
 func TestOpsManagerPrefixForTLSSecret(t *testing.T) {
@@ -212,12 +212,12 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 	}
 
 	// om watches oplog MDB resource
-	assert.Contains(t, reconciler.WatchedResources, key)
-	assert.Contains(t, reconciler.WatchedResources[key], mock.ObjectKeyFromApiObject(testOm))
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), key)
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(testOm))
 
 	// watched resources list is cleared when CR is deleted
 	reconciler.OnDelete(ctx, testOm, zap.S())
-	assert.Zero(t, len(reconciler.WatchedResources))
+	assert.Zero(t, len(reconciler.resourceWatcher.GetWatchedResources()))
 }
 
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
@@ -586,7 +586,7 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	reconciler, client, _ := defaultTestOmReconciler(ctx, t, testOm, nil)
 	configureBackupResources(ctx, client, testOm)
 
-	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey")
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
 	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
 
 	reconcilerHelper, err := newOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
@@ -699,6 +699,16 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 		assert.Equal(t, "s3-config-1", s3Configs[1].Id)
 		assert.Equal(t, "s3-config-2", s3Configs[2].Id)
 	})
+}
+
+func TestOpsManagerRace(t *testing.T) {
+	ctx := context.Background()
+	opsManager := DefaultOpsManagerBuilder().Build()
+	opsManager2 := DefaultOpsManagerBuilder().SetName("my-rs2").Build()
+	opsManager3 := DefaultOpsManagerBuilder().SetName("my-rs3").Build()
+	reconciler, mockedClient, _ := defaultTestOmReconcilerNoSingleton(ctx, t, opsManager, nil)
+
+	testConcurrentReconciles(ctx, t, mockedClient, reconciler, opsManager2, opsManager3, opsManager)
 }
 
 func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
@@ -918,7 +928,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("All MongoDB resource should be watched.", func(t *testing.T) {
-		assert.Len(t, reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 6, "All non S3 configs should have a corresponding MongoDB resource and should be watched.")
+		assert.Len(t, reconciler.resourceWatcher.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 6, "All non S3 configs should have a corresponding MongoDB resource and should be watched.")
 	})
 
 	t.Run("Removing backup configs causes the resource no longer be watched", func(t *testing.T) {
@@ -932,7 +942,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 		res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
 		assert.NoError(t, err)
 
-		watchedResources := reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace)
+		watchedResources := reconciler.resourceWatcher.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace)
 		assert.Len(t, watchedResources, 4, "The two configs that were removed should no longer be watched.")
 
 		assert.True(t, containsName("block-store-config-0-mdb", watchedResources))
@@ -948,7 +958,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 
 		res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
 		assert.NoError(t, err)
-		assert.Len(t, reconciler.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 0, "Backup has been disabled, none of the resources should be watched anymore.")
+		assert.Len(t, reconciler.resourceWatcher.GetWatchedResourcesOfType(watch.MongoDB, testOm.Namespace), 0, "Backup has been disabled, none of the resources should be watched anymore.")
 	})
 }
 
@@ -1047,9 +1057,32 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, opsManager *omv1
 
 	reconciler := newOpsManagerReconciler(ctx, manager, globalMemberClustersMap, om.NewEmptyMockedOmConnection, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
-			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey).(*api.MockedOmAdmin)
+			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}
 		return api.CurrMockedAdmin
+	})
+
+	assert.NoError(t, reconciler.client.CreateSecret(ctx, s))
+	return reconciler, manager.Client, initializer
+}
+
+func defaultTestOmReconcilerNoSingleton(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]cluster.Cluster) (*OpsManagerReconciler, *mock.MockedClient, *MockedInitializer) {
+	manager := mock.NewManager(ctx, opsManager.DeepCopy())
+	// create an admin user secret
+	data := map[string]string{"Username": "jane.doe@g.com", "Password": "pwd", "FirstName": "Jane", "LastName": "Doe"}
+
+	s := secret.Builder().
+		SetName(opsManager.Spec.AdminSecret).
+		SetNamespace(opsManager.Namespace).
+		SetStringMapToData(data).
+		SetLabels(map[string]string{}).
+		SetOwnerReferences(kube.BaseOwnerReference(opsManager)).
+		Build()
+
+	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t, skipChecks: true}
+
+	reconciler := newOpsManagerReconciler(ctx, manager, globalMemberClustersMap, om.NewEmptyMockedOmConnectionNoSingleton, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
 	assert.NoError(t, reconciler.client.CreateSecret(ctx, s))
@@ -1073,11 +1106,15 @@ type MockedInitializer struct {
 	expectedCaContent *string
 	t                 *testing.T
 	numberOfCalls     int
+	skipChecks        bool
 }
 
 func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
 	o.numberOfCalls++
-	assert.Equal(o.t, o.expectedOmURL, omUrl)
+	if !o.skipChecks {
+		assert.Equal(o.t, o.expectedOmURL, omUrl)
+	}
+
 	if o.expectedCaContent != nil {
 		assert.Equal(o.t, *o.expectedCaContent, *ca)
 	}
@@ -1085,9 +1122,11 @@ func (o *MockedInitializer) TryCreateUser(omUrl string, omVersion string, user a
 		return api.OpsManagerKeyPair{}, o.expectedAPIError
 	}
 	// OM logic: any number of users is created. But we cannot of course create the user with the same name
-	for _, v := range o.currentUsers {
-		if v.Username == user.Username {
-			return api.OpsManagerKeyPair{}, apierror.NewErrorWithCode(apierror.UserAlreadyExists)
+	if !o.skipChecks {
+		for _, v := range o.currentUsers {
+			if v.Username == user.Username {
+				return api.OpsManagerKeyPair{}, apierror.NewErrorWithCode(apierror.UserAlreadyExists)
+			}
 		}
 	}
 	o.currentUsers = append(o.currentUsers, user)

@@ -1046,7 +1046,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr, om.NewOpsManagerConnection, memberClustersMap)
-	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler})
+	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)})
 	if err != nil {
 		return err
 	}
@@ -1082,7 +1082,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, memb
 	}
 
 	err = c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}),
-		&watch.ResourcesHandler{ResourceType: watch.Secret, TrackedResources: reconciler.WatchedResources})
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher})
 	if err != nil {
 		return err
 	}
@@ -1237,7 +1237,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteClusterResources(ctx context.Con
 		log.Infof("Removed Secrets associated with %s/%s", mrs.Namespace, mrs.Name)
 	}
 
-	r.RemoveDependentWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
+	r.resourceWatcher.RemoveDependentWatchedResources(kube.ObjectKey(mrs.Namespace, mrs.Name))
 
 	return errs
 }

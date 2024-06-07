@@ -5,8 +5,11 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/10gen/ops-manager-kubernetes/pkg/agentVersionManagement"
 	"github.com/10gen/ops-manager-kubernetes/pkg/util/architectures"
@@ -283,7 +286,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, internalAuthCert)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 	}
 
-	assert.Equal(t, expected, controller.WatchedResources)
+	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
 }
 
 func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
@@ -305,7 +308,7 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "a-secret")}:                       {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 	}
 
-	assert.Equal(t, expected, controller.WatchedResources)
+	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
 }
 
 func assertSubjectFromFileFails(t *testing.T, filePath string) {
@@ -530,4 +533,33 @@ func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource 
 		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
+}
+
+func testConcurrentReconciles(ctx context.Context, t *testing.T, mockedClient *mock.MockedClient, reconciler reconcile.Reconciler, objects ...client.Object) {
+	for _, object := range objects {
+		err := mockedClient.CreateOrUpdate(ctx, object)
+		require.NoError(t, err)
+	}
+
+	// Let's have one reconcile first, such that we have the same object reconciles multiple times
+	_, err := reconciler.Reconcile(ctx, requestFromObject(objects[0]))
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+
+	// we need to increase the chance of races to happen.
+	// therefore, we reconcile a lot of times a lot of resources concurrently
+	// Note: we don't concurrently reconcile the same resource
+	for i := 0; i < 5; i++ {
+		wg.Add(len(objects))
+		for _, object := range objects {
+			object := object
+			go func() {
+				_, err := reconciler.Reconcile(ctx, requestFromObject(object))
+				assert.NoError(t, err)
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
 }

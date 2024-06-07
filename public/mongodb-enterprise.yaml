@@ -282,3 +282,5 @@ spec:
               value: ubi8
             - name: PERFORM_FAILOVER
               value: 'true'
+            - name: MDB_MAX_CONCURRENT_RECONCILES
+              value: "1"
