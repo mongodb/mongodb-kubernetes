@@ -1,7 +1,7 @@
 package authentication
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint //Part of the algorithm
 	"crypto/sha256"
 	"fmt"
 

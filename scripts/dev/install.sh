@@ -30,8 +30,6 @@ if [ "$(uname)" = "Darwin" ] ; then
 
   brew install shellcheck
 
-  brew install staticcheck
-
 elif [ "$(uname)" = "Linux" ] ; then # Ubuntu only
   sudo snap install kubectl --classic  || true
 

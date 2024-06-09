@@ -40,7 +40,8 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 			HTTPClient: &http.Client{
 				Transport: &http.Transport{
 					TLSClientConfig: &tls.Config{
-						RootCAs: certpool,
+						RootCAs:    certpool,
+						MinVersion: tls.VersionTLS12,
 					},
 				},
 				Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second,

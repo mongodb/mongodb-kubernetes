@@ -183,7 +183,10 @@ func (enc *encodeState) writeAttributeTypeAndValue(atv pkix.AttributeTypeAndValu
 		enc.WriteString(atv.Type.String())
 	}
 	enc.WriteByte('=')
-	enc.writeEscapedAttributeValue(attrValue)
+	err = enc.writeEscapedAttributeValue(attrValue)
+	if err != nil {
+		return false, err
+	}
 	return found, nil
 }
 

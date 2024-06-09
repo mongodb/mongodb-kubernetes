@@ -96,11 +96,11 @@ const (
 	PvcMmsHomeMountPath            = "/mongodb-automation"
 	CAFilePathInContainer          = PvcMmsHomeMountPath + "/ca.pem"
 	PEMKeyFilePathInContainer      = PvcMmsHomeMountPath + "/server.pem"
-	KMIPSecretsHome                = "/mongodb-ops-manager/kmip"
+	KMIPSecretsHome                = "/mongodb-ops-manager/kmip" //nolint
 	KMIPServerCAHome               = KMIPSecretsHome + "/server"
 	KMIPClientSecretsHome          = KMIPSecretsHome + "/client"
 	KMIPServerCAName               = "kmip-server"
-	KMIPClientSecretNamePrefix     = "kmip-client-"
+	KMIPClientSecretNamePrefix     = "kmip-client-" //nolint
 	KMIPCAFileInContainer          = KMIPServerCAHome + "/ca.pem"
 	PvcMms                         = "mongodb-mms-automation"
 	PvcMmsMountPath                = "/var/lib/mongodb-mms-automation"
@@ -145,7 +145,7 @@ const (
 
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"
-	InvalidAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH"
+	InvalidAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH" //nolint //Part of the algorithm
 
 	// AutomationAgentWindowsKeyFilePath is the default path for the windows key file. This is never
 	// used, but we want to keep it the default value so it is is possible to add new users without modifying
@@ -168,7 +168,7 @@ const (
 	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
 	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
-	ImagePullSecrets                 = "IMAGE_PULL_SECRETS"
+	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = "mongodb-enterprise-operator-member-list"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
@@ -243,7 +243,7 @@ const (
 
 	// SecretVolumeMountPath defines where in the Pod will be the secrets
 	// object mounted.
-	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets"
+	SecretVolumeMountPath = "/var/lib/mongodb-automation/secrets" //nolint
 
 	SecretVolumeMountPathPrometheus = SecretVolumeMountPath + "/prometheus"
 
