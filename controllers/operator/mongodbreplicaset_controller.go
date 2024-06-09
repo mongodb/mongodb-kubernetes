@@ -203,8 +203,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		WithAgentVersion(automationAgentVersion),
 	)
 
-	caFilePath := util.CAFilePathInContainer
-	caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 
 	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.client, *rs); err != nil {
 		return r.updateStatus(ctx, rs, workflow.Failed(xerrors.Errorf("Failed to reconcileHostnameOverrideConfigMap: %w", err)), log)

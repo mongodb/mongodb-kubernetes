@@ -65,8 +65,8 @@ const (
 	PodAntiAffinityLabelKey = "pod-anti-affinity"
 
 	// AGENT_API_KEY secret path
-	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key"
-	AgentAPIKeyVolumeName = "agent-api-key"
+	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
+	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
 
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"

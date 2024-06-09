@@ -613,7 +613,7 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 
 	// next check if the clusterName is present in the annotations
 	if bytes, ok := m.Annotations[LastClusterNumMapping]; ok {
-		json.Unmarshal([]byte(bytes), &m.Spec.Mapping)
+		_ = json.Unmarshal([]byte(bytes), &m.Spec.Mapping)
 
 		if val, ok := m.Spec.Mapping[clusterName]; ok {
 			return val

@@ -645,7 +645,7 @@ func (om *MongoDBOpsManager) BackupDaemonHeadlessServiceNameForClusterIndex(clus
 
 func (ms MongoDBOpsManagerSpec) BackupDaemonSvcPort() (int32, error) {
 	if port, ok := ms.Configuration[queryableBackupConfigPath]; ok {
-		val, err := strconv.Atoi(port)
+		val, err := strconv.ParseInt(port, 10, 32)
 		if err != nil {
 			return -1, err
 		}

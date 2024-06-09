@@ -243,7 +243,8 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 	// publishing changed config will result in update
 	fcv := "4.4"
 	opsManager.Spec.AppDB.FeatureCompatibilityVersion = &fcv
-	kubeManager.Client.Update(ctx, opsManager)
+	err = kubeManager.Client.Update(ctx, opsManager)
+	assert.NoError(t, err)
 
 	_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	assert.NoError(t, err)
@@ -272,7 +273,8 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	om := builder.Build()
 
 	manager := mock.NewManager(ctx, om)
-	createOpsManagerUserPasswordSecret(ctx, manager.Client, om, "omPass")
+	err := createOpsManagerUserPasswordSecret(ctx, manager.Client, om, "omPass")
+	assert.NoError(t, err)
 
 	automationConfig, err := buildAutomationConfigForAppDb(ctx, builder, manager, automation, zap.S())
 	assert.NoError(t, err)
@@ -712,7 +714,8 @@ func performAppDBScalingTest(ctx context.Context, t *testing.T, startingMembers,
 	opsManager := builder.Build()
 	kubeManager := mock.NewEmptyManager()
 	client := kubeManager.Client
-	createOpsManagerUserPasswordSecret(ctx, client, opsManager, "pass")
+	err := createOpsManagerUserPasswordSecret(ctx, client, opsManager, "pass")
+	assert.NoError(t, err)
 	reconciler, err := newAppDbReconciler(ctx, kubeManager, opsManager, zap.S())
 	require.NoError(t, err)
 

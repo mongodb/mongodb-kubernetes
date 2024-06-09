@@ -455,7 +455,7 @@ func TestTls_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	}).Build()
 
 	reconciler, client, _ := defaultMultiReplicaSetReconciler(ctx, mrs, t)
-	createMultiClusterReplicaSetTLSData(ctx, client, mrs, "some-ca")
+	createMultiClusterReplicaSetTLSData(t, ctx, client, mrs, "some-ca")
 
 	t.Run("Reconciliation is successful when configuring tls", func(t *testing.T) {
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
@@ -787,7 +787,7 @@ func TestClusterNumbering(t *testing.T) {
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(ctx, mrs, t)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		clusterNumMap := getClusterNumMapping(mrs)
+		clusterNumMap := getClusterNumMapping(t, mrs)
 		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1, 2})
 	})
 
@@ -798,7 +798,7 @@ func TestClusterNumbering(t *testing.T) {
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(ctx, mrs, t)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		clusterNumMap := getClusterNumMapping(mrs)
+		clusterNumMap := getClusterNumMapping(t, mrs)
 		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1})
 
 		// add cluster
@@ -811,7 +811,7 @@ func TestClusterNumbering(t *testing.T) {
 		assert.NoError(t, err)
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
-		clusterNumMap = getClusterNumMapping(mrs)
+		clusterNumMap = getClusterNumMapping(t, mrs)
 
 		assert.Equal(t, 2, clusterNumMap[clusters[2]])
 	})
@@ -826,7 +826,7 @@ func TestClusterNumbering(t *testing.T) {
 		reconciler, client, _ := defaultMultiReplicaSetReconciler(ctx, mrs, t)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		clusterNumMap := getClusterNumMapping(mrs)
+		clusterNumMap := getClusterNumMapping(t, mrs)
 		assertClusterpresent(t, clusterNumMap, mrs.Spec.ClusterSpecList, []int{0, 1, 2})
 		clusterOneIndex := clusterNumMap[clusters[1]]
 
@@ -857,15 +857,16 @@ func TestClusterNumbering(t *testing.T) {
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 		// assert the index corresponsing to cluster 1 is still 1
-		clusterNumMap = getClusterNumMapping(mrs)
+		clusterNumMap = getClusterNumMapping(t, mrs)
 		assert.Equal(t, clusterOneIndex, clusterNumMap[clusters[1]])
 	})
 }
 
-func getClusterNumMapping(m *mdbmulti.MongoDBMultiCluster) map[string]int {
+func getClusterNumMapping(t *testing.T, m *mdbmulti.MongoDBMultiCluster) map[string]int {
 	clusterMapping := make(map[string]int)
 	bytes := m.Annotations[mdbmulti.LastClusterNumMapping]
-	json.Unmarshal([]byte(bytes), &clusterMapping)
+	err := json.Unmarshal([]byte(bytes), &clusterMapping)
+	assert.NoError(t, err)
 
 	return clusterMapping
 }
@@ -895,10 +896,11 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 	uuidStr := uuid.New().String()
 
 	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
-	om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
+	_, err := om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
 		ClusterId: uuidStr,
 		Status:    backup.Inactive,
 	})
+	assert.NoError(t, err)
 
 	// add the Replicaset cluster to OM
 	om.CurrMockedConnection.BackupHostClusters[uuidStr] = &backup.HostCluster{
@@ -984,7 +986,8 @@ func TestMultiClusterFailover(t *testing.T) {
 	os.Setenv("PERFORM_FAILOVER", "true")
 	defer os.Unsetenv("PERFORM_FAILOVER")
 
-	memberwatch.AddFailoverAnnotation(ctx, *mrs, cluster.ClusterName, client)
+	err = memberwatch.AddFailoverAnnotation(ctx, *mrs, cluster.ClusterName, client)
+	assert.NoError(t, err)
 
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 

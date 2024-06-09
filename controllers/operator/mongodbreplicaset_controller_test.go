@@ -642,10 +642,11 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	uuidStr := uuid.New().String()
 	// configure backup for this project in Ops Manager in the mocked connection
 	om.CurrMockedConnection = om.NewMockedOmConnection(om.NewDeployment())
-	om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
+	_, err := om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
 		ClusterId: uuidStr,
 		Status:    backup.Inactive,
 	})
+	assert.NoError(t, err)
 
 	// add corresponding host cluster.
 	om.CurrMockedConnection.BackupHostClusters[uuidStr] = &backup.HostCluster{

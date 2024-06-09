@@ -77,10 +77,6 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	}
 
 	secretName := security.MemberCertificateSecretName(databaseOpts.Name)
-	secretMountPath := util.SecretVolumeMountPath + "/certs"
-	configmapMountPath := util.ConfigMapVolumeCAMountPath
-
-	volumeSecretName := secretName
 
 	caName := fmt.Sprintf("%s-ca", databaseOpts.Name)
 	if tlsConfig != nil && tlsConfig.CA != "" {
@@ -94,9 +90,9 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
 	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
 
-	secretMountPath = util.TLSCertMountPath
-	configmapMountPath = util.TLSCaMountPath
-	volumeSecretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
+	secretMountPath := util.TLSCertMountPath
+	configmapMountPath := util.TLSCaMountPath
+	volumeSecretName := fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 
 	if !vault.IsVaultSecretBackend() {
 		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, volumeSecretName, optionalSecretFunc)

@@ -1,9 +1,9 @@
 package mdbmulti
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
-	"time"
+	"math/big"
 
 	v1 "github.com/mongodb/mongodb-kubernetes-operator/api/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -63,13 +63,17 @@ func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSet
 }
 
 func (m *MultiReplicaSetBuilder) SetClusterSpecList(clusters []string) *MultiReplicaSetBuilder {
-	//lint:ignore SA1019 Deprecated rand library usage
-	rand.Seed(time.Now().UnixNano())
+	randFive, err := rand.Int(rand.Reader, big.NewInt(5))
+	if err != nil {
+		panic(err)
+	}
+
+	randFiveAsInt := int(randFive.Int64())
 
 	for _, e := range clusters {
 		m.Spec.ClusterSpecList = append(m.Spec.ClusterSpecList, mdbv1.ClusterSpecItem{
 			ClusterName: e,
-			Members:     rand.Intn(5) + 1, // number of cluster members b/w 1 to 5
+			Members:     randFiveAsInt + 1, // number of cluster members b/w 1 to 5
 		})
 	}
 	return m

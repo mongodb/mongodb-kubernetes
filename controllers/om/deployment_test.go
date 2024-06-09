@@ -232,7 +232,8 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 		Shards:          createShards("myShard"),
 		Finalizing:      false,
 	}
-	d.MergeShardedCluster(mergeOpts)
+	_, err := d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 
 	assert.Equal(
 		t,
@@ -259,7 +260,8 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 		Shards:          createShards("myShard"),
 		Finalizing:      false,
 	}
-	d.MergeShardedCluster(mergeOpts)
+	_, err := d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 	assert.Equal(
 		t,
 		[]string{
@@ -279,7 +281,8 @@ func TestGetAllProcessNames_MergedShardedClusters(t *testing.T) {
 		Shards:          createShards("anotherClusterSh"),
 		Finalizing:      false,
 	}
-	d.MergeShardedCluster(mergeOpts)
+	_, err = d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 	assert.Equal(
 		t,
 		[]string{
@@ -324,7 +327,8 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 		Finalizing:      false,
 	}
 
-	_, _ = d.MergeShardedCluster(mergeOpts)
+	_, err := d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
@@ -353,7 +357,8 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 		Finalizing:      false,
 	}
 
-	_, _ = d.MergeShardedCluster(mergeOpts)
+	_, err := d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
 	assert.Len(t, d.getReplicaSets(), 4)
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
@@ -369,7 +374,8 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 		Finalizing:      false,
 	}
 
-	_, _ = d.MergeShardedCluster(mergeOpts)
+	_, err = d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
 	assert.Len(t, d.getReplicaSets(), 4)
 
@@ -417,7 +423,8 @@ func TestProcessBelongsToShardedCluster(t *testing.T) {
 		Finalizing:      false,
 	}
 
-	d.MergeShardedCluster(mergeOpts)
+	_, err := d.MergeShardedCluster(mergeOpts)
+	assert.NoError(t, err)
 
 	// Config Servers
 	assert.True(t, d.ProcessBelongsToResource("config-0", "sh001"))

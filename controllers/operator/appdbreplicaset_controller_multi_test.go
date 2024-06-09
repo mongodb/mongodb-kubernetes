@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw"
+const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
 
 func TestAppDB_MultiCluster(t *testing.T) {
 	ctx := context.Background()
