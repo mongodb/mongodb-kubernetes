@@ -21,7 +21,7 @@ import (
 
 const (
 	VaultBackend     = "VAULT_BACKEND"
-	K8sSecretBackend = "K8S_SECRET_BACKEND"
+	K8sSecretBackend = "K8S_SECRET_BACKEND" //nolint
 
 	DEFAULT_OPERATOR_SECRET_PATH    = "mongodbenterprise/operator"
 	DEFAULT_OPS_MANAGER_SECRET_PATH = "mongodbenterprise/opsmanager"
@@ -37,10 +37,10 @@ const (
 
 	VAULT_SERVER_ADDRESS         = "VAULT_SERVER_ADDRESS"
 	OPERATOR_SECRET_BASE_PATH    = "OPERATOR_SECRET_BASE_PATH"
-	TLS_SECRET_REF               = "TLS_SECRET_REF"
-	OPS_MANAGER_SECRET_BASE_PATH = "OPS_MANAGER_SECRET_BASE_PATH"
-	DATABASE_SECRET_BASE_PATH    = "DATABASE_SECRET_BASE_PATH"
-	APPDB_SECRET_BASE_PATH       = "APPDB_SECRET_BASE_PATH"
+	TLS_SECRET_REF               = "TLS_SECRET_REF"               //nolint
+	OPS_MANAGER_SECRET_BASE_PATH = "OPS_MANAGER_SECRET_BASE_PATH" //nolint
+	DATABASE_SECRET_BASE_PATH    = "DATABASE_SECRET_BASE_PATH"    //nolint
+	APPDB_SECRET_BASE_PATH       = "APPDB_SECRET_BASE_PATH"       //nolint
 )
 
 type DatabaseSecretsToInject struct {
@@ -144,13 +144,11 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 		return xerrors.Errorf("can't call Sync on file %s: %w", f.Name(), err)
 	}
 
-	config.ConfigureTLS(
+	return config.ConfigureTLS(
 		&api.TLSConfig{
 			CACert: f.Name(),
 		},
 	)
-
-	return nil
 }
 
 func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultClient, error) {

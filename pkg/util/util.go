@@ -2,7 +2,7 @@ package util
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/md5" //nolint //Part of the algorithm
 	"encoding/gob"
 	"encoding/hex"
 	"fmt"
@@ -155,7 +155,7 @@ func MaxInt(x, y int) int {
 
 // MD5Hex computes the MDB checksum of the given string as per https://golang.org/pkg/crypto/md5/
 func MD5Hex(s string) string {
-	h := md5.New()
+	h := md5.New() //nolint //This is part of the HTTP Digest Authentication mechanism.
 	h.Write([]byte(s))
 	return hex.EncodeToString(h.Sum(nil))
 }

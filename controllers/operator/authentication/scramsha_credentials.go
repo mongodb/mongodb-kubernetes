@@ -2,7 +2,7 @@ package authentication
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" //nolint //Part of the algorithm
 	"crypto/sha256"
 	"encoding/base64"
 	"hash"

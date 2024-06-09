@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/klog/v2"
+
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
-
-	"k8s.io/klog/v2"
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
 	"github.com/10gen/ops-manager-kubernetes/controllers"
@@ -108,7 +108,7 @@ func main() {
 		// This will be the name of 1 namespace to watch, or the empty string
 		// for an operator that watches the whole cluster
 		//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-		managerOptions.Namespace = namespacesToWatch[0]
+		managerOptions.Namespace = namespacesToWatch[0] //nolint
 	} else {
 		namespacesForCacheBuilder := namespacesToWatch
 		if !stringutil.Contains(namespacesToWatch, currentNamespace) {
@@ -117,7 +117,7 @@ func main() {
 		// In multi-namespace scenarios, the namespace where the Operator
 		// resides needs to be part of the Cache as well.
 		//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesForCacheBuilder)
+		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesForCacheBuilder) //nolint
 	}
 
 	if isInLocalMode() {
@@ -180,7 +180,7 @@ func main() {
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
 					if namespacesToWatch[0] != "" {
 						//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-						options.Namespace = kubeConfig.GetMemberClusterNamespace()
+						options.Namespace = kubeConfig.GetMemberClusterNamespace() //nolint
 					}
 				})
 				if err != nil {
@@ -193,7 +193,7 @@ func main() {
 				log.Infof("Building member cluster cache for multiple namespaces: %v", namespacesToWatch)
 				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
 					//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-					options.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch)
+					options.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch) //nolint
 				})
 				if err != nil {
 					log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)

@@ -190,7 +190,10 @@ func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster
 		mrs.Annotations = map[string]string{}
 	}
 
-	addFailedClustersAnnotation(ctx, mrs, clustername, client)
+	err := addFailedClustersAnnotation(ctx, mrs, clustername, client)
+	if err != nil {
+		return err
+	}
 
 	currentClusterSpecs := mrs.Spec.ClusterSpecList
 	currentClusterSpecs = distributeFailedMembers(currentClusterSpecs, clustername)

@@ -3,8 +3,7 @@ package generate
 import (
 	"crypto/rand"
 	"encoding/base64"
-	mrand "math/rand"
-	"time"
+	"math/big"
 )
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123")
@@ -35,15 +34,21 @@ func generateRandomString(numBytes int) (string, error) {
 }
 
 func randSeq(n int) string {
+	maxRand := int64(len(letters))
+	randomRune, err := rand.Int(rand.Reader, big.NewInt(maxRand))
+	if err != nil {
+		panic(err)
+	}
+
+	randomRuneAsInt := int(randomRune.Int64())
+
 	b := make([]rune, n)
 	for i := range b {
-		b[i] = letters[mrand.Intn(len(letters))]
+		b[i] = letters[randomRuneAsInt]
 	}
 	return string(b)
 }
 
 func GenerateRandomPassword() string {
-	//lint:ignore SA1019 Deprecated rand library usage
-	mrand.Seed(time.Now().UnixNano())
 	return randSeq(10)
 }

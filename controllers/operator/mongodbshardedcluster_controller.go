@@ -320,8 +320,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 	allConfigs := r.getAllConfigs(ctx, *sc, opts, conn, log)
 
-	agentCertSecretName += certs.OperatorGeneratedCertSuffix
-
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.

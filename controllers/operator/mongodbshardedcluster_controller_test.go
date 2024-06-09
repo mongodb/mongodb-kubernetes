@@ -64,7 +64,7 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardRsName(1)), t), int32(sc.Spec.MongodsPerShardCount))
 
 	connection := om.CurrMockedConnection
-	connection.CheckDeployment(t, createDeploymentFromShardedCluster(sc), "auth", "tls")
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(t, sc), "auth", "tls")
 	connection.CheckNumberOfUpdateRequests(t, 2)
 	// we don't remove hosts from monitoring if there is no scale down
 	connection.CheckOperationsDidntHappen(t, reflect.ValueOf(connection.GetHosts), reflect.ValueOf(connection.RemoveHost))
@@ -116,7 +116,7 @@ func TestReconcileCreateShardedCluster_ScaleDown(t *testing.T) {
 
 	// the updated deployment should reflect that of a ShardedCluster with one fewer member
 	scWith3Members := DefaultClusterBuilder().SetShardCountStatus(3).SetShardCountSpec(3).Build()
-	connection.CheckDeployment(t, createDeploymentFromShardedCluster(scWith3Members), "auth", "tls")
+	connection.CheckDeployment(t, createDeploymentFromShardedCluster(t, scWith3Members), "auth", "tls")
 
 	// No matter how many members we scale down by, we will only have one fewer each reconciliation
 	assert.Len(t, client.GetMapForObject(&appsv1.StatefulSet{}), 5)
@@ -167,7 +167,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 
 	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *scBeforeScale, om.NewEmptyMockedOmConnection)
 
-	oldDeployment := createDeploymentFromShardedCluster(scBeforeScale)
+	oldDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
 	scAfterScale := DefaultClusterBuilder().
@@ -183,7 +183,7 @@ func TestPrepareScaleDownShardedCluster_ConfigMongodsUp(t *testing.T) {
 
 	// create the expected deployment from the sharded cluster that has not yet scaled
 	// expected change of state: rs members are marked unvoted
-	expectedDeployment := createDeploymentFromShardedCluster(scBeforeScale)
+	expectedDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
 	firstConfig := scAfterScale.ConfigRsName() + "-2"
 	firstShard := scAfterScale.ShardRsName(0) + "-3"
 	secondShard := scAfterScale.ShardRsName(1) + "-3"
@@ -211,7 +211,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 
 	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *scBeforeScale, om.NewEmptyMockedOmConnection)
 
-	oldDeployment := createDeploymentFromShardedCluster(scBeforeScale)
+	oldDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
 	scAfterScale := DefaultClusterBuilder().
@@ -226,7 +226,7 @@ func TestPrepareScaleDownShardedCluster_ShardsUpMongodsDown(t *testing.T) {
 	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(ctx, mockedOmConnection, scBeforeScale, getEmptyDeploymentOptions(), zap.S()))
 
 	// expected change of state: rs members are marked unvoted only for two shards (old state)
-	expectedDeployment := createDeploymentFromShardedCluster(scBeforeScale)
+	expectedDeployment := createDeploymentFromShardedCluster(t, scBeforeScale)
 	firstShard := scBeforeScale.ShardRsName(0) + "-3"
 	secondShard := scBeforeScale.ShardRsName(1) + "-3"
 	thirdShard := scBeforeScale.ShardRsName(2) + "-3"
@@ -258,13 +258,13 @@ func TestPrepareScaleDownShardedCluster_OnlyMongos(t *testing.T) {
 	sc := DefaultClusterBuilder().SetMongosCountStatus(4).SetMongosCountSpec(2).Build()
 	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
 
-	oldDeployment := createDeploymentFromShardedCluster(sc)
+	oldDeployment := createDeploymentFromShardedCluster(t, sc)
 	mockedOmConnection := om.NewMockedOmConnection(oldDeployment)
 
 	assert.NoError(t, reconcileHelper.prepareScaleDownShardedCluster(ctx, mockedOmConnection, sc, getEmptyDeploymentOptions(), zap.S()))
 
 	mockedOmConnection.CheckNumberOfUpdateRequests(t, 0)
-	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(sc))
+	mockedOmConnection.CheckDeployment(t, createDeploymentFromShardedCluster(t, sc))
 	mockedOmConnection.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
@@ -282,7 +282,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	_, reconcileHelper, _ := newShardedClusterReconcilerFromResource(ctx, *sc, om.NewEmptyMockedOmConnection)
 
 	// the deployment we create should have all processes
-	mockOm := om.NewMockedOmConnection(createDeploymentFromShardedCluster(sc))
+	mockOm := om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc))
 
 	// we need to create a different sharded cluster that is currently in the process of scaling down
 	sc = DefaultClusterBuilder().
@@ -877,13 +877,15 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 
 	assert.ElementsMatch(t, expectedWatchedResources, actual)
 
+	// ReconcileMongoDbShardedCluster.publishDeployment - once internal cluster authentication is enabled,
+	// it is impossible to turn it off.
 	sc.Spec.Security.TLSConfig.Enabled = false
 	sc.Spec.Security.Authentication.InternalCluster = ""
 	err := client.Update(ctx, sc)
 	assert.NoError(t, err)
 
 	res, err := reconciler.Reconcile(ctx, requestFromObject(sc))
-	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, res)
+	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, res)
 	assert.NoError(t, err)
 	assert.Len(t, reconciler.resourceWatcher.GetWatchedResources(), 2)
 }
@@ -907,10 +909,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 	clusterIds := []string{"1", "2", "3", "4"}
 	typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 	for i, clusterId := range clusterIds {
-		om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
+		_, err := om.CurrMockedConnection.UpdateBackupConfig(&backup.Config{
 			ClusterId: clusterId,
 			Status:    backup.Inactive,
 		})
+		assert.NoError(t, err)
 
 		om.CurrMockedConnection.BackupHostClusters[clusterId] = &backup.HostCluster{
 			ClusterName: sc.Name,
@@ -1129,7 +1132,7 @@ func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName 
 	}
 }
 
-func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) om.Deployment {
+func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourceReadWriter) om.Deployment {
 	sh := updatable.(*mdbv1.MongoDB)
 
 	mongosSts := construct.DatabaseStatefulSet(*sh, construct.MongosOptions(Replicas(sh.Spec.MongosCount), construct.GetPodEnvOptions()), nil)
@@ -1144,13 +1147,14 @@ func createDeploymentFromShardedCluster(updatable v1.CustomResourceReadWriter) o
 	}
 
 	d := om.NewDeployment()
-	d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
 		Name:            sh.Name,
 		MongosProcesses: mongosProcesses,
 		ConfigServerRs:  configRs,
 		Shards:          shards,
 		Finalizing:      false,
 	})
+	assert.NoError(t, err)
 	d.AddMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
 	return d
 }

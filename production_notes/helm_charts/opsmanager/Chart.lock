@@ -1,9 +1,0 @@
-dependencies:
-- name: operator
-  repository: file://../operator
-  version: 0.0.1
-- name: cert-manager
-  repository: https://charts.jetstack.io
-  version: v1.0.4
-digest: sha256:7bac01437a01d8916bf0ed2cd1247bbeeed72c6ec1161fc19891765095d734be
-generated: "2020-12-31T13:36:30.436734+01:00"

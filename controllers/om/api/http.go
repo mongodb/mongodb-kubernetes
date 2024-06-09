@@ -131,7 +131,7 @@ func OptionDebug(client *Client) error {
 // OptionSkipVerify will set the Insecure Skip which means that TLS certs will not be
 // verified for validity.
 func OptionSkipVerify(client *Client) error {
-	TLSClientConfig := &tls.Config{InsecureSkipVerify: true}
+	TLSClientConfig := &tls.Config{InsecureSkipVerify: true} //nolint //Options for switching this on/off are at the CR level.
 
 	transport := client.HTTPClient.Transport.(*http.Transport).Clone()
 	transport.TLSClientConfig = TLSClientConfig
@@ -148,6 +148,7 @@ func OptionCAValidate(ca string) func(client *Client) error {
 	TLSClientConfig := &tls.Config{
 		InsecureSkipVerify: false,
 		RootCAs:            caCertPool,
+		MinVersion:         tls.VersionTLS12,
 	}
 
 	return func(client *Client) error {

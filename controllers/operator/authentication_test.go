@@ -215,7 +215,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
 	r := newReplicaSetReconciler(ctx, mock.NewManager(ctx, rs), om.NewEmptyMockedOmConnection)
-	createAgentCSRs(ctx, 1, r.client, certsv1.CertificateApproved)
+	createAgentCSRs(t, ctx, 1, r.client, certsv1.CertificateApproved)
 
 	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
@@ -763,7 +763,7 @@ func createShardedClusterTLSData(ctx context.Context, client kubernetesClient.Cl
 }
 
 // createMultiClusterReplicaSetTLSData creates and populates secrets required for a TLS enabled MongoDBMultiCluster ReplicaSet.
-func createMultiClusterReplicaSetTLSData(ctx context.Context, client *mock.MockedClient, mdbm *mdbmulti.MongoDBMultiCluster, caName string) {
+func createMultiClusterReplicaSetTLSData(t *testing.T, ctx context.Context, client *mock.MockedClient, mdbm *mdbmulti.MongoDBMultiCluster, caName string) {
 	// Create CA configmap
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -775,7 +775,8 @@ func createMultiClusterReplicaSetTLSData(ctx context.Context, client *mock.Mocke
 		"ca-pem":     "capublickey",
 		"mms-ca.crt": "capublickey",
 	}
-	client.Create(ctx, cm)
+	err := client.Create(ctx, cm)
+	assert.NoError(t, err)
 	// Lets create a secret with Certificates and private keys!
 	secretName := fmt.Sprintf("%s-cert", mdbm.Name)
 	if mdbm.Spec.Security.CertificatesSecretsPrefix != "" {
@@ -808,7 +809,8 @@ func createMultiClusterReplicaSetTLSData(ctx context.Context, client *mock.Mocke
 	secret.Data = certs
 	// create cert in the central cluster, the operator would create the concatenated
 	// pem cert in the member clusters.
-	client.Create(ctx, secret)
+	err = client.Create(ctx, secret)
+	assert.NoError(t, err)
 }
 
 func createConfigMap(ctx context.Context, t *testing.T, client kubernetesClient.Client) {
@@ -899,7 +901,7 @@ func Test_NoExternalDomainPresent(t *testing.T) {
 }
 
 // createAgentCSRs creates all the agent CSRs needed for x509 at the specified condition type
-func createAgentCSRs(ctx context.Context, numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
+func createAgentCSRs(t *testing.T, ctx context.Context, numAgents int, client kubernetesClient.Client, conditionType certsv1.RequestConditionType) {
 	if numAgents != 1 && numAgents != 3 {
 		return
 	}
@@ -911,7 +913,8 @@ func createAgentCSRs(ctx context.Context, numAgents int, client kubernetesClient
 		SetName(util.AgentSecretName).
 		SetField(util.AutomationAgentPemSecretKey, string(certAuto))
 
-	client.CreateSecret(ctx, builder.Build())
+	err := client.CreateSecret(ctx, builder.Build())
+	assert.NoError(t, err)
 
 	addCsrs(ctx, client, createCSR("mms-automation-agent", mock.TestNamespace, conditionType))
 }

@@ -61,7 +61,7 @@ const (
 	TestAgentKey  = "qwerty9876"
 	TestURL       = "http://mycompany.com:8080"
 	TestUser      = "test@mycompany.com"
-	TestApiKey    = "36lj245asg06s0h70245dstgft"
+	TestApiKey    = "36lj245asg06s0h70245dstgft" //nolint
 )
 
 type MockedOmConnection struct {
@@ -228,9 +228,9 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) erro
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
 	}
-	depFunc(oc.deployment)
+	err := depFunc(oc.deployment)
 	oc.numRequestsSent++
-	return nil
+	return err
 }
 
 func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
@@ -486,6 +486,7 @@ func (oc *MockedOmConnection) CreateProject(project *Project) (*Project, error) 
 	project.ID = TestGroupID
 
 	// We emulate the behavior of Ops Manager: we create the organization with random id and the name matching the project
+	//nolint
 	organization := &Organization{ID: strconv.Itoa(rand.Int()), Name: project.Name}
 	if _, exists := oc.OrganizationsWithGroups[organization]; !exists {
 		oc.OrganizationsWithGroups[organization] = make([]*Project, 0)

@@ -9,11 +9,11 @@ else
   git_last_changed=$(git diff --name-only --diff-filter=ACM origin/master)
 fi
 
-if ! [[ -x "$(command -v staticcheck)" ]]; then
-    echo "installing staticcheck..."
-    go install honnef.co/go/tools/cmd/staticcheck@latest
+if ! [[ -x "$(command -v golangci-lint)" ]]; then
+    echo "installing golangci-lint..."
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.0
   else
-    echo "staticcheck is already installed"
+    echo "golangci-lint is already installed"
 fi
 
 if ! [[ -x "$(command -v gofumpt)" ]]; then
@@ -43,9 +43,8 @@ if [[ -n "$unformatted_files" ]]; then
     exit 1
 fi
 
-# lint code with staticcheck, configuration file is ops-manager-kubernetes/staticcheck.conf
-echo "Running staticcheck..."
-PATH=$GOPATH/bin:$PATH staticcheck ./...
+echo "Running golang-ci..."
+PATH=$GOPATH/bin:$PATH golangci-lint run
 
 echo "Go Version: $(go version)"
 
