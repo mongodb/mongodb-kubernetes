@@ -49,6 +49,10 @@ get_operator_helm_values() {
       config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
   fi
 
+  if [[ "${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE:-}" != "" ]]; then
+      config+=("operator.webhook.installClusterRole=${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE}")
+  fi
+
   echo "${config[@]}"
 }
 

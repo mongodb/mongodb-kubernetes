@@ -2081,6 +2081,28 @@ task_groups:
     - func: prune_docker_resources
     - func: run_retry_script
 
+# this task group contains just a one task, which is smoke testing whether the operator
+# works correctly when we run it without installing webhook cluster roles
+- name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
+  max_hosts: 30
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+    - func: setup_cloud_qa
+  tasks:
+    - e2e_replica_set_agent_flags
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+    - func: teardown_cloud_qa
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
 # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
 # This is mostly a smoke test, so we execute only a few essential ones.
 - name: e2e_mdb_openshift_ubi_cloudqa_task_group
@@ -2928,6 +2950,14 @@ buildvariants:
   <<: *base_no_om_image_dependency
   tasks:
     - name: e2e_static_operator_task_group
+
+- name: e2e_operator_no_webhook_roles_cloudqa
+  display_name: e2e_operator_no_webhook_roles_cloudqa
+  run_on:
+    - ubuntu2204-large
+  <<: *base_no_om_image_dependency
+  tasks:
+    - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
 
 - name: e2e_kind_olm_ubi
   display_name: e2e_kind_olm_ubi

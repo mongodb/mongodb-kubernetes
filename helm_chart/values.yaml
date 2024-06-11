@@ -73,9 +73,15 @@ operator:
   additionalArguments: []
 
   webhook:
+    # Controls whether the helm chart will install cluster role allowing to create ValidatingWebhookConfiguration. Default: true.
+    # Without the permissions, the operator will log errors when trying to configure admission webhooks, but will work correctly nonetheless.
+    installClusterRole: true
+
     # registerConfiguration setting (default: true) controls if the operator should automatically register ValidatingWebhookConfiguration and if required for it cluster-wide roles should be installed.
+    # DO NOT disable this setting if installing via helm. This setting is used for OLM installations.
     #
     # Setting false:
+    #  - This setting is intended to be used ONLY when the operator is installed via OLM. Do not use it otherwise as the operator won't start due to missing webhook server certificates, which OLM provides automatically.
     #  - Adds env var MDB_WEBHOOK_REGISTER_CONFIGURATION=false to the operator deployment.
     #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will not be installed
     #  - The operator will not create ValidatingWebhookConfigurations upon startup.
@@ -84,9 +90,9 @@ operator:
     #
     # Setting true:
     #  - It's the default setting, behaviour of the operator w.r.t. webhook configuration is the same as before.
-    #  - operator-webhook service will be created by the operator
+    #  - operator-webhook service will be created by the operator.
     #  - ClusterRole and ClusterRoleBinding required to manage ValidatingWebhookConfigurations will be installed.
-    #  - ValidatingWebhookConfigurations will be managed by the operator (requires cluster permissions)
+    #  - ValidatingWebhookConfigurations will be managed by the operator.
     registerConfiguration: true
 
 ## Database
