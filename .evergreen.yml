@@ -2288,7 +2288,6 @@ task_groups:
     - e2e_om_ops_manager_backup_kmip
     - e2e_om_ops_manager_scale
 #    - e2e_om_ops_manager_upgrade static containers do not have a prior version we can upgrade from for om.
-# TODO: activate this test once we have this released for the next release
     - e2e_om_update_before_reconciliation
     - e2e_om_feature_controls
   teardown_task:
@@ -2414,7 +2413,6 @@ task_groups:
     - e2e_om_ops_manager_pod_spec
     - e2e_om_ops_manager_scale
     #    - e2e_om_ops_manager_upgrade static containers do not have a prior version we can upgrade from for om.
-    # TODO: activate this test once we have this released for the next release
     - e2e_om_validation_webhook
     - e2e_om_ops_manager_secure_config
     - e2e_om_update_before_reconciliation
@@ -2510,6 +2508,25 @@ task_groups:
     - func: setup_kubernetes_environment
   tasks:
     - e2e_om_ops_manager_prometheus
+  teardown_task:
+    - func: upload_e2e_logs
+    - func: teardown_kubernetes_environment
+  teardown_group:
+    - func: prune_docker_resources
+    - func: run_retry_script
+
+  # Tests features only supported on OM70
+- name: e2e_static_ops_manager_kind_7_0_only_task_group
+  max_hosts: 3
+  setup_group:
+    - func: clone
+    - func: download_kube_tools
+    - func: setup_building_host
+  setup_task:
+    - func: cleanup_exec_environment
+    - func: setup_kubernetes_environment
+  tasks:
+    - e2e_om_ops_manager_upgrade
   teardown_task:
     - func: upload_e2e_logs
     - func: teardown_kubernetes_environment
@@ -2696,6 +2713,10 @@ buildvariants:
   tasks:
     - name: e2e_static_ops_manager_kind_only_task_group
     - name: e2e_static_ops_manager_kind_6_0_only_task_group
+      # For static, om upgrade test can only be run with OM7 now, because we need two OM versions with the init binaries
+      # TODO: When OM 6.0.24 is out, remove the below line (and the full task group), and uncomment the lines deactivating e2e_om_ops_manager_upgrade in e2e_static_ops_manager_kind_only_task_group and e2e_static_multi_cluster_om_appdb
+      # TODO: Then, ensure the upgrade test can run with variants e2e_static_om60_kind_ubi, e2e_static_om70_kind_ubi and e2e_static_multi_cluster_om_appdb
+    - name: e2e_static_ops_manager_kind_7_0_only_task_group
 
 - name: e2e_smoke
   display_name: e2e_smoke
