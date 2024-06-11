@@ -37,7 +37,7 @@ function generate_standalone_yaml() {
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}/*"
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml \
-   --set operator.webhook.registerConfiguration=false ${HELM_OPTS[@]}
+   --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false ${HELM_OPTS[@]}
 
   # update kustomize files for OLM bundle with files generated for openshift
   cp "${charttmpdir}/enterprise-operator/templates/operator.yaml" config/manager/manager.yaml

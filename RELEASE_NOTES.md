@@ -12,7 +12,8 @@
 
 ## Helm Chart
 
-*New `operator.maxConcurrentReconciles` parameter. It controls how many reconciles can be performed in parallel by the operator. The default value is 1.
+* New `operator.maxConcurrentReconciles` parameter. It controls how many reconciles can be performed in parallel by the operator. The default value is 1.
+* New `operator.webhook.installClusterRole` parameter. It controls whether to install the cluster role allowing the operator to configure admission webhooks. It should be disabled when cluster roles are not allowed. Default value is true.
 
 ## Bug Fixes
 
