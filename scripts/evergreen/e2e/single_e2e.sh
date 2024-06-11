@@ -39,7 +39,6 @@ deploy_test_app() {
         "--set" "repo=${BASE_REPO_URL:=268558157000.dkr.ecr.us-east-1.amazonaws.com/dev}"
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
-        "--set" "pytest.addopts=${pytest_addopts:-}"
         "--set" "tag=${tag}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
@@ -67,6 +66,10 @@ deploy_test_app() {
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${CUSTOM_OM_VERSION}")
     fi
+    if [[ -n "${pytest_addopts:-}" ]]; then
+        # The test needs to create an OM resource with specific version
+        helm_params+=("--set" "pytest.addopts=${pytest_addopts:-}")
+    fi
     # As soon as we are having one OTEL expansion it means we want to trace and send everything to our trace provider.
     # otel_parent_id is a special case (hence lower cased) since it is directly coming from evergreen and not via our
     # make switch mechanism. We need the "freshest" parent_id otherwise we are attaching to the wrong parent span.
@@ -83,6 +86,14 @@ deploy_test_app() {
     if [[ -n "${CUSTOM_OM_PREV_VERSION:-}" ]]; then
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmPrevVersion=${CUSTOM_OM_PREV_VERSION}")
+    fi
+    if [[ -n "${PERF_TASK_DEPLOYMENTS:-}" ]]; then
+        # The test needs to create an OM resource with specific version
+        helm_params+=("--set" "taskDeployments=${PERF_TASK_DEPLOYMENTS}")
+    fi
+    if [[ -n "${PERF_TASK_REPLICAS:-}" ]]; then
+        # The test needs to create an OM resource with specific version
+        helm_params+=("--set" "taskReplicas=${PERF_TASK_REPLICAS}")
     fi
     if [[ -n "${CUSTOM_MDB_VERSION:-}" ]]; then
         # The test needs to test MongoDB of a specific version
@@ -111,8 +122,6 @@ deploy_test_app() {
     kubectl --context "${context}" -n "${NAMESPACE}" delete -f "${helm_template_file}" 2>/dev/null  || true
 
     kubectl --context "${context}" -n "${NAMESPACE}" apply -f "${helm_template_file}"
-
-    rm "${helm_template_file}"
 }
 
 wait_until_pod_is_running_or_failed_or_succeeded() {

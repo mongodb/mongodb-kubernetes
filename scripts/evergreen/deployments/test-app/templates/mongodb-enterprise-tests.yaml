@@ -131,6 +131,14 @@ spec:
     - name: CUSTOM_OM_VERSION
       value: {{ .Values.customOmVersion }}
     {{ end }}
+    {{ if .Values.taskReplicas }}
+    - name: PERF_TASK_REPLICAS
+      value: "{{ .Values.taskReplicas }}"
+    {{ end }}
+    {{ if .Values.taskDeployments }}
+    - name: PERF_TASK_DEPLOYMENTS
+      value: "{{ .Values.taskDeployments }}"
+    {{ end }}
     {{ if .Values.customOmPrevVersion }}
     - name: CUSTOM_OM_PREV_VERSION
       value: {{ .Values.customOmPrevVersion }}

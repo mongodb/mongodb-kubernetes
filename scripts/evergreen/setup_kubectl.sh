@@ -15,7 +15,7 @@ mv kubectl "${bindir}"
 
 echo "Downloading helm"
 helm=helm.tgz
-helm_version="v3.2.1"
+helm_version="v3.13.0"
 curl -s https://get.helm.sh/helm-${helm_version}-linux-amd64.tar.gz --output "${helm}"
 tar xfz "${helm}" &> /dev/null
 mv linux-amd64/helm "${bindir}"
