@@ -33,6 +33,11 @@ dump_all () {
         fi
     done
 
+    if kubectl get namespace "olm" &>/dev/null; then
+      echo "Dumping olm namespace"
+      dump_namespace "olm" "olm"
+    fi
+
     kubectl config use-context "${original_context}" &> /dev/null
 
     kubectl -n "kube-system" get configmap coredns -o yaml > "logs/${prefix}coredns.yaml"
