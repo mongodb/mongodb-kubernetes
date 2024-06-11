@@ -25,7 +25,7 @@ if [ "${KUBE_ENVIRONMENT_NAME}" = "openshift_4" ]; then
 
     # https://stackoverflow.com/c/private-cloud-kubernetes/questions/15
     oc login --token="${OPENSHIFT_TOKEN}" --server="${OPENSHIFT_URL}"
-elif [ "${KUBE_ENVIRONMENT_NAME}" = "kind" ]; then
+elif [ "${KUBE_ENVIRONMENT_NAME}" = "kind" ] || [ "${KUBE_ENVIRONMENT_NAME}" = "performance" ]; then
     scripts/dev/recreate_kind_cluster.sh "kind"
 elif [[ "${KUBE_ENVIRONMENT_NAME}" = "multi" && "${CLUSTER_TYPE}" == "kind" ]]; then
     scripts/dev/recreate_kind_clusters.sh
