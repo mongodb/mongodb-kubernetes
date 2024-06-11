@@ -44,12 +44,26 @@ ensure_namespace "${NAMESPACE}"
 # 3. Configure Operator resources
 . scripts/evergreen/e2e/configure_operator.sh
 
-export TEST_NAME="${TASK_NAME:?}"
+if [[ "${RUNNING_IN_EVG}" == "true" ]]; then
+  # 4. install honeycomb observability
+  . scripts/evergreen/e2e/performance/honeycomb/install-hc.sh
+fi
+
+if [ -n "${TEST_NAME_OVERRIDE:-}" ]; then
+    echo "Running test with override: ${TEST_NAME_OVERRIDE}"
+    TEST_NAME="${TEST_NAME_OVERRIDE}"
+else
+    TEST_NAME="${TASK_NAME:?}"
+fi
+
+export TEST_NAME
+echo "TEST_NAME is set to: $TEST_NAME"
+
 delete_operator "${NAMESPACE}"
 
 # 4. Main test run.
 
-# We'll have the task running for the allocated time, minus the time it took us
+# We'll have the task running for the alloca  ted time, minus the time it took us
 # to get all the way here, assuming configuring and deploying the operator can
 # take a bit of time. This is needed because Evergreen kills the process *AND*
 # Docker containers running on the host when it hits a timeout. Under these
