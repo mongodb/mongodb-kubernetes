@@ -25,5 +25,6 @@ for namespace in $(kubectl get namespace -l "${LABELS}" -o name); do
 
     kubectl delete mdb --all -n "${namespace_name=}"
     kubectl delete mdbu --all -n "${namespace_name=}"
+    kubectl delete om --all -n "{namespace_name=}"
     kubectl delete "${namespace}"
 done
