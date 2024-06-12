@@ -4,8 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	localruntime "runtime"
 	"runtime/debug"
@@ -313,14 +311,6 @@ func initializeEnvironment() {
 
 	if omOperatorEnv == util.OperatorEnvironmentDev || omOperatorEnv == util.OperatorEnvironmentLocal {
 		log.Infof("Operator build info:\n%s", getBuildSettingsString())
-		// TODO: make the address configurable.
-		go func() {
-			if err := http.ListenAndServe("localhost:10081", nil); err != nil {
-				log.Error("unable to start pprof server", err)
-				os.Exit(1)
-			}
-		}()
-
 	}
 
 	log.Infof("Operator version: %s", util.OperatorVersion)

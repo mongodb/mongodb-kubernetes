@@ -1857,6 +1857,7 @@ tasks:
     - func: e2e_test
 
 - name: generate_perf_tasks_one_thread
+  patch_only: true
   commands:
     - func: clone
     - func: generate_perf_tests_tasks
@@ -1865,6 +1866,7 @@ tasks:
         size: small
 
 - name: generate_perf_tasks_10_thread
+  patch_only: true
   commands:
     - func: clone
     - func: generate_perf_tests_tasks
@@ -1873,6 +1875,7 @@ tasks:
         size: small
 
 - name: generate_perf_tasks_10_thread_large
+  patch_only: true
   commands:
     - func: clone
     - func: generate_perf_tests_tasks
@@ -1881,6 +1884,7 @@ tasks:
         size: large
 
 - name: generate_perf_tasks_one_thread_large
+  patch_only: true
   commands:
     - func: clone
     - func: generate_perf_tests_tasks
@@ -1889,6 +1893,7 @@ tasks:
         size: large
 
 - name: generate_perf_tasks_30_thread
+  patch_only: true
   commands:
     - func: clone
     - func: generate_perf_tests_tasks
@@ -1897,6 +1902,7 @@ tasks:
         size: small
 
 - name: generate_perf_tasks_30_thread_large
+  patch_only: true
   commands:
     - func: clone
     - func: generate_perf_tests_tasks
@@ -2802,54 +2808,6 @@ buildvariants:
   tasks:
     - name: e2e_operator_race_task_group
 
-- name: e2e_operator_perf
-  display_name: e2e_operator_perf
-  run_on:
-    - ubuntu1804-xlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_10_thread
-
-- name: e2e_operator_perf_large
-  display_name: e2e_operator_perf_large
-  run_on:
-    - ubuntu1804-xxlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_10_thread_large
-
-- name: e2e_operator_perf_thirty_large
-  display_name: e2e_operator_perf_thirty_large
-  run_on:
-    - ubuntu1804-xxlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_30_thread_large
-
-- name: e2e_operator_perf_one_thread_large
-  display_name: e2e_operator_perf_one_thread_large
-  run_on:
-    - ubuntu1804-xxlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_one_thread_large
-
-- name: e2e_operator_perf_one_thread
-  display_name: e2e_operator_perf_one_thread
-  run_on:
-    - ubuntu1804-xlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_one_thread
-
-- name: e2e_operator_perf_thirty
-  display_name: e2e_operator_perf_thirty
-  run_on:
-    - ubuntu1804-xlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_30_thread
-
 # Isolated Ops Manager Tests for 7.0 version
 - name: e2e_static_om70_kind_ubi
   display_name: e2e_static_om70_kind_ubi
@@ -3097,6 +3055,54 @@ buildvariants:
     - name: "unit_task_group"
 
 ### Build variants for manual patch only
+
+- name: e2e_operator_perf
+  display_name: e2e_operator_perf
+  run_on:
+    - ubuntu1804-xlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: generate_perf_tasks_10_thread
+
+- name: e2e_operator_perf_large
+  display_name: e2e_operator_perf_large
+  run_on:
+    - ubuntu1804-xxlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: generate_perf_tasks_10_thread_large
+
+- name: e2e_operator_perf_thirty_large
+  display_name: e2e_operator_perf_thirty_large
+  run_on:
+    - ubuntu1804-xxlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: generate_perf_tasks_30_thread_large
+
+- name: e2e_operator_perf_one_thread_large
+  display_name: e2e_operator_perf_one_thread_large
+  run_on:
+    - ubuntu1804-xxlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: generate_perf_tasks_one_thread_large
+
+- name: e2e_operator_perf_one_thread
+  display_name: e2e_operator_perf_one_thread
+  run_on:
+    - ubuntu1804-xlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: generate_perf_tasks_one_thread
+
+- name: e2e_operator_perf_thirty
+  display_name: e2e_operator_perf_thirty
+  run_on:
+    - ubuntu1804-xlarge
+  <<: *base_om7_dependency
+  tasks:
+    - name: generate_perf_tasks_30_thread
 
 - name: build_om60_images
   display_name: build_om60_images
