@@ -53,7 +53,7 @@ spec:
                   value: "evg=task,evg/state=failed"
 
 # Remove old testing namespaces, no matter if they have succeeded or failed.
-# This is run every 40 minutes, so every testing namespace, even if it has not
+# This is run every 90 minutes, so every testing namespace, even if it has not
 # finished running it will be removed.
 ---
 apiVersion: batch/v1
@@ -80,7 +80,7 @@ spec:
                 - name: DELETE_OLDER_THAN_UNIT
                   value: "minutes"
                 - name: DELETE_OLDER_THAN_AMOUNT
-                  value: "40"
+                  value: "90"
                 - name: LABELS
                   value: "evg=task"
 
