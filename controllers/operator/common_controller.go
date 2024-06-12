@@ -197,7 +197,10 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		if getTLSSecretNames != nil {
 			secretNames = getTLSSecretNames()
 		} else {
-			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)} // maybe here?
+			secretNames = []string{security.MemberCertificateSecretName(resourceNameForSecret)}
+			if security.ShouldUseX509("") {
+				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret).Name)
+			}
 		}
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
 	}
