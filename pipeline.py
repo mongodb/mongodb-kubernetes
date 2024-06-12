@@ -355,9 +355,19 @@ def produce_sbom(build_configuration, args):
         return
 
     image_pull_spec = f"{image_pull_spec}:{image_tag}"
-    print(f"Producing SBOM for image: {image_pull_spec}")
+    print(f"Producing SBOM for image: {image_pull_spec} args: {args}")
 
-    generate_sbom(image_pull_spec)
+    if "platform" in args:
+        if args["platform"] == "arm64":
+            platform = "linux/arm64"
+        elif args["platform"] == "amd64":
+            platform = "linux/amd64"
+        else:
+            logger.error(f"Unrecognized architectures in {args}. Skipping SBOM generation")
+    else:
+        platform = "linux/amd64"
+
+    generate_sbom(image_pull_spec, platform)
 
 
 def build_tests_image(build_configuration: BuildConfiguration):
