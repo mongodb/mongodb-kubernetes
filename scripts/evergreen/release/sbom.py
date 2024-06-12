@@ -215,7 +215,7 @@ def generate_sbom_for_cli(cli_version: str = "1.25.0", platform: str = "linux/am
 
 
 def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
-    logger.info(f"Generating SBOM for {image_pull_spec}")
+    logger.info(f"Generating SBOM for {image_pull_spec} {platform}")
 
     registry: str
     organization: str
