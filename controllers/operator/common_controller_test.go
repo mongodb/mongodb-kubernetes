@@ -277,6 +277,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	// TODO: unify the watcher setup with the secret creation/mounting code in database creation
 	memberCert := rs.GetSecurity().MemberCertificateSecretName(rs.Name)
 	internalAuthCert := rs.GetSecurity().InternalClusterAuthSecretName(rs.Name)
+	agentCert := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name).Name
 
 	expected := map[watch.Object][]types.NamespacedName{
 		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
@@ -284,6 +285,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, memberCert)}:                       {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, internalAuthCert)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, agentCert)}:                        {kube.ObjectKey(mock.TestNamespace, rs.Name)},
 	}
 
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
