@@ -847,7 +847,7 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 	for _, key := range keys {
 		// Using comma as delimiter to split the string later
 		// in the agentlauncher script
-		agentParams += "-" + key + "," + finalParameters[key] + ","
+		agentParams += "-" + key + "=" + finalParameters[key] + ","
 	}
 
 	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}

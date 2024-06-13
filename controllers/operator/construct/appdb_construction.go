@@ -66,7 +66,7 @@ type AppDBStatefulSetOptions struct {
 }
 
 func getMonitoringAgentLogOptions(spec om.AppDBSpec) string {
-	return fmt.Sprintf(" -logFile /var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs %d -logLevel %s", spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
+	return fmt.Sprintf(" -logFile=/var/log/mongodb-mms-automation/monitoring-agent.log -maxLogFileDurationHrs=%d -logLevel=%s", spec.GetAgentMaxLogFileDurationHours(), spec.GetAgentLogLevel())
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
@@ -392,7 +392,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 	if opsManager.Spec.AppDB.IsMultiCluster() {
-		automationAgentCommand[idx] += fmt.Sprintf(" -overrideLocalHost $(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDb.GetClusterDomain())
+		automationAgentCommand[idx] += fmt.Sprintf(" -overrideLocalHost=$(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDb.GetClusterDomain())
 	}
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
@@ -558,9 +558,9 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	// If we are using k8s secrets, this is the same as community (and the same as the other agent container)
 	// But this is not possible in vault so we need two separate paths
 	if vault.IsVaultSecretBackend() {
-		command += " -cluster /var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
+		command += " -cluster=/var/lib/automation/config/" + util.AppDBMonitoringAutomationConfigKey
 	} else {
-		command += " -cluster /var/lib/automation/config/" + util.AppDBAutomationConfigKey
+		command += " -cluster=/var/lib/automation/config/" + util.AppDBAutomationConfigKey
 	}
 
 	// 2. Startup parameters for the agent to enable monitoring
@@ -576,7 +576,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	}
 
 	if podVars.SSLRequireValidMMSServerCertificates {
-		startupParams["sslRequireValidMMSServerCertificates"] = ""
+		startupParams["sslRequireValidMMSServerCertificates"] = "true"
 	}
 
 	// 4. Custom startup parameters provided in the CR
@@ -594,7 +594,7 @@ func addMonitoringContainer(appDB om.AppDBSpec, podVars env.PodEnvVars, opts App
 	command += startupParams.ToCommandLineArgs()
 
 	if appDB.IsMultiCluster() {
-		command += fmt.Sprintf(" -overrideLocalHost $(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDB.GetClusterDomain())
+		command += fmt.Sprintf(" -overrideLocalHost=$(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDB.GetClusterDomain())
 	}
 
 	monitoringCommand := []string{"/bin/bash", "-c", command}
