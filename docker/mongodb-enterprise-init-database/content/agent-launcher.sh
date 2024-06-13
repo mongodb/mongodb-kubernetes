@@ -92,10 +92,10 @@ fi
 
 # Start the Automation Agent
 agentOpts=(
-    "-mmsGroupId" "${GROUP_ID-}"
-    "-pidfilepath" "${MMS_HOME}/mongodb-mms-automation-agent.pid"
-    "-maxLogFileDurationHrs" "24"
-    "-logLevel" "${LOG_LEVEL:-INFO}"
+    "-mmsGroupId=${GROUP_ID-}"
+    "-pidfilepath=${MMS_HOME}/mongodb-mms-automation-agent.pid"
+    "-maxLogFileDurationHrs=24"
+    "-logLevel=${LOG_LEVEL:-INFO}"
 )
 
 # in multi-cluster mode we need to override the hostname with which, agents
@@ -108,43 +108,45 @@ hostpath="$(hostname)"
 override_file="/opt/scripts/config/${hostpath}"
 if [[ -f "${override_file}" ]]; then
   override="$(cat "$override_file")"
-  agentOpts+=("-overrideLocalHost" "${override}")
-  agentOpts+=("-ephemeralPortOffset" "1")
+  agentOpts+=("-overrideLocalHost=${override}")
+  agentOpts+=("-ephemeralPortOffset=1")
 elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
-  agentOpts+=("-ephemeralPortOffset" "1")
+  agentOpts+=("-ephemeralPortOffset=1")
 fi
 
-agentOpts+=("-healthCheckFilePath" "${MMS_LOG_DIR}/agent-health-status.json")
+agentOpts+=("-healthCheckFilePath=${MMS_LOG_DIR}/agent-health-status.json")
 if [ -z "$MDB_STATIC_CONTAINERS_ARCHITECTURE" ]; then
-  agentOpts+=("-useLocalMongoDbTools")
+  agentOpts+=("-useLocalMongoDbTools=true")
 else
-  agentOpts+=("-operatorMode")
+  agentOpts+=("-operatorMode=true")
 fi
 
 
 if [[ -n "${base_url}" ]]; then
-    agentOpts+=("-mmsBaseUrl" "${base_url}")
+    agentOpts+=("-mmsBaseUrl=${base_url}")
 else
-    agentOpts+=("-cluster" "${cluster_config_file}")
+    agentOpts+=("-cluster=${cluster_config_file}")
     # we need to open the web server on localhost even though we don't use it - otherwise Agent doesn't
     # produce status information at all (we need it in health file)
-    agentOpts+=("-serveStatusPort" "5000")
+    agentOpts+=("-serveStatusPort=5000")
     script_log "Mongodb Agent is configured to run in \"headless\" mode using local config file"
 fi
 
 
 
 if [[ -n "${HTTP_PROXY-}" ]]; then
-    agentOpts+=("-httpProxy" "${HTTP_PROXY}")
+    agentOpts+=("-httpProxy=${HTTP_PROXY}")
 fi
 
 if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
-    agentOpts+=("-httpsCAFile" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
+    agentOpts+=("-httpsCAFile=${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
 fi
 
 if [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" != "false" ]]; then
     # Only set this option when valid certs are required. The default is false
-    agentOpts+=("-tlsRequireValidMMSServerCertificates")
+    agentOpts+=("-tlsRequireValidMMSServerCertificates=true")
+else
+    agentOpts+=("-tlsRequireValidMMSServerCertificates=false")
 fi
 
 # we can't directly use readarray as this bash version doesn't support
@@ -155,9 +157,9 @@ while read -rd,; do
 done <<<"$AGENT_FLAGS";
 
 AGENT_API_KEY="$(cat "${MMS_HOME}"/agent-api-key/agentApiKey)"
-script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey ${AGENT_API_KEY+<hidden>} ${splittedAgentFlags[*]}"
+script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey=${AGENT_API_KEY+<hidden>} ${splittedAgentFlags[*]}"
 
-agentOpts+=("-mmsApiKey" "${AGENT_API_KEY-}")
+agentOpts+=("-mmsApiKey=${AGENT_API_KEY-}")
 
 rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
@@ -201,7 +203,7 @@ else
     exit 1
   fi
 
-  agentOpts+=("-binariesFixedPath" "${mdb_downloads_dir}/mongod/bin")
+  agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
 fi
 
 debug="${MDB_AGENT_DEBUG-}"

@@ -159,7 +159,7 @@ func TestAgentFlags(t *testing.T) {
 	val, ok := variablesMap["AGENT_FLAGS"]
 	assert.True(t, ok)
 	// AGENT_FLAGS environment variable is sorted
-	assert.Equal(t, val, "-key1,Value1,-key2,Value2,-key3,Value3,-logFile,/etc/agent.log,-message,Hello,")
+	assert.Equal(t, val, "-key1=Value1,-key2=Value2,-key3=Value3,-logFile=/etc/agent.log,-message=Hello,")
 }
 
 func TestLabelsAndAnotations(t *testing.T) {
