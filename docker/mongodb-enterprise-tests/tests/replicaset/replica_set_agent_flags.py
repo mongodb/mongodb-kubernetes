@@ -35,7 +35,11 @@ def test_log_types_with_default_automation_log_file(replica_set: MongoDB):
 @mark.e2e_replica_set_agent_flags
 def test_set_custom_log_file(replica_set: MongoDB):
     replica_set.load()
-    replica_set["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
+    replica_set["spec"]["agent"] = {
+        "startupOptions": {
+            "logFile": "/var/log/mongodb-mms-automation/customLogFile",
+        }
+    }
     create_or_update(replica_set)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
