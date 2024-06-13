@@ -24,10 +24,10 @@ require (
 	golang.org/x/crypto v0.22.0
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	k8s.io/api v0.27.12
-	k8s.io/apimachinery v0.27.12
-	k8s.io/client-go v0.27.12
-	k8s.io/code-generator v0.27.12
+	k8s.io/api v0.27.14
+	k8s.io/apimachinery v0.27.14
+	k8s.io/client-go v0.27.14
+	k8s.io/code-generator v0.27.14
 	k8s.io/klog/v2 v2.120.1
 	k8s.io/utils v0.0.0-20240310230437-4693a0247e57
 	sigs.k8s.io/controller-runtime v0.15.3
