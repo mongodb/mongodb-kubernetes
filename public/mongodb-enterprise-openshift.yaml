@@ -330,8 +330,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.31.7825-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_31_7825_1_1_25_0
               value: "quay.io/mongodb/mongodb-agent-ubi:12.0.31.7825-1_1.25.0"
-            - name: RELATED_IMAGE_AGENT_IMAGE_12_0_4_7554_1
-              value: "quay.io/mongodb/mongodb-agent-ubi:12.0.4.7554-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_10_0_8620_1
               value: "quay.io/mongodb/mongodb-agent-ubi:13.10.0.8620-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_17_0_8870_1

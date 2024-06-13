@@ -79,32 +79,32 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: control-plane
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: control-plane
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
 - role: worker
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json
@@ -128,7 +128,7 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
-  image: kindest/node:v1.29.2@sha256:51a1434a5397193442f0be2a297b488b6c919ce8a3931be0ce822606ea5ca245
+  image: kindest/node:v1.29.4@sha256:3abb816a5b1061fb15c6e9e60856ec40d56b7b52bcea5f5f1350bc6e2320b6f8
   extraMounts:
   - containerPath: /var/lib/kubelet/config.json
     hostPath: ${HOME}/.docker/config.json

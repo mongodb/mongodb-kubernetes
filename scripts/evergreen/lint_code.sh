@@ -35,7 +35,7 @@ PATH=$GOPATH/bin:$PATH gofumpt -l -w .
 
 # after running gofumpt, gofmt should not modify anything
 echo "Running gofmt and comparing the result with gofumpt..."
-unformatted_files=$(gofmt -l .)
+unformatted_files=$(go fmt .)
 if [[ -n "$unformatted_files" ]]; then
     echo "The following files need further formatting by gofumpt:"
     echo "$unformatted_files"
