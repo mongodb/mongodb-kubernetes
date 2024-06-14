@@ -787,7 +787,11 @@ def sign_and_verify_context_image(registry, version):
 
 
 def is_release_step_executed(skip_tags: List[str], include_tags: List[str]) -> bool:
-    return "release" not in skip_tags and (not include_tags or ("release" in include_tags))
+    if "release" in skip_tags:
+        return False
+    if "release" in include_tags:
+        return True
+    return len(include_tags) == 0
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
@@ -806,7 +810,6 @@ def build_agent_in_sonar(
     mongodb_tools_url_ubi,
     mongodb_agent_url_ubi: str,
     agent_version,
-    operator_version,
 ):
     args = {
         "version": image_version,
@@ -818,7 +821,6 @@ def build_agent_in_sonar(
     agent_quay_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
     args["quay_registry"] = agent_quay_registry
     args["agent_version"] = agent_version
-    args["operator_version"] = operator_version
 
     build_image_generic(
         config=build_configuration,
@@ -841,8 +843,6 @@ def build_multi_arch_agent_in_sonar(
     build_configuration: BuildConfiguration,
     image_version,
     tools_version,
-    agent_version,
-    operator_version,
 ):
     """
     Creates the multi-arch non-operator suffixed version of the agent.
@@ -858,8 +858,6 @@ def build_multi_arch_agent_in_sonar(
     args = {
         "version": image_version,
         "tools_version": tools_version,
-        "agent_version": agent_version,
-        "operator_version": operator_version,
     }
 
     arch_arm = {"agent_distro": "amzn2_aarch64", "tools_distro": "rhel82-aarch64", "architecture": "arm64"}
@@ -961,28 +959,28 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"running with factor of {max_workers}")
+        is_release = is_release_step_executed(
+            build_configuration.get_skip_tags(), build_configuration.get_include_tags()
+        )
+
+        # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
+        # We only need to push them once in a while to ecr, so no quay required
+        if not is_release:
+            for legacy_agent in legacy_agent_versions_to_build:
+                tasks_queue.put(
+                    executor.submit(
+                        build_multi_arch_agent_in_sonar,
+                        build_configuration,
+                        legacy_agent,
+                        # we assume that all legacy agents are build using that tools version
+                        "100.9.4",
+                    )
+                )
+
         for operator_version in supported_operator_versions:
             logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
             for agent_version in agent_versions_to_build:
-                _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, True)
-
-            # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
-            # We only need to push them once in a while to ecr, so no quay required
-            if not is_release_step_executed(
-                build_configuration.get_skip_tags(), build_configuration.get_include_tags()
-            ):
-                for legacy_agent in legacy_agent_versions_to_build:
-                    tasks_queue.put(
-                        executor.submit(
-                            build_multi_arch_agent_in_sonar,
-                            build_configuration,
-                            legacy_agent,
-                            # we assume that all legacy agents are build using that tools version
-                            "100.9.4",
-                            agent_version,
-                            operator_version,
-                        )
-                    )
+                _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
 
     queue_exception_handling(tasks_queue)
 
@@ -1030,7 +1028,6 @@ def _build_agent(
             mongodb_tools_url_ubi,
             mongodb_agent_url_ubi,
             agent_version[0],
-            operator_version,
         )
     )
 
@@ -1046,8 +1043,6 @@ def _build_agent(
                 build_configuration,
                 agent_version[0],
                 tools_version,
-                agent_version[0],
-                operator_version,
             )
         )
 
