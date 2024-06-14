@@ -18,6 +18,8 @@ images:
     output:
       - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-context
         tag: $(inputs.params.version_id)
+      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-context
+        tag: $(inputs.params.version)
 
   - name: init-database-template-ubi
     task_type: dockerfile_template
@@ -40,6 +42,8 @@ images:
     output:
       - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-ubi
         tag: $(inputs.params.version_id)
+      - registry: $(inputs.params.registry)/mongodb-enterprise-init-database-ubi
+        tag: $(inputs.params.version)
 
   - name: master-latest
     task_type: tag_image
