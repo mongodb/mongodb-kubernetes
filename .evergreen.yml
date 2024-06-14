@@ -1874,23 +1874,24 @@ tasks:
         variant: e2e_operator_perf
         size: small
 
-- name: generate_perf_tasks_10_thread_large
-  patch_only: true
-  commands:
-    - func: clone
-    - func: generate_perf_tests_tasks
-      vars:
-        variant: e2e_operator_perf_large
-        size: large
-
-- name: generate_perf_tasks_one_thread_large
-  patch_only: true
-  commands:
-    - func: clone
-    - func: generate_perf_tests_tasks
-      vars:
-        variant: e2e_operator_perf_one_thread_large
-        size: large
+# TODO: All variants and tasks using xxlarge machines were commented out during release 1.26 because of EVG error
+#- name: generate_perf_tasks_10_thread_large
+#  patch_only: true
+#  commands:
+#    - func: clone
+#    - func: generate_perf_tests_tasks
+#      vars:
+#        variant: e2e_operator_perf_large
+#        size: large
+#
+#- name: generate_perf_tasks_one_thread_large
+#  patch_only: true
+#  commands:
+#    - func: clone
+#    - func: generate_perf_tests_tasks
+#      vars:
+#        variant: e2e_operator_perf_one_thread_large
+#        size: large
 
 - name: generate_perf_tasks_30_thread
   patch_only: true
@@ -1901,14 +1902,15 @@ tasks:
         variant: e2e_operator_perf_thirty
         size: small
 
-- name: generate_perf_tasks_30_thread_large
-  patch_only: true
-  commands:
-    - func: clone
-    - func: generate_perf_tests_tasks
-      vars:
-        variant: e2e_operator_perf_thirty
-        size: large
+#- name: generate_perf_tasks_30_thread_large
+#  patch_only: true
+#  commands:
+#    - func: clone
+#    - func: generate_perf_tests_tasks
+#      vars:
+#  #TODO: missing _large suffix below ?
+#        variant: e2e_operator_perf_thirty
+#        size: large
 
 - name: release_database
   git_tag_only: true
@@ -3064,29 +3066,29 @@ buildvariants:
   tasks:
     - name: generate_perf_tasks_10_thread
 
-- name: e2e_operator_perf_large
-  display_name: e2e_operator_perf_large
-  run_on:
-    - ubuntu1804-xxlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_10_thread_large
-
-- name: e2e_operator_perf_thirty_large
-  display_name: e2e_operator_perf_thirty_large
-  run_on:
-    - ubuntu1804-xxlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_30_thread_large
-
-- name: e2e_operator_perf_one_thread_large
-  display_name: e2e_operator_perf_one_thread_large
-  run_on:
-    - ubuntu1804-xxlarge
-  <<: *base_om7_dependency
-  tasks:
-    - name: generate_perf_tasks_one_thread_large
+#- name: e2e_operator_perf_large
+#  display_name: e2e_operator_perf_large
+#  run_on:
+#    - ubuntu1804-xxlarge
+#  <<: *base_om7_dependency
+#  tasks:
+#    - name: generate_perf_tasks_10_thread_large
+#
+#- name: e2e_operator_perf_thirty_large
+#  display_name: e2e_operator_perf_thirty_large
+#  run_on:
+#    - ubuntu1804-xxlarge
+#  <<: *base_om7_dependency
+#  tasks:
+#    - name: generate_perf_tasks_30_thread_large
+#
+#- name: e2e_operator_perf_one_thread_large
+#  display_name: e2e_operator_perf_one_thread_large
+#  run_on:
+#    - ubuntu1804-xxlarge
+#  <<: *base_om7_dependency
+#  tasks:
+#    - name: generate_perf_tasks_one_thread_large
 
 - name: e2e_operator_perf_one_thread
   display_name: e2e_operator_perf_one_thread
