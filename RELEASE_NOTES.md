@@ -19,6 +19,7 @@
 
 * **MongoDB**: Fixed a bug where configuring a **MongoDB** with multiple entries in `spec.agent.startupOptions` would cause additional unnecessary reconciliation of the underlying `StatefulSet`.
 * **MongoDB, MongoDBMultiCluster**: Fixed a bug where the operator wouldn't watch for changes in the X509 certificates configured for agent authentication.
+* **MongoDB**: Fixed a bug where boolean flags passed to the agent cannot be set to `false` if their default value is `true`.
 
 <!-- Past Releases -->
 # MongoDB Enterprise Kubernetes Operator 1.25.0
