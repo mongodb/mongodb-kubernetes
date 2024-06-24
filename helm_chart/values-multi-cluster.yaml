@@ -21,9 +21,6 @@ operator:
   # Name of the deployment of the operator pod
   deployment_name: mongodb-enterprise-operator
 
-  # Version of mongodb-enterprise-operator
-  version: 1.25.0
-
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
     - mongodb
@@ -55,32 +52,6 @@ operator:
     tlsSecretRef: ""
 
   replicas: 1
-
-## Database
-database:
-  name: mongodb-enterprise-database-ubi
-  version: 1.25.0
-
-initDatabase:
-  name: mongodb-enterprise-init-database-ubi
-  version: 1.25.0
-
-## Ops Manager
-opsManager:
-  name: mongodb-enterprise-ops-manager-ubi
-
-initOpsManager:
-  name: mongodb-enterprise-init-ops-manager-ubi
-  version: 1.25.0
-
-## Application Database
-initAppDb:
-  name: mongodb-enterprise-init-appdb-ubi
-  version: 1.25.0
-
-agent:
-  name: mongodb-agent-ubi
-  version: 12.0.29.7785-1
 
 mongodbLegacyAppDb:
   name: mongodb-enterprise-appdb-database-ubi
