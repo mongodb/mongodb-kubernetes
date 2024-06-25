@@ -309,6 +309,7 @@ def sonar_build_image(
     build_configuration: BuildConfiguration,
     args: Dict[str, str] = None,
     inventory="inventory.yaml",
+    with_sbom: bool = True
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
     build_options = {
@@ -330,7 +331,8 @@ def sonar_build_image(
         build_options=build_options,
     )
 
-    produce_sbom(build_configuration, args)
+    if with_sbom:
+        produce_sbom(build_configuration, args)
 
 
 def produce_sbom(build_configuration, args):
@@ -338,15 +340,13 @@ def produce_sbom(build_configuration, args):
         logger.info("Skipping SBOM Generation (enabled only for EVG)")
         return
 
-    image_pull_spec = "unknown"
     try:
-        image_pull_spec = args["quay_registry"] + args["ubi_suffix"]
+        image_pull_spec = args["quay_registry"] + args.get("ubi_suffix", "")
     except KeyError:
         logger.error(f"Could not find image pull spec. Args: {args}, BuildConfiguration: {build_configuration}")
         logger.error(f"Skipping SBOM generation")
         return
 
-    image_tag = "unknown"
     try:
         image_tag = args["release_version"]
     except KeyError:
@@ -776,7 +776,7 @@ def build_image_generic(
     registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}" if not registry_address else registry_address
     args["quay_registry"] = registry
 
-    sonar_build_image(image_name, config, args, inventory_file)
+    sonar_build_image(image_name, config, args, inventory_file, False)
     if do_context_sign and config.sign and is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
         sign_and_verify_context_image(registry, version)
 
