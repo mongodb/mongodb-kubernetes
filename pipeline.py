@@ -6,19 +6,20 @@ to produce the final images."""
 
 import argparse
 import copy
-import io
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tarfile
+import threading
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
+from distutils.version import Version
 from queue import Queue
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import requests
 import semver
@@ -43,6 +44,7 @@ DEFAULT_NAMESPACE = "default"
 # final images to the registry specified here.
 # This makes it easy to use ECR to test changes on the pipeline before pushing to Quay.
 QUAY_REGISTRY_URL = os.environ.get("QUAY_REGISTRY", "quay.io/mongodb")
+build_image_daily_lock = threading.Lock()
 
 
 @dataclass
@@ -78,6 +80,13 @@ class BuildConfiguration:
 
     def get_include_tags(self) -> list[str]:
         return make_list_of_str(self.include_tags)
+
+    def is_release_step_executed(self) -> bool:
+        if "release" in self.get_skip_tags():
+            return False
+        if "release" in self.get_include_tags():
+            return True
+        return len(self.get_include_tags()) == 0
 
 
 def make_list_of_str(value: Union[None, str, List[str]]) -> List[str]:
@@ -148,7 +157,6 @@ def should_pin_at() -> Optional[Tuple[str, str]]:
         pinned = os.environ["pin_tag_at"]
     except KeyError:
         raise MissingEnvironmentVariable(f"pin_tag_at environment variable does not exist, but is required")
-
     if is_patch:
         if pinned == "00:00":
             raise "Pinning to midnight during a patch is not supported. Please pin to another date!"
@@ -576,15 +584,26 @@ def args_for_daily_image(image_name: str) -> Dict[str, str]:
 
 
 def is_version_in_range(version: str, min_version: str, max_version: str) -> bool:
-    """Check if version is in the range"""
+    """Check if the version is in the range"""
     try:
         version_without_rc = semver.finalize_version(version)
     except ValueError:
         version_without_rc = version
     if min_version and max_version:
-        # Greater or equal for lower bound, strictly lower for upper bound
-        return semver.compare(min_version, version_without_rc) <= 0 > semver.compare(version_without_rc, max_version)
+        return semver.match(min_version, "<=" + version_without_rc) and semver.match(
+            max_version, ">" + version_without_rc
+        )
     return True
+
+
+def get_versions_to_rebuild(supported_versions, min_version, max_version):
+    # this means we only want
+    # to release one version,
+    # we cannot rely on the below range function
+    # since the agent does not follow semver for comparison
+    if (min_version and max_version) and (min_version == max_version):
+        return [min_version]
+    return filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions)
 
 
 """
@@ -599,7 +618,7 @@ If the context image supports both ARM and AMD architectures, both will be built
 
 
 def build_image_daily(
-    image_name: str,
+    image_name: str,  # corresponds to the image_name in the release.json
     min_version: str = None,
     max_version: str = None,
 ):
@@ -641,7 +660,9 @@ def build_image_daily(
         logger.info("Supported Versions for {}: {}".format(image_name, supported_versions))
 
         completed_versions = set()
-        for version in filter(lambda x: is_version_in_range(x, min_version, max_version), supported_versions):
+        filtered_versions = get_versions_to_rebuild(supported_versions, min_version, max_version)
+
+        for version in filtered_versions:
             build_configuration = copy.deepcopy(build_configuration)
             if build_configuration.include_tags is None:
                 build_configuration.include_tags = []
@@ -683,8 +704,8 @@ def build_image_daily(
                         sign_image_in_repositories(args)
                 completed_versions.add(version)
 
-    return inner
 
+    return inner
 
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     repositories = [args["ecr_registry_ubi"] + args["ubi_suffix"], args["quay_registry"] + args["ubi_suffix"]]
@@ -777,21 +798,20 @@ def build_image_generic(
     args["quay_registry"] = registry
 
     sonar_build_image(image_name, config, args, inventory_file, False)
-    if do_context_sign and config.sign and is_release_step_executed(config.get_skip_tags(), config.get_include_tags()):
+    if do_context_sign and config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
+    if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
+        logger.info(
+            f"finished building context images, releasing them now via daily builds process for"
+            f" image: {image_name} and version: {version}!"
+        )
+        with build_image_daily_lock:
+            build_image_daily(image_name, version, version)(config)
 
 
 def sign_and_verify_context_image(registry, version):
     sign_image(registry, version + "-context")
     verify_signature(registry, version + "-context")
-
-
-def is_release_step_executed(skip_tags: List[str], include_tags: List[str]) -> bool:
-    if "release" in skip_tags:
-        return False
-    if "release" in include_tags:
-        return True
-    return len(include_tags) == 0
 
 
 def build_init_appdb(build_configuration: BuildConfiguration):
@@ -824,7 +844,7 @@ def build_agent_in_sonar(
 
     build_image_generic(
         config=build_configuration,
-        image_name="agent",
+        image_name="mongodb-agent",
         inventory_file="inventories/agent.yaml",
         extra_args=args,
         registry_address=agent_quay_registry,
@@ -832,9 +852,7 @@ def build_agent_in_sonar(
 
     # Agent is the only image for which release is part of the inventory, on top of -context release
     # This is done usually by daily builds
-    if build_configuration.sign and is_release_step_executed(
-        build_configuration.get_skip_tags(), build_configuration.get_include_tags()
-    ):
+    if build_configuration.sign and build_configuration.is_release_step_executed():
         sign_image(agent_quay_registry, image_version)
         verify_signature(agent_quay_registry, image_version)
 
@@ -854,7 +872,7 @@ def build_multi_arch_agent_in_sonar(
     """
 
     logger.info(f"building multi-arch base image for: {image_version}")
-    is_release = is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags())
+    is_release = build_configuration.is_release_step_executed()
     args = {
         "version": image_version,
         "tools_version": tools_version,
@@ -871,30 +889,15 @@ def build_multi_arch_agent_in_sonar(
         args = args | arch
         build_image_generic(
             config=build_configuration,
-            image_name="multi-arch-agent",
+            image_name="mongodb-agent",
             inventory_file="inventories/agent_non_matrix.yaml",
             extra_args=args,
             registry_address=quay_agent_registry if is_release else ecr_agent_registry,
             # We need to push the manifests for context and non-context first before we can sign and verify the images
-            # We cannot rely on the config.sign,
+            # We cannot rely on config.sign,
             # since we still need signing, but just not here in the generic image build.
-            do_context_sign=False,
+            do_context_sign=True,
         )
-
-    agent_registries = [ecr_agent_registry]
-    if is_release:
-        agent_registries.append(quay_agent_registry)
-
-    for agent_registry in agent_registries:
-        create_and_push_manifest(agent_registry, f"{image_version}-context")
-        create_and_push_manifest(agent_registry, image_version)
-
-    # Multi-arch images require signing and verifying the context images as well as the fully released images.
-    # The full image is released as part of the inventory with the above manifest.
-    if build_configuration.sign and is_release:
-        sign_and_verify_context_image(quay_agent_registry, image_version)
-        sign_image(quay_agent_registry, image_version)
-        verify_signature(quay_agent_registry, image_version)
 
 
 def build_agent_default_case(build_configuration: BuildConfiguration):
@@ -942,7 +945,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
     """
     release = get_release()
 
-    agent_versions_to_build = build_agent_gather_versions(release)
+    agent_versions_to_build = build_latest_agent_versions(release)
     legacy_agent_versions_to_build = release["supportedImages"]["mongodb-agent"]["versions"]
     min_supported_version_operator_for_static = "1.25.0"
     supported_operator_versions = [
@@ -951,6 +954,7 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
         if v >= min_supported_version_operator_for_static
     ]
 
+    is_release = build_configuration.is_release_step_executed()
     tasks_queue = Queue()
     max_workers = 1
     if build_configuration.parallel:
@@ -959,9 +963,6 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
             max_workers = build_configuration.parallel_factor
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"running with factor of {max_workers}")
-        is_release = is_release_step_executed(
-            build_configuration.get_skip_tags(), build_configuration.get_include_tags()
-        )
 
         # We need to regularly push legacy agents, otherwise ecr lifecycle policy will expire them.
         # We only need to push them once in a while to ecr, so no quay required
@@ -1033,10 +1034,7 @@ def _build_agent(
 
     # We don't need to keep create and push the same image on every build.
     # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-    if (
-        is_release_step_executed(build_configuration.get_skip_tags(), build_configuration.get_include_tags())
-        or build_configuration.all_agents
-    ):
+    if build_configuration.is_release_step_executed() or build_configuration.all_agents:
         tasks_queue.put(
             executor.submit(
                 build_multi_arch_agent_in_sonar,
@@ -1047,7 +1045,7 @@ def _build_agent(
         )
 
 
-def build_agent_gather_versions(release: Dict[str, str]) -> List[Tuple[str, str]]:
+def build_agent_gather_versions(release: Dict) -> List[Tuple[str, str]]:
     # This is a list of a tuples - agent version and corresponding tools version
     agent_versions_to_build = list()
     agent_versions_to_build.append(
@@ -1060,7 +1058,47 @@ def build_agent_gather_versions(release: Dict[str, str]) -> List[Tuple[str, str]
         agent_versions_to_build.append((om["agent_version"], om["tools_version"]))
 
     # lets not build the same image multiple times
-    return list(set(agent_versions_to_build))
+    return sorted(list(set(agent_versions_to_build)))
+
+
+def build_latest_agent_versions(release: Dict) -> List[Tuple[str, str]]:
+    """
+    This function is used when we release a new agent via OM bump.
+    That means we will need to release that agent with all supported operators.
+    Since we don't want to release all agents again, we only release the latest, which will contain the newly added one
+    :return: the latest agent for each major version
+    """
+    agent_versions_to_build = list()
+    agent_versions_to_build.append(
+        (
+            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager"],
+            release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["cloud_manager_tools"],
+        )
+    )
+
+    latest_versions = {}
+
+    for version in release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"].keys():
+        parsed_version = semver.parse(version)
+        major_version = parsed_version["major"]
+        if major_version in latest_versions:
+            latest_versions[major_version] = semver.max_ver(version, latest_versions[major_version])
+        else:
+            latest_versions[major_version] = version
+
+    for major_version, latest_version in latest_versions.items():
+        agent_versions_to_build.append(
+            (
+                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
+                    "agent_version"
+                ],
+                release["supportedImages"]["mongodb-agent"]["opsManagerMapping"]["ops_manager"][str(latest_version)][
+                    "tools_version"
+                ],
+            )
+        )
+
+    return sorted(list(set(agent_versions_to_build)))
 
 
 def get_builder_function_for_image_name() -> Dict[str, Callable]:
