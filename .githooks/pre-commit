@@ -24,15 +24,22 @@ function generate_standalone_yaml() {
   charttmpdir=${charttmpdir}/chart
   mkdir -p "${charttmpdir}"
 
+  FILES=(
+    "${charttmpdir}/enterprise-operator/templates/operator-roles.yaml"
+    "${charttmpdir}/enterprise-operator/templates/database-roles.yaml"
+    "${charttmpdir}/enterprise-operator/templates/operator-sa.yaml"
+    "${charttmpdir}/enterprise-operator/templates/operator.yaml"
+  )
+
   # generate normal public example
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" ${HELM_OPTS[@]}
-  cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator-sa.yaml,operator.yaml} >public/mongodb-enterprise.yaml
+  cat "${FILES[@]}" >public/mongodb-enterprise.yaml
   cat "helm_chart/crds/"* >public/crds.yaml
 
   # generate openshift public example
   rm -rf "${charttmpdir:?}/*"
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml ${HELM_OPTS[@]}
-  cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator.yaml} >public/mongodb-enterprise-openshift.yaml
+  cat "${FILES[@]}" >public/mongodb-enterprise-openshift.yaml
 
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}/*"
@@ -47,7 +54,7 @@ function generate_standalone_yaml() {
   # generate multi-cluster public example
   rm -rf "${charttmpdir:?}/*"
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml ${HELM_OPTS[@]}
-  cat "${charttmpdir}/enterprise-operator/templates/"{operator-roles.yaml,database-roles.yaml,operator-sa.yaml,operator.yaml} >public/mongodb-enterprise-multi-cluster.yaml
+  cat "${FILES[@]}" >public/mongodb-enterprise-multi-cluster.yaml
 
 }
 
