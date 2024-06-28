@@ -16,7 +16,7 @@ else
     fi
 
     plugins_dir="/home/$USER/.docker/cli-plugins"
-    mkdir -p "plugins_dir"
+    mkdir -p "$plugins_dir"
     sudo chown "$USER":"$USER" "${plugins_dir}" -R
     sudo chmod g+rwx "${plugins_dir}" -R
     wget "https://github.com/docker/sbom-cli-plugin/releases/download/v0.6.1/sbom-cli-plugin_0.6.1_linux_amd64.tar.gz"

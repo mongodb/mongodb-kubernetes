@@ -1,15 +1,39 @@
 import os
-from unittest import mock
 from unittest.mock import patch
 
 import pytest
 
 from pipeline import (
+    build_latest_agent_versions,
     calculate_images_to_build,
-    is_release_step_executed,
     is_version_in_range,
-    operator_build_configuration,
+    operator_build_configuration, get_versions_to_rebuild, build_agent_gather_versions,
 )
+from scripts.evergreen.release.agent_matrix import get_supported_version_for_image_matrix_handling
+
+release_json = {
+    "supportedImages": {
+        "mongodb-agent": {
+            "opsManagerMapping": {
+                "cloud_manager": "13.19.0.8937-1",
+                "cloud_manager_tools": "100.9.4",
+                "ops_manager": {
+                    "6.0.0": {"agent_version": "12.0.30.7791-1", "tools_version": "100.9.4"},
+                    "6.0.21": {"agent_version": "12.0.29.7785-1", "tools_version": "100.9.4"},
+                    "6.0.22": {"agent_version": "12.0.30.7791-1", "tools_version": "100.9.4"},
+                    "7.0.0": {"agent_version": "107.0.1.8507-1", "tools_version": "100.9.4"},
+                    "7.0.1": {"agent_version": "107.0.1.8507-1", "tools_version": "100.9.4"},
+                    "7.0.2": {"agent_version": "107.0.2.8531-1", "tools_version": "100.9.4"},
+                    "7.0.3": {"agent_version": "107.0.3.8550-1", "tools_version": "100.9.4"},
+                    "6.0.23": {"agent_version": "12.0.31.7825-1", "tools_version": "100.9.4"},
+                    "7.0.4": {"agent_version": "107.0.4.8567-1", "tools_version": "100.9.4"},
+                    "7.0.6": {"agent_version": "107.0.6.8587-1", "tools_version": "100.9.4"},
+                    "7.0.7": {"agent_version": "107.0.7.8596-1", "tools_version": "100.9.4"},
+                },
+            }
+        }
+    }
+}
 
 
 def test_operator_build_configuration():
@@ -91,5 +115,31 @@ def test_is_version_in_range(version, min_version, max_version, expected):
     ],
 )
 def test_is_release_step_executed(description, case):
-    result = is_release_step_executed(case["skip_tags"], case["include_tags"])  # Unpack arguments by their names
+    config = operator_build_configuration("builder", True, False)
+    config.skip_tags = case["skip_tags"]
+    config.include_tags = case["include_tags"]
+    result = config.is_release_step_executed()
     assert result == case["expected"], f"Test failed: {description}. Expected {case['expected']}, got {result}."
+
+
+def test_build_latest_agent_versions():
+    latest_agents = build_latest_agent_versions(release_json)
+    expected_agents = [("107.0.7.8596-1", "100.9.4"), ("12.0.31.7825-1", "100.9.4"), ("13.19.0.8937-1", "100.9.4")]
+    assert latest_agents == expected_agents
+
+
+def test_get_versions_to_rebuild_same_version():
+    supported_versions = build_agent_gather_versions(release_json)
+    agents = get_versions_to_rebuild(supported_versions, "6.0.0_1.26.0", "6.0.0_1.26.0")
+    assert len(agents) == 1
+    assert agents[0] == "6.0.0_1.26.0"
+
+
+def test_get_versions_to_rebuild_multiple_versions():
+    supported_versions = ["6.0.0", "6.0.1", "6.0.21", "6.11.0", "7.0.0"]
+    expected_agents = ["6.0.0", "6.0.1", "6.0.21"]
+    agents = get_versions_to_rebuild(supported_versions, "6.0.0", "6.10.0")
+    actual_agents = []
+    for a in agents:
+        actual_agents.append(a)
+    assert actual_agents == expected_agents

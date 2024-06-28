@@ -143,6 +143,10 @@ parameters:
   value: "true"
   description: set this to false to suppress retries on failure
 
+- key: pin_tag_at
+  value: 10:00
+  description: Pin tags at this time of the day. Midnight by default for periodic and 10 for releases.
+
 - key: OVERRIDE_VERSION_ID
   value: ""
   description: "Patch id to reuse images from other Evergreen build"
@@ -262,6 +266,7 @@ functions:
         - registry
         - image_name
         - skip_tags
+        - include_tags
         - distro
         - is_patch
         - GRS_USERNAME
@@ -270,6 +275,9 @@ functions:
         - ARTIFACTORY_USERNAME
         - ARTIFACTORY_PASSWORD
         - triggered_by_git_tag
+        - pin_tag_at
+        - SILK_CLIENT_ID
+        - SILK_CLIENT_SECRET
       working_dir: src/github.com/10gen/ops-manager-kubernetes
       binary: scripts/evergreen/run_python.sh pipeline.py --include ${image_name} --parallel --sign
 
@@ -648,6 +656,13 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/prepare-openshift-bundles-for-e2e.sh
 
+  setup_docker_sbom:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        binary: scripts/evergreen/setup_docker_sbom.sh
+
 tasks:
 - name: preflight_release_images
   commands:
@@ -696,6 +711,7 @@ tasks:
   - func: clone
   - func: setup_building_host
   - func: quay_login
+  - func: setup_docker_sbom
   - func: pipeline
     vars:
       image_name: operator
@@ -720,6 +736,7 @@ tasks:
   - func: clone
   - func: setup_building_host
   - func: quay_login
+  - func: setup_docker_sbom
   - func: pipeline
     vars:
       image_name: init-appdb
@@ -730,6 +747,7 @@ tasks:
   - func: clone
   - func: setup_building_host
   - func: quay_login
+  - func: setup_docker_sbom
   - func: pipeline
     vars:
       image_name: init-database
@@ -740,6 +758,7 @@ tasks:
   - func: clone
   - func: setup_building_host
   - func: quay_login
+  - func: setup_docker_sbom
   - func: pipeline
     vars:
       image_name: init-ops-manager
@@ -753,6 +772,7 @@ tasks:
     - func: clone
     - func: setup_building_host
     - func: quay_login
+    - func: setup_docker_sbom
     - func: pipeline
       vars:
         image_name: agent-pct
@@ -805,8 +825,10 @@ tasks:
 
 - name: release_agent_operator_release
   git_tag_only: true
-  # once we release the operator, we will also release the init databases, we require them to be out first
+  # Once we release the operator, we will also release the init databases, we require them to be out first
   # such that we can reference them and retrieve those binaries.
+  # Since we immediately run daily rebuild after creating the image, we can ensure that the init_database is out
+  # such that the agent image build can use it.
   depends_on:
     - name: release_init_database
       variant: release
@@ -1952,6 +1974,7 @@ tasks:
   - func: clone
   - func: setup_building_host
   - func: quay_login
+  - func: setup_docker_sbom
   - func: pipeline
     vars:
       image_name: database
@@ -1971,6 +1994,7 @@ tasks:
   - func: clone
   - func: setup_building_host
   - func: quay_login
+  - func: setup_docker_sbom
   - func: pipeline
     vars:
       image_name: ops-manager
@@ -2917,7 +2941,7 @@ buildvariants:
 - name: publish_om60_images
   display_name: publish_om60_images
   run_on:
-  - ubuntu2204-small
+    - ubuntu2204-large
   depends_on:
   - variant: e2e_om60_kind_ubi
     name: '*'
@@ -2951,7 +2975,7 @@ buildvariants:
 - name: publish_om70_images
   display_name: publish_om70_images
   run_on:
-    - ubuntu2204-small
+    - ubuntu2204-large
   depends_on:
     - variant: e2e_om70_kind_ubi
       name: '*'
@@ -2965,7 +2989,7 @@ buildvariants:
 - name: release_agent
   display_name: (Static Containers) Release Agent matrix
   run_on:
-    - ubuntu2204-small
+    - ubuntu2204-large
   depends_on:
     - variant: init_release_agents_on_ecr
       name: '*'

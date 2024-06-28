@@ -3,7 +3,7 @@ vars:
   s3_bucket: s3://enterprise-operator-dockerfiles/dockerfiles/mongodb-agent
 
 images:
-  - name: multi-arch-agent
+  - name: mongodb-agent
     vars:
       context: .
       template_context: docker/mongodb-agent-non-matrix
@@ -55,21 +55,6 @@ images:
             tag: $(inputs.params.version)-$(inputs.params.architecture)
           - registry: $(inputs.params.registry)/mongodb-agent-ubi
             tag: latest-$(inputs.params.architecture)
-
-      - name: mongodb-agent-release
-        task_type: docker_build
-        tags: ["release"]
-        dockerfile: docker/mongodb-agent-non-matrix/Dockerfile
-
-        buildargs:
-          imagebase: $(inputs.params.quay_registry):$(inputs.params.version)-context-$(inputs.params.architecture)
-
-        labels:
-          quay.expires-after: Never
-
-        output:
-          - registry: $(inputs.params.quay_registry)
-            tag: $(inputs.params.version)-$(inputs.params.architecture)
 
       - name: mongodb-agent-template-ubi
         task_type: dockerfile_template
