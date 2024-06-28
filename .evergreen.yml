@@ -761,13 +761,40 @@ tasks:
 # Pct only triggers this variant once a new agent image is out
 # these releases the agent with the operator suffix (not patch id) on ecr to allow for digest pinning to pass.
 # For this to work, we rely on skip_tags which is used to determine whether
-# we want to release on quay or not (ecr instead).
-# We don't depend on init_database since we just use the quay version.
-# This runs on agent releases that are not
-# concurrent with operator releases.
+# we want to release on quay or not, in this case - ecr instead.
+# We rely on the init_database from ecr for the agent x operator images.
+# This runs on agent releases that are not concurrent with operator releases.
+- name: release_agents_on_ecr_conditional
+  # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
+  allowed_requesters: ["patch", "github_pr"]
+  commands:
+    - func: clone
+    - func: setup_building_host
+    - command: shell.exec
+      params:
+        working_dir: src/github.com/10gen/ops-manager-kubernetes
+        script: |
+          git fetch origin
+          if git diff --quiet -- release.json && git diff --quiet origin/master -- release.json; then
+            echo "skipping since release.json has not changed"
+          else
+            echo "release.json has changed, triggering ecr agent release"
+            echo "git diff"
+            git diff -- release.json
+            echo "diff master"
+            git diff origin/master
+            scripts/evergreen/add_evergreen_task.sh init_release_agents_on_ecr release_agents_on_ecr
+          fi
+    - command: generate.tasks
+      params:
+        files:
+          - evergreen_tasks.json
+        optional: true
+
 - name: release_agents_on_ecr
   # this enables us to run this variant either manually (patch) which pct does or during an OM bump (github_pr)
   allowed_requesters: ["patch", "github_pr"]
+  priority: 70
   commands:
     - func: clone
     - func: setup_building_host
@@ -1881,7 +1908,7 @@ tasks:
   commands:
     - func: e2e_test
 
-# this test is run, with an operator with race enable
+# this test is run, with an operator with race enabled
 - name: e2e_om_reconcile_race
   tags: ["patch-run"]
   commands:
@@ -1910,25 +1937,6 @@ tasks:
         variant: e2e_operator_perf
         size: small
 
-# TODO: All variants and tasks using xxlarge machines were commented out during release 1.26 because of EVG error
-#- name: generate_perf_tasks_10_thread_large
-#  patch_only: true
-#  commands:
-#    - func: clone
-#    - func: generate_perf_tests_tasks
-#      vars:
-#        variant: e2e_operator_perf_large
-#        size: large
-#
-#- name: generate_perf_tasks_one_thread_large
-#  patch_only: true
-#  commands:
-#    - func: clone
-#    - func: generate_perf_tests_tasks
-#      vars:
-#        variant: e2e_operator_perf_one_thread_large
-#        size: large
-
 - name: generate_perf_tasks_30_thread
   patch_only: true
   commands:
@@ -1937,16 +1945,6 @@ tasks:
       vars:
         variant: e2e_operator_perf_thirty
         size: small
-
-#- name: generate_perf_tasks_30_thread_large
-#  patch_only: true
-#  commands:
-#    - func: clone
-#    - func: generate_perf_tests_tasks
-#      vars:
-#  #TODO: missing _large suffix below ?
-#        variant: e2e_operator_perf_thirty
-#        size: large
 
 - name: release_database
   git_tag_only: true
@@ -2848,11 +2846,29 @@ buildvariants:
   run_on:
     - ubuntu2204-small
   tasks:
-    - name: release_agents_on_ecr
+    - name: release_agents_on_ecr_conditional
 
 - name: init_tests_with_olm
   display_name: init_tests_with_olm
-  <<: *base_om6_dependency
+  depends_on:
+      - name: build_om_images
+        variant: build_om60_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_appdb_images_ubi
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: release_agents_on_ecr_conditional
+        variant: init_release_agents_on_ecr
   run_on:
     - ubuntu2204-small
   tasks:
@@ -2874,30 +2890,6 @@ buildvariants:
   <<: *base_om7_dependency
   tasks:
     - name: generate_perf_tasks_10_thread
-
-#- name: e2e_operator_perf_large
-#  display_name: e2e_operator_perf_large
-#  run_on:
-#    - ubuntu1804-xxlarge
-#  <<: *base_om7_dependency
-#  tasks:
-#    - name: generate_perf_tasks_10_thread_large
-#
-#- name: e2e_operator_perf_thirty_large
-#  display_name: e2e_operator_perf_thirty_large
-#  run_on:
-#    - ubuntu1804-xxlarge
-#  <<: *base_om7_dependency
-#  tasks:
-#    - name: generate_perf_tasks_30_thread_large
-#
-#- name: e2e_operator_perf_one_thread_large
-#  display_name: e2e_operator_perf_one_thread_large
-#  run_on:
-#    - ubuntu1804-xxlarge
-#  <<: *base_om7_dependency
-#  tasks:
-#    - name: generate_perf_tasks_one_thread_large
 
 - name: e2e_operator_perf_one_thread
   display_name: e2e_operator_perf_one_thread
