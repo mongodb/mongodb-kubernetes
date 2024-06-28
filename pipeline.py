@@ -309,7 +309,7 @@ def sonar_build_image(
     build_configuration: BuildConfiguration,
     args: Dict[str, str] = None,
     inventory="inventory.yaml",
-    with_sbom: bool = True
+    with_sbom: bool = True,
 ):
     """Calls sonar to build `image_name` with arguments defined in `args`."""
     build_options = {
