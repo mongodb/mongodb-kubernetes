@@ -48,6 +48,42 @@ variables:
       - name: build_agent_images_ubi
         variant: init_test_run
 
+  - &setup_group
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+
+  - &setup_group_multi_cluster
+    setup_group:
+      - func: clone
+      - func: download_kube_tools
+      - func: setup_building_host
+      - func: build_multi_cluster_binary
+
+  - &setup_and_teardown_task_cloudqa
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: setup_kubernetes_environment
+      - func: setup_cloud_qa
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa        
+
+  - &setup_and_teardown_task
+    setup_task:
+      - func: cleanup_exec_environment
+      - func: setup_kubernetes_environment
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: teardown_kubernetes_environment
+
+  - &teardown_group
+    teardown_group:
+      - func: prune_docker_resources
+      - func: run_retry_script
+
   - &base_om7_dependency
     depends_on:
       - name: build_om_images
@@ -1964,14 +2000,8 @@ task_groups:
 # This is the task group that contains all the tests run in the e2e_mdb_kind_ubuntu_cloudqa build variant
 - name: e2e_mdb_kind_cloudqa_task_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     # e2e_kube_only_task_group
     - e2e_crd_validation
@@ -2081,35 +2111,17 @@ task_groups:
     - e2e_vault_setup_tls
     # this test will either migrate from static to non-static or the other way around
     - e2e_replica_set_migration
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 # this task group contains just a one task, which is smoke testing whether the operator
 # works correctly when we run it without installing webhook cluster roles
 - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_replica_set_agent_flags
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
 # This is mostly a smoke test, so we execute only a few essential ones.
@@ -2117,53 +2129,27 @@ task_groups:
   # OM tests are also run on the same Openshift cluster, so we use 1 max host to not
   # allow the helm installations to interfere with eachother during the setup of the tests.
   max_hosts: 1
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_crd_validation
     - e2e_replica_set_scram_sha_256_user_connectivity
     - e2e_sharded_cluster_scram_sha_256_user_connectivity
     - e2e_replica_set_pv
     - e2e_sharded_cluster_pv
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
 
 - name: e2e_custom_domain_task_group
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_replica_set
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
 
 # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
 # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
 - name: e2e_operator_task_group
   max_hosts: -1
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_operator_upgrade_replica_set
     - e2e_operator_upgrade_ops_manager
@@ -2171,47 +2157,22 @@ task_groups:
     - e2e_operator_clusterwide
     - e2e_operator_multi_namespaces
     - e2e_operator_upgrade_appdb_tls
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 # e2e_operator_race_task_group includes the tests for testing the operator with race detector enabled
 - name: e2e_operator_race_task_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-    - func: build_multi_cluster_binary
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group_multi_cluster
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_om_reconcile_race
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
 # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
 - name: e2e_static_operator_task_group
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_operator_upgrade_replica_set
     - e2e_operator_upgrade_ops_manager
@@ -2219,24 +2180,12 @@ task_groups:
     - e2e_operator_clusterwide
     - e2e_operator_multi_namespaces
     - e2e_operator_upgrade_appdb_tls
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_multi_cluster_kind_task_group
   max_hosts: 10
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_multi_cluster_replica_set
     - e2e_multi_cluster_replica_set_migration
@@ -2268,45 +2217,21 @@ task_groups:
     - e2e_multi_cluster_validation
     - e2e_multi_cluster_agent_flags
     - e2e_multi_cluster_replica_set_ignore_unknown_users
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_multi_cluster_2_clusters_task_group
   max_hosts: 2
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_multi_cluster_2_clusters_replica_set
     - e2e_multi_cluster_2_clusters_clusterwide
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_multi_cluster_om_appdb_task_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-    - func: build_multi_cluster_binary
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group_multi_cluster
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     # Dedicated AppDB Multi-Cluster tests
     - e2e_multi_cluster_appdb_validation
@@ -2351,25 +2276,12 @@ task_groups:
 # disabled tests:
 #    - e2e_om_multiple # multi-cluster failures in EVG
 #    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_static_multi_cluster_om_appdb_task_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-    - func: build_multi_cluster_binary
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group_multi_cluster
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     # Dedicated AppDB Multi-Cluster tests
     - e2e_multi_cluster_appdb_validation
@@ -2412,50 +2324,25 @@ task_groups:
 #    - e2e_om_ops_manager_upgrade static containers do not have a prior version we can upgrade from for om.
     - e2e_om_update_before_reconciliation
     - e2e_om_feature_controls
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
 # that is not in the mesh
 - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-    - func: build_multi_cluster_binary
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group_multi_cluster
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 
 # This task group runs on Kind clusters. In theory ALL Ops Manager tests should be added here
 # including the cluster-wide resources changing. Uses Cloud-qa.
 - name: e2e_ops_manager_kind_only_task_group
   max_hosts: 15
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
@@ -2494,24 +2381,12 @@ task_groups:
     - e2e_om_feature_controls
     - e2e_vault_setup_om
     - e2e_vault_setup_om_backup
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_static_ops_manager_kind_only_task_group
   max_hosts: 15
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_om_appdb_agent_flags
     - e2e_om_appdb_monitoring_tls
@@ -2549,119 +2424,58 @@ task_groups:
 #    - e2e_om_ops_manager_https_enabled_internet_mode
 #    - e2e_om_ops_manager_https_enabled
 #    - e2e_om_ops_manager_https_enabled_prefix
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_smoke_task_group
   max_hosts: 1
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
-    - func: setup_cloud_qa
+  <<: *setup_group
+  <<: *setup_and_teardown_task_cloudqa
   tasks:
     - e2e_om_ops_manager_backup
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-    - func: teardown_cloud_qa
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_ops_manager_kind_5_0_only_task_group
   max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
+  <<: *setup_group
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_remotemode
     - e2e_om_ops_manager_backup_restore
     - e2e_om_ops_manager_queryable_backup
     - e2e_om_ops_manager_backup
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 
 # Tests features only supported on OM60
 - name: e2e_ops_manager_kind_6_0_only_task_group
   max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
+  <<: *setup_group
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_ops_manager_prometheus
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 # Tests features only supported on OM60
 - name: e2e_static_ops_manager_kind_6_0_only_task_group
   max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
+  <<: *setup_group
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_ops_manager_prometheus
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
   # Tests features only supported on OM70
 - name: e2e_static_ops_manager_kind_7_0_only_task_group
   max_hosts: 3
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
-  setup_task:
-    - func: cleanup_exec_environment
-    - func: setup_kubernetes_environment
+  <<: *setup_group
+  <<: *setup_and_teardown_task
   tasks:
     - e2e_om_ops_manager_upgrade
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 - name: e2e_kind_olm_group
   max_hosts: 30
-  setup_group:
-    - func: clone
-    - func: download_kube_tools
-    - func: setup_building_host
+  <<: *setup_group
   setup_task:
     - func: cleanup_exec_environment
     - func: setup_kubernetes_environment
@@ -2670,12 +2484,7 @@ task_groups:
   tasks:
     - e2e_olm_operator_upgrade
     - e2e_olm_operator_upgrade_with_resources
-  teardown_task:
-    - func: upload_e2e_logs
-    - func: teardown_kubernetes_environment
-  teardown_group:
-    - func: prune_docker_resources
-    - func: run_retry_script
+  <<: *teardown_group
 
 buildvariants:
 
