@@ -564,7 +564,7 @@ buildvariants:
   - name: periodic_build
     display_name: periodic_build
     run_on:
-      - ubuntu1804-small
+      - ubuntu1804-large
     tasks:
       - name: periodic_build_task_group
 
@@ -593,7 +593,7 @@ buildvariants:
       - name: periodic_build_appdb_database
         variant: periodic_build
     run_on:
-      - rhel90-small
+      - rhel90-large
     expansions:
       preflight_submit: true
     tasks:
@@ -628,6 +628,6 @@ buildvariants:
       - name: periodic_build_appdb_database
         variant: periodic_build
     run_on:
-      - ubuntu2204-small
+      - ubuntu2204-large
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
