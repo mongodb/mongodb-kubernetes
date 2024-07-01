@@ -4,12 +4,16 @@ from unittest.mock import patch
 import pytest
 
 from pipeline import (
+    build_agent_gather_versions,
     build_latest_agent_versions,
     calculate_images_to_build,
+    get_versions_to_rebuild,
     is_version_in_range,
-    operator_build_configuration, get_versions_to_rebuild, build_agent_gather_versions,
+    operator_build_configuration,
 )
-from scripts.evergreen.release.agent_matrix import get_supported_version_for_image_matrix_handling
+from scripts.evergreen.release.agent_matrix import (
+    get_supported_version_for_image_matrix_handling,
+)
 
 release_json = {
     "supportedImages": {

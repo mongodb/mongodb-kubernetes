@@ -1,6 +1,6 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel80-x86_64-100.9.4.tgz"
+    "ubi": "mongodb-database-tools-rhel80-x86_64-100.9.5.tgz"
   },
   "mongodbOperator": "1.26.0",
   "initDatabaseVersion": "1.26.0",
@@ -60,7 +60,8 @@
         "7.0.3",
         "7.0.4",
         "7.0.6",
-        "7.0.7"
+        "7.0.7",
+        "7.0.8"
       ],
       "variants": [
         "ubi"
@@ -168,6 +169,10 @@
           "7.0.7": {
             "agent_version": "107.0.7.8596-1",
             "tools_version": "100.9.4"
+          },
+          "7.0.8": {
+            "agent_version": "107.0.8.8615-1",
+            "tools_version": "100.9.5"
           }
         }
       },
