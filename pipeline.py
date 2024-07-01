@@ -12,12 +12,10 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import threading
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from distutils.dir_util import copy_tree
-from distutils.version import Version
 from queue import Queue
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -44,7 +42,6 @@ DEFAULT_NAMESPACE = "default"
 # final images to the registry specified here.
 # This makes it easy to use ECR to test changes on the pipeline before pushing to Quay.
 QUAY_REGISTRY_URL = os.environ.get("QUAY_REGISTRY", "quay.io/mongodb")
-build_image_daily_lock = threading.Lock()
 
 
 @dataclass
@@ -675,6 +672,7 @@ def build_image_daily(
 
             if version not in completed_versions:
                 if arch_set == {"amd64", "arm64"}:
+                    # We need to release the non context amd64 and arm64 images first before we can create the sbom
                     for arch in arch_set:
                         # Suffix to append to images name for multi-arch (see usage in daily.yaml inventory)
                         args["architecture_suffix"] = f"-{arch}"
@@ -684,10 +682,15 @@ def build_image_daily(
                             build_configuration,
                             args,
                             inventory="inventories/daily.yaml",
+                            with_sbom=False
                         )
                         if build_configuration.sign:
                             sign_image_in_repositories(args, arch)
                     create_and_push_manifests(args)
+                    for arch in arch_set:
+                        args["architecture_suffix"] = f"-{arch}"
+                        args["platform"] = arch
+                        produce_sbom(build_configuration, args)
                     if build_configuration.sign:
                         sign_image_in_repositories(args)
                 else:
@@ -704,8 +707,8 @@ def build_image_daily(
                         sign_image_in_repositories(args)
                 completed_versions.add(version)
 
-
     return inner
+
 
 def sign_image_in_repositories(args: Dict[str, str], arch: str = None):
     repositories = [args["ecr_registry_ubi"] + args["ubi_suffix"], args["quay_registry"] + args["ubi_suffix"]]
@@ -790,23 +793,28 @@ def build_image_generic(
     inventory_file: str,
     extra_args: dict = None,
     registry_address: str = None,
-    do_context_sign: bool = True,
+    is_multi_arch: bool = False,
+    multi_arch_args_list: list = None
 ):
-    args = extra_args or {}
-    version = extra_args.get("version", "")
-    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}" if not registry_address else registry_address
-    args["quay_registry"] = registry
+    if not multi_arch_args_list:
+        multi_arch_args_list = [extra_args or {}]
 
-    sonar_build_image(image_name, config, args, inventory_file, False)
-    if do_context_sign and config.sign and config.is_release_step_executed():
+    version = multi_arch_args_list[0].get("version", "")  # the version is the same in multi-arch for each item
+    registry = f"{QUAY_REGISTRY_URL}/mongodb-enterprise-{image_name}" if not registry_address else registry_address
+
+    for args in multi_arch_args_list:  # in case we are building multiple architectures
+        args["quay_registry"] = registry
+        sonar_build_image(image_name, config, args, inventory_file, False)
+    if is_multi_arch:
+        create_and_push_manifest(registry_address, f"{version}-context")
+    if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
         logger.info(
             f"finished building context images, releasing them now via daily builds process for"
             f" image: {image_name} and version: {version}!"
         )
-        with build_image_daily_lock:
-            build_image_daily(image_name, version, version)(config)
+        build_image_daily(image_name, version, version)(config)
 
 
 def sign_and_verify_context_image(registry, version):
@@ -850,12 +858,6 @@ def build_agent_in_sonar(
         registry_address=agent_quay_registry,
     )
 
-    # Agent is the only image for which release is part of the inventory, on top of -context release
-    # This is done usually by daily builds
-    if build_configuration.sign and build_configuration.is_release_step_executed():
-        sign_image(agent_quay_registry, image_version)
-        verify_signature(agent_quay_registry, image_version)
-
 
 def build_multi_arch_agent_in_sonar(
     build_configuration: BuildConfiguration,
@@ -884,20 +886,17 @@ def build_multi_arch_agent_in_sonar(
     ecr_registry = os.environ.get("REGISTRY", "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev")
     ecr_agent_registry = ecr_registry + f"/mongodb-agent-ubi"
     quay_agent_registry = QUAY_REGISTRY_URL + f"/mongodb-agent-ubi"
-
+    joined_args = list()
     for arch in [arch_arm, arch_amd]:
-        args = args | arch
-        build_image_generic(
-            config=build_configuration,
-            image_name="mongodb-agent",
-            inventory_file="inventories/agent_non_matrix.yaml",
-            extra_args=args,
-            registry_address=quay_agent_registry if is_release else ecr_agent_registry,
-            # We need to push the manifests for context and non-context first before we can sign and verify the images
-            # We cannot rely on config.sign,
-            # since we still need signing, but just not here in the generic image build.
-            do_context_sign=True,
-        )
+        joined_args.append(args | arch)
+    build_image_generic(
+        config=build_configuration,
+        image_name="mongodb-agent",
+        inventory_file="inventories/agent_non_matrix.yaml",
+        multi_arch_args_list=joined_args,
+        registry_address=quay_agent_registry if is_release else ecr_agent_registry,
+        is_multi_arch=True,
+    )
 
 
 def build_agent_default_case(build_configuration: BuildConfiguration):
