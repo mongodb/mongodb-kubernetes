@@ -13,8 +13,10 @@ During each run, the script does the following:
 """
 
 import os
+import random
 import subprocess
 import tempfile
+import time
 import urllib
 
 import boto3
@@ -106,9 +108,21 @@ def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str, p
         "--sbom_in",
         f"sboms/{file_name}",
     ]
-    logger.debug(f"Calling Silk upload: {' '.join(command)}")
-    subprocess.run(command, check=True)
-    logger.debug(f"Uploading SBOM Lite done")
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            logger.debug(f"Calling Silk upload: {' '.join(command)}")
+            subprocess.run(command, check=True)
+            logger.debug(f"Uploading SBOM Lite done")
+            break
+        except subprocess.CalledProcessError as e:
+            err = e
+            wait_time = (2 ** attempt) + random.uniform(0, 1)
+            logger.warning(f"Rate limited. Retrying in {wait_time:.2f} seconds...")
+            time.sleep(wait_time)
+        logger.error(f"Failed to upload SBOM Lite, lass error: {err}")
+        raise
 
 
 def download_augmented_sbom_from_silk(directory: str, file_name: str, asset_group: str, platform: str):
