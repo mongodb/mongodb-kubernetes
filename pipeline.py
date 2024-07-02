@@ -682,7 +682,7 @@ def build_image_daily(
                             build_configuration,
                             args,
                             inventory="inventories/daily.yaml",
-                            with_sbom=False
+                            with_sbom=False,
                         )
                         if build_configuration.sign:
                             sign_image_in_repositories(args, arch)
@@ -794,7 +794,7 @@ def build_image_generic(
     extra_args: dict = None,
     registry_address: str = None,
     is_multi_arch: bool = False,
-    multi_arch_args_list: list = None
+    multi_arch_args_list: list = None,
 ):
     if not multi_arch_args_list:
         multi_arch_args_list = [extra_args or {}]
@@ -922,7 +922,18 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         logger.info(f"running with factor of {max_workers}")
         for agent_version in agent_versions_to_build:
-            _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
+            # We don't need to keep create and push the same image on every build.
+            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
+            if build_configuration.is_release_step_executed() or build_configuration.all_agents:
+                tasks_queue.put(
+                    executor.submit(
+                        build_multi_arch_agent_in_sonar,
+                        build_configuration,
+                        agent_version[0],
+                        agent_version[1],
+                    )
+                )
+            _build_agent_operator(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
 
     queue_exception_handling(tasks_queue)
 
@@ -977,10 +988,21 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                     )
                 )
 
-        for operator_version in supported_operator_versions:
-            logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
-            for agent_version in agent_versions_to_build:
-                _build_agent(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
+        for agent_version in agent_versions_to_build:
+            # We don't need to keep create and push the same image on every build.
+            # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
+            if build_configuration.is_release_step_executed() or build_configuration.all_agents:
+                tasks_queue.put(
+                    executor.submit(
+                        build_multi_arch_agent_in_sonar,
+                        build_configuration,
+                        agent_version[0],
+                        agent_version[1],
+                    )
+                )
+            for operator_version in supported_operator_versions:
+                logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
+                _build_agent_operator(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
 
     queue_exception_handling(tasks_queue)
 
@@ -997,7 +1019,7 @@ def queue_exception_handling(tasks_queue):
         )
 
 
-def _build_agent(
+def _build_agent_operator(
     agent_version: Tuple[str, str],
     build_configuration: BuildConfiguration,
     executor: ProcessPoolExecutor,
@@ -1030,18 +1052,6 @@ def _build_agent(
             agent_version[0],
         )
     )
-
-    # We don't need to keep create and push the same image on every build.
-    # It is enough to create and push the non-operator suffixed images only during releases to ecr and quay.
-    if build_configuration.is_release_step_executed() or build_configuration.all_agents:
-        tasks_queue.put(
-            executor.submit(
-                build_multi_arch_agent_in_sonar,
-                build_configuration,
-                agent_version[0],
-                tools_version,
-            )
-        )
 
 
 def build_agent_gather_versions(release: Dict) -> List[Tuple[str, str]]:
