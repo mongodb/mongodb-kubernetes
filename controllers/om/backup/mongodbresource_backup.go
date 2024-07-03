@@ -75,8 +75,8 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 
 		// The password is optional, so we propagate the error only if something abnormal happens
 		kmipPasswordSecret, err := secretsReader.GetSecret(ctx, types.NamespacedName{
-			Namespace: kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
-			Name:      mdb.GetNamespace(),
+			Name:      kmip.Client.ClientCertificatePasswordSecretName(mdb.GetName()),
+			Namespace: mdb.GetNamespace(),
 		})
 		if err == nil {
 			desiredPassword := string(kmipPasswordSecret.Data[kmip.Client.ClientCertificatePasswordKeyName()])
