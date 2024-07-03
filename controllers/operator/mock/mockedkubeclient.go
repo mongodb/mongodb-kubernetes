@@ -676,7 +676,7 @@ func (m *MockedManager) GetWebhookServer() webhook.Server {
 	return nil
 }
 
-func (m *MockedManager) AddMetricsExtraHandler(path string, handler http.Handler) error {
+func (m *MockedManager) AddMetricsServerExtraHandler(path string, handler http.Handler) error {
 	return nil
 }
 
