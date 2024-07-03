@@ -13,6 +13,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	apiv1 "github.com/10gen/ops-manager-kubernetes/api/v1"
@@ -104,24 +105,25 @@ func main() {
 	currentNamespace := env.ReadOrPanic(util.CurrentNamespace)
 
 	namespacesToWatch := operator.GetWatchedNamespace()
-	if len(namespacesToWatch) == 1 && (namespacesToWatch[0] == "" || currentNamespace == namespacesToWatch[0]) {
-		// This will be the name of 1 namespace to watch, or the empty string
-		// for an operator that watches the whole cluster
-		//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-		managerOptions.Namespace = namespacesToWatch[0] //nolint
-	} else {
+	if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
 		namespacesForCacheBuilder := namespacesToWatch
 		if !stringutil.Contains(namespacesToWatch, currentNamespace) {
 			namespacesForCacheBuilder = append(namespacesForCacheBuilder, currentNamespace)
 		}
-		// In multi-namespace scenarios, the namespace where the Operator
-		// resides needs to be part of the Cache as well.
-		//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-		managerOptions.NewCache = cache.MultiNamespacedCacheBuilder(namespacesForCacheBuilder) //nolint
+		defaultNamespaces := make(map[string]cache.Config)
+		for _, namespace := range namespacesForCacheBuilder {
+			defaultNamespaces[namespace] = cache.Config{}
+		}
+		managerOptions.Cache = cache.Options{
+			DefaultNamespaces: defaultNamespaces,
+		}
 	}
 
 	if isInLocalMode() {
-		managerOptions.MetricsBindAddress = "127.0.0.1:8180"
+		// managerOptions.MetricsBindAddress = "127.0.0.1:8180"
+		managerOptions.Metrics = metricsServer.Options{
+			BindAddress: "127.0.0.1:8180",
+		}
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
 	}
 
@@ -145,16 +147,6 @@ func main() {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if multicluster.IsMultiClusterMode(crdsToWatch) {
-		kubeConfigFile, err := multicluster.NewKubeConfigFile()
-		if err != nil {
-			log.Fatalf("failed to open kubeconfig file: %s, err: %s", multicluster.GetKubeConfigPath(), err)
-		}
-
-		kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()
-		if err != nil {
-			log.Fatal("failed reading KubeConfig file: %s", err)
-		}
-
 		memberClustersNames, err := getMemberClusters(ctx, cfg)
 		if err != nil {
 			log.Fatal(err)
@@ -174,31 +166,23 @@ func main() {
 		// Add the cluster object to the manager corresponding to each member clusters.
 		for k, v := range memberClusterClients {
 			var cluster runtime_cluster.Cluster
-			// if length of namespaces is 1 (one particular namespace or * namespace) we can use the namespace in options
-			// but if we are watching a subset of namespaces we need to initialize the cache with specific namespaces only
-			if len(namespacesToWatch) == 1 {
-				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
-					if namespacesToWatch[0] != "" {
-						//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-						options.Namespace = kubeConfig.GetMemberClusterNamespace() //nolint
+
+			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
+					defaultNamespaces := make(map[string]cache.Config)
+					for _, namespace := range namespacesToWatch {
+						defaultNamespaces[namespace] = cache.Config{}
 					}
-				})
-				if err != nil {
-					// don't panic here but rather log the error, for example, error might happen when one of the cluster is
-					// unreachable, we would still like the operator to continue reconciliation on the other clusters.
-					log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
-					continue
+					options.Cache = cache.Options{
+						DefaultNamespaces: defaultNamespaces,
+					}
 				}
-			} else if len(namespacesToWatch) > 1 {
-				log.Infof("Building member cluster cache for multiple namespaces: %v", namespacesToWatch)
-				cluster, err = runtime_cluster.New(v, func(options *runtime_cluster.Options) {
-					//lint:ignore SA1019 TODO migrate away from deprecated cache.MultiNamespacedCacheBuilder to fix this
-					options.NewCache = cache.MultiNamespacedCacheBuilder(namespacesToWatch) //nolint
-				})
-				if err != nil {
-					log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
-					continue
-				}
+			})
+			if err != nil {
+				// don't panic here but rather log the error, for example, error might happen when one of the cluster is
+				// unreachable, we would still like the operator to continue reconciliation on the other clusters.
+				log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
+				continue
 			}
 
 			log.Infof("Adding cluster %s to cluster map.", k)
