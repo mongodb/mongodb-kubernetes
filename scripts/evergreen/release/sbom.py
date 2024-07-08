@@ -118,7 +118,7 @@ def upload_sbom_lite_to_silk(directory: str, file_name: str, asset_group: str, p
             break
         except subprocess.CalledProcessError as e:
             err = e
-            wait_time = (2 ** attempt) + random.uniform(0, 1)
+            wait_time = (2**attempt) + random.uniform(0, 1)
             logger.warning(f"Rate limited. Retrying in {wait_time:.2f} seconds...")
             time.sleep(wait_time)
         logger.error(f"Failed to upload SBOM Lite, lass error: {err}")
