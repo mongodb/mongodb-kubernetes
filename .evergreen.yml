@@ -3003,3 +3003,12 @@ buildvariants:
       name: '*'
   tasks:
     - name: release_agent
+
+# Only called manually, It's used for testing the task release_agents_on_ecr in case the release.json
+# has not changed, and you still want to push the images to ecr.
+- name: manual_ecr_release_agent
+  display_name: Manual Agent Release
+  run_on:
+    - ubuntu2204-large
+  tasks:
+    - name: release_agents_on_ecr
