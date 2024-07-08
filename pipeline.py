@@ -933,7 +933,9 @@ def build_agent_default_case(build_configuration: BuildConfiguration):
                         agent_version[1],
                     )
                 )
-            _build_agent_operator(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
+            _build_agent_operator(
+                agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
+            )
 
     queue_exception_handling(tasks_queue)
 
@@ -1001,8 +1003,12 @@ def build_agent_on_agent_bump(build_configuration: BuildConfiguration):
                     )
                 )
             for operator_version in supported_operator_versions:
-                logger.info(f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}")
-                _build_agent_operator(agent_version, build_configuration, executor, operator_version, tasks_queue, is_release)
+                logger.info(
+                    f"Building Agent versions: {agent_versions_to_build} for Operator versions: {operator_version}"
+                )
+                _build_agent_operator(
+                    agent_version, build_configuration, executor, operator_version, tasks_queue, is_release
+                )
 
     queue_exception_handling(tasks_queue)
 
