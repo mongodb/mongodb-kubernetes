@@ -806,7 +806,14 @@ def build_image_generic(
         args["quay_registry"] = registry
         sonar_build_image(image_name, config, args, inventory_file, False)
     if is_multi_arch:
+        # we only push the manifests of the context images here,
+        # since daily rebuilds will push the manifests for the proper images later
         create_and_push_manifest(registry_address, f"{version}-context")
+        if not config.is_release_step_executed():
+            # Normally daily rebuild would create and push the manifests for the non-context images.
+            # But since we don't run daily rebuilds on ecr image builds, we can do that step instead here.
+            # We only need to push manifests for multi-arch images.
+            create_and_push_manifest(registry_address, version)
     if config.sign and config.is_release_step_executed():
         sign_and_verify_context_image(registry, version)
     if config.is_release_step_executed() and version and QUAY_REGISTRY_URL in registry:
