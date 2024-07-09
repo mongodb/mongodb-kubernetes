@@ -14,7 +14,7 @@ require (
 	github.com/imdario/mergo v0.3.15
 	github.com/mongodb/mongodb-kubernetes-operator v0.9.1-0.20240425082425-522ada54096d
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.19.0
+	github.com/prometheus/client_golang v1.19.1
 	github.com/r3labs/diff/v3 v3.0.1
 	github.com/spf13/cast v1.6.0
 	github.com/stretchr/objx v0.5.2
